@@ -21,7 +21,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SfModCheck</RootNamespace>
     <AssemblyName>sfmodcheck</AssemblyName>
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <!-- Shown in the exe's file properties (Details tab); attribution added 2026-11-11. -->
     <Product>sfmodcheck</Product>
     <AssemblyTitle>sfmodcheck: read-only checks of Starfield plugins</AssemblyTitle>
