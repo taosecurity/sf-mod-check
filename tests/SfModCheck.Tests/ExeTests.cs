@@ -306,4 +306,74 @@ public class ExeTests
         Assert.All(Hints.ByCheck, kv => Assert.True(readme.Contains($"- **{kv.Key}**: {kv.Value}\n") || readme.Contains($"- **{kv.Key}**: {kv.Value}\r\n"),
             $"README.md doesn't have the hint for {kv.Key} word for word"));
     }
+
+    // ---- 0.4.1 (review fixes, 2026-11-16) ----
+
+    /// <summary>A plugin whose master list holds a network path: never looked up, reported as a header ERROR.</summary>
+    [Fact]
+    public void Network_path_master_is_refused()
+    {
+        using var s = new Sandbox();
+        var p = Solo(s);
+        var b = File.ReadAllBytes(p);
+        // Rebuild the TES4 header with one extra MAST/DATA pair holding a UNC path (".invalid" never resolves).
+        var hsize = BitConverter.ToInt32(b, 4);
+        var mast = System.Text.Encoding.UTF8.GetBytes(@"\attacker.invalid\s\x.esm" + "\0");
+        var extra = new List<byte>();
+        extra.AddRange("MAST"u8.ToArray()); extra.AddRange(BitConverter.GetBytes((ushort)mast.Length)); extra.AddRange(mast);
+        extra.AddRange("DATA"u8.ToArray()); extra.AddRange(BitConverter.GetBytes((ushort)8)); extra.AddRange(new byte[8]);
+        var outb = new List<byte>(b[..24]);
+        var hedrEnd = 24 + 6 + 12;   // HEDR comes first: 6-byte field header + 12 bytes
+        outb.AddRange(b[24..hedrEnd]); outb.AddRange(extra); outb.AddRange(b[hedrEnd..]);
+        var arr = outb.ToArray();
+        BitConverter.GetBytes(hsize + extra.Count).CopyTo(arr, 4);
+        File.WriteAllBytes(p, arr);
+        var (code, output) = Run("check", p, "--data", s.Sub("data"));
+        Assert.Equal(1, code);
+        Assert.Contains("not a plain plugin file name", output);
+        Assert.StartsWith("RESULT: FAILED", ResultLine(output));
+    }
+
+    [Fact]
+    public void Missing_plugin_still_prints_a_RESULT_line()
+    {
+        var (code, output) = Run("check", "No-Such-Plugin-7f3a.esm");
+        Assert.Equal(2, code);
+        Assert.StartsWith("RESULT: CANNOT CHECK", ResultLine(output));
+    }
+
+    [Fact]
+    public void Unknown_option_still_prints_a_RESULT_line()
+    {
+        var (code, output) = Run("check", "x.esm", "--no-such-option");
+        Assert.Equal(2, code);
+        Assert.StartsWith("RESULT: CANNOT CHECK", ResultLine(output));
+    }
+
+    [Fact]
+    public void Missing_masters_dir_is_exit_2()
+    {
+        using var s = new Sandbox();
+        var (code, output) = Run("check", Solo(s), "--data", s.Sub("data"), "--masters-dir", Path.Combine(s.Dir, "no-such-folder"));
+        Assert.Equal(2, code);
+        Assert.Contains("--masters-dir", output);
+        Assert.StartsWith("RESULT: CANNOT CHECK", ResultLine(output));
+    }
+
+    [Fact]
+    public void Log_never_overwrites_a_plugin()
+    {
+        using var s = new Sandbox();
+        var p = Solo(s);
+        var victim = Path.Combine(s.Sub("plugin"), "Victim.txt");
+        File.Copy(p, victim);   // a plugin under another extension: refused by its TES4 start
+        var before = File.ReadAllBytes(p);
+        var (code, output) = Run("check", p, "--data", s.Sub("data"), "--log", p);
+        Assert.Equal(2, code);
+        Assert.Equal(before, File.ReadAllBytes(p));
+        (code, _) = Run("check", p, "--data", s.Sub("data"), "--log", victim);
+        Assert.Equal(2, code);
+        Assert.Equal(before, File.ReadAllBytes(victim));
+        Assert.StartsWith("RESULT: CANNOT CHECK", ResultLine(output));
+    }
 }

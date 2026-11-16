@@ -17,7 +17,7 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.4.0, the first public release. It has been used on its author's own mods since 2026-11-07; reports from other
+Version 0.4.1 (security fixes; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
 mods are welcome (see [Issues](https://github.com/taosecurity/sfmodcheck/issues)).
 
 ## Quick start (Creation Kit and xEdit authors)
@@ -123,7 +123,7 @@ plugin's full path.
 
 ### What the output looks like
 
-    sfmodcheck 0.4.0 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
+    sfmodcheck 0.4.1 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
     ERROR [links] MyMod_Misc [MISC:000801:MyMod.esm] links to 000FF0:MyMod.esm, which doesn't exist (expects Keyword)
     HINT [links] A field points at a record that doesn't exist, ...
     WARNING [itm] SomeKeyword [KYWD:0A1B2C:Starfield.esm] is identical to the master version it overrides (ITM)

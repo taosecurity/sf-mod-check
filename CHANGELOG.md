@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.1 (2026-11-16)
+
+Security and bug-fix release, from a code review and a security review. Built on BuildKit 0.3.1.
+
+Security:
+- A plugin whose master list holds a path instead of a file name (a network path such as `\\server\share\x.esm`,
+  a drive or `..`) gets a `[header]` ERROR and that master is never looked up. Before this, checking such a
+  crafted mod could make Windows contact another computer and send the user's login hash.
+- Text from plugins (EditorIDs, names, master names) is printed with control characters shown as `\xNN`.
+- `--log` refuses a plugin or archive name (.esm .esp .esl .ba2) and any file that starts like a plugin, so a
+  mistyped option can't overwrite a mod.
+
+Fixes:
+- Links: a container's own links were sometimes dropped when a grandchild record had a link to the same record
+  (for example a quest condition and a dialogue condition on the same NPC), so they went unchecked.
+- The conditions and scenes rules missed condition lists that sit behind recursive data types.
+- The "reuses a master's EditorID" warning missed EditorIDs with non-ASCII letters (masters were read as Latin-1,
+  the plugin as UTF-8). The EditorID cache is rebuilt once.
+- Every exit-2 run now ends with a `RESULT: CANNOT CHECK` line (a missing plugin, bad options, an unreadable file),
+  as AGENTS.md says.
+- A `--masters-dir` folder that doesn't exist is exit 2 with a message, not a silent "master not installed".
+- With no `--data` and no game in Steam's usual folder, the message says to use `--data`.
+- A log file that stops working (disk full, network share gone) no longer stops the check.
+- `SFMODCHECK_CACHE_DIR` applies to every mode, and a bad value is a clear message.
+- Faster: log text is only built when logging is on; master headers are read once.
+
+Attribution:
+- The tool says who made it: one line on stderr at the start of each check (not with `--quiet`), `--version` with
+  credits, and the author and copyright in the exe's file properties.
+
 ## 0.4.0 (2026-11-09)
 
 First public release. Built on Mutagen.Bethesda.Starfield 0.54.4 (through BuildKit 0.2.0).

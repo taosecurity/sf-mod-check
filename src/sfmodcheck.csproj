@@ -22,6 +22,11 @@
     <RootNamespace>SfModCheck</RootNamespace>
     <AssemblyName>sfmodcheck</AssemblyName>
     <Version>0.4.0</Version>
+    <!-- Shown in the exe's file properties (Details tab); attribution added 2026-11-11. -->
+    <Product>sfmodcheck</Product>
+    <AssemblyTitle>sfmodcheck: read-only checks of Starfield plugins</AssemblyTitle>
+    <Company>Richard Bejtlich</Company>
+    <Copyright>Copyright (C) 2026 Richard Bejtlich. GPL-3.0.</Copyright>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <!-- Build data\scene-alias-quirks.txt into the exe (private build only: it names official FormIDs and EditorIDs).
          The public repo doesn't have the file, so its build relies on the list learned from the user's own Data
@@ -79,7 +84,7 @@
     <ProjectReference Include="$(BuildKitProject)" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseBuildKitPackage)' == 'true'">
-    <PackageReference Include="Taosecurity.Starfield.BuildKit" Version="[0.2.0]" />
+    <PackageReference Include="Taosecurity.Starfield.BuildKit" Version="[0.3.1]" />
   </ItemGroup>
 
 </Project>

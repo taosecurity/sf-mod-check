@@ -70,10 +70,35 @@ public static class ConditionWalker
         return t.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))?.GetGenericArguments()[0];
     }
 
+    // Reach() on recursive types: a type met again while it is still being worked out counts as "no" for now
+    // (usedProvisional). A "no" built on such a guess can be wrong once the outer type turns out "yes", so the outermost
+    // call drops those "no" answers and runs again until the set of "yes" types stops growing ("yes" answers never
+    // change). Before 2026-11-16 the guesses were kept, so condition lists behind a type cycle were never walked.
+    static readonly HashSet<Type> inProgress = new();
+    static bool usedProvisional;
+
     static bool Reach(Type t)
     {
         if (reach.TryGetValue(t, out var r)) return r;
-        reach[t] = false;   // cycle guard
+        if (inProgress.Contains(t)) { usedProvisional = true; return false; }
+        if (inProgress.Count > 0) return ReachOnce(t);
+        int lastYes = -1;
+        while (true)
+        {
+            var known = new HashSet<Type>(reach.Keys);
+            usedProvisional = false;
+            var res = ReachOnce(t);
+            if (!usedProvisional) return res;
+            var yes = reach.Count(kv => kv.Value);
+            if (yes == lastYes) return res;   // nothing new: the "no" answers stand
+            lastYes = yes;
+            foreach (var k in reach.Where(kv => !kv.Value && !known.Contains(kv.Key)).Select(kv => kv.Key).ToList()) reach.Remove(k);
+        }
+    }
+
+    static bool ReachOnce(Type t)
+    {
+        inProgress.Add(t);
         bool res;
         if (typeof(IConditionGetter).IsAssignableFrom(t)) res = true;
         else if (t == typeof(string) || t.IsPrimitive || t.IsEnum) res = false;
@@ -89,6 +114,7 @@ public static class ConditionWalker
                 cands.AddRange(Asm.GetTypes().Where(x => x.IsInterface && x.Name.EndsWith("Getter") && x != t && t.IsAssignableFrom(x)));
             res = cands.Distinct().SelectMany(AllProps).Any(p => p.GetIndexParameters().Length == 0 && p.PropertyType != t && Reach(p.PropertyType));
         }
+        inProgress.Remove(t);
         return reach[t] = res;
     }
 
@@ -363,6 +389,7 @@ public static class Rules
 
     public static void OnRawFields(RawRecord rec, List<(string Type, byte[] Data)> fields, IdMap ids, RawFindings rf)
     {
+        string? name = null;   // the record's display name, built once, only when a finding needs it
         if (rec.Sig == "INFO")
         {
             int n = 0;
@@ -371,7 +398,7 @@ public static class Rules
                 if (t != "TRDA") continue;
                 n++;
                 if (d.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(d) == 0)
-                    rf.Emotion0.Add($"{RawName(rec, fields, ids)}: response {n} has Emotion 00000000 (the official masters use FFFFFFFF for none, or an emotion keyword)");
+                    rf.Emotion0.Add($"{name ??= RawName(rec, fields, ids)}: response {n} has Emotion 00000000 (the official masters use FFFFFFFF for none, or an emotion keyword)");
             }
         }
         else if (rec.Sig == "NAVI")
@@ -382,10 +409,12 @@ public static class Rules
                 rf.NaviEntries++;
                 if (!ParseNvmi(d, out var navmesh, out var links, out var why))
                 {
-                    rf.NaviUnreadable.Add($"{RawName(rec, fields, ids)}: NVMI entry {rf.NaviEntries} can't be read ({why})");
+                    rf.NaviUnreadable.Add($"{name ??= RawName(rec, fields, ids)}: NVMI entry {rf.NaviEntries} can't be read ({why})");
                     continue;
                 }
-                foreach (var (what, fid) in links) rf.NavLinks.Add(($"{RawName(rec, fields, ids)} NVMI for navmesh {navmesh:X8}", what, fid));
+                if (links.Count == 0) continue;
+                var label = $"{name ??= RawName(rec, fields, ids)} NVMI for navmesh {navmesh:X8}";
+                foreach (var (what, fid) in links) rf.NavLinks.Add((label, what, fid));
             }
         }
     }

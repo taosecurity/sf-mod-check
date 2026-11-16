@@ -4,9 +4,9 @@
     "net9.0": {
       "Taosecurity.Starfield.BuildKit": {
         "type": "Direct",
-        "requested": "[0.2.0, 0.2.0]",
-        "resolved": "0.2.0",
-        "contentHash": "mxxT889WXXYNXqoYWozLnEyHIdD7E+/T3DEWgg8P2Vz7M45RcUg+JPemiZcUhxg703/rXQIeQoRB39SyAvLfbw==",
+        "requested": "[0.3.1, 0.3.1]",
+        "resolved": "0.3.1",
+        "contentHash": "bJ5/Nos+31CET8l1XC3in+ipts+3WApt9RpWBoMxWsEwU/kF6gqXSJL87IlYuD0vToBAm60aN6E9+xLOwr36Fg==",
         "dependencies": {
           "Mutagen.Bethesda.Starfield": "[0.54.4]"
         }

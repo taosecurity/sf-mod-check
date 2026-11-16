@@ -3,6 +3,7 @@
 //   --verbose      log lines on stderr, each starting "log: "
 //   --log <file>   the same lines, with times, written to that file
 // It never writes to stdout, so the ERROR / WARNING / HINT / RESULT lines are the same with or without it.
+// 0.4.1: a log file that stops working is closed with a note and the check carries on; --log refuses plugin names.
 using System.Diagnostics;
 using System.Text;
 
@@ -12,13 +13,16 @@ public static class Log
 {
     static bool toStderr;
     static StreamWriter? file;
+    static string filePath = "";
     static readonly Stopwatch clock = Stopwatch.StartNew();
 
     public static bool On => toStderr || file != null;
 
     public static void ToStderr() => toStderr = true;
 
-    /// <summary>Opens the log file (overwrites it). Returns an error text naming the file and the fix, or null.</summary>
+    /// <summary>Opens the log file (overwrites it). Returns an error text naming the file and the fix, or null.
+    /// Refuses a plugin or archive name (.esm .esp .esl .ba2) and an existing file that starts like a plugin, so a
+    /// mistyped --log can't overwrite a mod.</summary>
     public static string? ToFile(string path)
     {
         try
@@ -27,7 +31,12 @@ public static class Log
             var dir = Path.GetDirectoryName(full);
             if (dir != null && !Directory.Exists(dir))
                 return $"can't write the log file {full}: the folder {dir} doesn't exist. Make the folder, or give --log a path in a folder that exists.";
+            var ext = Path.GetExtension(full).ToLowerInvariant();
+            if (ext is ".esm" or ".esp" or ".esl" or ".ba2" || LooksLikePlugin(full))
+                return $"won't write the log to {full}: that is a plugin or archive, and the log would overwrite it. " +
+                       "Give --log a .txt file, for example --log sfmodcheck-log.txt";
             file = new StreamWriter(full, append: false, new UTF8Encoding(false)) { AutoFlush = true };
+            filePath = full;
             return null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -36,13 +45,35 @@ public static class Log
         }
     }
 
+    static bool LooksLikePlugin(string full)
+    {
+        try
+        {
+            if (!File.Exists(full)) return false;
+            using var fs = File.OpenRead(full);
+            var b = new byte[4];
+            return fs.Read(b, 0, 4) == 4 && b[0] == 'T' && b[1] == 'E' && b[2] == 'S' && b[3] == '4';
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>Writes a log line. A log file that stops working (disk full, network share gone) is closed with one
+    /// note on stderr, and the check carries on, so its result is the same with or without the log.</summary>
     public static void Write(string text)
     {
         if (!On) return;
         foreach (var line in text.Replace("\r", "").Split('\n'))
         {
             if (toStderr) Console.Error.WriteLine($"log: {line}");
-            file?.WriteLine($"{clock.Elapsed.TotalSeconds,8:F2}s  {line}");
+            if (file == null) continue;
+            try { file.WriteLine($"{clock.Elapsed.TotalSeconds,8:F2}s  {line}"); }
+            catch (Exception e) when (e is IOException or ObjectDisposedException or UnauthorizedAccessException)
+            {
+                var f = file;
+                file = null;
+                try { f.Dispose(); } catch (Exception) { /* already broken */ }
+                Console.Error.WriteLine($"note: stopped writing the log file {filePath}: {e.Message} The check carries on.");
+            }
         }
     }
 
@@ -59,7 +90,7 @@ public static class Log
 
     public static void Close()
     {
-        file?.Dispose();
+        try { file?.Dispose(); } catch (Exception) { /* closing a broken log must not change the exit code */ }
         file = null;
     }
 }

@@ -23,7 +23,6 @@ static class TestSetup
     public static void PointCaches(string dir)
     {
         LearnedCache.Root = Path.Combine(dir, "cache");
-        EditorIds.CacheDir = Path.Combine(dir, "cache", "edid-cache");
     }
 }
 

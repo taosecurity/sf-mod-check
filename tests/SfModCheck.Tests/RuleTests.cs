@@ -232,7 +232,7 @@ public class RuleTests
     {
         using var w = new World();
         var o = (int)Kw(w).Off + 24 + 4;   // the first field's size
-        Expect.Finding(w.Check(w.Patch("fieldsize", b => { SetU16(b, o, (ushort)(U16(b, o) + 50)); return b; })), "ERROR", "structure", "runs 50 bytes past the record end");
+        Expect.Finding(w.Check(w.Patch("fieldsize", b => { SetU16(b, o, (ushort)(U16(b, o) + 50)); return b; })), "ERROR", "structure", "bytes past the record end");
     }
 
     [Fact]

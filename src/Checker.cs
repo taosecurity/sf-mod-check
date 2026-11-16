@@ -65,19 +65,23 @@ public static class Checker
         return d;
     });
 
+    /// <summary>The folders searched for masters before the Data folder: --masters-dir, else the plugin's own folder.</summary>
+    public static List<string> MasterDirs(Options o) =>
+        o.MastersDirs.Count > 0 ? o.MastersDirs.ToList() : [Path.GetDirectoryName(Path.GetFullPath(o.Plugin))!];
+
     public static Result Run(Options o)
     {
         var sw = Stopwatch.StartNew();
         var r = new Result();
         void Add(string sev, string check, string text) => r.Findings.Add(new(sev, check, text));
         var self = Path.GetFileName(o.Plugin);
-        var dirs = o.MastersDirs.Count > 0 ? o.MastersDirs : [Path.GetDirectoryName(Path.GetFullPath(o.Plugin))!];
-        using var game = new GameData(o.DataDir, dirs);
+        using var game = new GameData(o.DataDir, MasterDirs(o));
 
         var h = RawHeader.Read(o.Plugin);
         if (h == null) { Log.Write("plugin header: none (the file doesn't start with TES4)"); Add("ERROR", "structure", "not a plugin: the file does not start with a TES4 header"); return Done(); }
-        Log.Write($"plugin header: {h.Style.ToString().ToLower()}{((h.Flags & Flags.Master) != 0 ? " master" : "")}, flags {h.Flags:X8}, " +
-                  $"{h.Masters.Count} masters{(h.Masters.Count > 0 ? ": " + string.Join(", ", h.Masters) : "")}");
+        if (Log.On)
+            Log.Write($"plugin header: {h.Style.ToString().ToLower()}{((h.Flags & Flags.Master) != 0 ? " master" : "")}, flags {h.Flags:X8}, " +
+                      $"{h.Masters.Count} masters{(h.Masters.Count > 0 ? ": " + string.Join(", ", h.Masters.Select(GameData.Printable)) : "")}");
 
         // ---- header ----
         if (h.Fields.All(f => f.Type != "HEDR")) Add("ERROR", "header", "no HEDR field");
@@ -88,13 +92,23 @@ public static class Checker
         // masters: present (with their own masters), no duplicates, each one after its own masters
         var styleOf = new Dictionary<string, Style>(StringComparer.OrdinalIgnoreCase);
         var headers = new Dictionary<string, RawHeader?>(StringComparer.OrdinalIgnoreCase);
+        var badNames = new HashSet<string>(StringComparer.Ordinal);
         RawHeader? HeaderOf(string name)
         {
             if (headers.TryGetValue(name, out var hh)) return hh;
+            // A master name comes from the file itself. Anything but a plain file name (a network path such as
+            // \\server\share\x.esm, a drive or "..") is never looked up: Windows would contact that server (0.4.1).
+            if (!GameData.IsPlainPluginName(name))
+            {
+                if (badNames.Add(name)) Log.Write($"master \"{GameData.Printable(name)}\": not a plain plugin file name, not looked up");
+                headers[name] = null;
+                return null;
+            }
             var p = game.Locate(name);
             hh = p == null ? null : RawHeader.Read(p);
             headers[name] = hh;
-            if (p == null) Log.Write($"master {name}: NOT FOUND (looked in {string.Join(", ", game.ExtraDirs.Append(game.DataDir))})");
+            if (!Log.On) { }
+            else if (p == null) Log.Write($"master {name}: NOT FOUND (looked in {string.Join(", ", game.ExtraDirs.Append(game.DataDir))})");
             else Log.Write($"master {name}: {Log.Describe(p)}{(hh == null ? ", but it has no TES4 header" : $", {hh.Style.ToString().ToLower()}, {hh.Masters.Count} masters")}");
             if (hh != null) styleOf[name] = hh.Style;
             return hh;
@@ -106,6 +120,12 @@ public static class Checker
             var mh = HeaderOf(name);
             if (mh == null)
             {
+                if (badNames.Contains(name))
+                {
+                    if (seenMissing.Add(name)) missing.Add($"{(by == null ? "the plugin" : by)} lists a master \"{GameData.Printable(name)}\" that is not a plain plugin " +
+                        "file name (Name.esm, .esp or .esl with no folder, drive or network path); the file is damaged or unsafe, so it was not looked up");
+                    return;
+                }
                 if (seenMissing.Add(name)) missing.Add(by == null ? $"master {name} is not installed (looked in {string.Join(", ", game.ExtraDirs.Append(game.DataDir))})" : $"{by} needs {name}, which is not installed");
                 return;
             }
@@ -202,7 +222,7 @@ public static class Checker
             var st = file == null ? Style.Full : file.Equals(self, StringComparison.OrdinalIgnoreCase) ? h.Style : styleOf.GetValueOrDefault(file, Style.Full);
             navKeys.Add((rec, what, fid, file == null ? null : (file.ToLowerInvariant(), IdMap.Mask(local, st))));
         }
-        LinkPass(o, game, self, styleOf, r, Add, navKeys, sw);
+        LinkPass(o, game, self, styleOf, headers, r, Add, navKeys, sw);
         return Done();
 
         Result Done()
@@ -220,7 +240,7 @@ public static class Checker
         public bool Deleted;
     }
 
-    static void LinkPass(Options o, GameData game, string self, Dictionary<string, Style> styleOf, Result r, Action<string, string, string> add,
+    static void LinkPass(Options o, GameData game, string self, Dictionary<string, Style> styleOf, Dictionary<string, RawHeader?> headers, Result r, Action<string, string, string> add,
         List<(string Rec, string What, uint Fid, (string, uint)? Key)> navKeys, Stopwatch sw)
     {
         IModGetter mod;
@@ -258,9 +278,17 @@ public static class Checker
                 var own = ls;
                 if (rec is IMajorRecordGetterEnumerable container)
                 {
+                    // Only direct children: EnumerateMajorRecords is recursive, and a child's list already holds its
+                    // own children's links (a quest's DIAL holds its INFOs'), so subtracting grandchildren too took
+                    // the container's own links away (fixed 0.4.1).
+                    var all = container.EnumerateMajorRecords().Where(c => c.FormKey != rec.FormKey).ToList();
+                    var deeper = new HashSet<FormKey>();
+                    foreach (var c in all)
+                        if (c is IMajorRecordGetterEnumerable ce)
+                            foreach (var g in ce.EnumerateMajorRecords()) if (g.FormKey != c.FormKey) deeper.Add(g.FormKey);
                     var inner = new Dictionary<(FormKey, Type), int>();
-                    foreach (var child in container.EnumerateMajorRecords())
-                        if (child.FormKey != rec.FormKey && byKey.TryGetValue(child.FormKey, out var cl))
+                    foreach (var child in all)
+                        if (!deeper.Contains(child.FormKey) && byKey.TryGetValue(child.FormKey, out var cl))
                             foreach (var l in cl) inner[(l.FormKey, l.Type)] = inner.GetValueOrDefault((l.FormKey, l.Type)) + 1;
                     if (inner.Count > 0)
                     {
@@ -351,7 +379,7 @@ public static class Checker
         files.Add((self, o.Plugin));
         foreach (var (name, path) in files)
         {
-            var hh = RawHeader.Read(path)!;
+            var hh = headers.GetValueOrDefault(name) ?? RawHeader.Read(path)!;   // masters were read in the header stage
             styleOf[name] = hh.Style;
             var map = new IdMap(name, hh.Style, hh.Masters.Select(m => (m, styleOf.GetValueOrDefault(m, Style.Full))));
             using var f = new RawFile(path);

@@ -11,8 +11,7 @@ namespace SfModCheck;
 
 public static class EditorIds
 {
-    public static string CacheDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "sfmodcheck", "edid-cache");
+    public static string CacheDir => Path.Combine(LearnedCache.Root, "edid-cache");   // follows SFMODCHECK_CACHE_DIR (0.4.1)
 
     static readonly Dictionary<string, HashSet<string>> loaded = new(StringComparer.OrdinalIgnoreCase);
 
@@ -20,7 +19,7 @@ public static class EditorIds
     public static HashSet<string> Of(string path)
     {
         var fi = new FileInfo(path);
-        var key = $"{fi.Name}.{fi.Length}.{fi.LastWriteTimeUtc.Ticks}";
+        var key = $"{fi.Name}.{fi.Length}.{fi.LastWriteTimeUtc.Ticks}.u8";   // ".u8": built with UTF-8 (0.4.1); older Latin1 caches are rebuilt
         if (loaded.TryGetValue(key, out var have)) return have;
         var cache = Path.Combine(CacheDir, key + ".txt");
         HashSet<string> set;
@@ -95,7 +94,7 @@ public static class EditorIds
                 var s = body.Slice(i + 6, (int)size);
                 var z = s.IndexOf((byte)0);
                 if (z >= 0) s = s[..z];
-                return s.Length == 0 ? null : Encoding.Latin1.GetString(s).ToLowerInvariant();
+                return s.Length == 0 ? null : Encoding.UTF8.GetString(s).ToLowerInvariant();   // UTF-8, as Mutagen and RawName read EditorIDs (Latin1 before 0.4.1)
             }
             i += 6 + (int)size;
         }
