@@ -17,7 +17,7 @@ public class ExeTests
         return (code, stdout + stderr);
     }
 
-    static (int Code, string Stdout, string Stderr) RunSplit(params string[] args)
+    internal static (int Code, string Stdout, string Stderr) RunSplit(params string[] args)
     {
         var dir = AppContext.BaseDirectory;
         var exe = Path.Combine(dir, OperatingSystem.IsWindows() ? "sfmodcheck.exe" : "sfmodcheck");
@@ -57,7 +57,7 @@ public class ExeTests
         return Path.Combine(dir, "Solo.esm");
     }
 
-    static string ResultLine(string output) => output.Split('\n').Select(l => l.TrimEnd('\r')).LastOrDefault(l => l.StartsWith("RESULT: ")) ?? "(no RESULT line)\n" + output;
+    internal static string ResultLine(string output) => output.Split('\n').Select(l => l.TrimEnd('\r')).LastOrDefault(l => l.StartsWith("RESULT: ")) ?? "(no RESULT line)\n" + output;
 
     [Fact]
     public void Clean_plugin_exits_0()
@@ -173,6 +173,8 @@ public class ExeTests
     [InlineData("--max", null, "--max needs a number after it")]
     [InlineData("--data", null, "--data needs the game's Data folder after it")]
     [InlineData("--log", null, "--log needs a file name after it")]
+    [InlineData("--data", "", "--data needs the game's Data folder after it (it was given an empty value)")]
+    [InlineData("--masters-dir", " ", "--masters-dir needs a folder after it (it was given an empty value)")]
     public void Bad_option_value_exits_2_with_the_fix(string option, string? value, string expected)
     {
         using var s = new Sandbox();
@@ -183,6 +185,28 @@ public class ExeTests
         Assert.Contains(expected, output);
         Assert.Contains("for example: " + option, output);
         Assert.DoesNotContain("   at ", output);   // no stack trace
+    }
+
+    [Fact]
+    public void Empty_plugin_name_exits_2_with_the_fix()
+    {
+        var (code, output) = Run("check", "");
+        Assert.Equal(2, code);
+        Assert.Contains("the plugin name is empty", output);
+        Assert.DoesNotContain("   at ", output);
+    }
+
+    [Theory]
+    [InlineData("--data")]
+    [InlineData("--plugins")]
+    [InlineData("--out")]
+    public void Conflict_option_with_an_empty_value_exits_2_with_the_fix(string option)
+    {
+        var (code, output) = Run("conflict", option, "", "--quiet");
+        Assert.Equal(2, code);
+        Assert.Contains($"{option} needs", output);
+        Assert.Contains("(it was given an empty value)", output);
+        Assert.DoesNotContain("ArgumentException", output);
     }
 
     [Fact]
@@ -214,17 +238,97 @@ public class ExeTests
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Program.cs"))) dir = dir.Parent;
         Assert.True(dir != null, "src\\Program.cs not found above " + AppContext.BaseDirectory);
-        var program = File.ReadAllText(Path.Combine(dir!.FullName, "src", "Program.cs"));
-        var options = System.Text.RegularExpressions.Regex.Matches(program, @"case ""(--[a-z-]+)"":").Select(m => m.Groups[1].Value)
-            .Where(o => o != "--help").ToHashSet();
-        Assert.Equal(new[] { "--data", "--log", "--masters-dir", "--max", "--no-hints", "--quiet", "--verbose" }, options.Order());
+        HashSet<string> Options(string file) =>
+            System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(Path.Combine(dir!.FullName, "src", file)), @"case ""(--[a-z-]+)"":")
+                .Select(m => m.Groups[1].Value).Where(o => o != "--help").ToHashSet();
+        var check = Options("Program.cs");
+        Assert.Equal(new[] { "--data", "--log", "--masters-dir", "--max", "--no-hints", "--quiet", "--verbose" }, check.Order());
+        var conflict = Options("ConflictCommand.cs");
+        Assert.Equal(new[] { "--data", "--extra-data", "--log", "--max-memory", "--out", "--plugins", "--quiet", "--verbose" }, conflict.Order());
         var (_, usage) = Run("check");
+        var (_, conflictUsage) = Run("conflict", "--help");
         foreach (var file in new[] { "README.md", "AGENTS.md" })
         {
-            var text = File.ReadAllText(Path.Combine(dir.FullName, file));
-            Assert.All(options, o => Assert.True(text.Contains("`" + o) || text.Contains(" " + o + " "), $"{file} doesn't mention {o}"));
+            var text = File.ReadAllText(Path.Combine(dir!.FullName, file));
+            Assert.All(check.Union(conflict), o => Assert.True(text.Contains("`" + o) || text.Contains(" " + o + " "), $"{file} doesn't mention {o}"));
         }
-        Assert.All(options, o => Assert.Contains(o, usage));
+        Assert.All(check, o => Assert.Contains(o, usage));
+        Assert.All(conflict, o => Assert.Contains(o, conflictUsage));
+    }
+
+    // ---- conflict: arguments and errors (part 2 of the move, 2026-11-16; synthetic conflict cases come later)
+
+    static string PluginsTxt(Sandbox s, params string[] active)
+    {
+        var p = Path.Combine(s.Dir, "Plugins.txt");
+        File.WriteAllLines(p, new[] { "# test load order" }.Concat(active.Select(a => "*" + a)));
+        return p;
+    }
+
+    [Fact]
+    public void Conflict_missing_data_folder_exits_2_with_cannot_check()
+    {
+        using var s = new Sandbox();
+        var (code, output) = Run("conflict", "--data", Path.Combine(s.Dir, "no-such-data"), "--plugins", PluginsTxt(s, "Solo.esm"));
+        Assert.Equal(2, code);
+        Assert.StartsWith("RESULT: CANNOT CHECK (the Data folder ", ResultLine(output));
+        Assert.Contains("--data \"<the game's Data folder>\"", output);
+    }
+
+    [Fact]
+    public void Conflict_missing_plugins_txt_exits_2_and_names_the_file()
+    {
+        using var s = new Sandbox();
+        var missing = Path.Combine(s.Dir, "NoSuch.txt");
+        var (code, output) = Run("conflict", "--data", s.Sub("data"), "--plugins", missing);
+        Assert.Equal(2, code);
+        Assert.StartsWith("RESULT: CANNOT CHECK (the Plugins.txt ", ResultLine(output));
+        Assert.Contains(missing, output);
+    }
+
+    [Theory]
+    [InlineData("--max-memory", "lots")]
+    [InlineData("--max-memory", "0")]
+    [InlineData("--frobnicate", null)]
+    [InlineData("MyMod.esm", null)]
+    public void Conflict_bad_arguments_exit_2_with_the_usage(string arg, string? value)
+    {
+        using var s = new Sandbox();
+        var args = new List<string> { "conflict", "--data", s.Sub("data"), "--plugins", PluginsTxt(s, "Solo.esm"), arg };
+        if (value != null) args.Add(value);
+        var (code, output) = Run(args.ToArray());
+        Assert.Equal(2, code);
+        Assert.StartsWith("RESULT: CANNOT CHECK (bad arguments", ResultLine(output));
+    }
+
+    [Fact]
+    public void Conflict_on_a_one_plugin_load_order_writes_the_report_and_exits_0()
+    {
+        using var s = new Sandbox();
+        var plugin = Solo(s);
+        var outDir = Path.Combine(s.Dir, "report");
+        var log = Path.Combine(s.Dir, "conflict.log");
+        var (code, stdout, _) = RunSplit("conflict", "--data", Path.GetDirectoryName(plugin)!, "--plugins", PluginsTxt(s, "Solo.esm"),
+            "--out", outDir, "--log", log);
+        Assert.Equal(0, code);
+        Assert.StartsWith("RESULT: OK, 0 lost-change entries (0 official, 0 mod vs mod), 0 ITMs, 0 load-order problems (report: ", ResultLine(stdout));
+        foreach (var f in new[] { "report.html", "report.md", "conflicts.json" }) Assert.True(File.Exists(Path.Combine(outDir, f)), f);
+        Assert.DoesNotContain("googleapis", File.ReadAllText(Path.Combine(outDir, "report.html")));   // PRIVACY.md: no network
+        var logText = File.ReadAllText(log);
+        Assert.Contains("load order: ", logText);
+        Assert.Contains("result: 0 lost-change entries", logText);
+    }
+
+    [Fact]
+    public void Conflict_lists_a_missing_plugin_as_a_load_order_problem()
+    {
+        using var s = new Sandbox();
+        var plugin = Solo(s);
+        var (code, stdout, _) = RunSplit("conflict", "--data", Path.GetDirectoryName(plugin)!, "--plugins", PluginsTxt(s, "Solo.esm", "Gone.esm"),
+            "--out", Path.Combine(s.Dir, "report"), "--quiet");
+        Assert.Equal(0, code);
+        Assert.Contains("1 load-order problems", ResultLine(stdout));
+        Assert.Contains("Gone.esm: listed but not found in Data", File.ReadAllText(Path.Combine(s.Dir, "report", "report.md")));
     }
 
     [Fact]

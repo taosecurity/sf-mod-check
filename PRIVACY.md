@@ -14,11 +14,18 @@ sfmodcheck runs on your own computer. It collects no data and sends nothing anyw
 - that plugin's masters, from the folders you pass with `--masters-dir`, the plugin's own folder and the game's Data
   folder (`--data`, or Steam's usual Data folder);
 - the official masters in the Data folder (Starfield.esm and the other Bethesda plugins), to learn the official scene
-  list and the masters' EditorIDs.
+  list and the masters' EditorIDs;
+- for `conflict`: the load order file you give with `--plugins` (or the game's own
+  `%LOCALAPPDATA%\Starfield\Plugins.txt`), and every plugin it lists, from `--extra-data` and the Data folder.
 
 ## What it writes
 
-Only its own caches, in `%LOCALAPPDATA%\sfmodcheck\` (on Linux `~/.local/share/sfmodcheck/`; the environment variable
+`conflict` writes its report (`report.html`, `report.md`, `conflicts.json`) to the folder you name with `--out`
+(`sfmodcheck-conflict` in the current folder by default). The report lists your load order and the plugin and folder
+paths it used, and it quotes record data from the plugins, other authors' work included; check it before you share
+it. The report page loads nothing from the web.
+
+`check` writes only its own caches, in `%LOCALAPPDATA%\sfmodcheck\` (on Linux `~/.local/share/sfmodcheck/`; the environment variable
 `SFMODCHECK_CACHE_DIR` moves them):
 
 - `edid-cache\`: the EditorIDs of the masters it has read, one file per master, keyed by the master's name, size and

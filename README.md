@@ -4,7 +4,9 @@
 plugin (`.esm`) and reports problems that would break it in the game: damaged files, bad headers, FormIDs outside the
 plugin's range, links to records that don't exist, broken conditions, scenes and navmesh links, repeated EditorIDs,
 deleted records and "identical to master" records. After each kind of problem it says how to fix it in xEdit or the
-Creation Kit. It only reads files: it never changes a plugin. A typical mod takes about 4 seconds.
+Creation Kit. It only reads files: it never changes a plugin. A typical mod takes about 4 seconds. A second command,
+[`conflict`](#conflicts-between-mods-sfmodcheck-conflict), reads your whole load order and reports which changes it
+throws away (official changes undone by mods, one mod's changes lost to another) and what to do about each.
 
 **First command:** download the exe zip from [Releases](https://github.com/taosecurity/sfmodcheck/releases), unzip it,
 and drag `MyMod.esm` onto `sfmodcheck.exe`. Or, from a prompt:
@@ -17,7 +19,7 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.4.1 (security fixes; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
+Version 0.5.0 (adds the `conflict` command for whole load orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
 mods are welcome (see [Issues](https://github.com/taosecurity/sfmodcheck/issues)).
 
 ## Quick start (Creation Kit and xEdit authors)
@@ -123,7 +125,7 @@ plugin's full path.
 
 ### What the output looks like
 
-    sfmodcheck 0.4.1 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
+    sfmodcheck 0.5.0 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
     ERROR [links] MyMod_Misc [MISC:000801:MyMod.esm] links to 000FF0:MyMod.esm, which doesn't exist (expects Keyword)
     HINT [links] A field points at a record that doesn't exist, ...
     WARNING [itm] SomeKeyword [KYWD:0A1B2C:Starfield.esm] is identical to the master version it overrides (ITM)
@@ -146,6 +148,69 @@ plugin's full path.
 
 Scripts should read the exit code and the lines that start with `ERROR `, `WARNING ` and `RESULT: `. Other lines
 (the summary, HINT lines, notes on stderr) may change between versions.
+
+## Conflicts between mods: `sfmodcheck conflict`
+
+`check` looks at one plugin. `conflict` reads your whole load order and tells you which changes it throws away:
+
+- **official changes undone by mods:** a mod built without a DLC or update as a master overrides a record that the
+  DLC or update also changed, and wins, so the official change is lost in game;
+- **one mod's changes lost to another:** two mods change the same record and the later one doesn't have the earlier
+  one as a master;
+- **ITMs** (overrides identical to the record they override) and **load-order problems** (missing masters, plugins
+  listed before their masters, files it can't read).
+
+Each lost field is labelled **Forwardable** (the winner didn't mean to change it, so a patch can copy the lost value
+forward safely), **Choice** (both changed it, so you pick) or **No effect** (they differ only in list order, letter
+case or undocumented fields). Each conflict gets a recommendation: load-order moves when one is safe, an update to
+look for, or a small local patch. For a patch it also writes a prompt you can give to an AI coding assistant, or
+follow by hand in xEdit. It only reads plugins: it never changes one, and it never changes your load order.
+
+**First command** (Steam, with the game's own load order):
+
+    sfmodcheck conflict
+
+Then open `sfmodcheck-conflict\report.html` in a browser.
+
+    sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
+                        [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
+
+- `--plugins`: the load order to check (default: the game's own, `%LOCALAPPDATA%\Starfield\Plugins.txt`, which
+  Vortex and the game's Creations menu keep up to date). Only the lines marked active (`*`) count. Bethesda's own files
+  (the DLCs, updates and Creations such as the Trackers Alliance ones) are always loaded first, as the game does.
+  Without `--plugins` and without the game's file, it stops and asks for one rather than guess an order.
+- `--data`: the game's Data folder, where the plugins are read (default: Steam's usual one; Game Pass:
+  `--data "C:\XboxGames\Starfield\Content\Data"`).
+- `--extra-data`: a second folder of plugins, read before the Data folder (its files win), for example a patch you
+  have built but not installed yet. The load order still comes from `--plugins`, so add the patch's line there too.
+- `--out`: the report folder (default `sfmodcheck-conflict` in the current folder). It gets `report.html` (the one to
+  read: summary, recommended actions, each conflict with its story, a filter box, light and dark themes), `report.md`
+  (the same as Markdown) and `conflicts.json` (everything, for scripts).
+- `--max-memory`: stop cleanly when memory passes this many GB (exit code 3, no report), instead of slowing the PC.
+- `--quiet`: leave out the byline, the progress lines and the summary line.
+- `--verbose` and `--log <file>`: the troubleshooting log, as for `check`. It records the Data folder and load order
+  used and why, the plugins loaded, each load-order problem, one line per record type (records, versions and memory),
+  and the result.
+
+**Mod Organizer 2:** MO2 keeps each mod in its own folder, so the game's Data folder doesn't hold your mods' plugins.
+Add sfmodcheck to MO2 as an executable (arguments `conflict --plugins "<MO2>\profiles\<profile>\plugins.txt" --out
+"<a folder outside MO2>"`) and start it from MO2, so it sees the mods through MO2's virtual Data folder. We haven't
+tried this yet.
+
+**Time and memory:** on the author's PC, 148 plugins (about 2,650 records changed by mods, including city cells and
+navmeshes) took about 2 minutes and 8.4 to 8.8 GB at its peak; a small load order takes seconds. Large numbers of changed cells,
+placed objects and navmeshes cost the most. `--max-memory` sets a hard stop.
+
+**Exit codes:** 0 = report written (whatever it found); 2 = couldn't run (bad arguments, a missing folder or file,
+a plugin it couldn't read, a report it couldn't write; the RESULT line says `CANNOT CHECK`); 3 = stopped at
+`--max-memory` (`RESULT: STOPPED`). The last line on stdout is always the RESULT line, for example:
+
+    RESULT: OK, 29 lost-change entries (19 official, 10 mod vs mod), 103 ITMs, 0 load-order problems (report: ...\sfmodcheck-conflict\report.html; 122 s)
+
+**What it doesn't check:** scripts, assets (meshes, textures, sounds) and loose files; only plugin records. Fields
+that are bookkeeping or that the Creation Kit regenerates are skipped (the report lists them). A patch it suggests is
+for your own game: it holds other authors' data, so don't publish it. To see its working for one record, set the
+environment variable `SFMODCHECK_DEBUG_RECORD` to that record's FormKey (for example `064F3C:Starfield.esm`).
 
 ## What it checks
 

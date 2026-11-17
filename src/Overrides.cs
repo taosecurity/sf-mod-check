@@ -137,6 +137,10 @@ public static class Overrides
     }
 
     // Mutagen's list types compare by reference, so lists and nested objects are walked by value (itm-check's DeepEq).
+    /// <summary>Two cell grids (XCLC) match when their point and land flags (the low byte) match; the 3 unused bytes are ignored.</summary>
+    public static bool CellGridEq(ICellGridGetter a, ICellGridGetter b) =>
+        a.Point.Equals(b.Point) && ((uint)a.Flags & 0xFF) == ((uint)b.Flags & 0xFF);
+
     static bool DeepEq(object? a, object? b, int depth)
     {
         if (a is null || b is null) return a is null && b is null;
@@ -149,6 +153,10 @@ public static class Overrides
         if (a is Mutagen.Bethesda.Strings.ITranslatedStringGetter ta && b is Mutagen.Bethesda.Strings.ITranslatedStringGetter tb)
             return string.Equals(ta.String, tb.String, StringComparison.Ordinal);
         if (a.GetType() != b.GetType()) return false;
+        // XCLC (cell grid) = X, Y, one byte of land flags, 3 unused bytes (xEdit wbDefinitionsCommon.pas). Mutagen 0.54.4
+        // reads flags + unused as one 4-byte value, and Bethesda leaves junk in the unused bytes (Starfield.esm cell
+        // 0151D8: A9CE0000), so compare only the point and the low byte (0.5.0).
+        if (a is ICellGridGetter ga && b is ICellGridGetter gb) return CellGridEq(ga, gb);
         // Equals only for simple values: on Mutagen objects it runs Mutagen's own deep comparison at every level of the
         // walk, so the cost grows with depth (projectviper's armor ObjectTemplates: 2 s for one record).
         if (a.GetType().IsValueType || a is string || a is Type) return Equals(a, b);

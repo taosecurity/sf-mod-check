@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.5.0 (2026-11-16)
+
+New command `sfmodcheck conflict`: reads a whole load order (a Plugins.txt) and reports the changes it throws away
+(official changes undone by mods, one mod's changes lost to another, ITMs, load-order problems), labels each lost
+field Forwardable, Choice or No effect, and recommends what to do (a safe load-order move, an update to look for, or a
+local patch with a prompt for building it). Report folder with `report.html`, `report.md` and `conflicts.json`.
+Options `--plugins`, `--data`, `--extra-data`, `--out`, `--max-memory`, `--quiet`, `--verbose`, `--log`; exit codes
+0, 2 and 3.
+
+It comes from the author's private StarfieldConflictCheck (in use since 2026-10-28), after a fix of its memory
+runaway on 2026-11-16. Before that fix, a load order with city cells and navmeshes grew past 10 GB and didn't finish.
+Three things held the memory: Mutagen's link cache kept every placed object, cell and navmesh of every plugin once
+one was looked up (and still missed the originals of most placed objects, so they were never compared); naming record
+references in the report did whole-record lookups in the same cache; and describing changes to long lists compared
+every entry with every other one. Now each plugin is read once per record type, keeping only the records mods change;
+names come from an EditorID-only lookup; and long lists are matched by hash, confirmed entry by entry. On the
+author's 148-plugin load order it runs in about 2 minutes, peaking at 8.4 to 8.8 GB, with the same findings as the old version
+wherever the old version could finish.
+
+Safety: plugin names in Plugins.txt and in plugin headers are only matched against files that exist in the Data folder
+(and `--extra-data`), so a path-like name is reported as not found and never opened. All text from plugins is
+HTML-encoded in the report, and the report loads nothing from the web.
+
+Tested in game (2026-11-16): the author's own merged patches for a 148-plugin load order, which `conflict` reports
+as losing nothing, were played through a short smoke test (two cities, NPCs, companion reactions) with no crash and
+no save problems.
+
+Security (from the release's security review): the report's ready-to-paste prompt for an AI assistant copies record
+names and values from plugins. A crafted mod could have hidden instructions there, on lines of their own, for an
+assistant that can run commands. Now EditorIDs in the prompt keep only EditorID characters, copied values lose line
+breaks, control characters, quotes and backticks and are quoted, and the prompt says they are data, not instructions.
+Text from plugins also stays on one line everywhere in report.md and report.html.
+
+Fix (both commands): an empty option value (`--data ""`, an unset variable in a script) or an empty plugin name now
+says which option is empty and how to fix it, instead of stopping with "ArgumentException: The path is empty".
+
+Fix (both commands): a cell's grid (XCLC) holds X, Y, one byte of land flags and 3 unused bytes. Mutagen reads the
+flags and the unused bytes as one value, and Bethesda's files leave junk in the unused bytes. `check` could call
+such a cell override different from its master when it isn't, so a cell ITM could be missed (no cell was affected in
+practice, because cells that hold placed objects are skipped). `conflict` skipped the flags completely, so a real
+land-flag change went unseen. Both now compare the grid point and the land-flag byte only. Same findings as before
+on six test load orders.
+
 ## 0.4.1 (2026-11-16)
 
 Security and bug-fix release, from a code review and a security review. Built on BuildKit 0.3.1.

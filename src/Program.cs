@@ -3,6 +3,8 @@
 // Exit 0 = no errors, 1 = errors, 2 = could not run.
 //   sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]
 //                             [--verbose] [--log <file>]        (troubleshooting log: Log.cs)
+//   sfmodcheck conflict [--plugins <Plugins.txt>] [--data D] [--extra-data F] [--out F] [--max-memory GB] [--quiet]
+//                       [--verbose] [--log <file>]        (whole load order: ConflictCommand.cs; exit 0, 2 or 3)
 //   sfmodcheck <plugin> [...]                  (same as check: older callers, and a plugin dropped on the exe)
 //   sfmodcheck --version
 // Hidden maintenance modes (run on the official masters after a game update):
@@ -14,13 +16,15 @@
 using System.Diagnostics;
 using SfModCheck;
 
-const string Version = "0.4.1";
+const string Version = "0.5.0";
 // Attribution (the author's request, 2026-11-11): stderr at the start of a check (not with --quiet), and --version.
 const string Byline = "sfmodcheck " + Version + " by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck";
 const string DefaultData = @"C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data";
 const string Usage =
     "usage: sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]\n" +
     "                                 [--verbose] [--log <file>]\n" +
+    "       sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
+    "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]\n" +
     "       sfmodcheck --version";
 // A plugin past this many records (the header's count) gets the memory note on stderr. Mods stay far below it; the
 // official Starfield.esm has about 3.8 million and needs over 30 GB of memory to check.
@@ -92,8 +96,10 @@ int Dispatch(string[] args)
         return 0;
     }
 
-    // Commands. "check" is the only one so far; "conflict" and "release" come later. A first argument that isn't a
-    // command is read as the plugin, so callers written for StarfieldPluginCheck keep working.
+    // Commands: "check" (one plugin) and "conflict" (a whole load order, ConflictCommand.cs, since 0.5.0); "release"
+    // comes later. A first argument that isn't a command is read as the plugin, so callers written for
+    // StarfieldPluginCheck keep working.
+    if (args.Length > 0 && args[0] == "conflict") return ConflictCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     var rest = args.Length > 0 && args[0] == "check" ? args.Skip(1).ToArray() : args;
     return Check(rest);
 }
@@ -128,8 +134,9 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     // An option's value; null (after an error naming the option and the fix) when it is missing.
     string? Value(ref int i, string what)
     {
-        if (i + 1 < a.Length && !a[i + 1].StartsWith("--")) return a[++i];
-        Console.Error.WriteLine($"{a[i]} needs {what} after it, for example: {a[i]} {Example(a[i])}");
+        // an empty value ("" from a script, or a variable that wasn't set) counts as missing (0.5.0)
+        if (i + 1 < a.Length && !a[i + 1].StartsWith("--") && a[i + 1].Trim().Length > 0) return a[++i];
+        Console.Error.WriteLine($"{a[i]} needs {what} after it{(i + 1 < a.Length && a[i + 1].Trim().Length == 0 ? " (it was given an empty value)" : "")}, for example: {a[i]} {Example(a[i])}");
         Console.Error.WriteLine(Usage);
         return null;
     }
@@ -163,6 +170,12 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
                 {
                     Console.Error.WriteLine($"unknown option {a[i]}");
                     Console.Error.WriteLine(Usage);
+                    return 2;
+                }
+                if (a[i].Trim().Length == 0)
+                {
+                    Console.Error.WriteLine("the plugin name is empty: give the path of the .esm to check, for example: " +
+                                            "sfmodcheck check \"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Starfield\\Data\\MyMod.esm\"");
                     return 2;
                 }
                 if (plugin != null)

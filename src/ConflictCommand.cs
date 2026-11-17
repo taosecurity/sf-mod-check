@@ -1,0 +1,222 @@
+// sfmodcheck conflict: reads a whole load order and reports the changes it throws away (official changes undone by
+// mods, one mod's changes lost to another, ITMs, load-order problems), with a recommendation for each. Read-only:
+// it writes only its report folder. Moved in from the author's StarfieldConflictCheck on 2026-11-16 (0.5.0).
+//   sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
+//                       [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
+// Exit 0 = report written, 2 = could not run, 3 = stopped at --max-memory. Every run ends with one RESULT line.
+using System.Diagnostics;
+using System.Globalization;
+using SfModCheck.Conflict;
+
+namespace SfModCheck;
+
+public static class ConflictCommand
+{
+    public const string Usage =
+        "usage: sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
+        "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]";
+    const string SteamData = @"C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data";
+
+    // The game's own load order file (the game writes it; Vortex and the in-game Creations menu update it).
+    static string GamePluginsTxt() =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Starfield", "Plugins.txt");
+
+    public static int Run(string[] a, string version, string byline)
+    {
+        try
+        {
+            var code = RunLogged(a, version, byline, out var resultPrinted, out var cantWhy);
+            if (code == 2 && !resultPrinted) Console.WriteLine($"RESULT: CANNOT CHECK ({cantWhy})");
+            return code;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"RESULT: CANNOT CHECK ({e.GetType().Name}: {e.Message})");
+            Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
+            Log.Write($"stopped: {e}");
+            return 2;
+        }
+        finally { Log.Close(); }
+    }
+
+    static int RunLogged(string[] a, string version, string byline, out bool resultPrinted, out string cantWhy)
+    {
+        resultPrinted = false;
+        cantWhy = "bad arguments; see the message above";
+        string? pluginsTxt = null, dataDir = null, extraDir = null, outDir = null, logFile = null;
+        double maxGb = 0;
+        bool quiet = false, verbose = false;
+        string? Value(ref int i, string what)
+        {
+            // an empty value ("" from a script, or a variable that wasn't set) counts as missing (0.5.0)
+            if (i + 1 < a.Length && !a[i + 1].StartsWith("--") && a[i + 1].Trim().Length > 0) return a[++i];
+            Console.Error.WriteLine($"{a[i]} needs {what} after it{(i + 1 < a.Length && a[i + 1].Trim().Length == 0 ? " (it was given an empty value)" : "")}, for example: {a[i]} {Example(a[i])}");
+            Console.Error.WriteLine(Usage);
+            return null;
+        }
+        for (int i = 0; i < a.Length; i++)
+        {
+            switch (a[i])
+            {
+                case "--plugins":
+                    if (Value(ref i, "a Plugins.txt file") is not { } p) return 2;
+                    pluginsTxt = p; break;
+                case "--data":
+                    if (Value(ref i, "the game's Data folder") is not { } d) return 2;
+                    dataDir = d; break;
+                case "--extra-data":
+                    if (Value(ref i, "a folder") is not { } x) return 2;
+                    extraDir = x; break;
+                case "--out":
+                    if (Value(ref i, "a folder") is not { } o) return 2;
+                    outDir = o; break;
+                case "--max-memory":
+                    if (Value(ref i, "a number of GB") is not { } m) return 2;
+                    if (!double.TryParse(m, NumberStyles.Float, CultureInfo.InvariantCulture, out maxGb) || maxGb <= 0)
+                    {
+                        Console.Error.WriteLine($"--max-memory needs a number of GB above 0, not \"{m}\", for example: --max-memory 8");
+                        return 2;
+                    }
+                    break;
+                case "--log":
+                    if (Value(ref i, "a file name") is not { } lf) return 2;
+                    logFile = lf; break;
+                case "--verbose": verbose = true; break;
+                case "--quiet": quiet = true; break;
+                case "-h": case "--help":
+                    Console.Error.WriteLine(Usage);
+                    return 2;
+                default:
+                    Console.Error.WriteLine(a[i].StartsWith("--") ? $"unknown option {a[i]}" : $"unexpected argument {a[i]} (conflict reads the whole load order; give its Plugins.txt with --plugins)");
+                    Console.Error.WriteLine(Usage);
+                    return 2;
+            }
+        }
+        if (!quiet) Console.Error.WriteLine(byline);
+        if (verbose) Log.ToStderr();
+        if (logFile != null && Log.ToFile(logFile) is { } logError) { Console.Error.WriteLine(logError); cantWhy = "the log file can't be written"; return 2; }
+        Log.Write($"sfmodcheck {version} conflict on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
+        Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");
+        Log.Write($"working folder: {Environment.CurrentDirectory}");
+
+        // Data folder: --data, else Steam's usual folder.
+        var dataWhy = dataDir != null ? "from --data" : "Steam's usual folder (no --data given)";
+        dataDir ??= SteamData;
+        if (!Directory.Exists(dataDir))
+        {
+            cantWhy = $"the Data folder {Path.GetFullPath(dataDir)} doesn't exist";
+            Console.Error.WriteLine($"can't find the game's Data folder: {Path.GetFullPath(dataDir)} doesn't exist ({dataWhy}). Run again with " +
+                                    "--data \"<the game's Data folder>\" (Game Pass: ...\\Starfield\\Content\\Data; a path with spaces needs quotes).");
+            Log.Write($"stopped: no Data folder at {Path.GetFullPath(dataDir)} ({dataWhy})");
+            return 2;
+        }
+        dataDir = Path.GetFullPath(dataDir);
+        Log.Write($"Data folder: {dataDir}: {dataWhy}; Starfield.esm {(File.Exists(Path.Combine(dataDir, "Starfield.esm")) ? "found there" : "NOT there")}");
+        if (!File.Exists(Path.Combine(dataDir, "Starfield.esm")))
+            Console.Error.WriteLine($"note: no Starfield.esm in {dataDir}. If that isn't your game's Data folder, run again with --data \"<the game's Data folder>\".");
+
+        // Load order: --plugins, else the game's own Plugins.txt. Without either it stops: guessing an order (every
+        // plugin in Data, alphabetical) gives wrong answers and can need a lot of memory.
+        string pluginsWhy;
+        if (pluginsTxt != null) pluginsWhy = "from --plugins";
+        else if (File.Exists(GamePluginsTxt())) { pluginsTxt = GamePluginsTxt(); pluginsWhy = "the game's own Plugins.txt (no --plugins given)"; }
+        else
+        {
+            cantWhy = "no load order: give --plugins";
+            Console.Error.WriteLine($"can't find your load order: no --plugins given and no game Plugins.txt at {GamePluginsTxt()}. Run again with " +
+                                    "--plugins \"<the Plugins.txt your mod manager uses>\" (MO2 keeps one per profile, in the profile's folder).");
+            Log.Write($"stopped: no --plugins and no {GamePluginsTxt()}");
+            return 2;
+        }
+        if (!File.Exists(pluginsTxt))
+        {
+            cantWhy = $"the Plugins.txt {Path.GetFullPath(pluginsTxt)} doesn't exist";
+            Console.Error.WriteLine($"can't read the load order: {Path.GetFullPath(pluginsTxt)} doesn't exist. Give --plugins the Plugins.txt your mod " +
+                                    "manager uses (the game's is %LOCALAPPDATA%\\Starfield\\Plugins.txt; MO2 keeps one per profile).");
+            Log.Write($"stopped: no Plugins.txt at {Path.GetFullPath(pluginsTxt)}");
+            return 2;
+        }
+        pluginsTxt = Path.GetFullPath(pluginsTxt);
+        Log.Write($"load order: {pluginsTxt}: {pluginsWhy}");
+        if (extraDir != null)
+        {
+            if (!Directory.Exists(extraDir))
+            {
+                cantWhy = $"the --extra-data folder {Path.GetFullPath(extraDir)} doesn't exist";
+                Console.Error.WriteLine($"can't use --extra-data {Path.GetFullPath(extraDir)}: that folder doesn't exist. Check the path (a path with spaces needs quotes).");
+                Log.Write($"stopped: --extra-data {Path.GetFullPath(extraDir)} doesn't exist");
+                return 2;
+            }
+            extraDir = Path.GetFullPath(extraDir);
+            Log.Write($"extra plugin folder (its files win over Data's): {extraDir}");
+        }
+        outDir = Path.GetFullPath(outDir ?? "sfmodcheck-conflict");
+        Log.Write($"report folder: {outDir}");
+        if (maxGb > 0) { Analyzer.MaxManagedBytes = (long)(maxGb * 1e9); Log.Write($"memory limit: {maxGb.ToString(CultureInfo.InvariantCulture)} GB"); }
+
+        var sw = Stopwatch.StartNew();
+        Analyzer.Info = quiet ? _ => { } : Console.Error.WriteLine;
+        if (Log.On) Analyzer.Progress = Log.Write;
+        LoadOrderSetup lo;
+        try { lo = LoadOrderSetup.Build(dataDir, pluginsTxt, extraDir); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        {
+            cantWhy = $"the load order can't be read: {e.GetType().Name}";
+            Console.Error.WriteLine($"can't read the load order: {e.Message} Close any program that has a plugin open (xEdit, the Creation Kit) and try again.");
+            Log.Write($"stopped: reading the load order: {e}");
+            return 2;
+        }
+        try
+        {
+            var mods = lo.Plugins.Count(p => !p.Official);
+            Log.Write($"loaded {lo.Plugins.Count} plugins ({lo.Plugins.Count - mods} official, {mods} mods), {lo.Problems.Count} load-order problems");
+            foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
+            if (!quiet) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
+
+            Analysis analysis;
+            try { analysis = Analyzer.Run(lo.Plugins); }
+            catch (MemoryLimitException e)
+            {
+                resultPrinted = true;
+                Console.WriteLine($"RESULT: STOPPED ({e.Message}; no report written)");
+                Console.Error.WriteLine("Try a smaller load order, or raise --max-memory if this computer has the memory.");
+                Log.Write($"stopped at the memory limit: {e.Message}");
+                return 3;
+            }
+            Recommend.ReportDir = outDir;
+            Recommend.DataDir = dataDir;
+            Recommend.PluginsTxt = pluginsTxt;
+            try { Report.Write(outDir, lo, analysis); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                cantWhy = $"the report can't be written to {outDir}";
+                Console.Error.WriteLine($"can't write the report to {outDir}: {e.Message} Give --out a folder you can write to.");
+                Log.Write($"stopped: writing the report: {e}");
+                return 2;
+            }
+
+            var official = analysis.Lost.Count(l => l.LoserOfficial);
+            if (!quiet) Console.WriteLine($"sfmodcheck {version} conflict: {lo.Plugins.Count} plugins ({lo.Plugins.Count - mods} official, {mods} mods), {analysis.RecordsOverriddenByMods} records overridden by mods");
+            foreach (var err in analysis.Errors.Take(5)) Console.Error.WriteLine($"note: {err}");
+            if (analysis.Errors.Count > 5) Console.Error.WriteLine($"note: ... and {analysis.Errors.Count - 5} more (the report's \"Tool limits hit\" section)");
+            Console.WriteLine($"RESULT: OK, {analysis.Lost.Count} lost-change entries ({official} official, {analysis.Lost.Count - official} mod vs mod), " +
+                              $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} records not compared" : "")} " +
+                              $"(report: {Path.Combine(outDir, "report.html")}; {sw.Elapsed.TotalSeconds:F0} s)");
+            Log.Write($"result: {analysis.Lost.Count} lost-change entries, {analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems, " +
+                      $"{analysis.Errors.Count} errors, exit code 0, {sw.Elapsed.TotalSeconds:F1} s, peak working set {Process.GetCurrentProcess().PeakWorkingSet64 / 1e9:F1} GB");
+            return 0;
+        }
+        finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }
+    }
+
+    static string Example(string option) => option switch
+    {
+        "--plugins" => "\"%LOCALAPPDATA%\\Starfield\\Plugins.txt\"",
+        "--data" => "\"D:\\XboxGames\\Starfield\\Content\\Data\"",
+        "--extra-data" => "\"C:\\MyBuild\\out\"",
+        "--out" => "conflict-report",
+        "--max-memory" => "8",
+        "--log" => "sfmodcheck-log.txt",
+        _ => "<value>",
+    };
+}
