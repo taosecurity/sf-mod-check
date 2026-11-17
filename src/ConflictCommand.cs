@@ -73,9 +73,9 @@ public static class ConflictCommand
                     outDir = o; break;
                 case "--max-memory":
                     if (Value(ref i, "a number of GB") is not { } m) return 2;
-                    if (!double.TryParse(m, NumberStyles.Float, CultureInfo.InvariantCulture, out maxGb) || !double.IsFinite(maxGb) || maxGb * 1e9 < 1 || maxGb > 1_000_000)   // under one byte would turn the limit off
+                    if (!double.TryParse(m, NumberStyles.Float, CultureInfo.InvariantCulture, out maxGb) || !double.IsFinite(maxGb) || maxGb < 0.000001 || maxGb > 1_000_000)   // under 1 KB would mean no limit or an instant stop
                     {
-                        Console.Error.WriteLine($"--max-memory needs a number of GB above 0 and at most 1000000, not \"{m}\", for example: --max-memory 8");
+                        Console.Error.WriteLine($"--max-memory needs a number of GB from 0.000001 to 1000000, not \"{m}\", for example: --max-memory 8");
                         return 2;
                     }
                     break;

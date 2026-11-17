@@ -253,8 +253,9 @@ public class ConflictTests
             .Select(d => S(d, "Text")).ToList();
         Assert.Contains(diffs, d => d.Contains("land flags is 0x03 in game instead of 0x01"));
         Assert.Contains("0x03", md);     // ModB's real land flags (ModA kept the base's 0x01)
-        Assert.DoesNotContain("A9CE", md, StringComparison.OrdinalIgnoreCase);   // no junk bytes shown
-        Assert.DoesNotContain("1234", md);
+        var flagLines = md.Split('\n').Where(l => l.Contains("land flags", StringComparison.OrdinalIgnoreCase)).ToList();
+        Assert.NotEmpty(flagLines);
+        Assert.All(flagLines, l => Assert.DoesNotMatch("(?i)0x[0-9a-f]{3,}", l));   // land flags only ever as one byte
     }
 
     [Fact]
@@ -266,7 +267,16 @@ public class ConflictTests
         Assert.True(FieldCompare.DeepEq(a, b, 0));
         Assert.Equal(FieldCompare.DeepHash(a, 0), FieldCompare.DeepHash(b, 0));
         Assert.False(FieldCompare.DeepEq(a, c, 0));
-        Assert.Equal("classes", SfModCheck.Conflict.Impact.TypeName("Class", 2));
+        var ma = new Noggog.MemorySlice<byte>(new byte[] { 9, 4, 5, 6 }, 1, 3);
+        var mb = new Noggog.MemorySlice<byte>(new byte[] { 4, 5, 6 });
+        Assert.True(FieldCompare.DeepEq(ma, mb, 0));
+        Assert.Equal(FieldCompare.DeepHash(ma, 0), FieldCompare.DeepHash(mb, 0));
+        Assert.False(FieldCompare.DeepEq(ma, new Noggog.MemorySlice<byte>(new byte[] { 4, 5, 8 }), 0));
+        var x = new byte[] { 1, 2 };
+        var y = new byte[] { 1, 2 };
+        Assert.True(FieldCompare.DeepEq(x, y, 0));
+        Assert.Equal(FieldCompare.DeepHash(x, 0), FieldCompare.DeepHash(y, 0));
+        Assert.False(FieldCompare.DeepEq(x, new byte[] { 1, 3 }, 0));
     }
 
     [Fact]
@@ -284,6 +294,11 @@ public class ConflictTests
     [InlineData("ObjectModification", 2, "mods (item modification)")]
     [InlineData("ObjectModification", 1, "mod (item modification)")]
     [InlineData("Terminal", 3, "terminals")]
+    [InlineData("Class", 2, "classes")]
+    [InlineData("Lens", 2, "lenses")]
+    [InlineData("TimeOfDay", 2, "time of days")]
+    [InlineData("Category", 2, "categories")]
+    [InlineData("Box", 2, "boxes")]
     public void Plural_type_names_put_the_s_before_the_note(string type, int count, string expected) =>
         Assert.Equal(expected, SfModCheck.Conflict.Impact.TypeName(type, count));
 
@@ -292,12 +307,13 @@ public class ConflictTests
     [InlineData("Infinity")]
     [InlineData("0")]
     [InlineData("1e-10")]
+    [InlineData("0.0000001")]
     [InlineData("2000000")]
     public void Max_memory_must_be_a_real_number_of_GB(string value)
     {
         var (code, stdout, stderr) = ExeTests.RunSplit("conflict", "--max-memory", value, "--quiet");
         Assert.Equal(2, code);
-        Assert.Contains("--max-memory needs a number of GB above 0 and at most 1000000", stdout + stderr);
+        Assert.Contains("--max-memory needs a number of GB from 0.000001 to 1000000", stdout + stderr);
     }
 
     [Fact]

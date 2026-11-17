@@ -107,6 +107,8 @@ Its first line is `sfmodcheck 0.5.0 by Richard Bejtlich - GPL-3.0 - https://gith
 
         sfmodcheck conflict --max-memory 8 --log conflict-log.txt
 
+    `--max-memory` takes a number of GB from 0.000001 to 1000000; anything else stops with exit code 2 and says so.
+
     If it stops at the limit (exit code 3, "RESULT: STOPPED (memory passed 8.0 GB ...)", no report written), the load
     order needs more memory than that: raise the number if the PC has it, or check a smaller load order. (The
     author's 148-plugin order peaks near 8.5 GB, so with 8 it sometimes finishes and sometimes stops.)

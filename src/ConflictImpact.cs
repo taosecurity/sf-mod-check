@@ -119,7 +119,9 @@ public static class Impact
         if (count == 1) return n;
         var cut = n.IndexOf(" (", StringComparison.Ordinal);   // "mod (item modification)" -> "mods (item modification)"
         var (head, tail) = cut < 0 ? (n, "") : (n[..cut], n[cut..]);
-        var plural = head.EndsWith("ss") ? head + "es" : head.EndsWith('s') ? head : head + "s";
+        var plural = head.EndsWith('s') || head.EndsWith('x') || head.EndsWith("ch") || head.EndsWith("sh") ? head + "es"
+            : head.Length > 1 && head.EndsWith('y') && !"aeiou".Contains(head[^2]) ? head[..^1] + "ies"
+            : head + "s";
         return plural + tail;
     }
 
@@ -217,7 +219,7 @@ public static class Impact
     public static string Describe(object? v, Func<IFormLinkGetter, string> name, int depth = 0)
     {
         if (v is null) return "not set";
-        if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"point {g.Point}, land flags 0x{(uint)(int)g.Flags & 0xFF:X2}";   // without the junk bytes (0.5.0)
+        if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"point {g.Point}, land flags 0x{SfModCheck.Overrides.LandFlags(g):X2}";   // without the junk bytes (0.5.0)
         if (IsLeaf(v)) return Plain(v, name);
         if (v is IEnumerable e)
         {
@@ -322,7 +324,8 @@ public static class Impact
             try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { continue; }
             if (a is Mutagen.Bethesda.Starfield.ICellGridGetter && p.Name == "Flags" && va is not null && vb is not null)   // XCLC: only the land-flag byte (0.5.0)
             {
-                var (fa, fb) = ((uint)Convert.ToInt64(va) & 0xFF, (uint)Convert.ToInt64(vb) & 0xFF);   // int enum, junk makes it negative
+                var (fa, fb) = (SfModCheck.Overrides.LandFlags((Mutagen.Bethesda.Starfield.ICellGridGetter)a),   // typed, no conversion
+                                SfModCheck.Overrides.LandFlags((Mutagen.Bethesda.Starfield.ICellGridGetter)b));
                 if (fa != fb) res.Add(new(Label($"{path} land flags"), "changed", $"0x{fa:X2}", $"0x{fb:X2}", false));
                 continue;
             }

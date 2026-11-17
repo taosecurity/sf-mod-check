@@ -84,9 +84,7 @@ public static class FieldCompare
         if (a is Mutagen.Bethesda.Strings.ITranslatedStringGetter ta && b is Mutagen.Bethesda.Strings.ITranslatedStringGetter tb)
             return string.Equals(ta.String, tb.String, StringComparison.Ordinal);
         if (a is string || b is string || a.GetType() != b.GetType()) return false;
-        if (a is Noggog.ReadOnlyMemorySlice<byte> ra && b is Noggog.ReadOnlyMemorySlice<byte> rb) return ra.Span.SequenceEqual(rb.Span);
-        if (a is Noggog.MemorySlice<byte> ma && b is Noggog.MemorySlice<byte> mb) return ma.Span.SequenceEqual(mb.Span);
-        if (a is byte[] ba && b is byte[] bb) return ba.AsSpan().SequenceEqual(bb);
+        if (SfModCheck.Overrides.BlobEq(a, b) is bool blobs) return blobs;   // shared with the itm check
         // XCLC: junk in the 3 unused bytes after the land flags is not a difference (same rule as the itm check, 0.5.0)
         if (a is Mutagen.Bethesda.Starfield.ICellGridGetter ga && b is Mutagen.Bethesda.Starfield.ICellGridGetter gb)
             return SfModCheck.Overrides.CellGridEq(ga, gb);
@@ -118,9 +116,7 @@ public static class FieldCompare
         if (v is string s) return s.GetHashCode();
         if (v is Mutagen.Bethesda.Strings.ITranslatedStringGetter ts) return (ts.String ?? "").GetHashCode();   // as DeepEq
         var t = v.GetType();
-        if (v is Noggog.ReadOnlyMemorySlice<byte> rs) { var hb = new HashCode(); hb.AddBytes(rs.Span); return hb.ToHashCode(); }
-        if (v is Noggog.MemorySlice<byte> ms) { var hb = new HashCode(); hb.AddBytes(ms.Span); return hb.ToHashCode(); }
-        if (v is byte[] bs) { var hb = new HashCode(); hb.AddBytes(bs); return hb.ToHashCode(); }
+        if (SfModCheck.Overrides.BlobHash(v) is int blobHash) return blobHash;
         if (t.IsValueType && v is not IEnumerable) return v.GetHashCode();   // slices hash by entries, as DeepEq walks them (0.5.0)
         var h = new HashCode();
         h.Add(t);
@@ -167,7 +163,7 @@ public static class FieldCompare
         if (v is null) return "null";
         if (v is Mutagen.Bethesda.Plugins.IFormLinkGetter fl) return fl.FormKey.ToString();
         if (v is Mutagen.Bethesda.Strings.ITranslatedStringGetter ts) return $"\"{Impact.OneLine(ts.String)}\"";
-        if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"CellGrid{{Point={g.Point}, LandFlags=0x{(uint)g.Flags & 0xFF:X2}}}";   // without the junk bytes (0.5.0)
+        if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"CellGrid{{Point={g.Point}, LandFlags=0x{SfModCheck.Overrides.LandFlags(g):X2}}}";   // without the junk bytes (0.5.0)
         var t = v.GetType();
         if (v is IEnumerable e and not string)
             return "[" + string.Join("; ", e.Cast<object?>().Take(20).Select(x => Dump(x, depth + 1))) + "]";

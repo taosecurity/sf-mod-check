@@ -172,6 +172,7 @@ public class LoadOrderSetup
             return true;
         }
         foreach (var n in wanted) Open(n, new Stack<string>());
+        for (int i = 0; i < setup.Problems.Count; i++) setup.Problems[i] = Impact.OneLine(setup.Problems[i]);   // names from headers (0.5.0)
         return setup;
     }
 

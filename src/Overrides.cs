@@ -139,15 +139,42 @@ public static class Overrides
     // Mutagen's list types compare by reference, so lists and nested objects are walked by value (itm-check's DeepEq).
     /// <summary>Two cell grids (XCLC) match when their point and land flags (the low byte) match; the 3 unused bytes are ignored.</summary>
     public static bool CellGridEq(ICellGridGetter a, ICellGridGetter b) =>
-        a.Point.Equals(b.Point) && ((uint)a.Flags & 0xFF) == ((uint)b.Flags & 0xFF);
+        a.Point.Equals(b.Point) && LandFlags(a) == LandFlags(b);
+
+    /// <summary>A cell grid's land flags: the low byte of Mutagen's int Flags (the other 3 bytes are unused, often junk).</summary>
+    public static uint LandFlags(ICellGridGetter g) => unchecked((uint)(int)g.Flags) & 0xFF;
+
+    /// <summary>Byte blobs (unknown data, navmesh geometry) compare by their bytes, not by slice positions in two files;
+    /// null when a and b aren't the same kind of blob.</summary>
+    public static bool? BlobEq(object a, object b) => (a, b) switch
+    {
+        (ReadOnlyMemorySlice<byte> ra, ReadOnlyMemorySlice<byte> rb) => ra.Span.SequenceEqual(rb.Span),
+        (MemorySlice<byte> ma, MemorySlice<byte> mb) => ma.Span.SequenceEqual(mb.Span),
+        (byte[] ba, byte[] bb) => ba.AsSpan().SequenceEqual(bb),
+        _ => null,
+    };
+
+    /// <summary>A hash of a byte blob's bytes (equal for every pair BlobEq calls equal); null when v isn't a blob.</summary>
+    public static int? BlobHash(object v)
+    {
+        ReadOnlySpan<byte> s;
+        switch (v)
+        {
+            case ReadOnlyMemorySlice<byte> r: s = r.Span; break;
+            case MemorySlice<byte> m: s = m.Span; break;
+            case byte[] b: s = b; break;
+            default: return null;
+        }
+        var h = new HashCode();
+        h.AddBytes(s);
+        return h.ToHashCode();
+    }
 
     static bool DeepEq(object? a, object? b, int depth)
     {
         if (a is null || b is null) return a is null && b is null;
         // byte blobs (unknown data, navmesh geometry): compare bytes, not slice positions in two different files
-        if (a is ReadOnlyMemorySlice<byte> ra && b is ReadOnlyMemorySlice<byte> rb) return ra.Span.SequenceEqual(rb.Span);
-        if (a is MemorySlice<byte> ma && b is MemorySlice<byte> mb) return ma.Span.SequenceEqual(mb.Span);
-        if (a is byte[] ba && b is byte[] bb) return ba.AsSpan().SequenceEqual(bb);
+        if (BlobEq(a, b) is bool blobs) return blobs;
         // names and texts: the text itself (default language), whether it's stored in the plugin or in .strings files.
         // Walking a translated string's properties loads every language's strings files (1-2 s per record).
         if (a is Mutagen.Bethesda.Strings.ITranslatedStringGetter ta && b is Mutagen.Bethesda.Strings.ITranslatedStringGetter tb)
