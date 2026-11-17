@@ -119,7 +119,8 @@ public static class Impact
         if (count == 1) return n;
         var cut = n.IndexOf(" (", StringComparison.Ordinal);   // "mod (item modification)" -> "mods (item modification)"
         var (head, tail) = cut < 0 ? (n, "") : (n[..cut], n[cut..]);
-        return (head.EndsWith('s') ? head : head + "s") + tail;
+        var plural = head.EndsWith("ss") ? head + "es" : head.EndsWith('s') ? head : head + "s";
+        return plural + tail;
     }
 
     static string Words(string camel) => Regex.Replace(camel, "(?<=[a-z0-9])(?=[A-Z])", " ").ToLowerInvariant();
@@ -216,6 +217,7 @@ public static class Impact
     public static string Describe(object? v, Func<IFormLinkGetter, string> name, int depth = 0)
     {
         if (v is null) return "not set";
+        if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"point {g.Point}, land flags 0x{(uint)(int)g.Flags & 0xFF:X2}";   // without the junk bytes (0.5.0)
         if (IsLeaf(v)) return Plain(v, name);
         if (v is IEnumerable e)
         {
@@ -320,7 +322,7 @@ public static class Impact
             try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { continue; }
             if (a is Mutagen.Bethesda.Starfield.ICellGridGetter && p.Name == "Flags" && va is not null && vb is not null)   // XCLC: only the land-flag byte (0.5.0)
             {
-                var (fa, fb) = (Convert.ToUInt32(va) & 0xFF, Convert.ToUInt32(vb) & 0xFF);
+                var (fa, fb) = ((uint)Convert.ToInt64(va) & 0xFF, (uint)Convert.ToInt64(vb) & 0xFF);   // int enum, junk makes it negative
                 if (fa != fb) res.Add(new(Label($"{path} land flags"), "changed", $"0x{fa:X2}", $"0x{fb:X2}", false));
                 continue;
             }

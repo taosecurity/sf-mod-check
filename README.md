@@ -187,6 +187,7 @@ Then open `sfmodcheck-conflict\report.html` in a browser.
   read: summary, recommended actions, each conflict with its story, a filter box, light and dark themes), `report.md`
   (the same as Markdown) and `conflicts.json` (everything, for scripts).
 - `--max-memory`: stop cleanly when memory passes this many GB (exit code 3, no report), instead of slowing the PC.
+  It takes a number of GB above 0 and at most 1000000, for example 8.
 - `--quiet`: leave out the byline, the progress lines and the summary line.
 - `--verbose` and `--log <file>`: the troubleshooting log, as for `check`. It records the Data folder and load order
   used and why, the plugins loaded, each load-order problem, one line per record type (records, versions and memory),

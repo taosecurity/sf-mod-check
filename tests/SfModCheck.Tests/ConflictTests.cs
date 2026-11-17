@@ -21,7 +21,8 @@ public class ConflictTests
     {
         public readonly string Data;
         public readonly string BaseName;
-        public Game(string baseName = "Base.esm")
+        /// <param name="cellGrid">give the base cell a grid with junk in its 3 unused bytes, as Bethesda's files have</param>
+        public Game(string baseName = "Base.esm", bool cellGrid = false)
         {
             BaseName = baseName;
             Data = Sub("Data");
@@ -34,6 +35,7 @@ public class ConflictTests
             var quest = b.Quests.AddNew("B_Quest");
             quest.DialogTopics.Add(new DialogTopic(b) { EditorID = "B_Topic", Quest = quest.ToLink<IQuestGetter>(), Priority = 50 });
             var cell = new Cell(b) { EditorID = "B_Cell" };
+            if (cellGrid) cell.Grid = new CellGrid { Point = new P2Int(0, 0), Flags = (CellGrid.Flag)unchecked((int)0xA9CE0001) };
             cell.Temporary.Add(new PlacedObject(b) { Base = misc.ToLink<IPlaceableObjectGetter>() });
             b.Cells.Add(new CellBlock { SubBlocks = new ExtendedList<CellSubBlock> { new CellSubBlock { Cells = new ExtendedList<Cell> { cell } } } });
             using var g = new GameData(Data);
@@ -217,6 +219,56 @@ public class ConflictTests
         Assert.False(FieldCompare.DeepEq(a, c, 0));
     }
 
+    // Round 4: the land-flag line read the int flags enum with Convert.ToUInt32, which throws on the negative values
+    // Bethesda's junk bytes make, so the report failed for any moved cell grid.
+    [Fact]
+    public void A_moved_cell_grid_with_junk_flag_bytes_is_described_not_crashed()
+    {
+        using var game = new Game(cellGrid: true);   // base grid 0,0 with junk: the walk compares grid with grid
+        var junk = (CellGrid.Flag)unchecked((int)0xA9CE0001);
+        game.Mod("ModA.esm", (m, open) =>
+        {
+            var b = open("Base.esm");
+            var cell = (Cell)b.Cells.Records.First().SubBlocks.First().Cells.First().DeepCopy();
+            cell.Grid = new CellGrid { Point = new P2Int(5, 6), Flags = junk };
+            cell.Temporary.Clear(); cell.Persistent.Clear();
+            m.Cells.Add(new CellBlock { SubBlocks = new ExtendedList<CellSubBlock> { new CellSubBlock { Cells = new ExtendedList<Cell> { cell } } } });
+        });
+        game.Mod("ModB.esm", (m, open) =>
+        {
+            var b = open("Base.esm");
+            var cell = (Cell)b.Cells.Records.First().SubBlocks.First().Cells.First().DeepCopy();
+            cell.Grid = new CellGrid { Point = new P2Int(1, 2), Flags = (CellGrid.Flag)unchecked((int)0x12340003) };
+            cell.EditorID = "B_Cell_Renamed";
+            cell.Temporary.Clear(); cell.Persistent.Clear();
+            m.Cells.Add(new CellBlock { SubBlocks = new ExtendedList<CellSubBlock> { new CellSubBlock { Cells = new ExtendedList<Cell> { cell } } } });
+        });
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm", "ModB.esm" });
+        Assert.Equal(0, code);
+        Assert.StartsWith("RESULT: OK", ExeTests.ResultLine(stdout));
+        var lost = Assert.Single(Lost(json), l => Fields(l).Contains("Grid"));
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        // the exact difference line: a failure inside the description is swallowed (Safe) and this line goes missing
+        var diffs = lost.GetProperty("Fields").EnumerateArray().SelectMany(f => f.GetProperty("Differences").EnumerateArray())
+            .Select(d => S(d, "Text")).ToList();
+        Assert.Contains(diffs, d => d.Contains("land flags is 0x03 in game instead of 0x01"));
+        Assert.Contains("0x03", md);     // ModB's real land flags (ModA kept the base's 0x01)
+        Assert.DoesNotContain("A9CE", md, StringComparison.OrdinalIgnoreCase);   // no junk bytes shown
+        Assert.DoesNotContain("1234", md);
+    }
+
+    [Fact]
+    public void Byte_blobs_compare_and_hash_by_their_bytes()
+    {
+        var a = new Noggog.ReadOnlyMemorySlice<byte>(new byte[] { 0, 4, 5, 6 }, 1, 3);
+        var b = new Noggog.ReadOnlyMemorySlice<byte>(new byte[] { 4, 5, 6 });
+        var c = new Noggog.ReadOnlyMemorySlice<byte>(new byte[] { 4, 5, 7 });
+        Assert.True(FieldCompare.DeepEq(a, b, 0));
+        Assert.Equal(FieldCompare.DeepHash(a, 0), FieldCompare.DeepHash(b, 0));
+        Assert.False(FieldCompare.DeepEq(a, c, 0));
+        Assert.Equal("classes", SfModCheck.Conflict.Impact.TypeName("Class", 2));
+    }
+
     [Fact]
     public void Equal_bytes_from_different_files_hash_alike()
     {
@@ -239,11 +291,13 @@ public class ConflictTests
     [InlineData("NaN")]
     [InlineData("Infinity")]
     [InlineData("0")]
+    [InlineData("1e-10")]
+    [InlineData("2000000")]
     public void Max_memory_must_be_a_real_number_of_GB(string value)
     {
         var (code, stdout, stderr) = ExeTests.RunSplit("conflict", "--max-memory", value, "--quiet");
         Assert.Equal(2, code);
-        Assert.Contains("--max-memory needs a number of GB above 0", stdout + stderr);
+        Assert.Contains("--max-memory needs a number of GB above 0 and at most 1000000", stdout + stderr);
     }
 
     [Fact]

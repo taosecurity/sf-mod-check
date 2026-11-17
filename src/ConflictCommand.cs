@@ -73,9 +73,9 @@ public static class ConflictCommand
                     outDir = o; break;
                 case "--max-memory":
                     if (Value(ref i, "a number of GB") is not { } m) return 2;
-                    if (!double.TryParse(m, NumberStyles.Float, CultureInfo.InvariantCulture, out maxGb) || !double.IsFinite(maxGb) || maxGb <= 0 || maxGb > 1_000_000)
+                    if (!double.TryParse(m, NumberStyles.Float, CultureInfo.InvariantCulture, out maxGb) || !double.IsFinite(maxGb) || maxGb * 1e9 < 1 || maxGb > 1_000_000)   // under one byte would turn the limit off
                     {
-                        Console.Error.WriteLine($"--max-memory needs a number of GB above 0, not \"{m}\", for example: --max-memory 8");
+                        Console.Error.WriteLine($"--max-memory needs a number of GB above 0 and at most 1000000, not \"{m}\", for example: --max-memory 8");
                         return 2;
                     }
                     break;
@@ -171,7 +171,7 @@ public static class ConflictCommand
         {
             var mods = lo.Plugins.Count(p => !p.Official);
             Log.Write($"loaded {lo.Plugins.Count} plugins ({lo.Plugins.Count - mods} official, {mods} mods), {lo.Problems.Count} load-order problems");
-            foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
+            foreach (var p in lo.Problems) Log.Write($"load-order problem: {Impact.OneLine(p)}");
             if (!quiet) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
 
             Analysis analysis;

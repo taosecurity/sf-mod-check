@@ -52,7 +52,10 @@ Fixes from the release's code review (`conflict`):
   land flags when their real byte differs.
 - Plugin text containing the page's menu placeholder no longer gets the menu pasted into it; load-order problems
   stay on one line in report.md; "mods (item modification)" instead of "mod (item modification)s".
-- `--max-memory` refuses NaN, Infinity and other values that aren't a real number of GB.
+- `--max-memory` refuses NaN, Infinity, values so small they would round to no limit, and values over 1000000 GB,
+  and says so.
+- Byte data (navmeshes, undocumented blobs) compares and hashes by its bytes in one step, as in `check`.
+- A cell grid described as a whole shows its point and real land flags; "classes", not "class", in plural messages.
 - `--max-memory` is also checked while a record type is being read, not only while records are compared.
 - The RESULT line counts read problems as "read problems (records not compared ...)".
 - A `|` in plugin text no longer breaks the tables in report.md; plugin file names in the AI prompt are cleaned
