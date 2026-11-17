@@ -59,7 +59,7 @@ public static class Report
         {
             md.AppendLine("## Load-order problems");
             md.AppendLine();
-            foreach (var p in lo.Problems) md.AppendLine($"- {Impact.OneLine(p)}");
+            foreach (var p in lo.Problems) md.AppendLine($"- {p}");   // one line already (LoadOrderSetup.Build)
             md.AppendLine();
         }
 
@@ -88,7 +88,7 @@ public static class Report
         md.AppendLine("| # | Plugin | Official | Masters |");
         md.AppendLine("|---|---|---|---|");
         foreach (var p in lo.Plugins)
-            md.AppendLine($"| {p.Index} | {p.FileName} | {(p.Official ? "yes: " + LoadOrderSetup.OfficialName(p.FileName) : "")} | {string.Join(", ", p.Masters)} |");
+            md.AppendLine($"| {p.Index} | {p.FileName} | {(p.Official ? "yes: " + LoadOrderSetup.OfficialName(p.FileName) : "")} | {Md(Impact.OneLine(string.Join(", ", p.Masters)))} |");
         md.AppendLine();
 
         md.AppendLine("## What this report does not check");

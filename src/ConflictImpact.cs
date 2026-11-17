@@ -119,10 +119,20 @@ public static class Impact
         if (count == 1) return n;
         var cut = n.IndexOf(" (", StringComparison.Ordinal);   // "mod (item modification)" -> "mods (item modification)"
         var (head, tail) = cut < 0 ? (n, "") : (n[..cut], n[cut..]);
-        var plural = head.EndsWith('s') || head.EndsWith('x') || head.EndsWith("ch") || head.EndsWith("sh") ? head + "es"
-            : head.Length > 1 && head.EndsWith('y') && !"aeiou".Contains(head[^2]) ? head[..^1] + "ies"
-            : head + "s";
-        return plural + tail;
+        var of = head.IndexOf(" of ", StringComparison.Ordinal);   // "time of day" -> "times of day"
+        if (of > 0) (head, tail) = (head[..of], head[of..] + tail);
+        return Plural(head) + tail;
+    }
+
+    // English plural of a lower-case noun phrase's last word; words that stay the same are listed.
+    static readonly HashSet<string> SamePlural = new(StringComparer.Ordinal) { "debris", "series", "species", "armor", "ammo", "equipment" };
+    static string Plural(string w)
+    {
+        var last = w[(w.LastIndexOf(' ') + 1)..];
+        if (SamePlural.Contains(last)) return w;
+        if (w.EndsWith('s') || w.EndsWith('x') || w.EndsWith("ch") || w.EndsWith("sh")) return w + "es";
+        if (w.Length > 1 && w.EndsWith('y') && !"aeiou".Contains(w[^2])) return w[..^1] + "ies";
+        return w + "s";
     }
 
     static string Words(string camel) => Regex.Replace(camel, "(?<=[a-z0-9])(?=[A-Z])", " ").ToLowerInvariant();
@@ -320,15 +330,14 @@ public static class Impact
         foreach (var p in a.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (!p.CanRead || p.GetIndexParameters().Length > 0 || p.Name is "StaticRegistration" or "Registration") continue;
-            object? va, vb;
-            try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { continue; }
-            if (a is Mutagen.Bethesda.Starfield.ICellGridGetter && p.Name == "Flags" && va is not null && vb is not null)   // XCLC: only the land-flag byte (0.5.0)
-            {
-                var (fa, fb) = (SfModCheck.Overrides.LandFlags((Mutagen.Bethesda.Starfield.ICellGridGetter)a),   // typed, no conversion
-                                SfModCheck.Overrides.LandFlags((Mutagen.Bethesda.Starfield.ICellGridGetter)b));
+            if (p.Name == "Flags" && a is Mutagen.Bethesda.Starfield.ICellGridGetter ga && b is Mutagen.Bethesda.Starfield.ICellGridGetter gb)
+            {   // XCLC: only the land-flag byte, read typed (0.5.0)
+                var (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb));
                 if (fa != fb) res.Add(new(Label($"{path} land flags"), "changed", $"0x{fa:X2}", $"0x{fb:X2}", false));
                 continue;
             }
+            object? va, vb;
+            try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { continue; }
             Walk(va, vb, $"{path} {p.Name}", depth + 1, res, name);
         }
     }

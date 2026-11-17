@@ -256,6 +256,8 @@ public class ConflictTests
         var flagLines = md.Split('\n').Where(l => l.Contains("land flags", StringComparison.OrdinalIgnoreCase)).ToList();
         Assert.NotEmpty(flagLines);
         Assert.All(flagLines, l => Assert.DoesNotMatch("(?i)0x[0-9a-f]{3,}", l));   // land flags only ever as one byte
+        Assert.DoesNotMatch("(?i)LandFlags=0x[0-9a-f]{3,}", md);                  // nor in the value columns (Dump)
+        Assert.Matches("LandFlags=0x[0-9A-F]{2}\\b", md);
     }
 
     [Fact]
@@ -296,7 +298,8 @@ public class ConflictTests
     [InlineData("Terminal", 3, "terminals")]
     [InlineData("Class", 2, "classes")]
     [InlineData("Lens", 2, "lenses")]
-    [InlineData("TimeOfDay", 2, "time of days")]
+    [InlineData("TimeOfDay", 2, "times of day")]
+    [InlineData("Debris", 2, "debris")]
     [InlineData("Category", 2, "categories")]
     [InlineData("Box", 2, "boxes")]
     public void Plural_type_names_put_the_s_before_the_note(string type, int count, string expected) =>
