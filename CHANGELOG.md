@@ -57,8 +57,10 @@ Fixes from the release's code review (`conflict`):
 - Byte data (navmeshes, undocumented blobs) compares and hashes by its bytes in one step, as in `check`.
 - A cell grid described as a whole shows its point and real land flags. Counts of record types read "2 weapons" for
   the common types and "2 instance naming rules records" for the rest, instead of guessed plurals.
-- report.md escapes `|`, `<`, `>`, `[`, `]` and `\` in plugin and master names and values, so table cells and
-  markup can't be broken from a plugin.
+- report.md escapes `|`, `<`, `>`, `[`, `]` and `\` in the Load order table (plugin and master names) and in the
+  record, lost-value and winning-value cells of the lost-change tables. Other report.md text (headings, the
+  Impact column, the problem list, the ITM table's plugin cell) is kept on one line but not yet escaped, so a
+  crafted plugin name can still show as Markdown formatting there; report.html is encoded everywhere.
 - `--max-memory` is also checked while a record type is being read, not only while records are compared.
 - The RESULT line counts read problems as "read problems (records not compared ...)".
 - A `|` in plugin text no longer breaks the tables in report.md; plugin file names in the AI prompt are cleaned
