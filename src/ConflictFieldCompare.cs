@@ -115,7 +115,7 @@ public static class FieldCompare
         if (v is string s) return s.GetHashCode();
         if (v is Mutagen.Bethesda.Strings.ITranslatedStringGetter ts) return (ts.String ?? "").GetHashCode();   // as DeepEq
         var t = v.GetType();
-        if (t.IsValueType) return v.GetHashCode();
+        if (t.IsValueType && v is not IEnumerable) return v.GetHashCode();   // slices hash by entries, as DeepEq walks them (0.5.0)
         var h = new HashCode();
         h.Add(t);
         try
@@ -161,6 +161,7 @@ public static class FieldCompare
         if (v is null) return "null";
         if (v is Mutagen.Bethesda.Plugins.IFormLinkGetter fl) return fl.FormKey.ToString();
         if (v is Mutagen.Bethesda.Strings.ITranslatedStringGetter ts) return $"\"{Impact.OneLine(ts.String)}\"";
+        if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"CellGrid{{Point={g.Point}, LandFlags=0x{(uint)g.Flags & 0xFF:X2}}}";   // without the junk bytes (0.5.0)
         var t = v.GetType();
         if (v is IEnumerable e and not string)
             return "[" + string.Join("; ", e.Cast<object?>().Take(20).Select(x => Dump(x, depth + 1))) + "]";

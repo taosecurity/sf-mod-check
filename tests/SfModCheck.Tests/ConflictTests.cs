@@ -218,6 +218,55 @@ public class ConflictTests
     }
 
     [Fact]
+    public void Equal_bytes_from_different_files_hash_alike()
+    {
+        var one = new byte[] { 9, 1, 2, 3, 9 };
+        var two = new byte[] { 7, 7, 1, 2, 3 };
+        var a = new Noggog.ReadOnlyMemorySlice<byte>(one, 1, 3);
+        var b = new Noggog.ReadOnlyMemorySlice<byte>(two, 2, 3);
+        Assert.True(FieldCompare.DeepEq(a, b, 0));
+        Assert.Equal(FieldCompare.DeepHash(a, 0), FieldCompare.DeepHash(b, 0));
+    }
+
+    [Theory]
+    [InlineData("ObjectModification", 2, "mods (item modification)")]
+    [InlineData("ObjectModification", 1, "mod (item modification)")]
+    [InlineData("Terminal", 3, "terminals")]
+    public void Plural_type_names_put_the_s_before_the_note(string type, int count, string expected) =>
+        Assert.Equal(expected, SfModCheck.Conflict.Impact.TypeName(type, count));
+
+    [Theory]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    [InlineData("0")]
+    public void Max_memory_must_be_a_real_number_of_GB(string value)
+    {
+        var (code, stdout, stderr) = ExeTests.RunSplit("conflict", "--max-memory", value, "--quiet");
+        Assert.Equal(2, code);
+        Assert.Contains("--max-memory needs a number of GB above 0", stdout + stderr);
+    }
+
+    [Fact]
+    public void Plugin_text_with_the_menu_placeholder_does_not_get_the_menu()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        game.Mod("ModB.esm", (m, open) =>
+        {
+            var misc = Misc(m, open("Base.esm"));
+            misc.Weight = 2;
+            misc.EditorID = "B_Misc@@NAV@@";
+        });
+        var (code, _, _) = game.Conflict(new[] { "Base.esm", "ModA.esm", "ModB.esm" });
+        Assert.Equal(0, code);
+        var html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "<nav class=\"side\""));
+        Assert.Contains("B_Misc@@NAV@@", html);   // the plugin's own text is kept as it is
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "aria-label=\"Report sections\""));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "<div class=\"brand\""));   // the menu itself, once
+    }
+
+    [Fact]
     public void Report_links_are_unique_for_pairs_with_similar_names()
     {
         Assert.NotEqual(HtmlReport.Anchor("A-B.esm", "C.esm"), HtmlReport.Anchor("A.esm", "B-C.esm"));

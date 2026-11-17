@@ -59,7 +59,7 @@ public static class Report
         {
             md.AppendLine("## Load-order problems");
             md.AppendLine();
-            foreach (var p in lo.Problems) md.AppendLine($"- {p}");
+            foreach (var p in lo.Problems) md.AppendLine($"- {Impact.OneLine(p)}");
             md.AppendLine();
         }
 

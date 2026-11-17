@@ -187,8 +187,7 @@ public static class Analyzer
                     catch (Exception)
                     {
                         unsure[i] = true;
-                        var key = $"{versions[i].Rec.Registration.ClassType.Name}.{fields[f].Name}";
-                        result.UnreadableFields[key] = result.UnreadableFields.GetValueOrDefault(key) + 1;
+                        Unreadable(versions[i].Rec, fields[f].Name);
                     }
                 }
 

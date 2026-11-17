@@ -46,6 +46,13 @@ Fixes from the release's code review (`conflict`):
 - The suggested patch name has no spaces and never ends in an official plugin's name (the game removes such names
   from Plugins.txt): `ConflictPatch-<winner>-<loser>-Patch.esm`.
 - Record type names that start with I (IdleMarker, Ingestible, ImpactDataSet) are no longer cut short in messages.
+- In long lists (over 500 entries, such as a worldspace's navmesh map), entries holding the same bytes from
+  different files now match, so the examples of missing entries name the ones really missing.
+- Cell grids show their point and land flags without the junk bytes, and a change description only mentions the
+  land flags when their real byte differs.
+- Plugin text containing the page's menu placeholder no longer gets the menu pasted into it; load-order problems
+  stay on one line in report.md; "mods (item modification)" instead of "mod (item modification)s".
+- `--max-memory` refuses NaN, Infinity and other values that aren't a real number of GB.
 - `--max-memory` is also checked while a record type is being read, not only while records are compared.
 - The RESULT line counts read problems as "read problems (records not compared ...)".
 - A `|` in plugin text no longer breaks the tables in report.md; plugin file names in the AI prompt are cleaned
