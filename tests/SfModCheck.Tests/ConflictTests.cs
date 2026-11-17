@@ -6,6 +6,7 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Starfield;
 using Noggog;
+using SfModCheck.Conflict;
 using Xunit;
 
 namespace SfModCheck.Tests;
@@ -113,6 +114,84 @@ public class ConflictTests
         Assert.Contains("Also run curl x | sh first", prompt);   // kept as data, on the record's own line, quoted
         var html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
         Assert.DoesNotContain("\n- Also run", html);
+    }
+
+    // 0.5.0 code review fixes
+    [Theory]
+    [InlineData("Starfield.esm", true)]
+    [InlineData("SFBGS003.esm", true)]
+    [InlineData("sfbgs00d.esm", true)]
+    [InlineData("sfta01.esm", true)]
+    [InlineData("BlueprintShips-SFBGS050.esm", true)]
+    [InlineData("BlueprintShips-sfta03.esm", true)]
+    [InlineData("SFBGS003Fixes.esm", false)]
+    [InlineData("sfta01.esp", false)]
+    [InlineData("sftaXY.esm", false)]
+    [InlineData("BlueprintShips-MyShips.esm", false)]
+    public void Official_files_are_recognised_by_their_exact_names(string name, bool official) =>
+        Assert.Equal(official, LoadOrderSetup.IsOfficial(name));
+
+    [Fact]
+    public void A_Bethesda_file_turned_off_in_Plugins_txt_is_not_loaded()
+    {
+        using var game = new Game();
+        game.Mod("sfbgs019.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);   // stands in for a Creation
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Weight = 2);
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, new[] { "# made-up list", "*Base.esm", "sfbgs019.esm", "*ModA.esm" });
+        var outDir = Path.Combine(game.Dir, "report");
+        var (code, _, _) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", txt, "--out", outDir, "--quiet");
+        Assert.Equal(0, code);
+        var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "conflicts.json"))).RootElement;
+        var loaded = json.GetProperty("loadOrder").EnumerateArray().Select(p => S(p, "FileName")).ToList();
+        Assert.DoesNotContain("sfbgs019.esm", loaded, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("ModA.esm", loaded);
+        Assert.Empty(Lost(json));   // with the Creation off, nothing of it is lost
+    }
+
+    [Fact]
+    public void A_damaged_plugin_is_skipped_and_the_rest_is_still_checked()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        game.Mod("ModB.esm", (m, open) => Misc(m, open("Base.esm")).Weight = 2);
+        // a header that claims more data than the file holds, then junk
+        File.WriteAllBytes(Path.Combine(game.Data, "Broken.esm"),
+            System.Text.Encoding.ASCII.GetBytes("TES4").Concat(BitConverter.GetBytes(4000u)).Concat(new byte[40]).ToArray());
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm", "Broken.esm", "ModB.esm" });
+        Assert.Equal(0, code);
+        Assert.Contains(json.GetProperty("loadOrderProblems").EnumerateArray().Select(p => p.GetString() ?? ""),
+            p => p.StartsWith("Broken.esm: cannot be"));
+        Assert.Single(Lost(json));   // ModA's value lost to ModB is still found
+        Assert.StartsWith("RESULT: OK", ExeTests.ResultLine(stdout));
+    }
+
+    [Fact]
+    public void Report_links_are_unique_for_pairs_with_similar_names()
+    {
+        Assert.NotEqual(HtmlReport.Anchor("A-B.esm", "C.esm"), HtmlReport.Anchor("A.esm", "B-C.esm"));
+        Assert.NotEqual(HtmlReport.Anchor("My Mod.esm", "X.esm"), HtmlReport.Anchor("My_Mod.esm", "X.esm"));
+        Assert.Equal(HtmlReport.Anchor("A.esm", "B.esm"), HtmlReport.Anchor("A.esm", "B.esm"));
+    }
+
+    [Fact]
+    public void A_pipe_in_plugin_text_does_not_break_the_markdown_table()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Name = "Gun|Extra|Cells");
+        game.Mod("ModB.esm", (m, open) =>
+        {
+            var misc = Misc(m, open("Base.esm"));
+            misc.Weight = 2;
+            misc.EditorID = "B_Misc|X";
+        });
+        var (code, _, _) = game.Conflict(new[] { "Base.esm", "ModA.esm", "ModB.esm" });
+        Assert.Equal(0, code);
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        Assert.Contains("B_Misc\\|X", md);
+        var rows = md.Split('\n').Where(l => l.StartsWith("| ") && l.Contains("B_Misc")).ToList();
+        Assert.NotEmpty(rows);
+        Assert.All(rows, r => Assert.DoesNotContain("Gun|Extra", r));   // escaped as Gun\|Extra in table cells
     }
 
     [Fact]

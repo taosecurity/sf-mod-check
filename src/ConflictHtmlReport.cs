@@ -156,7 +156,7 @@ public static class HtmlReport
         {
             h.Append("<div class=\"scroll\"><table><tr><th>Plugin</th><th>Record</th><th>FormKey</th></tr>");
             foreach (var i in a.Itms.OrderBy(i => i.Plugin))
-                h.Append($"<tr class=\"f\"><td>{HtmlEncode(i.Plugin)}</td><td>{HtmlEncode(i.RecordType)} {HtmlEncode(i.EditorID ?? "")}</td><td><code>{i.FormKey}</code></td></tr>");
+                h.Append($"<tr class=\"f\"><td>{HtmlEncode(i.Plugin)}</td><td>{HtmlEncode(i.RecordType)} {HtmlEncode(i.EditorID ?? "")}</td><td><code>{HtmlEncode(i.FormKey.ToString())}</code></td></tr>");
             h.Append("</table></div>");
         }
 
@@ -261,7 +261,14 @@ public static class HtmlReport
     static string PromptBlock(Recommendation r) => r.Prompt is null ? "" :
         $"<details class=\"prompt\"><summary>Prompt for an AI assistant</summary><button class=\"copy\" type=\"button\">Copy</button><pre>{HtmlEncode(r.Prompt)}</pre></details>";
 
-    static string Anchor(string winner, string loser) => "c-" + System.Text.RegularExpressions.Regex.Replace(winner + "-" + loser, "[^A-Za-z0-9]+", "-");
+    // Readable part plus a short hash of the exact pair, so pairs such as (A-B.esm, C.esm) and (A.esm, B-C.esm) never
+    // share an id (0.5.0 code review). The hash is FNV-1a over the lower-case names: stable from run to run.
+    public static string Anchor(string winner, string loser)
+    {
+        uint h = 2166136261;
+        foreach (var c in (winner + "\u0001" + loser).ToLowerInvariant()) { h ^= c; h *= 16777619; }
+        return "c-" + System.Text.RegularExpressions.Regex.Replace(winner + "-" + loser, "[^A-Za-z0-9]+", "-") + "-" + h.ToString("x8");
+    }
 
     static void Groups(StringBuilder h, List<LostChange> items, LoadOrderSetup lo, Analysis a)
     {
@@ -295,7 +302,7 @@ public static class HtmlReport
             h.Append("<table><thead><tr><th>Field</th><th>Kind</th><th>Lost value</th><th>Winning value</th></tr></thead>");
             foreach (var l in g.OrderBy(l => l.RecordType).ThenBy(l => l.EditorID))
             {
-                h.Append($"<tbody class=\"rec-block\"><tr class=\"rec\"><td colspan=\"4\">{HtmlEncode(l.RecordType)} {HtmlEncode(l.EditorID ?? "")} <code>{l.FormKey}</code></td></tr>");
+                h.Append($"<tbody class=\"rec-block\"><tr class=\"rec\"><td colspan=\"4\">{HtmlEncode(l.RecordType)} {HtmlEncode(l.EditorID ?? "")} <code>{HtmlEncode(l.FormKey.ToString())}</code></td></tr>");
                 foreach (var f in l.Fields)
                     h.Append($"<tr><td>{HtmlEncode(f.Field)}</td><td>{(Impact.IsMinor(f) ? "<span class=\"badge minor\">No effect</span>" : f.WinnerChangedToo ? "<span class=\"badge choice\">Choice</span>" : "<span class=\"badge fwd\">Forwardable</span>")}</td>" +
                              $"<td class=\"val\">{Value(f.LoserValue)}</td><td class=\"val\">{Value(f.WinnerValue)}</td></tr>" +

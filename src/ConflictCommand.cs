@@ -200,7 +200,7 @@ public static class ConflictCommand
             foreach (var err in analysis.Errors.Take(5)) Console.Error.WriteLine($"note: {err}");
             if (analysis.Errors.Count > 5) Console.Error.WriteLine($"note: ... and {analysis.Errors.Count - 5} more (the report's \"Tool limits hit\" section)");
             Console.WriteLine($"RESULT: OK, {analysis.Lost.Count} lost-change entries ({official} official, {analysis.Lost.Count - official} mod vs mod), " +
-                              $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} records not compared" : "")} " +
+                              $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} read problems (records not compared; see the report's \"Tool limits hit\")" : "")} " +
                               $"(report: {Path.Combine(outDir, "report.html")}; {sw.Elapsed.TotalSeconds:F0} s)");
             Log.Write($"result: {analysis.Lost.Count} lost-change entries, {analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems, " +
                       $"{analysis.Errors.Count} errors, exit code 0, {sw.Elapsed.TotalSeconds:F1} s, peak working set {Process.GetCurrentProcess().PeakWorkingSet64 / 1e9:F1} GB");

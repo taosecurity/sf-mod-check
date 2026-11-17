@@ -33,6 +33,18 @@ assistant that can run commands. Now EditorIDs in the prompt keep only EditorID 
 breaks, control characters, quotes and backticks and are quoted, and the prompt says they are data, not instructions.
 Text from plugins also stays on one line everywhere in report.md and report.html.
 
+Fixes from the release's code review (`conflict`):
+- A Bethesda Creation switched off in Plugins.txt (its file stays in Data) is no longer analyzed as if loaded,
+  nor is its ship-blueprint file.
+- Bethesda's files are recognized by their exact names (SFBGS + 3 hex digits, sfta + 2 digits, their
+  BlueprintShips- files), so a mod named, say, SFBGS003Fixes.esm is checked like any other mod.
+- A damaged plugin that can't be opened is skipped with a load-order problem, and the rest is still checked.
+- `--max-memory` is also checked while a record type is being read, not only while records are compared.
+- The RESULT line counts read problems as "read problems (records not compared ...)".
+- A `|` in plugin text no longer breaks the tables in report.md; plugin file names in the AI prompt are cleaned
+  like the rest of the plugin text; record IDs in report.html are HTML-encoded; section links in report.html are
+  unique for pairs with similar names.
+
 Fix (both commands): an empty option value (`--data ""`, an unset variable in a script) or an empty plugin name now
 says which option is empty and how to fix it, instead of stopping with "ArgumentException: The path is empty".
 

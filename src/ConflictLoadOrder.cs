@@ -55,11 +55,14 @@ public class LoadOrderSetup
 
     public static string? OfficialName(string name) => OfficialNames.GetValueOrDefault(name);
 
+    // Bethesda's file names exactly (0.5.0): SFBGS + 3 hex digits, sfta + 2 digits, and their BlueprintShips- files.
+    // A prefix test also caught mods such as SFBGS003Fixes.esm and hid their conflicts as "Bethesda vs Bethesda".
+    static readonly System.Text.RegularExpressions.Regex OfficialPattern = new(
+        @"^(BlueprintShips-)?(SFBGS[0-9A-F]{3}|sfta[0-9]{2})\.esm$|^BlueprintShips-Starfield\.esm$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     public static bool IsOfficial(string name) =>
-        OfficialOrder.Contains(name, StringComparer.OrdinalIgnoreCase)
-        || name.StartsWith("SFBGS", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("BlueprintShips-", StringComparison.OrdinalIgnoreCase)
-        || (name.StartsWith("sfta", StringComparison.OrdinalIgnoreCase) && name.Length == "sfta01.esm".Length);
+        OfficialOrder.Contains(name, StringComparer.OrdinalIgnoreCase) || OfficialPattern.IsMatch(name);
 
     public List<PluginInfo> Plugins { get; } = new();
     public List<string> Problems { get; } = new();
@@ -69,14 +72,13 @@ public class LoadOrderSetup
     {
         var setup = new LoadOrderSetup();
         List<string> listed;
+        var turnedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (pluginsTxt is not null)
         {
-            // Active lines start with '*'; '#' lines are comments.
-            listed = File.ReadAllLines(pluginsTxt)
-                .Select(l => l.Trim())
-                .Where(l => l.StartsWith('*'))
-                .Select(l => l[1..])
-                .ToList();
+            // Active lines start with '*'; '#' lines are comments; any other line is a plugin turned off.
+            var lines = File.ReadAllLines(pluginsTxt).Select(l => l.Trim()).ToList();
+            listed = lines.Where(l => l.StartsWith('*')).Select(l => l[1..]).ToList();
+            foreach (var l in lines.Where(l => l.Length > 0 && !l.StartsWith('*') && !l.StartsWith('#'))) turnedOff.Add(l);
             setup.OrderSource = $"Plugins.txt ({pluginsTxt}), {listed.Count} active entries";
         }
         else
@@ -113,7 +115,10 @@ public class LoadOrderSetup
         // The game loads Bethesda's files whether or not Plugins.txt lists them (SFBGS00D etc. usually are not listed).
         foreach (var o in OfficialOrder) if (onDisk.ContainsKey(o)) Add(o);
         foreach (var n in listed.Where(IsOfficial)) Add(n);
-        foreach (var n in onDisk.Keys.Where(f => IsOfficial(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase))
+        // Other Bethesda files in Data load too, unless Plugins.txt lists them turned off (a Creation switched off in
+        // the game's Creations menu keeps its file in Data; a ship-blueprint file goes with its Creation; 0.5.0).
+        foreach (var n in onDisk.Keys.Where(f => IsOfficial(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)
+                                               && !turnedOff.Contains(f.StartsWith("BlueprintShips-", StringComparison.OrdinalIgnoreCase) ? f["BlueprintShips-".Length..] : f))
                      .OrderBy(f => f.StartsWith("BlueprintShips-", StringComparison.OrdinalIgnoreCase))  // ship blueprints need their SFBGS master first
                      .ThenBy(f => f, StringComparer.OrdinalIgnoreCase)) Add(n);
         foreach (var n in listed.Where(n => !IsOfficial(n))) Add(n);
@@ -149,8 +154,18 @@ public class LoadOrderSetup
                     setup.Problems.Add($"{name}: listed before its master {m}; the game would fail to load it, so it was analyzed after {m}");
             }
             chain.Pop();
-            var mod = StarfieldMod.CreateFromBinaryOverlay(path, StarfieldRelease.Starfield,
-                new BinaryReadParameters { MasterFlagsLookup = new LoadOrder<IModMasterStyledGetter>(opened.Values.Select(p => (IModMasterStyledGetter)p.Mod)) });
+            IStarfieldModDisposableGetter mod;
+            try
+            {
+                mod = StarfieldMod.CreateFromBinaryOverlay(path, StarfieldRelease.Starfield,
+                    new BinaryReadParameters { MasterFlagsLookup = new LoadOrder<IModMasterStyledGetter>(opened.Values.Select(p => (IModMasterStyledGetter)p.Mod)) });
+            }
+            catch (Exception e)   // a damaged plugin is skipped, not the whole run (0.5.0)
+            {
+                setup.Problems.Add($"{name}: cannot be opened ({e.GetType().Name}: {e.Message.Split('\n')[0]}), plugin skipped; run sfmodcheck check on it for details");
+                skipped.Add(name);
+                return false;
+            }
             var info = new PluginInfo(opened.Count, name, IsOfficial(name), masters, mod);
             opened[name] = info;
             setup.Plugins.Add(info);

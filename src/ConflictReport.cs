@@ -80,7 +80,7 @@ public static class Report
         md.AppendLine("| Plugin | ITM records | Examples |");
         md.AppendLine("|---|---|---|");
         foreach (var g in a.Itms.GroupBy(i => i.Plugin).OrderByDescending(g => g.Count()))
-            md.AppendLine($"| {g.Key} | {g.Count()} | {string.Join(", ", g.Take(5).Select(i => $"{i.RecordType} {Impact.OneLine(i.EditorID ?? i.FormKey.ToString())}"))} |");
+            md.AppendLine($"| {g.Key} | {g.Count()} | {string.Join(", ", g.Take(5).Select(i => $"{i.RecordType} {Md(Impact.OneLine(i.EditorID ?? i.FormKey.ToString()))}"))} |");
         md.AppendLine();
 
         md.AppendLine("## Load order used");
@@ -127,7 +127,10 @@ public static class Report
         File.WriteAllText(Path.Combine(outDir, "conflicts.json"), JsonSerializer.Serialize(json, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    static string Cut(string s) => s.Length > 160 ? s[..160] + "…" : s;
+    static string Cut(string s) => Md(s.Length > 160 ? s[..160] + "…" : s);
+
+    // A table cell from plugin text: a "|" would end the cell early (0.5.0 code review).
+    static string Md(string? s) => (s ?? "").Replace("|", "\\|");
 
     static void WriteGroups(StringBuilder md, List<LostChange> items, LoadOrderSetup lo, Analysis a)
     {
@@ -158,7 +161,7 @@ public static class Report
             md.AppendLine("|---|---|---|---|---|---|");
             foreach (var l in g.Take(RowsPerGroup))
                 foreach (var f in l.Fields)
-                    md.AppendLine($"| {l.RecordType} {Impact.OneLine(l.EditorID)} `{l.FormKey}` | {f.Field} | {(Impact.IsMinor(f) ? "No effect" : f.WinnerChangedToo ? "Choice" : "Forwardable")} | {Impact.Flat(Impact.ForField(l, f)).Replace("|", "/")} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
+                    md.AppendLine($"| {l.RecordType} {Md(Impact.OneLine(l.EditorID))} `{l.FormKey}` | {f.Field} | {(Impact.IsMinor(f) ? "No effect" : f.WinnerChangedToo ? "Choice" : "Forwardable")} | {Impact.Flat(Impact.ForField(l, f)).Replace("|", "/")} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
             if (g.Count() > RowsPerGroup) md.AppendLine($"\n… {g.Count() - RowsPerGroup} more records in conflicts.json");
             md.AppendLine();
         }

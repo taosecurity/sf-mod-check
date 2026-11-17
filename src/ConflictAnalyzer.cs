@@ -146,6 +146,9 @@ public static class Analyzer
                 {
                     result.Errors.Add($"{p.FileName}: could not read its {Impact.TypeName(type.Name.TrimStart('I').Replace("Getter", ""))} records ({e.GetType().Name}: {e.Message.Split('\n')[0]})");
                 }
+                // also between plugins while a record type is read, so --max-memory holds during the read itself (0.5.0)
+                if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
+                    throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while reading {type.Name.TrimStart('I').Replace("Getter", "")} records from {p.FileName} ({done} of {targets.Count} done)");
             }
             Progress?.Invoke($"  {type.Name.TrimStart('I').Replace("Getter", "")}: {group.Count()} records, {found.Values.Sum(l => l.Count)} versions, managed memory {GC.GetTotalMemory(false) / 1e9:F1} GB");
         foreach (var (formKey, _) in group)
