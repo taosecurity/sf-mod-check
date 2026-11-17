@@ -88,7 +88,7 @@ public static class Report
         md.AppendLine("| # | Plugin | Official | Masters |");
         md.AppendLine("|---|---|---|---|");
         foreach (var p in lo.Plugins)
-            md.AppendLine($"| {p.Index} | {p.FileName} | {(p.Official ? "yes: " + LoadOrderSetup.OfficialName(p.FileName) : "")} | {Md(Impact.OneLine(string.Join(", ", p.Masters)))} |");
+            md.AppendLine($"| {p.Index} | {Md(p.FileName)} | {(p.Official ? "yes: " + LoadOrderSetup.OfficialName(p.FileName) : "")} | {Md(Impact.OneLine(string.Join(", ", p.Masters)))} |");
         md.AppendLine();
 
         md.AppendLine("## What this report does not check");
@@ -130,7 +130,8 @@ public static class Report
     static string Cut(string s) => Md(s.Length > 160 ? s[..160] + "…" : s);
 
     // A table cell from plugin text: a "|" would end the cell early (0.5.0 code review).
-    static string Md(string? s) => (s ?? "").Replace("|", "\\|");
+    static string Md(string? s) => (s ?? "").Replace("\\", "\\\\").Replace("|", "\\|").Replace("<", "\\<").Replace(">", "\\>")
+        .Replace("[", "\\[").Replace("]", "\\]");
 
     static void WriteGroups(StringBuilder md, List<LostChange> items, LoadOrderSetup lo, Analysis a)
     {

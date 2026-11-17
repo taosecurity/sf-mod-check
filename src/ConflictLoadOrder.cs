@@ -66,6 +66,9 @@ public class LoadOrderSetup
 
     public List<PluginInfo> Plugins { get; } = new();
     public List<string> Problems { get; } = new();
+
+    /// <summary>Adds a load-order problem on one line: it may quote plugin and master names from file headers (0.5.0).</summary>
+    public void AddProblem(string text) => Problems.Add(Impact.OneLine(text));
     public string OrderSource { get; private set; } = "";
 
     public static LoadOrderSetup Build(string dataDir, string? pluginsTxt, string? extraDir = null)
@@ -109,7 +112,7 @@ public class LoadOrderSetup
         void Add(string name)
         {
             if (wanted.Contains(name, StringComparer.OrdinalIgnoreCase)) return;
-            if (!onDisk.TryGetValue(name, out var real)) { setup.Problems.Add($"{name}: listed but not found in Data"); return; }
+            if (!onDisk.TryGetValue(name, out var real)) { setup.AddProblem($"{name}: listed but not found in Data"); return; }
             wanted.Add(real);
         }
         // The game loads Bethesda's files whether or not Plugins.txt lists them (SFBGS00D etc. usually are not listed).
@@ -135,7 +138,7 @@ public class LoadOrderSetup
             try { masters = ModHeaderMasters(path); }
             catch (Exception e)   // unreadable, or a damaged header (sizes past the end): skip it, not the run (0.5.0)
             {
-                setup.Problems.Add($"{name}: cannot be read ({e.GetType().Name}), plugin skipped; run sfmodcheck check on it for details");
+                setup.AddProblem($"{name}: cannot be read ({e.GetType().Name}), plugin skipped; run sfmodcheck check on it for details");
                 skipped.Add(name);
                 return false;
             }
@@ -145,13 +148,13 @@ public class LoadOrderSetup
                 var inOrder = wanted.Contains(m, StringComparer.OrdinalIgnoreCase);
                 if (!inOrder || !Open(m, chain))
                 {
-                    setup.Problems.Add($"{name}: master {m} is {(inOrder ? "unloadable" : "missing or inactive")}, plugin skipped");
+                    setup.AddProblem($"{name}: master {m} is {(inOrder ? "unloadable" : "missing or inactive")}, plugin skipped");
                     skipped.Add(name);
                     chain.Pop();
                     return false;
                 }
                 if (wanted.FindIndex(w => w.Equals(m, StringComparison.OrdinalIgnoreCase)) > wanted.FindIndex(w => w.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                    setup.Problems.Add($"{name}: listed before its master {m}; the game would fail to load it, so it was analyzed after {m}");
+                    setup.AddProblem($"{name}: listed before its master {m}; the game would fail to load it, so it was analyzed after {m}");
             }
             chain.Pop();
             IStarfieldModDisposableGetter mod;
@@ -162,7 +165,7 @@ public class LoadOrderSetup
             }
             catch (Exception e)   // a damaged plugin is skipped, not the whole run (0.5.0)
             {
-                setup.Problems.Add($"{name}: cannot be opened ({e.GetType().Name}: {e.Message.Split('\n')[0]}), plugin skipped; run sfmodcheck check on it for details");
+                setup.AddProblem($"{name}: cannot be opened ({e.GetType().Name}: {e.Message.Split('\n')[0]}), plugin skipped; run sfmodcheck check on it for details");
                 skipped.Add(name);
                 return false;
             }
@@ -172,7 +175,6 @@ public class LoadOrderSetup
             return true;
         }
         foreach (var n in wanted) Open(n, new Stack<string>());
-        for (int i = 0; i < setup.Problems.Count; i++) setup.Problems[i] = Impact.OneLine(setup.Problems[i]);   // names from headers (0.5.0)
         return setup;
     }
 

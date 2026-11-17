@@ -296,12 +296,11 @@ public class ConflictTests
     [InlineData("ObjectModification", 2, "mods (item modification)")]
     [InlineData("ObjectModification", 1, "mod (item modification)")]
     [InlineData("Terminal", 3, "terminals")]
-    [InlineData("Class", 2, "classes")]
-    [InlineData("Lens", 2, "lenses")]
-    [InlineData("TimeOfDay", 2, "times of day")]
-    [InlineData("Debris", 2, "debris")]
-    [InlineData("Category", 2, "categories")]
-    [InlineData("Box", 2, "boxes")]
+    [InlineData("Class", 2, "class records")]
+    [InlineData("InstanceNamingRules", 2, "instance naming rules records")]
+    [InlineData("TimeOfDay", 2, "time of day records")]
+    [InlineData("Debris", 1, "debris")]
+    [InlineData("Weapon", 2, "weapons")]
     public void Plural_type_names_put_the_s_before_the_note(string type, int count, string expected) =>
         Assert.Equal(expected, SfModCheck.Conflict.Impact.TypeName(type, count));
 

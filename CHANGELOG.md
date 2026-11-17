@@ -55,8 +55,10 @@ Fixes from the release's code review (`conflict`):
 - `--max-memory` takes a number of GB from 0.000001 to 1000000 and says so for anything else (NaN, Infinity,
   values so small they would mean no limit).
 - Byte data (navmeshes, undocumented blobs) compares and hashes by its bytes in one step, as in `check`.
-- A cell grid described as a whole shows its point and real land flags; plural record names follow English rules
-  ("classes", "lenses", "categories").
+- A cell grid described as a whole shows its point and real land flags. Counts of record types read "2 weapons" for
+  the common types and "2 instance naming rules records" for the rest, instead of guessed plurals.
+- report.md escapes `|`, `<`, `>`, `[`, `]` and `\` in plugin and master names and values, so table cells and
+  markup can't be broken from a plugin.
 - `--max-memory` is also checked while a record type is being read, not only while records are compared.
 - The RESULT line counts read problems as "read problems (records not compared ...)".
 - A `|` in plugin text no longer breaks the tables in report.md; plugin file names in the AI prompt are cleaned

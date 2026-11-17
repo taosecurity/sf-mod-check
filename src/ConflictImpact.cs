@@ -117,22 +117,9 @@ public static class Impact
     {
         var n = TypeNames.TryGetValue(recordType, out var t) ? t : Words(recordType);
         if (count == 1) return n;
+        if (t is null) return n + " records";   // not in the table: no guessing at English plurals (0.5.0)
         var cut = n.IndexOf(" (", StringComparison.Ordinal);   // "mod (item modification)" -> "mods (item modification)"
-        var (head, tail) = cut < 0 ? (n, "") : (n[..cut], n[cut..]);
-        var of = head.IndexOf(" of ", StringComparison.Ordinal);   // "time of day" -> "times of day"
-        if (of > 0) (head, tail) = (head[..of], head[of..] + tail);
-        return Plural(head) + tail;
-    }
-
-    // English plural of a lower-case noun phrase's last word; words that stay the same are listed.
-    static readonly HashSet<string> SamePlural = new(StringComparer.Ordinal) { "debris", "series", "species", "armor", "ammo", "equipment" };
-    static string Plural(string w)
-    {
-        var last = w[(w.LastIndexOf(' ') + 1)..];
-        if (SamePlural.Contains(last)) return w;
-        if (w.EndsWith('s') || w.EndsWith('x') || w.EndsWith("ch") || w.EndsWith("sh")) return w + "es";
-        if (w.Length > 1 && w.EndsWith('y') && !"aeiou".Contains(w[^2])) return w[..^1] + "ies";
-        return w + "s";
+        return cut < 0 ? n + "s" : n[..cut] + "s" + n[cut..];   // the table holds regular singular nouns only
     }
 
     static string Words(string camel) => Regex.Replace(camel, "(?<=[a-z0-9])(?=[A-Z])", " ").ToLowerInvariant();
@@ -332,7 +319,8 @@ public static class Impact
             if (!p.CanRead || p.GetIndexParameters().Length > 0 || p.Name is "StaticRegistration" or "Registration") continue;
             if (p.Name == "Flags" && a is Mutagen.Bethesda.Starfield.ICellGridGetter ga && b is Mutagen.Bethesda.Starfield.ICellGridGetter gb)
             {   // XCLC: only the land-flag byte, read typed (0.5.0)
-                var (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb));
+                uint fa, fb;
+                try { (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb)); } catch (Exception) { continue; }
                 if (fa != fb) res.Add(new(Label($"{path} land flags"), "changed", $"0x{fa:X2}", $"0x{fb:X2}", false));
                 continue;
             }
