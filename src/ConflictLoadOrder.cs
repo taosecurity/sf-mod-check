@@ -133,9 +133,9 @@ public class LoadOrderSetup
             var path = fullPath[name];
             List<string> masters;
             try { masters = ModHeaderMasters(path); }
-            catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+            catch (Exception e)   // unreadable, or a damaged header (sizes past the end): skip it, not the run (0.5.0)
             {
-                setup.Problems.Add($"{name}: cannot be read ({e.GetType().Name}), plugin skipped");
+                setup.Problems.Add($"{name}: cannot be read ({e.GetType().Name}), plugin skipped; run sfmodcheck check on it for details");
                 skipped.Add(name);
                 return false;
             }

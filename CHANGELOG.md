@@ -38,7 +38,14 @@ Fixes from the release's code review (`conflict`):
   nor is its ship-blueprint file.
 - Bethesda's files are recognized by their exact names (SFBGS + 3 hex digits, sfta + 2 digits, their
   BlueprintShips- files), so a mod named, say, SFBGS003Fixes.esm is checked like any other mod.
-- A damaged plugin that can't be opened is skipped with a load-order problem, and the rest is still checked.
+- A damaged plugin that can't be opened, or whose header is damaged, is skipped with a load-order problem, and the
+  rest is still checked.
+- A record version with a field that couldn't be read or compared is never reported as an ITM (cleaning it could
+  delete a real change), and failed comparisons are counted under "Tool limits hit" instead of being dropped.
+- Names and texts compare by their text, as in `check`, whether stored in the plugin or in .strings files.
+- The suggested patch name has no spaces and never ends in an official plugin's name (the game removes such names
+  from Plugins.txt): `ConflictPatch-<winner>-<loser>-Patch.esm`.
+- Record type names that start with I (IdleMarker, Ingestible, ImpactDataSet) are no longer cut short in messages.
 - `--max-memory` is also checked while a record type is being read, not only while records are compared.
 - The RESULT line counts read problems as "read problems (records not compared ...)".
 - A `|` in plugin text no longer breaks the tables in report.md; plugin file names in the AI prompt are cleaned

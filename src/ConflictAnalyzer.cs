@@ -39,6 +39,10 @@ public class Analysis
 
 public static class Analyzer
 {
+    // INavigationMeshGetter -> NavigationMesh, IIdleMarkerGetter -> IdleMarker (TrimStart('I') ate every leading I).
+    public static string TypeShort(Type t) =>
+        t.Name.StartsWith('I') && t.Name.EndsWith("Getter") && t.Name.Length > "IGetter".Length ? t.Name[1..^"Getter".Length] : t.Name;
+
     // --max-memory: stop with MemoryLimitException when managed memory passes this many bytes (0 = no limit).
     public static long MaxManagedBytes;
     // --verbose / --log: one line per record type (records, versions, memory).
@@ -109,7 +113,7 @@ public static class Analyzer
             return names[key] = text;
         }
         // INavigationMeshGetter -> NavigationMesh, the record class name the type table uses.
-        static string RecordName(Type t) => t.Name.StartsWith('I') && t.Name.EndsWith("Getter") ? t.Name[1..^"Getter".Length] : t.Name;
+        static string RecordName(Type t) => TypeShort(t);
 
         // The concrete record getter types (INpcGetter, IPlacedNpcGetter, ...) a link type covers.
         Type[] Concrete(Type linkType)
@@ -144,18 +148,18 @@ public static class Analyzer
                 }
                 catch (Exception e)
                 {
-                    result.Errors.Add($"{p.FileName}: could not read its {Impact.TypeName(type.Name.TrimStart('I').Replace("Getter", ""))} records ({e.GetType().Name}: {e.Message.Split('\n')[0]})");
+                    result.Errors.Add($"{p.FileName}: could not read its {Impact.TypeName(TypeShort(type))} records ({e.GetType().Name}: {e.Message.Split('\n')[0]})");
                 }
                 // also between plugins while a record type is read, so --max-memory holds during the read itself (0.5.0)
                 if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
-                    throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while reading {type.Name.TrimStart('I').Replace("Getter", "")} records from {p.FileName} ({done} of {targets.Count} done)");
+                    throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while reading {TypeShort(type)} records from {p.FileName} ({done} of {targets.Count} done)");
             }
-            Progress?.Invoke($"  {type.Name.TrimStart('I').Replace("Getter", "")}: {group.Count()} records, {found.Values.Sum(l => l.Count)} versions, managed memory {GC.GetTotalMemory(false) / 1e9:F1} GB");
+            Progress?.Invoke($"  {TypeShort(type)}: {group.Count()} records, {found.Values.Sum(l => l.Count)} versions, managed memory {GC.GetTotalMemory(false) / 1e9:F1} GB");
         foreach (var (formKey, _) in group)
         {
             if (++done % 5000 == 0) Info($"  {done}/{targets.Count}");
             if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
-                throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {type.Name.TrimStart('I').Replace("Getter", "")} records ({done} of {targets.Count} done)");
+                throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {targets.Count} done)");
             if (!found.TryGetValue(formKey, out var versions) || versions.Count < 2) continue;
 
             var recType = versions[0].Rec.GetType();
@@ -170,12 +174,19 @@ public static class Analyzer
             // Each version's value per field, and whether it supplies one (partial forms skip fields they leave alone).
             var vals = new object?[n, nf];
             var prov = new bool[n, nf];
+            var unsure = new bool[n];   // a field couldn't be read or compared: never call this version an ITM (0.5.0)
+            void Unreadable(IMajorRecordGetter r, string field)
+            {
+                var key = $"{r.Registration.ClassType.Name}.{field}";
+                result.UnreadableFields[key] = result.UnreadableFields.GetValueOrDefault(key) + 1;
+            }
             for (int i = 0; i < n; i++)
                 for (int f = 0; f < nf; f++)
                 {
                     try { prov[i, f] = FieldCompare.Provides(versions[i].Rec, fields[f], out vals[i, f]); }
                     catch (Exception)
                     {
+                        unsure[i] = true;
                         var key = $"{versions[i].Rec.Registration.ClassType.Name}.{fields[f].Name}";
                         result.UnreadableFields[key] = result.UnreadableFields.GetValueOrDefault(key) + 1;
                     }
@@ -196,13 +207,14 @@ public static class Analyzer
                         if (prov[j, f] && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
                     var baseVal = b >= 0 ? vals[b, f] : null;
                     bool same;
-                    try { same = FieldCompare.DeepEq(vals[i, f], baseVal, 0); } catch (Exception) { same = true; }
+                    try { same = FieldCompare.DeepEq(vals[i, f], baseVal, 0); }
+                    catch (Exception) { same = true; unsure[i] = true; Unreadable(versions[i].Rec, fields[f].Name); }
                     if (!same) intended[i].Add(f);
                 }
                 // Parents (cells, worldspaces, topics) must be copied unchanged to hold child records, so they are not ITMs.
                 // A quest is such a parent only when this plugin's copy holds child records (its topics and dialogue lines);
                 // a quest copied with nothing under it is still an ITM (2026-11-16; matches sfmodcheck check's itm rule).
-                if (intended[i].Count == 0 && !versions[i].Plugin.Official && versions[i].Rec is not (ICellGetter or IWorldspaceGetter or IDialogTopicGetter)
+                if (intended[i].Count == 0 && !unsure[i] && !versions[i].Plugin.Official && versions[i].Rec is not (ICellGetter or IWorldspaceGetter or IDialogTopicGetter)
                     && !(versions[i].Rec is IQuestGetter && versions[i].Rec is IMajorRecordGetterEnumerable kids && kids.EnumerateMajorRecords().Any()))
                 {
                     var r = versions[i].Rec;
@@ -231,7 +243,8 @@ public static class Analyzer
                     if (loser.Official && winner.Official) continue;          // Bethesda vs Bethesda is not our business
                     if (winnerMasters.Contains(loser.Mod.ModKey)) continue;   // winner saw this plugin and decided
                     bool same;
-                    try { same = FieldCompare.DeepEq(vals[i, f], vals[k, f], 0); } catch (Exception) { same = true; }
+                    try { same = FieldCompare.DeepEq(vals[i, f], vals[k, f], 0); }
+                    catch (Exception) { same = true; Unreadable(versions[i].Rec, fields[f].Name); }   // counted in Tool limits (0.5.0)
                     if (same) continue;
                     lostByPair.TryAdd((i, k), new());
                     // The base game value: the first version that supplies this field (normally the defining plugin).

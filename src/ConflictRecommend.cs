@@ -54,7 +54,7 @@ public static class Recommend
         if (fwd.Count > 0 && !moved)
             Add(g.First().LoserOfficial ? 1 : 2,
                 $"A small local patch can restore the {fwd.Count} forwardable field{S(fwd.Count)} ({Fields(fwd)}) without changing anything else in {winner}. Build it in xEdit by copying those values forward, or give the prompt below to an AI coding assistant.",
-                PatchPrompt(fwd, $"ConflictPatch - {Base(winner)} + {Base(loser)}.esm"));
+                PatchPrompt(fwd, PatchName(winner, loser)));
         if (choice.Count > 0)
             Add(3, $"For the {choice.Count} field{S(choice.Count)} both plugins changed ({Fields(choice)}), decide which version you want{Example(choice)}. " +
                    $"Keeping {winner}'s version needs no action; keeping {loser}'s or a mix needs a patch. Once you have decided, build a patch that keeps your choice (in xEdit, or with an AI coding assistant).");
@@ -165,6 +165,14 @@ public static class Recommend
             .Select(g => $"{Impact.Noun(g.Key.Field)} on {g.Count()} {Impact.TypeName(g.Key.RecordType, g.Count())}"));
 
     static string Base(string file) => Path.GetFileNameWithoutExtension(file);
+
+    // ConflictPatch-<winner>-<loser>-Patch.esm: no spaces, and the "-Patch" ending keeps the name from ending in an
+    // official plugin's name such as ShatteredSpace.esm, which the game removes from Plugins.txt (0.5.0 code review).
+    public static string PatchName(string winner, string loser)
+    {
+        static string Part(string f) => System.Text.RegularExpressions.Regex.Replace(Base(f), "[^A-Za-z0-9_]+", "");
+        return $"ConflictPatch-{Part(winner)}-{Part(loser)}-Patch.esm";
+    }
 
     static string OfficialShort(string file) => LoadOrderSetup.OfficialName(file) ?? file;
 

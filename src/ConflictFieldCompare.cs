@@ -80,6 +80,9 @@ public static class FieldCompare
     {
         if (Equals(a, b)) return true;
         if (a is null || b is null || depth > 12) return false;
+        // names and texts by the text itself, whether stored in the plugin or in .strings files (as Overrides.DeepEq; 0.5.0)
+        if (a is Mutagen.Bethesda.Strings.ITranslatedStringGetter ta && b is Mutagen.Bethesda.Strings.ITranslatedStringGetter tb)
+            return string.Equals(ta.String, tb.String, StringComparison.Ordinal);
         if (a is string || b is string || a.GetType() != b.GetType()) return false;
         // XCLC: junk in the 3 unused bytes after the land flags is not a difference (same rule as the itm check, 0.5.0)
         if (a is Mutagen.Bethesda.Starfield.ICellGridGetter ga && b is Mutagen.Bethesda.Starfield.ICellGridGetter gb)
@@ -110,6 +113,7 @@ public static class FieldCompare
         if (v is null) return 0;
         if (depth > 12) return 1;
         if (v is string s) return s.GetHashCode();
+        if (v is Mutagen.Bethesda.Strings.ITranslatedStringGetter ts) return (ts.String ?? "").GetHashCode();   // as DeepEq
         var t = v.GetType();
         if (t.IsValueType) return v.GetHashCode();
         var h = new HashCode();

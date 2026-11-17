@@ -41,6 +41,7 @@ public static class ConflictCommand
 
     static int RunLogged(string[] a, string version, string byline, out bool resultPrinted, out string cantWhy)
     {
+        Analyzer.MaxManagedBytes = 0; Analyzer.Progress = null;   // fresh settings for every run in one process (0.5.0)
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
         string? pluginsTxt = null, dataDir = null, extraDir = null, outDir = null, logFile = null;

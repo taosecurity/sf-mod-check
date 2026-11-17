@@ -167,6 +167,57 @@ public class ConflictTests
     }
 
     [Fact]
+    public void A_plugin_whose_header_size_is_past_the_end_is_skipped()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        game.Mod("ModB.esm", (m, open) => Misc(m, open("Base.esm")).Weight = 2);
+        // TES4 with a size over int.MaxValue ((int)size is negative), then a MAST whose length runs past the end
+        var bytes = System.Text.Encoding.ASCII.GetBytes("TES4").Concat(BitConverter.GetBytes(0x9000_0000u)).Concat(new byte[16])
+            .Concat(System.Text.Encoding.ASCII.GetBytes("MAST")).Concat(BitConverter.GetBytes((ushort)500)).Concat(new byte[8]).ToArray();
+        File.WriteAllBytes(Path.Combine(game.Data, "BadHeader.esm"), bytes);
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm", "BadHeader.esm", "ModB.esm" });
+        Assert.Equal(0, code);
+        Assert.Contains(json.GetProperty("loadOrderProblems").EnumerateArray().Select(p => p.GetString() ?? ""),
+            p => p.StartsWith("BadHeader.esm: cannot be"));
+        Assert.Single(Lost(json));
+        Assert.StartsWith("RESULT: OK", ExeTests.ResultLine(stdout));
+    }
+
+    [Theory]
+    [InlineData("My Mod.esm", "ShatteredSpace.esm", "ConflictPatch-MyMod-ShatteredSpace-Patch.esm")]
+    [InlineData("A.esm", "SFBGS050.esm", "ConflictPatch-A-SFBGS050-Patch.esm")]
+    public void Suggested_patch_names_have_no_spaces_and_no_official_ending(string winner, string loser, string expected)
+    {
+        var name = Recommend.PatchName(winner, loser);
+        Assert.Equal(expected, name);
+        Assert.DoesNotContain(' ', name);
+        foreach (var official in new[] { "ShatteredSpace.esm", "Constellation.esm", "Starfield.esm", "OldMars.esm", "SFBGS050.esm" })
+            Assert.False(name.EndsWith(official, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(typeof(IIdleMarkerGetter), "IdleMarker")]
+    [InlineData(typeof(IIngestibleGetter), "Ingestible")]
+    [InlineData(typeof(INpcGetter), "Npc")]
+    [InlineData(typeof(IImpactDataSetGetter), "ImpactDataSet")]
+    public void Record_type_names_keep_a_leading_I(Type t, string expected) => Assert.Equal(expected, Analyzer.TypeShort(t));
+
+    // Mutagen's TranslatedString.Equals already compares these two by text, so this guards the DeepHash rule (mutation-
+    // checked) more than the DeepEq one; DeepEq's rule matters for strings read lazily from .strings files (overlay types).
+    [Fact]
+    public void Names_compare_by_their_text_like_the_itm_check()
+    {
+        var a = new Mutagen.Bethesda.Strings.TranslatedString(Mutagen.Bethesda.Strings.Language.English, "Gun");
+        var b = new Mutagen.Bethesda.Strings.TranslatedString(Mutagen.Bethesda.Strings.Language.English, "Gun");
+        b.Set(Mutagen.Bethesda.Strings.Language.French, "Fusil");
+        Assert.True(FieldCompare.DeepEq(a, b, 0));
+        Assert.Equal(FieldCompare.DeepHash(a, 0), FieldCompare.DeepHash(b, 0));
+        var c = new Mutagen.Bethesda.Strings.TranslatedString(Mutagen.Bethesda.Strings.Language.English, "Rifle");
+        Assert.False(FieldCompare.DeepEq(a, c, 0));
+    }
+
+    [Fact]
     public void Report_links_are_unique_for_pairs_with_similar_names()
     {
         Assert.NotEqual(HtmlReport.Anchor("A-B.esm", "C.esm"), HtmlReport.Anchor("A.esm", "B-C.esm"));
