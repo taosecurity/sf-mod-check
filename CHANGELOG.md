@@ -15,8 +15,7 @@ Fixes from the 0.5.2 code reviews.
 - `conflict`: "N other records were not compared" no longer counts records the game drops anyway (versions of a
   record whose FormID belongs to an earlier record of another type), nor records with only one version (nothing is
   compared for those). Whether a version is dropped now follows the first record's type as the record-type pass read
-  it (for a record type whose signature isn't known, by whether the first record comes before this type's first
-  version); where that pass couldn't read an earlier plugin that may hold the record, the record is counted, not
+  it (a record type whose signature isn't known is counted, not compared); where that pass couldn't read an earlier plugin that may hold the record, the record is counted, not
   compared.
 - `check`: an armor record on an armor addon's FormID (or the other way round) is now a links WARNING, not an ERROR.
   The game lets those two replace each other, and `conflict` already left that swap out; it is still usually a wrong

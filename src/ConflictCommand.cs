@@ -55,7 +55,7 @@ public static class ConflictCommand
     /// is no error). fatal: after running out of memory, any error deleting one file moves on to the next (review 0.5.3).</summary>
     static List<string> DeleteReportFiles(string outDir, bool fatal)
     {
-        var left = new List<string>();
+        var left = new List<string>(ReportFiles.Length);   // never grows: nothing to allocate under out of memory
         foreach (var f in ReportFiles)
         {
             var path = Path.Combine(outDir, f);
@@ -228,7 +228,9 @@ public static class ConflictCommand
                     catch (Exception) { }   // never replace the first error
                     throw;
                 }
-                var left = DeleteReportFiles(outDir, fatal: false);
+                List<string> left;
+                try { left = DeleteReportFiles(outDir, fatal: false); }
+                catch (Exception x) when (Fatal.Recoverable(x)) { left = new(); Log.Write($"report cleanup failed: {x}"); }   // never replace the first error
                 if (left.Count > 0)
                 {
                     Console.Error.WriteLine($"note: these report files could not be removed and may be old or incomplete: {string.Join(", ", left)}");
