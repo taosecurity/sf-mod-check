@@ -12,9 +12,10 @@ Fixes from the 0.5.2 code reviews.
   compared against each other (they could read as an ITM or a lost change against the wrong base); they are counted
   under "Tool limits hit" ("N other ... records were not compared, because X may hold the first version of them as
   another record type").
-- `conflict`: "N other records were not compared" no longer counts records the game drops anyway (a record whose
-  FormID belongs to an earlier record of another type), unless the plugin that couldn't be read is the one whose
-  record the game keeps.
+- `conflict`: "N other records were not compared" no longer counts records the game drops anyway (versions of a
+  record whose FormID belongs to an earlier record of another type), nor records with only one version (nothing is
+  compared for those). Whether a version is dropped now follows the first record's type, so it no longer depends on
+  which plugins the record-type pass could read.
 - `check`: an armor record on an armor addon's FormID (or the other way round) is now a links WARNING, not an ERROR.
   The game lets those two replace each other, and `conflict` already left that swap out; it is still usually a wrong
   FormID, so it stays on the list. Any other type change is still an ERROR.

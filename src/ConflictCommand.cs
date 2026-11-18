@@ -49,6 +49,8 @@ public static class ConflictCommand
         finally { Log.Close(); }
     }
 
+    static readonly string[] ReportFiles = { "report.md", "report.html", "conflicts.json" };
+
     static int RunLogged(string[] a, string version, string byline, out bool resultPrinted, out string cantWhy)
     {
         Analyzer.MaxManagedBytes = 0; Analyzer.Progress = null; Analyzer.Where = "";   // fresh settings for every run in one process (0.5.0)
@@ -197,15 +199,22 @@ public static class ConflictCommand
                 // Any failure part way (out of memory, a full disk, a file another program holds open) would leave new
                 // and old report files mixed: never leave a report that looks whole (code review 0.5.2; every failure
                 // since 0.5.3, IO errors included). A file that can't be deleted is named, so nobody trusts it.
-                // Out of memory: only the deletes, nothing that allocates, so the first error is the one that goes on.
+                // Out of memory: as little as possible (the deletes and one fixed note, best effort), so the first error
+                // is the one that goes on.
                 if (Fatal.IsFatal(e))
                 {
-                    foreach (var f in new[] { "report.md", "report.html", "conflicts.json" })
-                        try { File.Delete(Path.Combine(outDir, f)); } catch (Exception x) when (x is IOException or UnauthorizedAccessException) { }
+                    var anyLeft = false;
+                    try
+                    {
+                        foreach (var f in ReportFiles)
+                            try { File.Delete(Path.Combine(outDir, f)); } catch (Exception x) when (x is IOException or UnauthorizedAccessException) { anyLeft = true; }
+                        if (anyLeft) Console.Error.WriteLine("note: some report files could not be removed and may be old or incomplete");
+                    }
+                    catch (Exception) { }   // never replace the first error
                     throw;
                 }
                 var left = new List<string>();
-                foreach (var f in new[] { "report.md", "report.html", "conflicts.json" })
+                foreach (var f in ReportFiles)
                 {
                     var path = Path.Combine(outDir, f);
                     try { File.Delete(path); }   // a missing file (or folder) is no error

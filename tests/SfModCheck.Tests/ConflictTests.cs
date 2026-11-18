@@ -856,6 +856,8 @@ public class ConflictTests
         Assert.True(code == 0, stdout);
         var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
         Assert.Contains(errors, e => e.StartsWith("ModP.esm: 1 other keyword record was not compared, because ModP.esm may hold the first version"));
+        // ModT's misc item is that record's only version, so nothing was compared and nothing is counted (review round 2)
+        Assert.DoesNotContain(errors, e => e.Contains("misc item record"));
     }
 
     // Code review 0.5.3: a folder that can't be made isn't "report files that may be old or incomplete".

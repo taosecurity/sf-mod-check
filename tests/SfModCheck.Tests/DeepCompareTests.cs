@@ -151,7 +151,7 @@ public class DeepCompareTests
         void Compare(IMajorRecordGetter x, IMajorRecordGetter y)
         {
             var t = x.GetType();
-            var props = Overrides.Compared(t).Concat(FieldCompare.Fields(t)).Concat(FieldCompare.NestedProperties(t)).Distinct();
+            var props = DeepCompare.Itm.Properties(t).Concat(FieldCompare.Fields(t)).Concat(FieldCompare.NestedProperties(t)).Distinct();
             foreach (var p in props)
             {
                 object? va, vb;
@@ -179,7 +179,7 @@ public class DeepCompareTests
     // check's top level (Overrides.SameFields is private): the same walk over the record's own properties and fields
     static bool ItmTop(IMajorRecordGetter a, IMajorRecordGetter b)
     {
-        foreach (var p in Overrides.Compared(a.GetType())) if (!DeepCompare.Itm.Eq(p.GetValue(a), p.GetValue(b), 1)) return false;
+        foreach (var p in DeepCompare.Itm.Properties(a.GetType())) if (!DeepCompare.Itm.Eq(p.GetValue(a), p.GetValue(b), 1)) return false;
         foreach (var f in a.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance)) if (!DeepCompare.Itm.Eq(f.GetValue(a), f.GetValue(b), 1)) return false;
         return true;
     }

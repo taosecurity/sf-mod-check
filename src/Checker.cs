@@ -607,7 +607,7 @@ public static class Checker
         }
     }
 
-    static HashSet<string>? SigsOf(Type t)
+    internal static HashSet<string>? SigsOf(Type t)
     {
         var attrs = t.GetCustomAttributes<AssociatedRecordTypesAttribute>(true)
             .Concat(t.GetInterfaces().SelectMany(i => i.GetCustomAttributes<AssociatedRecordTypesAttribute>(true)))
