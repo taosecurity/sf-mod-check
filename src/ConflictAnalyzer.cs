@@ -234,7 +234,7 @@ public static class Analyzer
             // base of a later version (a master of it). Those records are skipped and counted, not reported wrongly.
             var notCompared = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // by file name: hashing a PluginInfo record hashes its whole plugin through Mutagen
             // direct masters only: a record's FormID can only name the plugin itself or one of its own masters
-            var partlyMasters = partly.Count == 0 ? new() : partly.Select(p => p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
+            var partlyMasters = partly.Select(p => p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
                 .OfType<ModKey>().Append(p.Mod.ModKey).ToHashSet()).ToList();
             PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
             {
@@ -420,7 +420,9 @@ public static class Analyzer
                 costAt[pair].Add(order[formKey]);
             }
             }
-            catch (Exception e) when (e is not MemoryLimitException)
+            // the memory limit and fatal errors still stop the run (code review round 4: an out-of-memory error must not
+            // turn every later record into a "skipped" line and a report that looks whole)
+            catch (Exception e) when (e is not (MemoryLimitException or OutOfMemoryException or InsufficientExecutionStackException))
             {
                 result.Errors.Add($"{formKey} ({Impact.TypeName(TypeShort(type))}): could not compare its versions in {string.Join(", ", versions.Select(v => v.Plugin.FileName))}, " +
                                   $"so it was skipped ({e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])})");
@@ -430,7 +432,8 @@ public static class Analyzer
                 // The fields it couldn't read are counted even when the record was skipped: they are the best clue to
                 // why (code review round 3). Its findings are kept only on success (above).
                 foreach (var key in recUnreadable) result.UnreadableFields[key] = result.UnreadableFields.GetValueOrDefault(key) + 1;
-                whereRecord = null;
+                // whereRecord stays set here, so a run stopped by an error from this record still names it; the next
+                // record clears it at the top of the loop
             }
         }
             foreach (var (p, count) in notCompared)
