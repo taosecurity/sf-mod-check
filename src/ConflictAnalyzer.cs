@@ -343,7 +343,7 @@ public static class Analyzer
                 // so nothing is counted either. Armor and armor addon may replace each other: not dropped.
                 if (hasKeeper && ReferenceEquals(first, keeper.Plugin) && !ReferenceEquals(first, versions[0].Plugin))
                 {
-                    if (groupSigs is null) { noSigSkipped++; continue; }
+                    if (groupSigs is null) { if (versions.Count > 1) noSigSkipped++; continue; }
                     if (!groupSigs.Contains(keeper.Sig) && !groupSigs.Any(g => TypeChanges.ArmorPair(g, keeper.Sig))) continue;
                 }
             }

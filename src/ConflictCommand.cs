@@ -60,14 +60,11 @@ public static class ConflictCommand
         var left = new List<string>(ReportFiles.Length);
         foreach (var f in ReportFiles)
         {
-            string path = f;
-            try
-            {
-                path = Path.Combine(outDir, f);
-                File.Delete(path);
-            }
+            var path = Path.Combine(outDir, f);   // outDir already worked for the report itself
+            try { File.Delete(path); }
             catch (Exception x) when (fatal || Fatal.Recoverable(x))
             {
+                if (!fatal && x is not (IOException or UnauthorizedAccessException)) Log.Write($"report cleanup: {path}: {x}");
                 try { if (File.Exists(path)) left.Add(path); } catch (Exception y) when (fatal || Fatal.Recoverable(y)) { left.Add(path); }
             }
         }
