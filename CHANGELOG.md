@@ -25,7 +25,7 @@ Other `conflict` fixes, from the 0.5.0 code review:
   is no longer copied in memory to place its menu.
 
 Code: one set of command-line helpers for `check` and `conflict` (Cli.cs); the load-order problem list is read-only
-outside the code that cleans each entry. Running out of memory still stops a run with CANNOT CHECK. No option or output format changed. 159 tests (17 new).
+outside the code that cleans each entry. The new skip-and-carry-on catches in conflict let an out-of-memory error (and the --max-memory stop) through, so those still end the run. No option or output format changed. 159 tests (17 new).
 
 ## 0.5.0 (2026-11-16)
 

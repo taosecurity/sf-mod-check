@@ -61,7 +61,8 @@ public static class Analyzer
 
     // A failure the run can carry on past (skip the record, field or group and list it). Not the --max-memory stop, and
     // not running out of memory or stack, which must stop the run with CANNOT CHECK rather than leave a report that
-    // looks whole (code review 0.5.1). Every catch in the analyzer uses it; reflection wraps errors, so inner ones count.
+    // looks whole (code review 0.5.1). Every catch in this file uses it (reflection wraps errors, so inner ones count);
+    // the helpers it calls keep their own catches, as in 0.5.0 (a shared rule for them is planned for 0.5.2).
     public static bool Recoverable(Exception e)
     {
         for (Exception? x = e; x is not null; x = x.InnerException)
