@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.2 (not released yet)
+## 0.5.2 (2026-11-17)
 
 `conflict` reports overrides that change a record's type. A mod record with the FormID of an earlier record of another
 type (for example an armor record on a DLC cell's ID, after a wrong master index) used to be skipped without a word:
