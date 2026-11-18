@@ -187,12 +187,12 @@ public static class Impact
     }
 
     // What differs between the lost value and the one in game, worded from the game's side.
-    public static List<Difference> Differences(string field, object? lost, object? inGame, Func<IFormLinkGetter, string> name) =>
-        Raw(field, lost, inGame, name).Select(d => new Difference(d.Kind switch
+    public static List<Difference> Differences(string field, object? lost, object? inGame, Func<IFormLinkGetter, string> name, Action? unreadable = null) =>
+        Raw(field, lost, inGame, name, unreadable).Select(d => new Difference(d.Kind switch
         {
             "changed" => $"{d.Path} is {d.To} in game instead of {d.From}{(d.Minor ? " (an undocumented field)" : "")}",
             "removed" => $"{d.Path} is missing {d.From} in game",
-            "added" => $"{d.Path} has an extra {d.To} in game",
+            "added" => $"{d.Path} has an extra {(d.To.StartsWith("an ") ? d.To[3..] : d.To)} in game",   // not "an extra an entry" (0.5.1)
             "reordered" => $"{d.Path} has the same entries in a different order",
             "case" => $"{d.Path} differs only in letter case",
             "undoc" => $"{d.Path} differs only in undocumented fields",
@@ -200,8 +200,8 @@ public static class Impact
         }, d.Minor)).ToList();
 
     // What a plugin changed relative to the base game, worded as actions.
-    public static List<Difference> Changes(string field, object? from, object? to, Func<IFormLinkGetter, string> name) =>
-        Raw(field, from, to, name).Select(d => new Difference(d.Kind switch
+    public static List<Difference> Changes(string field, object? from, object? to, Func<IFormLinkGetter, string> name, Action? unreadable = null) =>
+        Raw(field, from, to, name, unreadable).Select(d => new Difference(d.Kind switch
         {
             "changed" => $"changes {d.Path} from {d.From} to {d.To}{(d.Minor ? " (an undocumented field)" : "")}",
             "removed" => $"removes {d.From} from {d.Path}",
@@ -216,7 +216,7 @@ public static class Impact
     public static string Describe(object? v, Func<IFormLinkGetter, string> name, int depth = 0)
     {
         if (v is null) return "not set";
-        if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"point {g.Point}, land flags 0x{SfModCheck.Overrides.LandFlags(g):X2}";   // without the junk bytes (0.5.0)
+        if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"point {g.Point}, land flags {SfModCheck.Overrides.LandFlagsText(g)}";   // without the junk bytes (0.5.0)
         if (IsLeaf(v)) return Plain(v, name);
         if (v is IEnumerable e)
         {
@@ -239,10 +239,17 @@ public static class Impact
         return parts.Count == 0 ? TypeLabel(v) : string.Join(", ", parts);
     }
 
-    static List<RawDiff> Raw(string field, object? a, object? b, Func<IFormLinkGetter, string> name)
+    // unreadable: called when a part of the value can't be read during the walk, so the caller can count it under
+    // "Tool limits hit" instead of the part silently dropping out of the text (0.5.1).
+    [ThreadStatic] static Action? onUnreadable;
+
+    static List<RawDiff> Raw(string field, object? a, object? b, Func<IFormLinkGetter, string> name, Action? unreadable)
     {
         var res = new List<RawDiff>();
-        Walk(a, b, Noun(field).Replace(' ', '_'), 0, res, name);
+        var outer = onUnreadable;
+        onUnreadable = unreadable;
+        try { Walk(a, b, Noun(field).Replace(' ', '_'), 0, res, name); }
+        finally { onUnreadable = outer; }
         return res;
     }
 
@@ -275,8 +282,10 @@ public static class Impact
                 missing = NotIn(la, ha, lb, hb); extra = NotIn(lb, hb, la, ha);
             }
             if (missing.Count == 0 && extra.Count == 0) { res.Add(new(Label(path), "reordered", "", "", true)); return; }
-            // Same length with a few changed entries: describe each entry's change; otherwise list what is missing or extra.
-            if (la.Count == lb.Count && missing.Count <= 2)
+            // Same length with a few entries changed in place: describe each entry's change; otherwise list what is
+            // missing or extra. A list that was also reordered is paired by entry name below (0.5.1): index by index,
+            // every shifted entry read as "changed".
+            if (la.Count == lb.Count && missing.Count <= 2 && ChangedInPlace(la, lb) <= 2)
             {
                 for (int i = 0; i < la.Count; i++) Walk(la[i], lb[i], $"{path} {ItemName(la[i], i, name)}", depth + 1, res, name);
                 return;
@@ -320,12 +329,12 @@ public static class Impact
             if (p.Name == "Flags" && a is Mutagen.Bethesda.Starfield.ICellGridGetter ga && b is Mutagen.Bethesda.Starfield.ICellGridGetter gb)
             {   // XCLC: only the land-flag byte, read typed (0.5.0)
                 uint fa, fb;
-                try { (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb)); } catch (Exception) { continue; }
+                try { (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb)); } catch (Exception) { onUnreadable?.Invoke(); continue; }
                 if (fa != fb) res.Add(new(Label($"{path} land flags"), "changed", $"0x{fa:X2}", $"0x{fb:X2}", false));
                 continue;
             }
             object? va, vb;
-            try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { continue; }
+            try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { onUnreadable?.Invoke(); continue; }
             Walk(va, vb, $"{path} {p.Name}", depth + 1, res, name);
         }
     }
@@ -358,13 +367,38 @@ public static class Impact
         return res;
     }
 
+    // How many positions hold different entries in two lists of the same length (counting stops at 3).
+    static int ChangedInPlace(List<object?> a, List<object?> b)
+    {
+        int n = 0;
+        for (int i = 0; i < a.Count && n < 3; i++) if (!FieldCompare.DeepEq(a[i], b[i], 0)) n++;
+        return n;
+    }
+
     static string Entry(object? item, Func<IFormLinkGetter, string> name)
     {
         var n = ItemName(item, -1, name);
         return n.StartsWith('(') ? $"an entry {n}" : $"entry {n}";
     }
 
-    static bool IsLeaf(object v) => v is string or IFormLinkGetter or ITranslatedStringGetter || v.GetType().IsValueType;
+    // Byte blobs are one value too (0.5.1): byte[] was walked byte by byte, as boxed entries; the slice types were
+    // already leaves (value types).
+    static bool IsLeaf(object v) => v is string or IFormLinkGetter or ITranslatedStringGetter or byte[] || v.GetType().IsValueType;
+
+    // A byte blob as text: its bytes in hex when short ("01 00 00 00"), else its length; null when v isn't a blob.
+    static string? BlobText(object v)
+    {
+        ReadOnlySpan<byte> s;
+        switch (v)
+        {
+            case Noggog.ReadOnlyMemorySlice<byte> r: s = r.Span; break;
+            case Noggog.MemorySlice<byte> m: s = m.Span; break;
+            case byte[] b: s = b; break;
+            default: return null;
+        }
+        if (s.Length == 0) return "no bytes";
+        return s.Length <= 16 ? Convert.ToHexString(s).Chunk(2).Select(c => new string(c)).Aggregate((x, y) => x + " " + y) : $"{s.Length} bytes of data";
+    }
 
     static string TypeLabel(object v) => Words(v.GetType().Name.Replace("BinaryOverlay", ""));
 
@@ -408,6 +442,7 @@ public static class Impact
         IFormLinkGetter fl => fl.IsNull ? "not set" : OneLine(name(fl)),
         ITranslatedStringGetter ts => $"\"{OneLine(ts.String)}\"",
         string s => $"\"{OneLine(s)}\"",
+        _ when BlobText(v) is { } blob => blob,
         IEnumerable e => $"a list of {e.Cast<object?>().Count()}",
         _ when v.GetType().IsValueType => v.ToString() ?? "",
         _ => TypeLabel(v),

@@ -65,10 +65,12 @@ public class LoadOrderSetup
         OfficialOrder.Contains(name, StringComparer.OrdinalIgnoreCase) || OfficialPattern.IsMatch(name);
 
     public List<PluginInfo> Plugins { get; } = new();
-    public List<string> Problems { get; } = new();
+    // Read-only outside: AddProblem is the only writer, so every problem is cleaned to one line (0.5.1).
+    readonly List<string> problems = new();
+    public IReadOnlyList<string> Problems => problems;
 
     /// <summary>Adds a load-order problem on one line: it may quote plugin and master names from file headers (0.5.0).</summary>
-    public void AddProblem(string text) => Problems.Add(Impact.OneLine(text));
+    public void AddProblem(string text) => problems.Add(Impact.OneLine(text));
     public string OrderSource { get; private set; } = "";
 
     public static LoadOrderSetup Build(string dataDir, string? pluginsTxt, string? extraDir = null)

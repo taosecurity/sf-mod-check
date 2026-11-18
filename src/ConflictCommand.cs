@@ -15,7 +15,6 @@ public static class ConflictCommand
     public const string Usage =
         "usage: sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
         "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]";
-    const string SteamData = @"C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data";
 
     // The game's own load order file (the game writes it; Vortex and the in-game Creations menu update it).
     static string GamePluginsTxt() =>
@@ -31,7 +30,10 @@ public static class ConflictCommand
         }
         catch (Exception e)
         {
-            Console.WriteLine($"RESULT: CANNOT CHECK ({e.GetType().Name}: {e.Message})");
+            // name the plugin and record it stopped at (0.5.1), and the record Mutagen names in its exception, if any
+            var where = Analyzer.Where.Length > 0 ? $" while {Analyzer.Where}" : "";
+            var rec = Analyzer.RecordOf(e) is { Length: > 0 } r ? $" at {r}" : "";
+            Console.WriteLine($"RESULT: CANNOT CHECK ({e.GetType().Name}{rec}{where}: {Impact.OneLine(e.Message.Split('\n')[0])})");
             Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
             Log.Write($"stopped: {e}");
             return 2;
@@ -41,20 +43,13 @@ public static class ConflictCommand
 
     static int RunLogged(string[] a, string version, string byline, out bool resultPrinted, out string cantWhy)
     {
-        Analyzer.MaxManagedBytes = 0; Analyzer.Progress = null;   // fresh settings for every run in one process (0.5.0)
+        Analyzer.MaxManagedBytes = 0; Analyzer.Progress = null; Analyzer.Where = "";   // fresh settings for every run in one process (0.5.0)
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
         string? pluginsTxt = null, dataDir = null, extraDir = null, outDir = null, logFile = null;
         double maxGb = 0;
         bool quiet = false, verbose = false;
-        string? Value(ref int i, string what)
-        {
-            // an empty value ("" from a script, or a variable that wasn't set) counts as missing (0.5.0)
-            if (i + 1 < a.Length && !a[i + 1].StartsWith("--") && a[i + 1].Trim().Length > 0) return a[++i];
-            Console.Error.WriteLine($"{a[i]} needs {what} after it{(i + 1 < a.Length && a[i + 1].Trim().Length == 0 ? " (it was given an empty value)" : "")}, for example: {a[i]} {Example(a[i])}");
-            Console.Error.WriteLine(Usage);
-            return null;
-        }
+        string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
         for (int i = 0; i < a.Length; i++)
         {
             switch (a[i])
@@ -102,7 +97,7 @@ public static class ConflictCommand
 
         // Data folder: --data, else Steam's usual folder.
         var dataWhy = dataDir != null ? "from --data" : "Steam's usual folder (no --data given)";
-        dataDir ??= SteamData;
+        dataDir ??= Cli.SteamData;
         if (!Directory.Exists(dataDir))
         {
             cantWhy = $"the Data folder {Path.GetFullPath(dataDir)} doesn't exist";
@@ -184,6 +179,7 @@ public static class ConflictCommand
                 Log.Write($"stopped at the memory limit: {e.Message}");
                 return 3;
             }
+            Analyzer.Where = $"writing the report to {outDir}";
             Recommend.ReportDir = outDir;
             Recommend.DataDir = dataDir;
             Recommend.PluginsTxt = pluginsTxt;
@@ -209,15 +205,4 @@ public static class ConflictCommand
         }
         finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }
     }
-
-    static string Example(string option) => option switch
-    {
-        "--plugins" => "\"%LOCALAPPDATA%\\Starfield\\Plugins.txt\"",
-        "--data" => "\"D:\\XboxGames\\Starfield\\Content\\Data\"",
-        "--extra-data" => "\"C:\\MyBuild\\out\"",
-        "--out" => "conflict-report",
-        "--max-memory" => "8",
-        "--log" => "sfmodcheck-log.txt",
-        _ => "<value>",
-    };
 }

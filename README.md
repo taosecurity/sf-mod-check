@@ -19,7 +19,8 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.5.0 (adds the `conflict` command for whole load orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
+Version 0.5.1 (`conflict` carries on past records it can't read; 0.5.0 added the `conflict` command for whole load
+orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
 mods are welcome (see [Issues](https://github.com/taosecurity/sfmodcheck/issues)).
 
 ## Quick start (Creation Kit and xEdit authors)
@@ -125,7 +126,7 @@ plugin's full path.
 
 ### What the output looks like
 
-    sfmodcheck 0.5.0 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
+    sfmodcheck 0.5.1 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
     ERROR [links] MyMod_Misc [MISC:000801:MyMod.esm] links to 000FF0:MyMod.esm, which doesn't exist (expects Keyword)
     HINT [links] A field points at a record that doesn't exist, ...
     WARNING [itm] SomeKeyword [KYWD:0A1B2C:Starfield.esm] is identical to the master version it overrides (ITM)
@@ -203,10 +204,17 @@ navmeshes) took about 2 minutes and 8.4 to 8.8 GB at its peak; a small load orde
 placed objects and navmeshes cost the most. `--max-memory` sets a hard stop.
 
 **Exit codes:** 0 = report written (whatever it found); 2 = couldn't run (bad arguments, a missing folder or file,
-a plugin it couldn't read, a report it couldn't write; the RESULT line says `CANNOT CHECK`); 3 = stopped at
-`--max-memory` (`RESULT: STOPPED`). The last line on stdout is always the RESULT line, for example:
+a report it couldn't write; the RESULT line says `CANNOT CHECK` and, when it stopped while reading or comparing,
+which plugin and record it was on); 3 = stopped at `--max-memory` (`RESULT: STOPPED`). The last line on stdout is
+always the RESULT line, for example:
 
     RESULT: OK, 29 lost-change entries (19 official, 10 mod vs mod), 103 ITMs, 0 load-order problems (report: ...\sfmodcheck-conflict\report.html; 122 s)
+
+**Plugins and records it can't read:** a plugin that can't be opened at all is skipped and listed as a load-order
+problem. A record that Mutagen 0.54.4 can't read (a field written by a newer Creation Kit, or a damaged one) skips only
+that plugin's group of records of that type: the rest of the load order is still checked, and the report's "Tool
+limits hit" section lists the plugin, the record type and, where Mutagen names it, the record, once each. The RESULT
+line then adds "read problems (records not compared ...)". Run `sfmodcheck check` on that plugin to see the record.
 
 **What it doesn't check:** scripts, assets (meshes, textures, sounds) and loose files; only plugin records. Fields
 that are bookkeeping or that the Creation Kit regenerates are skipped (the report lists them). A patch it suggests is

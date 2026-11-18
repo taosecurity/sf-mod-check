@@ -16,10 +16,10 @@
 using System.Diagnostics;
 using SfModCheck;
 
-const string Version = "0.5.0";
+const string Version = "0.5.1";
 // Attribution (the author's request, 2026-11-11): stderr at the start of a check (not with --quiet), and --version.
 const string Byline = "sfmodcheck " + Version + " by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck";
-const string DefaultData = @"C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data";
+const string DefaultData = Cli.SteamData;
 const string Usage =
     "usage: sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]\n" +
     "                                 [--verbose] [--log <file>]\n" +
@@ -132,14 +132,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     bool quiet = false, hints = true, dataGiven = false, verbose = false;
     string? logFile = null;
     // An option's value; null (after an error naming the option and the fix) when it is missing.
-    string? Value(ref int i, string what)
-    {
-        // an empty value ("" from a script, or a variable that wasn't set) counts as missing (0.5.0)
-        if (i + 1 < a.Length && !a[i + 1].StartsWith("--") && a[i + 1].Trim().Length > 0) return a[++i];
-        Console.Error.WriteLine($"{a[i]} needs {what} after it{(i + 1 < a.Length && a[i + 1].Trim().Length == 0 ? " (it was given an empty value)" : "")}, for example: {a[i]} {Example(a[i])}");
-        Console.Error.WriteLine(Usage);
-        return null;
-    }
+    string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
     for (int i = 0; i < a.Length; i++)
     {
         switch (a[i])
@@ -307,12 +300,3 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     }
     return r.Errors > 0 ? 1 : 0;
 }
-
-static string Example(string option) => option switch
-{
-    "--data" => "\"D:\\XboxGames\\Starfield\\Content\\Data\"",
-    "--masters-dir" => "\"C:\\MyBuild\\out\"",
-    "--max" => "20",
-    "--log" => "sfmodcheck-log.txt",
-    _ => "<value>",
-};

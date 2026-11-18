@@ -19,8 +19,20 @@ public static class Recommend
     public static string DataDir { get; set; } = "";
     public static string PluginsTxt { get; set; } = "";
 
+    // Worked out once per pair and analysis (0.5.1): the two reports and the menu asked about 8 times per pair. Every
+    // caller groups the same Lost list by (winner, loser), and a pair's entries all sit in one section (official or
+    // not depends on the loser alone), so the key names the group exactly.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Analysis, Dictionary<(string, string), IReadOnlyList<Recommendation>>> Cache = new();
+
     // Recommendations for one winner/loser pair; empty when nothing needs doing (only "No effect" fields).
-    public static List<Recommendation> ForGroup(IGrouping<(string Winner, string Loser), LostChange> g, LoadOrderSetup lo, Analysis a)
+    public static IReadOnlyList<Recommendation> ForGroup(IGrouping<(string Winner, string Loser), LostChange> g, LoadOrderSetup lo, Analysis a)
+    {
+        var byPair = Cache.GetValue(a, _ => new());
+        if (!byPair.TryGetValue(g.Key, out var recs)) byPair[g.Key] = recs = Work(g, lo, a);
+        return recs;
+    }
+
+    static List<Recommendation> Work(IGrouping<(string Winner, string Loser), LostChange> g, LoadOrderSetup lo, Analysis a)
     {
         var (winner, loser) = g.Key;
         var recs = new List<Recommendation>();

@@ -144,6 +144,14 @@ public static class Overrides
     /// <summary>A cell grid's land flags: the low byte of Mutagen's int Flags (the other 3 bytes are unused, often junk).</summary>
     public static uint LandFlags(ICellGridGetter g) => unchecked((uint)(int)g.Flags) & 0xFF;
 
+    /// <summary>LandFlags for the reports' text ("0x01"), or "unreadable" when the field can't be read (0.5.1): the text
+    /// then still names the grid point. Comparisons keep calling LandFlags, whose exception is counted as a read failure.</summary>
+    public static string LandFlagsText(ICellGridGetter g)
+    {
+        try { return $"0x{LandFlags(g):X2}"; }
+        catch (Exception) { return "unreadable"; }
+    }
+
     /// <summary>Byte blobs (unknown data, navmesh geometry) compare by their bytes, not by slice positions in two files;
     /// null when a and b aren't the same kind of blob.</summary>
     public static bool? BlobEq(object a, object b) => (a, b) switch

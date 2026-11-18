@@ -19,7 +19,7 @@ public static class Report
 
         md.AppendLine("# Starfield conflict report");
         md.AppendLine();
-        md.AppendLine($"Generated {DateTime.Now:yyyy-MM-dd HH:mm}. Load order: {lo.OrderSource}.");
+        md.AppendLine($"Generated {DateTime.Now:yyyy-MM-dd HH:mm}. Load order: {Md(lo.OrderSource)}.");
         md.AppendLine();
         md.AppendLine("## Summary");
         md.AppendLine();
@@ -43,7 +43,7 @@ public static class Report
         if (recs.Count == 0) md.AppendLine("Nothing needs doing.");
         foreach (var r in recs)
         {
-            md.AppendLine($"- **{r.Level}** — {(r.Winner.Length > 0 ? $"{LoadOrderSetup.Display(r.Winner)} over {LoadOrderSetup.Display(r.Loser)}" : "All patchable conflicts")}: {r.Text}");
+            md.AppendLine($"- **{r.Level}** — {(r.Winner.Length > 0 ? $"{Md(LoadOrderSetup.Display(r.Winner))} over {Md(LoadOrderSetup.Display(r.Loser))}" : "All patchable conflicts")}: {Md(r.Text)}");
             if (r.Prompt is not null)
             {
                 // Indented fenced block so it stays inside the list item.
@@ -52,14 +52,14 @@ public static class Report
                 md.AppendLine("  ```").AppendLine();
             }
         }
-        if (a.Itms.Count > 0) md.AppendLine($"- **Low** — Optional: {a.Itms.Count} ITM override(s) in {string.Join(", ", a.Itms.Select(i => i.Plugin).Distinct())}. Harmless here; xEdit's Quick Auto Clean can remove them.");
+        if (a.Itms.Count > 0) md.AppendLine($"- **Low** — Optional: {a.Itms.Count} ITM override(s) in {Md(string.Join(", ", a.Itms.Select(i => i.Plugin).Distinct()))}. Harmless here; xEdit's Quick Auto Clean can remove them.");
         md.AppendLine();
 
         if (lo.Problems.Count > 0)
         {
             md.AppendLine("## Load-order problems");
             md.AppendLine();
-            foreach (var p in lo.Problems) md.AppendLine($"- {p}");   // one line already (LoadOrderSetup.Build)
+            foreach (var p in lo.Problems) md.AppendLine($"- {Md(p)}");   // one line already (LoadOrderSetup.AddProblem)
             md.AppendLine();
         }
 
@@ -80,7 +80,7 @@ public static class Report
         md.AppendLine("| Plugin | ITM records | Examples |");
         md.AppendLine("|---|---|---|");
         foreach (var g in a.Itms.GroupBy(i => i.Plugin).OrderByDescending(g => g.Count()))
-            md.AppendLine($"| {g.Key} | {g.Count()} | {string.Join(", ", g.Take(5).Select(i => $"{i.RecordType} {Md(Impact.OneLine(i.EditorID ?? i.FormKey.ToString()))}"))} |");
+            md.AppendLine($"| {Md(g.Key)} | {g.Count()} | {string.Join(", ", g.Take(5).Select(i => $"{Md(i.RecordType)} {Md(Impact.OneLine(i.EditorID ?? i.FormKey.ToString()))}"))} |");
         md.AppendLine();
 
         md.AppendLine("## Load order used");
@@ -104,8 +104,8 @@ public static class Report
             md.AppendLine();
             md.AppendLine("Fields Mutagen could not read were skipped, so conflicts in them are not reported.");
             md.AppendLine();
-            foreach (var (k, v) in a.UnreadableFields.OrderByDescending(kv => kv.Value)) md.AppendLine($"- {k}: {v} times");
-            foreach (var e in a.Errors.Take(50)) md.AppendLine($"- {e}");
+            foreach (var (k, v) in a.UnreadableFields.OrderByDescending(kv => kv.Value)) md.AppendLine($"- {Md(k)}: {v} times");
+            foreach (var e in a.Errors.Take(50)) md.AppendLine($"- {Md(Impact.OneLine(e))}");
             if (a.Errors.Count > 50) md.AppendLine($"- … and {a.Errors.Count - 50} more errors (see conflicts.json)");
             md.AppendLine();
         }
@@ -129,9 +129,31 @@ public static class Report
 
     static string Cut(string s) => Md(s.Length > 160 ? s[..160] + "…" : s);
 
-    // A table cell from plugin text: a "|" would end the cell early (0.5.0 code review).
-    static string Md(string? s) => (s ?? "").Replace("\\", "\\\\").Replace("|", "\\|").Replace("<", "\\<").Replace(">", "\\>")
-        .Replace("[", "\\[").Replace("]", "\\]");
+    // Plugin text in report.md, in table cells, list items and headings (0.5.1: everywhere): "|" would end a cell early,
+    // < > could start HTML, [ ] a link, and ` * _ a code span or emphasis (an EditorID with a backtick paired with the
+    // FormKey's code span). Each character is escaped once, so an escape never gets escaped again.
+    public static string Md(string? s)
+    {
+        var sb = new StringBuilder((s ?? "").Length);
+        foreach (var c in s ?? "")
+        {
+            if (c is '\\' or '|' or '<' or '>' or '[' or ']' or '`' or '*' or '_') sb.Append('\\');
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    // A code span that holds any text (a FormKey's file name may contain backticks): the fence is one backtick longer
+    // than the longest run inside, padded with spaces when the text starts or ends with one (CommonMark). Backslashes
+    // are literal in a code span, but GitHub's tables still split on "|", so that one is escaped.
+    public static string Code(string s)
+    {
+        int run = 0, longest = 0;
+        foreach (var c in s) { run = c == '`' ? run + 1 : 0; longest = Math.Max(longest, run); }
+        var fence = new string('`', longest + 1);
+        var pad = s.StartsWith('`') || s.EndsWith('`') ? " " : "";
+        return fence + pad + s.Replace("|", "\\|") + pad + fence;
+    }
 
     static void WriteGroups(StringBuilder md, List<LostChange> items, LoadOrderSetup lo, Analysis a)
     {
@@ -140,29 +162,29 @@ public static class Report
         md.AppendLine("|---|---|---|---|---|---|");
         var groups = items.GroupBy(l => (l.Winner, l.Loser)).OrderByDescending(g => g.Count()).ToList();
         foreach (var g in groups)
-            md.AppendLine($"| {LoadOrderSetup.Display(g.Key.Winner)} | {LoadOrderSetup.Display(g.Key.Loser)} | {g.Count()} | {g.Sum(l => l.Fields.Count(f => !f.WinnerChangedToo && !Impact.IsMinor(f)))} | {g.Sum(l => l.Fields.Count(f => f.WinnerChangedToo && !Impact.IsMinor(f)))} | {g.Sum(l => l.Fields.Count(Impact.IsMinor))} |");
+            md.AppendLine($"| {Md(LoadOrderSetup.Display(g.Key.Winner))} | {Md(LoadOrderSetup.Display(g.Key.Loser))} | {g.Count()} | {g.Sum(l => l.Fields.Count(f => !f.WinnerChangedToo && !Impact.IsMinor(f)))} | {g.Sum(l => l.Fields.Count(f => f.WinnerChangedToo && !Impact.IsMinor(f)))} | {g.Sum(l => l.Fields.Count(Impact.IsMinor))} |");
         md.AppendLine();
         foreach (var g in groups)
         {
-            md.AppendLine($"### {LoadOrderSetup.Display(g.Key.Winner)} over {LoadOrderSetup.Display(g.Key.Loser)}");
+            md.AppendLine($"### {Md(LoadOrderSetup.Display(g.Key.Winner))} over {Md(LoadOrderSetup.Display(g.Key.Loser))}");
             md.AppendLine();
             md.AppendLine("**Impact:**");
             md.AppendLine();
-            foreach (var line in Impact.ForGroup(g)) md.AppendLine($"- {line}");
+            foreach (var line in Impact.ForGroup(g)) md.AppendLine($"- {Md(line)}");
             var recs = Recommend.ForGroup(g, lo, a);
             if (recs.Count > 0)
             {
                 md.AppendLine();
                 md.AppendLine("**Recommendation:**");
                 md.AppendLine();
-                foreach (var r in recs.OrderBy(r => r.Priority)) md.AppendLine($"- **{r.Level}** — {r.Text}");
+                foreach (var r in recs.OrderBy(r => r.Priority)) md.AppendLine($"- **{r.Level}** — {Md(r.Text)}");
             }
             md.AppendLine();
             md.AppendLine("| Record | Field | Kind | Impact | Lost value | Winning value |");
             md.AppendLine("|---|---|---|---|---|---|");
             foreach (var l in g.Take(RowsPerGroup))
                 foreach (var f in l.Fields)
-                    md.AppendLine($"| {l.RecordType} {Md(Impact.OneLine(l.EditorID))} `{l.FormKey}` | {f.Field} | {(Impact.IsMinor(f) ? "No effect" : f.WinnerChangedToo ? "Choice" : "Forwardable")} | {Impact.Flat(Impact.ForField(l, f)).Replace("|", "/")} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
+                    md.AppendLine($"| {Md(l.RecordType)} {Md(Impact.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(f.Field)} | {(Impact.IsMinor(f) ? "No effect" : f.WinnerChangedToo ? "Choice" : "Forwardable")} | {Md(Impact.Flat(Impact.ForField(l, f)))} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
             if (g.Count() > RowsPerGroup) md.AppendLine($"\n… {g.Count() - RowsPerGroup} more records in conflicts.json");
             md.AppendLine();
         }

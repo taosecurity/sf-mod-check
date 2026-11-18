@@ -13,6 +13,7 @@ public static class HtmlReport
         var official = a.Lost.Where(l => l.LoserOfficial).ToList();
         var modVsMod = a.Lost.Where(l => !l.LoserOfficial).ToList();
         var h = new StringBuilder();
+        var nav = Nav(lo, a, official, modVsMod);   // made first, so the page is never copied to place it (0.5.1)
         // The page body; Write() wraps it into a full document. Nothing is loaded from the web (PRIVACY.md): the fonts fall
         // back to the system's own when Public Sans and JetBrains Mono aren't installed.
         h.Append($$"""
@@ -100,7 +101,7 @@ public static class HtmlReport
             input[type=search] { width:100%; max-width:420px; padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--text); font:inherit; }
             ul.problems li { margin:4px 0; }
             .hidden { display:none; }
-            </style><div class="layout"><nav class="side" aria-label="Report sections">@@NAV@@</nav><main>
+            </style><div class="layout"><nav class="side" aria-label="Report sections">{{nav}}</nav><main>
             <h1 id="summary">Starfield conflict report</h1>
             <div class="muted">Generated {{DateTime.Now:yyyy-MM-dd HH:mm}} · Load order: {{HtmlEncode(lo.OrderSource)}}</div>
             <div class="cards">
@@ -212,8 +213,6 @@ public static class HtmlReport
             </script>
             </main></div>
             """);
-        var navAt = h.ToString().IndexOf("@@NAV@@", StringComparison.Ordinal);   // the page frame's, before any data (0.5.0)
-        if (navAt >= 0) h.Remove(navAt, "@@NAV@@".Length).Insert(navAt, Nav(lo, a, official, modVsMod));
         File.WriteAllText(path, "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">" +
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"></head><body>\n" + h + "\n</body></html>");
     }

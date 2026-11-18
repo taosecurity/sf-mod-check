@@ -360,10 +360,58 @@ public class ConflictTests
         var (code, _, _) = game.Conflict(new[] { "Base.esm", "ModA.esm", "ModB.esm" });
         Assert.Equal(0, code);
         var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
-        Assert.Contains("B_Misc\\|X", md);
-        var rows = md.Split('\n').Where(l => l.StartsWith("| ") && l.Contains("B_Misc")).ToList();
+        Assert.Contains("B\\_Misc\\|X", md);   // "_" is escaped too since 0.5.1
+        var rows = md.Split('\n').Where(l => l.StartsWith("| ") && l.Contains("B\\_Misc")).ToList();
         Assert.NotEmpty(rows);
         Assert.All(rows, r => Assert.DoesNotContain("Gun|Extra", r));   // escaped as Gun\|Extra in table cells
+        // the record table has 6 columns, so 7 real cell separators: none came from the plugin's text
+        Assert.All(rows, r => Assert.Equal(7, System.Text.RegularExpressions.Regex.Matches(r.TrimEnd('\r'), @"(?<!\\)\|").Count));
+    }
+
+    // 0.5.1, item 1: report.md escapes plugin text everywhere, with backtick, * and _ added.
+    [Fact]
+    public void Markdown_escaping_covers_every_special_character_once() =>
+        Assert.Equal(@"a\|b\`c\*d\_e\[f\]\<g\>\\h", Report.Md(@"a|b`c*d_e[f]<g>\h"));
+
+    // A backtick in the middle needs a longer fence; one at the start or end also needs the space padding.
+    [Theory]
+    [InlineData("000801:ModA.esm", "`000801:ModA.esm`")]
+    [InlineData("000801:A`B.esm", "``000801:A`B.esm``")]
+    [InlineData("000801:A``B.esm", "```000801:A``B.esm```")]
+    [InlineData("`x", "`` `x ``")]
+    public void A_code_span_holds_any_backticks(string text, string expected) => Assert.Equal(expected, Report.Code(text));
+
+    [Fact]
+    public void Plugin_text_with_markdown_characters_is_escaped_in_every_part_of_report_md()
+    {
+        const string loser = "Mod_[A]`.esm";   // characters Windows allows in a file name
+        using var game = new Game();
+        game.Mod(loser, (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        game.Mod("ModB.esm", (m, open) =>
+        {
+            var misc = Misc(m, open("Base.esm"));
+            misc.Weight = 2;
+            misc.EditorID = "B`Misc*bold*";
+        });
+        var (code, _, _) = game.Conflict(new[] { "Base.esm", loser, "ModB.esm" });
+        Assert.Equal(0, code);
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        // outside the AI prompt block (plain data in its own fence), the name never appears raw: recommendations,
+        // summary table, heading, impact lines, load order and the record table are all escaped
+        var outsidePrompt = md.Replace(PromptPart(md), "");
+        Assert.DoesNotContain(loser, outsidePrompt);
+        Assert.Contains(@"### ModB.esm over Mod\_\[A\]\`.esm", md);
+        Assert.Contains(@"| ModB.esm | Mod\_\[A\]\`.esm |", md);
+        Assert.Contains(@"B\`Misc\*bold\*", md);
+    }
+
+    // The AI prompt block (kept as written, in its own fence) so the escaping test can leave it out.
+    static string PromptPart(string md)
+    {
+        var start = md.IndexOf("  ```text", StringComparison.Ordinal);
+        if (start < 0) return "";
+        var end = md.IndexOf("\n  ```", start + 9, StringComparison.Ordinal);
+        return md[start..(end + 6)];
     }
 
     [Fact]
@@ -481,6 +529,45 @@ public class ConflictTests
         Assert.Equal(0, code);
         var questItms = Itms(json).Where(i => S(i, "RecordType") == "Quest").Select(i => S(i, "Plugin")).ToList();
         Assert.Equal(new[] { "Empty.esm" }, questItms);
+    }
+
+    // 0.5.1, item 7: one record Mutagen can't read (a 157-plugin load order had seven such groups) used to stop the whole run;
+    // then both passes listed it, so it showed twice. Here ModA's keyword override has a subrecord length past the end
+    // of its record, and ModB overrides another keyword, so the second pass reads ModA's keywords too.
+    [Fact]
+    public void An_unreadable_record_skips_only_its_group_and_is_listed_once()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) =>
+        {
+            var b = open("Base.esm");
+            Misc(m, b).Value = 10;
+            m.Keywords.GetOrAddAsOverride(b.Keywords.First());
+        });
+        game.Mod("ModB.esm", (m, open) =>
+        {
+            var b = open("Base.esm");
+            Misc(m, b).Weight = 2;
+            m.Keywords.GetOrAddAsOverride(b.Keywords.Skip(1).First());
+        });
+        var path = Path.Combine(game.Data, "ModA.esm");
+        var bytes = File.ReadAllBytes(path);
+        var kywd = Bytes.Items(bytes).Single(i => i.Sig == "KYWD");
+        Bytes.SetU32(bytes, kywd.Off + 4, 0x7FFF_FFF0);   // a record size far past the end of its group
+        File.WriteAllBytes(path, bytes);
+
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm", "ModB.esm" });
+        Assert.True(code == 0, stdout);
+        var lost = Assert.Single(Lost(json));   // ModA's misc item change, lost to ModB, is still found
+        Assert.Equal(("ModA.esm", "ModB.esm", "MiscItem"), (S(lost, "Loser"), S(lost, "Winner"), S(lost, "RecordType")));
+        var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
+        Assert.True(errors.Count == 1, string.Join(" || ", errors));
+        var error = errors[0];
+        Assert.StartsWith("ModA.esm: could not read its keyword records", error);
+        Assert.Contains("so its changes to them were not checked", error);
+        Assert.Contains("1 read problems", ExeTests.ResultLine(stdout));
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        Assert.Single(md.Split('\n'), l => l.StartsWith("- ModA.esm: could not read"));
     }
 
     [Fact]

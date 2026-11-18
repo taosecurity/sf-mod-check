@@ -21,7 +21,7 @@ public sealed record Finding(string Severity, string Check, string Text);
 public sealed class Options
 {
     public required string Plugin;
-    public string DataDir = @"C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data";
+    public string DataDir = Cli.SteamData;
     /// <summary>Searched for masters before the Data folder (by default the plugin's own folder).</summary>
     public List<string> MastersDirs = new();
     /// <summary>Most lines printed per check (the counts in RESULT are always complete).</summary>
