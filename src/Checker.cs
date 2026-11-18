@@ -212,7 +212,7 @@ public static class Checker
         // ---- read + links (Mutagen) ----
         if (missing.Count > 0) { Log.Write($"stopped before the Mutagen stages: {missing.Count} master(s) missing; install them, or point --data / --masters-dir at them"); r.CannotCheckLinks = true; return Done(); }
         try { foreach (var m in h.Masters) game.Open(m); }
-        catch (Exception e) { Log.Write($"Mutagen can't open the masters: {e}"); Add("ERROR", "read", $"Mutagen can't open the masters: {e.GetType().Name}: {e.Message}"); r.CannotCheckLinks = true; return Done(); }
+        catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"Mutagen can't open the masters: {e}"); Add("ERROR", "read", $"Mutagen can't open the masters: {e.GetType().Name}: {e.Message}"); r.CannotCheckLinks = true; return Done(); }
         Log.Write($"stage masters opened with Mutagen: load order {string.Join(", ", game.LoadOrder.Select(m => m.ModKey.FileName.String))} ({sw.Elapsed.TotalSeconds:F1} s so far)");
         // NAVI NVMI navmesh IDs (read raw above), decoded with the plugin's own master lists
         var navKeys = new List<(string Rec, string What, uint Fid, (string, uint)? Key)>();
@@ -245,7 +245,7 @@ public static class Checker
     {
         IModGetter mod;
         try { mod = game.OpenPlugin(o.Plugin); }
-        catch (Exception e) { Log.Write($"Mutagen can't open the plugin: {e}"); add("ERROR", "read", $"Mutagen can't open the plugin: {e.GetType().Name}: {e.Message}"); r.CannotCheckLinks = true; return; }
+        catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"Mutagen can't open the plugin: {e}"); add("ERROR", "read", $"Mutagen can't open the plugin: {e.GetType().Name}: {e.Message}"); r.CannotCheckLinks = true; return; }
         void Stage(string what) => Log.Write($"stage {what} ({sw.Elapsed.TotalSeconds:F1} s so far)");
         using var _ = mod as IDisposable;
         var selfKey = mod.ModKey;
@@ -271,7 +271,7 @@ public static class Checker
                     perRecord.Add((rec, ls));
                     byKey.TryAdd(rec.FormKey, ls);
                 }
-                catch (Exception e) { add("ERROR", "read", $"{Name(rec)}: Mutagen can't read this record ({e.GetType().Name}: {e.Message})"); }
+                catch (Exception e) when (Fatal.Recoverable(e)) { add("ERROR", "read", $"{Name(rec)}: Mutagen can't read this record ({e.GetType().Name}: {e.Message})"); }
             }
             foreach (var (rec, ls) in perRecord)
             {
@@ -304,7 +304,7 @@ public static class Checker
                 foreach (var l in own) { links.Add((rec, l)); targets.Add(K(l.FormKey)); }
             }
         }
-        catch (Exception e) { add("ERROR", "read", $"Mutagen stopped reading the plugin: {e.GetType().Name}: {e.Message}"); }
+        catch (Exception e) when (Fatal.Recoverable(e)) { add("ERROR", "read", $"Mutagen stopped reading the plugin: {e.GetType().Name}: {e.Message}"); }
         r.Links = links.Count;
         r.Overrides = overrides.Count;
         Stage($"Mutagen read: {perRecord.Count} records, {overrides.Count} overrides, {links.Count} links");
@@ -330,7 +330,7 @@ public static class Checker
             {
                 asked = true;
                 try { learned = LearnedCache.Scenes(o.DataDir); }
-                catch (Exception e) { learnFailed = $"{e.GetType().Name}: {e.Message}"; Log.Write($"scene-quirks: couldn't learn the official scene list: {e}"); }
+                catch (Exception e) when (Fatal.Recoverable(e)) { learnFailed = $"{e.GetType().Name}: {e.Message}"; Log.Write($"scene-quirks: couldn't learn the official scene list: {e}"); }
                 if (learned == null && learnFailed == "") Log.Write($"scene-quirks: no official masters in {o.DataDir}, so no learned list" +
                     (o.UseBuiltInSceneQuirks && Rules.HaveBuiltInSceneQuirks ? " (the built-in list fills in)" : "; official scenes are not checked"));
             }
@@ -347,7 +347,7 @@ public static class Checker
                 if (rec is ISceneGetter s && !SkipOfficialScene(s)) Rules.CheckScene(s, Name(rec), QuestOf, add);
             }
             // (the name is built without the EditorID here: on a damaged record reading it is what throws)
-            catch (Exception e) { add("ERROR", "read", $"[{SigOf(rec) ?? rec.GetType().Name}:{rec.FormKey}]: Mutagen can't read this record's conditions, scene data or EditorID ({e.GetType().Name}: {e.Message})"); }
+            catch (Exception e) when (Fatal.Recoverable(e)) { add("ERROR", "read", $"[{SigOf(rec) ?? rec.GetType().Name}:{rec.FormKey}]: Mutagen can't read this record's conditions, scene data or EditorID ({e.GetType().Name}: {e.Message})"); }
         }
         if (notChecked.Count > 0)
         {
@@ -366,7 +366,7 @@ public static class Checker
             var masterPaths = game.LoadOrder.Select(m => game.Locate(m.ModKey.FileName)).Where(p => p != null).Cast<string>().ToList();
             EditorIds.Check(ownNames, masterPaths, add);
         }
-        catch (Exception e) { Log.Write($"editorids: {e}"); add("WARNING", "editorids", $"EditorIDs not checked: {e.GetType().Name}: {e.Message}"); }
+        catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"editorids: {e}"); add("WARNING", "editorids", $"EditorIDs not checked: {e.GetType().Name}: {e.Message}"); }
         Stage("editorids");
 
         foreach (var n in navKeys) if (n.Key is { } nk) targets.Add(nk);
@@ -551,7 +551,7 @@ public static class Checker
                         counts[key] = counts.GetValueOrDefault(key) + 1;
                     }
                 }
-                catch { failed++; }
+                catch (Exception e) when (Fatal.Recoverable(e)) { failed++; }
             }
             Console.WriteLine($"  {mod.ModKey}: {links} links so far ({sw.Elapsed.TotalSeconds:F0} s)");
         }

@@ -231,7 +231,7 @@ public static class Impact
         {
             if (!p.CanRead || p.GetIndexParameters().Length > 0 || p.Name is "StaticRegistration" or "Registration" || p.Name.StartsWith("Unknown")) continue;
             object? pv;
-            try { pv = p.GetValue(v); } catch (Exception) { continue; }
+            try { pv = p.GetValue(v); } catch (Exception err) when (Fatal.Recoverable(err)) { continue; }
             if (FieldCompare.IsEmpty(pv)) continue;
             parts.Add($"{Words(p.Name)} {Describe(pv, name, depth + 1)}");
             if (parts.Count >= 5) break;
@@ -330,12 +330,12 @@ public static class Impact
             if (p.Name == "Flags" && a is Mutagen.Bethesda.Starfield.ICellGridGetter ga && b is Mutagen.Bethesda.Starfield.ICellGridGetter gb)
             {   // XCLC: only the land-flag byte, read typed (0.5.0)
                 uint fa, fb;
-                try { (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb)); } catch (Exception) { SfModCheck.Overrides.OnUnreadable?.Invoke(); continue; }
+                try { (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb)); } catch (Exception e) when (Fatal.Recoverable(e)) { SfModCheck.Overrides.OnUnreadable?.Invoke(); continue; }
                 if (fa != fb) res.Add(new(Label($"{path} land flags"), "changed", $"0x{fa:X2}", $"0x{fb:X2}", false));
                 continue;
             }
             object? va, vb;
-            try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { SfModCheck.Overrides.OnUnreadable?.Invoke(); continue; }
+            try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception e) when (Fatal.Recoverable(e)) { SfModCheck.Overrides.OnUnreadable?.Invoke(); continue; }
             Walk(va, vb, $"{path} {p.Name}", depth + 1, res, name);
         }
     }
@@ -432,7 +432,7 @@ public static class Impact
         {
             var p = item.GetType().GetProperty(prop);
             object? v;
-            try { v = p?.GetValue(item); } catch (Exception) { continue; }
+            try { v = p?.GetValue(item); } catch (Exception e) when (Fatal.Recoverable(e)) { continue; }
             if (v is string s && s.Length > 0) return $"\"{OneLine(s)}\"";
             if (v is IFormLinkGetter fl && !fl.IsNull) return $"({Words(prop)} {OneLine(name(fl))})";
             if (v is not null && v.GetType().IsPrimitive) return $"{prop} {v}";

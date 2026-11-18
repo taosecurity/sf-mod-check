@@ -45,7 +45,7 @@ public static class ConditionWalker
         foreach (var p in PropsFor(o.GetType()))
         {
             object? v;
-            try { v = p.GetValue(o); } catch { continue; }
+            try { v = p.GetValue(o); } catch (Exception err) when (Fatal.Recoverable(err)) { continue; }
             if (v != null) Walk(v, root, f, depth + 1);
         }
     }
@@ -244,7 +244,7 @@ public static class Rules
                         }
                     });
                 }
-                catch { failed++; }
+                catch (Exception e) when (Fatal.Recoverable(e)) { failed++; }
             }
             Console.WriteLine($"  {mod.ModKey}: {conds} conditions so far ({sw.Elapsed.TotalSeconds:F0} s)");
         }

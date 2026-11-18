@@ -31,11 +31,19 @@ public static class ConflictCommand
         catch (Exception e)
         {
             // name the plugin and record it stopped at (0.5.1), and the record Mutagen names in its exception, if any
-            var where = Analyzer.Where.Length > 0 ? $" while {Analyzer.Where}" : "";
-            var rec = Analyzer.RecordOf(e) is { Length: > 0 } r ? $" at {r}" : "";
-            Console.WriteLine($"RESULT: CANNOT CHECK ({e.GetType().Name}{rec}{where}: {Impact.OneLine(e.Message.Split('\n')[0])})");
-            Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
-            Log.Write($"stopped: {e}");
+            // Running out of memory ends here too (Fatal.cs): the plugins are closed by now, and Fatal.ResultLine frees
+            // the rest before the line is built.
+            Console.WriteLine(Fatal.ResultLine(e, () =>
+            {
+                var where = Analyzer.Where.Length > 0 ? $" while {Analyzer.Where}" : "";
+                var rec = Analyzer.RecordOf(e) is { Length: > 0 } r ? $" at {r}" : "";
+                return $"RESULT: CANNOT CHECK ({e.GetType().Name}{rec}{where}: {Impact.OneLine(e.Message.Split('\n')[0])})";
+            }));
+            Fatal.AfterResult(() =>
+            {
+                Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
+                Log.Write($"stopped: {e}");
+            });
             return 2;
         }
         finally { Log.Close(); }
@@ -197,9 +205,11 @@ public static class ConflictCommand
             foreach (var err in analysis.Errors.Take(5)) Console.Error.WriteLine($"note: {err}");
             if (analysis.Errors.Count > 5) Console.Error.WriteLine($"note: ... and {analysis.Errors.Count - 5} more (the report's \"Tool limits hit\" section)");
             Console.WriteLine($"RESULT: OK, {analysis.Lost.Count} lost-change entries ({official} official, {analysis.Lost.Count - official} mod vs mod), " +
-                              $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} read problems (records not compared; see the report's \"Tool limits hit\")" : "")} " +
+                              $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems" +
+                              $"{(analysis.TypeChanges.Count is var tcn and > 0 ? $", {tcn} override{(tcn == 1 ? "" : "s")} that change{(tcn == 1 ? "s" : "")} a record's type" : "")}{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} read problems (records not compared; see the report's \"Tool limits hit\")" : "")} " +
                               $"(report: {Path.Combine(outDir, "report.html")}; {sw.Elapsed.TotalSeconds:F0} s)");
             Log.Write($"result: {analysis.Lost.Count} lost-change entries, {analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems, " +
+                      $"{analysis.TypeChanges.Count} type-changing overrides, " +
                       $"{analysis.Errors.Count} errors, exit code 0, {sw.Elapsed.TotalSeconds:F1} s, peak working set {Process.GetCurrentProcess().PeakWorkingSet64 / 1e9:F1} GB");
             return 0;
         }

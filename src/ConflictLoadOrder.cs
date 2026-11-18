@@ -10,7 +10,11 @@ using Mutagen.Bethesda.Starfield;
 namespace SfModCheck.Conflict;
 
 
-public record PluginInfo(int Index, string FileName, bool Official, List<string> Masters, IStarfieldModDisposableGetter Mod);
+// Path: the file read (raw record headers are read from it for record types, 0.5.2).
+public record PluginInfo(int Index, string FileName, bool Official, List<string> Masters, IStarfieldModDisposableGetter Mod)
+{
+    public string Path { get; init; } = "";
+}
 
 public class LoadOrderSetup
 {
@@ -138,7 +142,7 @@ public class LoadOrderSetup
             var path = fullPath[name];
             List<string> masters;
             try { masters = ModHeaderMasters(path); }
-            catch (Exception e)   // unreadable, or a damaged header (sizes past the end): skip it, not the run (0.5.0)
+            catch (Exception e) when (Fatal.Recoverable(e))   // unreadable, or a damaged header (sizes past the end): skip it, not the run (0.5.0)
             {
                 setup.AddProblem($"{name}: cannot be read ({e.GetType().Name}), plugin skipped; run sfmodcheck check on it for details");
                 skipped.Add(name);
@@ -165,13 +169,13 @@ public class LoadOrderSetup
                 mod = StarfieldMod.CreateFromBinaryOverlay(path, StarfieldRelease.Starfield,
                     new BinaryReadParameters { MasterFlagsLookup = new LoadOrder<IModMasterStyledGetter>(opened.Values.Select(p => (IModMasterStyledGetter)p.Mod)) });
             }
-            catch (Exception e)   // a damaged plugin is skipped, not the whole run (0.5.0)
+            catch (Exception e) when (Fatal.Recoverable(e))   // a damaged plugin is skipped, not the whole run (0.5.0)
             {
                 setup.AddProblem($"{name}: cannot be opened ({e.GetType().Name}: {e.Message.Split('\n')[0]}), plugin skipped; run sfmodcheck check on it for details");
                 skipped.Add(name);
                 return false;
             }
-            var info = new PluginInfo(opened.Count, name, IsOfficial(name), masters, mod);
+            var info = new PluginInfo(opened.Count, name, IsOfficial(name), masters, mod) { Path = path };
             opened[name] = info;
             setup.Plugins.Add(info);
             return true;

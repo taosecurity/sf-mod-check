@@ -33,7 +33,8 @@ public static class Hints
             "record; the field shows the FormID, often in red. Point it at an existing record of the right type, or " +
             "clear it. 'Doesn't exist' often means a master is missing or a master record was removed. CK: re-pick " +
             "the item in that form's drop-down and save. 'Injected record' means the plugin adds a record in a " +
-            "master's FormID range: fine only if you meant it.",
+            "master's FormID range: fine only if you meant it. 'Overrides ..., which is a <type>' means the plugin's " +
+            "record has the FormID of a master record of another type. " + Conflict.TypeChanges.Hint,
         ["navi"] =
             "The navmesh info map (NAVI) points at a navmesh that doesn't exist, isn't a navmesh or is deleted. CK: " +
             "load the cell, select its navmesh and Finalize it, then save. If the plugin deletes a navmesh that others " +

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.2 (not released yet)
+
+`conflict` reports overrides that change a record's type. A mod record with the FormID of an earlier record of another
+type (for example an armor record on a DLC cell's ID, after a wrong master index) used to be skipped without a word:
+the comparison reads one record type at a time, so the earlier record of the other type was never read. Now the
+record types are read straight from the file headers (only each record's type and FormID, so memory stays flat) and
+every such override is listed as "record type differs between plugins: <first plugin> has a CELL, <mod> an ARMO", in
+report.html, report.md (a new section and a Summary row) and conflicts.json (`typeChanges`), with a Medium
+recommendation per plugin; the RESULT line adds the count when there are any. The text says what the game does with
+such a record: it keeps whichever record loads first and silently drops the other (armor and armor addon records may
+replace each other); for placed objects in temporary groups, the object may vanish when its cell loads. An ordinary
+override of the same record that loads after the type-changing one is now compared as well (before, it was skipped
+too). `check` already reported these as a links ERROR; its links hint now carries the same explanation.
+
+One rule for errors that must stop a run. A record or field that can't be read is still skipped and listed, as before.
+Running out of memory (and conflict's `--max-memory` stop, and a thread running out of stack) now always ends the run:
+`check` with `RESULT: CANNOT CHECK` and exit code 2; `conflict` with `RESULT: CANNOT CHECK` and exit code 2 and no
+report (`--max-memory` keeps exit code 3). In 0.5.1 some inner catches turned such an error into "unreadable" text and
+carried on, so a report could look whole when it wasn't. Covered, in `check`: opening the masters and the plugin,
+reading each record and its links, the conditions, scenes and EditorIDs of each record, learning the official scene
+list, the EditorID check, the condition walk, the itm comparison and the land-flags text. In `conflict`: reading each
+plugin's header and opening it, every catch in the comparison, the field hash and value text, the impact text (the
+field walk, value descriptions and entry names), the land-flags text and the new record-type pass. An error wrapped in
+another counts (inner exceptions are followed, and every error inside an AggregateException, not only the first).
+Catches that take only named file errors (the log, the caches, zlib data) can't catch these, so they are unchanged.
+The RESULT line after such an error is built once the run's memory is released, with a fixed text if that fails too.
+
+Code: check's itm comparison and conflict's field comparison are one comparer (DeepCompare) with six options where
+the two differ, so each keeps exactly its earlier answers: proved by running the 0.5.1 code beside the new one on
+awkward values and on every field of real records in the tests, and by identical `check` output on all 18 official
+masters and four mods and identical `conflict` findings on a 149-plugin load order. No option changed. 172 tests (14 new; one 0.5.1 test moved into the new ones).
+
 ## 0.5.1 (2026-11-17)
 
 `conflict` no longer stops at the first record it can't read. On a 157-plugin load order (a large overhaul with many

@@ -16,7 +16,7 @@
 using System.Diagnostics;
 using SfModCheck;
 
-const string Version = "0.5.1";
+const string Version = "0.5.2";
 // Attribution (the author's request, 2026-11-11): stderr at the start of a check (not with --quiet), and --version.
 const string Byline = "sfmodcheck " + Version + " by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck";
 const string DefaultData = Cli.SteamData;
@@ -114,10 +114,14 @@ int Check(string[] a)
     }
     catch (Exception e)
     {
-        // Anything not caught on the way (a locked or damaged file, a bad path): still one RESULT line and exit 2.
-        Console.WriteLine($"RESULT: CANNOT CHECK ({e.GetType().Name}: {e.Message})");
-        Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
-        Log.Write($"stopped: {e}");
+        // Anything not caught on the way (a locked or damaged file, a bad path, running out of memory): still one RESULT
+        // line and exit 2 (Fatal.cs).
+        Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK ({e.GetType().Name}: {e.Message})"));
+        Fatal.AfterResult(() =>
+        {
+            Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
+            Log.Write($"stopped: {e}");
+        });
         return 2;
     }
     finally { Log.Close(); }
@@ -268,10 +272,15 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     try { r = Checker.Run(o); }
     catch (Exception e)
     {
+        // Read errors are skipped and listed inside the check; what reaches here stopped it, running out of memory
+        // included (Fatal.cs): never a result that looks whole.
         resultPrinted = true;
-        Console.WriteLine($"RESULT: CANNOT CHECK {Path.GetFileName(plugin)} ({e.GetType().Name}: {e.Message})");
-        Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
-        Log.Write($"stopped: {e}");
+        Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK {Path.GetFileName(plugin)} ({e.GetType().Name}: {e.Message})"));
+        Fatal.AfterResult(() =>
+        {
+            Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
+            Log.Write($"stopped: {e}");
+        });
         return 2;
     }
 

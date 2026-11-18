@@ -31,6 +31,7 @@ public static class Report
         md.AppendLine($"| Records where one mod's change is lost to another mod | {modVsMod.Select(l => l.FormKey).Distinct().Count()} |");
         md.AppendLine($"| Overrides that change nothing (ITM) | {a.Itms.Count} |");
         md.AppendLine($"| Load-order problems | {lo.Problems.Count} |");
+        md.AppendLine($"| Overrides that change a record's type | {a.TypeChanges.Count} |");
         md.AppendLine();
         md.AppendLine("How to read the tables: **Forwardable** means the winning plugin did not mean to change that field; it just carries an older value, so a patch can copy the lost value forward safely. **Choice** means both plugins changed the same field, so someone has to pick. **No effect** means the versions differ only in list order, letter case or undocumented fields.");
         md.AppendLine();
@@ -40,7 +41,7 @@ public static class Report
         if (Recommend.Combined(allGroups, lo, a) is { } combined) recs.Insert(0, combined);
         md.AppendLine("## Recommended actions");
         md.AppendLine();
-        if (recs.Count == 0) md.AppendLine("Nothing needs doing.");
+        if (recs.Count == 0 && a.TypeChanges.Count == 0) md.AppendLine("Nothing needs doing.");
         foreach (var r in recs)
         {
             md.AppendLine($"- **{r.Level}** — {(r.Winner.Length > 0 ? $"{Md(LoadOrderSetup.Display(r.Winner))} over {Md(LoadOrderSetup.Display(r.Loser))}" : "All patchable conflicts")}: {Md(r.Text)}");
@@ -52,6 +53,8 @@ public static class Report
                 md.AppendLine("  ```").AppendLine();
             }
         }
+        foreach (var g in TypeChangesByPlugin(a))
+            md.AppendLine($"- **Medium** — {Md(g.Key)}: {g.Count()} override{(g.Count() == 1 ? "" : "s")} change{(g.Count() == 1 ? "s" : "")} a record's type, so the game drops one of the two records (\"Overrides that change a record's type\" below).");
         if (a.Itms.Count > 0) md.AppendLine($"- **Low** — Optional: {a.Itms.Count} ITM override(s) in {Md(string.Join(", ", a.Itms.Select(i => i.Plugin).Distinct()))}. Harmless here; xEdit's Quick Auto Clean can remove them.");
         md.AppendLine();
 
@@ -60,6 +63,19 @@ public static class Report
             md.AppendLine("## Load-order problems");
             md.AppendLine();
             foreach (var p in lo.Problems) md.AppendLine($"- {Md(p)}");   // one line already (LoadOrderSetup.AddProblem)
+            md.AppendLine();
+        }
+
+        if (a.TypeChanges.Count > 0)
+        {
+            md.AppendLine("## Overrides that change a record's type");
+            md.AppendLine();
+            md.AppendLine($"A plugin has a record whose FormID belongs to an earlier record of another type. {Md(TypeChanges.Hint)}");
+            md.AppendLine();
+            md.AppendLine("| Record | Plugin | Finding |");
+            md.AppendLine("|---|---|---|");
+            foreach (var t in a.TypeChanges)
+                md.AppendLine($"| {Code(t.FormKey.ToString())} {Md(t.EditorID)} | {Md(t.Plugin)} | {Md(t.Text)} |");
             md.AppendLine();
         }
 
@@ -123,11 +139,15 @@ public static class Report
             itms = a.Itms.Select(i => new { i.Plugin, formKey = i.FormKey.ToString(), i.RecordType, i.EditorID }),
             a.UnreadableFields,
             a.Errors,
+            typeChanges = a.TypeChanges.Select(t => new { formKey = t.FormKey.ToString(), t.EditorID, t.Plugin, t.PluginType, t.First, t.FirstType, finding = t.Text }),
         };
         File.WriteAllText(Path.Combine(outDir, "conflicts.json"), JsonSerializer.Serialize(json, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     static string Cut(string s) => Md(s.Length > 160 ? s[..160] + "…" : s);
+
+    /// <summary>Type-changing overrides by plugin, in load order (one recommendation per plugin, in both reports).</summary>
+    public static List<IGrouping<string, TypeChange>> TypeChangesByPlugin(Analysis a) => a.TypeChanges.GroupBy(t => t.Plugin).ToList();
 
     // Plugin text in report.md, in table cells, list items and headings (0.5.1: everywhere): "|" would end a cell early,
     // < > could start HTML, [ ] a link, and ` * _ a code span or emphasis (an EditorID with a backtick paired with the

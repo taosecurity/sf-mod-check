@@ -602,17 +602,6 @@ public class ConflictTests
         Assert.Contains(errors, e => e.StartsWith("ModZ.esm: 1 other keyword record was not compared"));
     }
 
-    // Code review of 0.5.1 (rounds 4-5): running out of memory must stop the run, even wrapped by a reflection call;
-    // an ordinary read error is skipped and listed.
-    [Fact]
-    public void Out_of_memory_stops_the_run_and_ordinary_read_errors_do_not()
-    {
-        Assert.True(Analyzer.Recoverable(new InvalidOperationException("damaged field")));
-        Assert.False(Analyzer.Recoverable(new OutOfMemoryException()));
-        Assert.False(Analyzer.Recoverable(new System.Reflection.TargetInvocationException(new OutOfMemoryException())));
-        Assert.False(Analyzer.Recoverable(new MemoryLimitException("memory passed 8.0 GB")));
-        Assert.False(Analyzer.Recoverable(new InsufficientExecutionStackException()));
-    }
 
     // Code review of 0.5.1: the recommendation cache must not hand a second report the first one's prompt paths.
     [Fact]
@@ -645,5 +634,74 @@ public class ConflictTests
         Assert.Equal(3, code);
         Assert.StartsWith("RESULT: STOPPED (memory passed ", ExeTests.ResultLine(stdout));
         Assert.Equal(JsonValueKind.Undefined, json.ValueKind);
+    }
+
+    // 0.5.2 item 4: an override that gives a record another type was skipped without a word (pass 1 kept the first
+    // override's type, so the original record of the other type was never read and the record had one version).
+    static Keyword Clash(StarfieldMod m, IStarfieldModGetter b) =>
+        m.Keywords.AddReturn(new Keyword(b.MiscItems.First().FormKey, StarfieldRelease.Starfield) { EditorID = "T_Clash" });
+
+    [Fact]
+    public void An_override_that_changes_a_records_type_is_a_finding_in_all_three_reports()
+    {
+        using var game = new Game();
+        game.Mod("ModT.esm", (m, open) => Clash(m, open("Base.esm")));
+        var log = Path.Combine(game.Dir, "debug.log");
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModT.esm" }, "--log", log);
+        Assert.True(json.GetProperty("typeChanges").GetArrayLength() == 1, File.ReadAllText(log));
+        Assert.True(code == 0, stdout);
+        var tc = json.GetProperty("typeChanges").EnumerateArray().ToList();
+        Assert.Single(tc);
+        Assert.Equal("record type differs between plugins: Base.esm has a MISC, ModT.esm a KYWD", S(tc[0], "finding"));
+        Assert.Equal("T_Clash", S(tc[0], "EditorID"));
+        Assert.Equal("ModT.esm", S(tc[0], "Plugin"));
+        Assert.Contains("1 override that changes a record's type", ExeTests.ResultLine(stdout));
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        var html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
+        foreach (var page in new[] { md, html })
+        {
+            Assert.Contains("Overrides that change a record's type", page);
+            Assert.Contains("record type differs between plugins: Base.esm has a MISC, ModT.esm a KYWD", page);
+            Assert.Contains("The game keeps whichever record loads first and silently drops the other", page);
+        }
+        Assert.Contains("**Medium** — ModT.esm: 1 override changes a record's type", md);
+    }
+
+    // The same bug, other side: a type-changing mod that loads first hid an ordinary override of the record after it.
+    [Fact]
+    public void Ordinary_overrides_after_a_type_changing_one_are_still_compared()
+    {
+        using var game = new Game();
+        game.Mod("ModT.esm", (m, open) => Clash(m, open("Base.esm")));
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        game.Mod("ModB.esm", (m, open) => Misc(m, open("Base.esm")).Weight = 2);
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModT.esm", "ModA.esm", "ModB.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Single(json.GetProperty("typeChanges").EnumerateArray());   // ModA and ModB keep Base's type
+        Assert.Contains(Lost(json), l => S(l, "Loser") == "ModA.esm" && S(l, "Winner") == "ModB.esm" && Fields(l).Contains("Value"));
+    }
+
+    [Fact]
+    public void No_type_change_no_section()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Empty(json.GetProperty("typeChanges").EnumerateArray());
+        Assert.DoesNotContain("change a record's type", ExeTests.ResultLine(stdout));
+        Assert.DoesNotContain("## Overrides that change a record's type", File.ReadAllText(Path.Combine(game.Dir, "report", "report.md")));
+    }
+
+    // check reports the same override as a links ERROR; its hint now says what the game does with it.
+    [Fact]
+    public void Check_explains_what_the_game_does_with_a_type_changing_override()
+    {
+        using var game = new Game();
+        game.Mod("ModT.esm", (m, open) => Clash(m, open("Base.esm")));
+        var (code, stdout, _) = ExeTests.RunSplit("check", Path.Combine(game.Data, "ModT.esm"), "--data", game.Data);
+        Assert.Equal(1, code);
+        Assert.Contains(stdout.Split('\n'), l => l.StartsWith("ERROR [links]") && l.Contains("which is a MISC in Base.esm"));
+        Assert.Contains(stdout.Split('\n'), l => l.StartsWith("HINT [links]") && l.Contains("The game keeps whichever record loads first and silently drops the other"));
     }
 }

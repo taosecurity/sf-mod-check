@@ -1,7 +1,7 @@
 # sfmodcheck: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sfmodcheck. Every command
-here was run once on sfmodcheck 0.5.0 before release. The [README](README.md) has the full description.
+here was run once on sfmodcheck 0.5.2 before release. The [README](README.md) has the full description.
 
 ## 1. What it is for
 
@@ -14,8 +14,8 @@ Use it when someone has made or changed a mod and wants to know whether the plug
 release it, or when a mod misbehaves and you want to rule out a broken plugin.
 
 Its second command, `sfmodcheck conflict`, reads a whole load order (a Plugins.txt) and reports the changes it throws
-away: official DLC and update changes undone by mods, one mod's changes lost to another, ITMs and load-order problems,
-each with a recommendation (a safe load-order move, an update to look for, or a small local patch, with a prompt for
+away: official DLC and update changes undone by mods, one mod's changes lost to another, ITMs, load-order problems and
+overrides that change a record's type (the game then keeps only the record that loads first), each with a recommendation (a safe load-order move, an update to look for, or a small local patch, with a prompt for
 building it). Use it when mods may be fighting over the same records, or after adding mods to a load order.
 
 Don't use either to fix a plugin or a load order (they never change files), or `check` on Bethesda's own masters
@@ -30,34 +30,34 @@ Don't use either to fix a plugin or a load order (they never change files), or `
 
 ## 3. Install
 
-Pick one. Files come from https://github.com/taosecurity/sfmodcheck/releases (version 0.5.0 shown here).
+Pick one. Files come from https://github.com/taosecurity/sfmodcheck/releases (version 0.5.2 shown here).
 
-1. **Stand-alone exe (Windows):** download `sfmodcheck-0.5.0-win-x64.zip` and its `.sha256` file, check the
+1. **Stand-alone exe (Windows):** download `sfmodcheck-0.5.2-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 
-       certutil -hashfile sfmodcheck-0.5.0-win-x64.zip SHA256
+       certutil -hashfile sfmodcheck-0.5.2-win-x64.zip SHA256
        mkdir C:\Tools\sfmodcheck
-       tar -xf sfmodcheck-0.5.0-win-x64.zip -C C:\Tools\sfmodcheck
+       tar -xf sfmodcheck-0.5.2-win-x64.zip -C C:\Tools\sfmodcheck
 
-   Compare the printed hash with the one in `sfmodcheck-0.5.0-win-x64.zip.sha256`. The program is then
+   Compare the printed hash with the one in `sfmodcheck-0.5.2-win-x64.zip.sha256`. The program is then
    `C:\Tools\sfmodcheck\sfmodcheck.exe`.
 
-2. **dotnet tool (Windows or Linux):** download `sfmodcheck.0.5.0.nupkg` into a folder (here `C:\Downloads`), then
+2. **dotnet tool (Windows or Linux):** download `sfmodcheck.0.5.2.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
 
-       dotnet tool install --global sfmodcheck --add-source C:\Downloads --version 0.5.0
+       dotnet tool install --global sfmodcheck --add-source C:\Downloads --version 0.5.2
 
    or into a folder of its own (nothing global changes):
 
-       dotnet tool install sfmodcheck --tool-path C:\Tools\sfmodcheck-tool --add-source C:\Downloads --version 0.5.0
+       dotnet tool install sfmodcheck --tool-path C:\Tools\sfmodcheck-tool --add-source C:\Downloads --version 0.5.2
 
-   On Linux, `sha256sum -c sfmodcheck.0.5.0.nupkg.sha256` checks the download.
+   On Linux, `sha256sum -c sfmodcheck.0.5.2.nupkg.sha256` checks the download.
 
 ## 4. Prove the install works
 
     sfmodcheck --version
 
-Its first line is `sfmodcheck 0.5.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck`
+Its first line is `sfmodcheck 0.5.2 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
 `--quiet` is given. (Use the full path, such as `C:\Tools\sfmodcheck\sfmodcheck.exe
 --version`, when the folder isn't on PATH.)
@@ -127,7 +127,7 @@ Its first line is `sfmodcheck 0.5.0 by Richard Bejtlich - GPL-3.0 - https://gith
 - **stderr:** notes (very large plugin, no Starfield.esm found), error messages for bad arguments, and the
   `--verbose` log lines (`log: ...`).
 - **Exit codes:** 0 = no errors (warnings allowed); 1 = errors; 2 = couldn't check (bad arguments, a missing file or
-  folder, or a file it couldn't open).
+  folder, a file it couldn't open, or it ran out of memory: then no result is shown for an unfinished check).
 - **Log:** only when asked: `--log <file>` writes it to that file (overwritten each run; a plugin or archive name is refused), `--verbose` to stderr. It
   holds the version, the arguments, the plugin, the Data folder and why it was chosen, where each master was found (or
   every place looked), the caches used or rebuilt, the time per stage, a count of findings per check, and on a crash
@@ -136,11 +136,12 @@ Its first line is `sfmodcheck 0.5.0 by Richard Bejtlich - GPL-3.0 - https://gith
   `%LOCALAPPDATA%\Starfield\Plugins.txt`; with neither it stops with exit code 2), the plugins themselves from
   `--extra-data` and then the Data folder (`--data`, else Steam's usual one). Bethesda's own files load first.
 - **conflict output:** a report folder (`--out`, default `sfmodcheck-conflict`) with `report.html` (to read),
-  `report.md` and `conflicts.json` (for scripts: `lost`, `itms`, `loadOrderProblems`, `Errors`). On stdout a summary
-  line and always one last line `RESULT: OK, <n> lost-change entries (...), <n> ITMs, <n> load-order problems (report:
-  <path>; <seconds> s)`, or `RESULT: CANNOT CHECK (...)` or `RESULT: STOPPED (...)`. Progress lines go to stderr.
-- **conflict exit codes:** 0 = report written (whatever it found); 2 = couldn't run; 3 = stopped at `--max-memory`
-  (no report).
+  `report.md` and `conflicts.json` (for scripts: `lost`, `itms`, `loadOrderProblems`, `typeChanges`, `Errors`). On
+  stdout a summary line and always one last line `RESULT: OK, <n> lost-change entries (...), <n> ITMs, <n> load-order
+  problems (report: <path>; <seconds> s)` (with ", <n> overrides that change a record's type" before `(report:`
+  when there are any), or `RESULT: CANNOT CHECK (...)` or `RESULT: STOPPED (...)`. Progress lines go to stderr.
+- **conflict exit codes:** 0 = report written (whatever it found); 2 = couldn't run (running out of memory included:
+  no report); 3 = stopped at `--max-memory` (no report).
 - **Caches:** `%LOCALAPPDATA%\sfmodcheck\` on Windows, `~/.local/share/sfmodcheck/` on Linux (the masters' EditorIDs and
   the learned list of official scenes; rebuilt by themselves after a game update). The environment variable
   `SFMODCHECK_CACHE_DIR` moves them. Deleting the folder is safe.

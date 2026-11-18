@@ -112,6 +112,7 @@ public static class HtmlReport
         Card(h, modVsMod.Select(l => l.FormKey).Distinct().Count().ToString(), "records losing a mod's change", modVsMod.Count > 0);
         Card(h, a.Itms.Count.ToString(), "overrides that change nothing (ITM)");
         Card(h, lo.Problems.Count.ToString(), "load-order problems", lo.Problems.Count > 0);
+        Card(h, a.TypeChanges.Count.ToString(), "overrides that change a record's type", a.TypeChanges.Count > 0);
         h.Append("""
             </div>
             <div class="explain">Each lost change is labeled
@@ -126,7 +127,7 @@ public static class HtmlReport
         var recs = allGroups.SelectMany(g => Recommend.ForGroup(g, lo, a)).OrderBy(r => r.Priority).ToList();
         if (Recommend.Combined(allGroups, lo, a) is { } combined) recs.Insert(0, combined);
         h.Append("<h2 id=\"actions\">Recommended actions</h2>");
-        if (recs.Count == 0) h.Append("<p>Nothing needs doing.</p>");
+        if (recs.Count == 0 && a.TypeChanges.Count == 0) h.Append("<p>Nothing needs doing.</p>");
         else
         {
             h.Append("<ul class=\"recs\">");
@@ -134,6 +135,9 @@ public static class HtmlReport
                 h.Append($"<li class=\"f\"><span class=\"badge p{r.Priority}\">{r.Level}</span> " +
                          (r.Winner.Length > 0 ? $"<a href=\"#{Anchor(r.Winner, r.Loser)}\">{HtmlEncode(LoadOrderSetup.Display(r.Winner))} over {HtmlEncode(LoadOrderSetup.Display(r.Loser))}</a>: " : "<strong>All patchable conflicts</strong>: ") +
                          $"{HtmlEncode(r.Text)}{PromptBlock(r)}</li>");
+            foreach (var g in Report.TypeChangesByPlugin(a))
+                h.Append($"<li class=\"f\"><span class=\"badge p2\">Medium</span> <a href=\"#type-changes\">{HtmlEncode(g.Key)}</a>: {g.Count()} override{(g.Count() == 1 ? "" : "s")} " +
+                         $"change{(g.Count() == 1 ? "s" : "")} a record's type, so the game drops one of the two records.</li>");
             if (a.Itms.Count > 0)
                 h.Append($"<li><span class=\"badge p3\">Low</span> Optional: {a.Itms.Count} override{(a.Itms.Count == 1 ? "" : "s")} that change nothing (ITM) in {HtmlEncode(string.Join(", ", a.Itms.Select(i => i.Plugin).Distinct()))}. Harmless here; xEdit's Quick Auto Clean can remove them.</li>");
             h.Append("</ul>");
@@ -144,6 +148,16 @@ public static class HtmlReport
             h.Append("<h2 id=\"problems\">Load-order problems</h2><ul class=\"problems\">");
             foreach (var p in lo.Problems) h.Append($"<li>{HtmlEncode(p)}</li>");
             h.Append("</ul>");
+        }
+
+        if (a.TypeChanges.Count > 0)
+        {
+            h.Append("<h2 id=\"type-changes\">Overrides that change a record's type</h2>");
+            h.Append($"<p class=\"muted\">A plugin has a record whose FormID belongs to an earlier record of another type. {HtmlEncode(TypeChanges.Hint)}</p>");
+            h.Append("<div class=\"scroll\"><table><tr><th>Record</th><th>Plugin</th><th>Finding</th></tr>");
+            foreach (var t in a.TypeChanges)
+                h.Append($"<tr class=\"f\"><td><code>{HtmlEncode(t.FormKey.ToString())}</code> {HtmlEncode(t.EditorID ?? "")}</td><td>{HtmlEncode(t.Plugin)}</td><td>{HtmlEncode(t.Text)}</td></tr>");
+            h.Append("</table></div>");
         }
 
         h.Append("<h2 id=\"official\">Official changes lost to mods</h2><p class=\"muted\">A mod built without a DLC or update as a master overrides a record that the DLC or update also changed. Where the mod wins, the official change is undone in game.</p>");
@@ -241,10 +255,12 @@ public static class HtmlReport
             n.Append("</ul>");
         }
         var groups = a.Lost.GroupBy(l => (l.Winner, l.Loser)).ToList();
-        var actions = groups.Sum(g => Recommend.ForGroup(g, lo, a).Count) + (Recommend.Combined(groups, lo, a) is null ? 0 : 1) + (a.Itms.Count > 0 ? 1 : 0);
+        var actions = groups.Sum(g => Recommend.ForGroup(g, lo, a).Count) + (Recommend.Combined(groups, lo, a) is null ? 0 : 1) + (a.Itms.Count > 0 ? 1 : 0)
+                      + Report.TypeChangesByPlugin(a).Count;
         Item("summary", "Summary"); n.Append("</li>");
         Item("actions", "Recommended actions", actions); n.Append("</li>");
         if (lo.Problems.Count > 0) { Item("problems", "Load-order problems", lo.Problems.Count); n.Append("</li>"); }
+        if (a.TypeChanges.Count > 0) { Item("type-changes", "Record type changes", a.TypeChanges.Count); n.Append("</li>"); }
         Item("official", "Official changes lost", official.Select(l => l.FormKey).Distinct().Count()); Pairs(official); n.Append("</li>");
         Item("mod-vs-mod", "Mod changes lost", modVsMod.Select(l => l.FormKey).Distinct().Count()); Pairs(modVsMod); n.Append("</li>");
         Item("itm", "ITM records", a.Itms.Count); n.Append("</li>");

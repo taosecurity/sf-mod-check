@@ -94,7 +94,7 @@ public static class Overrides
                     perType[tn] = (r0 + resolveSecs, c0 + cmp.Elapsed.TotalSeconds);
                 }
             }
-            catch { tResolve.Stop(); failed++; }
+            catch (Exception e) when (Fatal.Recoverable(e)) { tResolve.Stop(); failed++; }
         }
         if (timing)
             Console.Error.WriteLine("itm: " + string.Join(", ", perType.OrderByDescending(k => k.Value.Resolve + k.Value.Compare)
@@ -107,7 +107,7 @@ public static class Overrides
     /// <summary>The properties compared on a type: readable, not indexers, not ignored, not child records. Texts come
     /// last: the first text read from a master loads that master's whole strings file (about 1 s; projectviper's
     /// factions 2026-11-09), and a record that differs elsewhere never needs it.</summary>
-    static PropertyInfo[] Compared(Type t) => props.GetOrAdd(t, t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+    public static PropertyInfo[] Compared(Type t) => props.GetOrAdd(t, t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
         .Where(p => p.CanRead && p.GetIndexParameters().Length == 0 && !Ignored.Contains(p.Name) && !HoldsRecords(p.PropertyType))
         .OrderBy(p => typeof(Mutagen.Bethesda.Strings.ITranslatedStringGetter).IsAssignableFrom(p.PropertyType) ? 1 : 0)
         .ToArray());
@@ -127,16 +127,15 @@ public static class Overrides
         foreach (var p in Compared(a.GetType()))
         {
             var sw = depth == 0 && Profile ? System.Diagnostics.Stopwatch.StartNew() : null;
-            var eq = DeepEq(p.GetValue(a), p.GetValue(b), depth + 1);
+            var eq = DeepCompare.Itm.Eq(p.GetValue(a), p.GetValue(b), depth + 1);
             if (sw != null && sw.Elapsed.TotalSeconds > 0.2) Console.Error.WriteLine($"itm: slow field {a.GetType().Name}.{p.Name} {sw.Elapsed.TotalSeconds:F2} s");
             if (!eq) return false;
         }
         foreach (var f in a.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
-            if (!DeepEq(f.GetValue(a), f.GetValue(b), depth + 1)) return false;
+            if (!DeepCompare.Itm.Eq(f.GetValue(a), f.GetValue(b), depth + 1)) return false;
         return true;
     }
 
-    // Mutagen's list types compare by reference, so lists and nested objects are walked by value (itm-check's DeepEq).
     /// <summary>Two cell grids (XCLC) match when their point and land flags (the low byte) match; the 3 unused bytes are ignored.</summary>
     public static bool CellGridEq(ICellGridGetter a, ICellGridGetter b) =>
         a.Point.Equals(b.Point) && LandFlags(a) == LandFlags(b);
@@ -149,7 +148,7 @@ public static class Overrides
     public static string LandFlagsText(ICellGridGetter g)
     {
         try { return $"0x{LandFlags(g):X2}"; }
-        catch (Exception) { OnUnreadable?.Invoke(); return "unreadable"; }
+        catch (Exception e) when (Fatal.Recoverable(e)) { OnUnreadable?.Invoke(); return "unreadable"; }
     }
 
     /// <summary>Set by a caller that counts the parts of a value it couldn't read while describing it (conflict's "Tool
@@ -183,35 +182,4 @@ public static class Overrides
         return h.ToHashCode();
     }
 
-    static bool DeepEq(object? a, object? b, int depth)
-    {
-        if (a is null || b is null) return a is null && b is null;
-        // byte blobs (unknown data, navmesh geometry): compare bytes, not slice positions in two different files
-        if (BlobEq(a, b) is bool blobs) return blobs;
-        // names and texts: the text itself (default language), whether it's stored in the plugin or in .strings files.
-        // Walking a translated string's properties loads every language's strings files (1-2 s per record).
-        if (a is Mutagen.Bethesda.Strings.ITranslatedStringGetter ta && b is Mutagen.Bethesda.Strings.ITranslatedStringGetter tb)
-            return string.Equals(ta.String, tb.String, StringComparison.Ordinal);
-        if (a.GetType() != b.GetType()) return false;
-        // XCLC (cell grid) = X, Y, one byte of land flags, 3 unused bytes (xEdit wbDefinitionsCommon.pas). Mutagen 0.54.4
-        // reads flags + unused as one 4-byte value, and Bethesda leaves junk in the unused bytes (Starfield.esm cell
-        // 0151D8: A9CE0000), so compare only the point and the low byte (0.5.0).
-        if (a is ICellGridGetter ga && b is ICellGridGetter gb) return CellGridEq(ga, gb);
-        // Equals only for simple values: on Mutagen objects it runs Mutagen's own deep comparison at every level of the
-        // walk, so the cost grows with depth (projectviper's armor ObjectTemplates: 2 s for one record).
-        if (a.GetType().IsValueType || a is string || a is Type) return Equals(a, b);
-        if (ReferenceEquals(a, b)) return true;
-        if (depth > 12) return false;
-        if (a is IEnumerable ea && b is IEnumerable eb)
-        {
-            var la = ea.Cast<object?>().ToList(); var lb = eb.Cast<object?>().ToList();
-            if (la.Count != lb.Count) return false;
-            for (int i = 0; i < la.Count; i++) if (!DeepEq(la[i], lb[i], depth + 1)) return false;
-            return true;
-        }
-        // an object with nothing public to walk keeps its data out of sight: only its own Equals can tell
-        if (Compared(a.GetType()).Length == 0 && a.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance).Length == 0)
-            return Equals(a, b);
-        return SameFields(a, b, depth);
-    }
 }

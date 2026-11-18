@@ -35,6 +35,8 @@ public class Analysis
     public Dictionary<(string Earlier, string Later), List<string>> ReorderCost { get; } = new();
     public Dictionary<string, int> UnreadableFields { get; } = new();
     public List<string> Errors { get; } = new();
+    // Overrides whose record type differs from the first record with that FormID (0.5.2), in load order.
+    public List<TypeChange> TypeChanges { get; } = new();
 }
 
 public static class Analyzer
@@ -59,16 +61,7 @@ public static class Analyzer
     static string where = "";
     static (FormKey Key, Type Type, List<(PluginInfo Plugin, IMajorRecordGetter Rec)> Versions)? whereRecord;
 
-    // A failure the run can carry on past (skip the record, field or group and list it). Not the --max-memory stop, and
-    // not running out of memory or stack, which must stop the run with CANNOT CHECK rather than leave a report that
-    // looks whole (code review 0.5.1). Every catch in this file uses it (reflection wraps errors, so inner ones count);
-    // the helpers it calls keep their own catches, as in 0.5.0 (a shared rule for them is planned for 0.5.2).
-    public static bool Recoverable(Exception e)
-    {
-        for (Exception? x = e; x is not null; x = x.InnerException)
-            if (x is MemoryLimitException or OutOfMemoryException or InsufficientExecutionStackException) return false;
-        return true;
-    }
+    // Which errors a catch may carry on past is one rule for the whole program since 0.5.2: Fatal.Recoverable (Fatal.cs).
 
     // "CrowdRegion_Cydonia01 [00ABCD:Mod.esm], subrecord BFCB" from Mutagen's record exceptions; "" when it doesn't say.
     public static string RecordOf(Exception e)
@@ -123,10 +116,21 @@ public static class Analyzer
 
         // Every record that at least one mod overrides.
         var targets = new Dictionary<FormKey, Type>();
+        // The other record types later mods give the same FormID (0.5.2; rare). Until 0.5.1 only the first override's type
+        // was kept, so an ordinary override after a type-changing one was never compared either.
+        var otherTypes = new Dictionary<FormKey, HashSet<Type>>();
         void AddTargets(PluginInfo p, IEnumerable<IMajorRecordGetter> recs)
         {
             foreach (var rec in recs)
-                if (rec.FormKey.ModKey != p.Mod.ModKey) targets.TryAdd(rec.FormKey, rec.Registration.GetterType);
+            {
+                if (rec.FormKey.ModKey == p.Mod.ModKey) continue;
+                var type = rec.Registration.GetterType;
+                if (!targets.TryAdd(rec.FormKey, type) && targets[rec.FormKey] != type)
+                {
+                    if (!otherTypes.TryGetValue(rec.FormKey, out var more)) otherTypes[rec.FormKey] = more = new();
+                    more.Add(type);
+                }
+            }
         }
         // One line per unreadable spot (0.5.1): both passes below meet the same bad record (a 157-plugin load order: 14 lines
         // for 7 groups), so a read problem is listed once per plugin, record and error.
@@ -152,7 +156,7 @@ public static class Analyzer
             // listed under "Tool limits hit". Records read before the failure stay (TryAdd keeps them once).
             Where = $"reading {p.FileName}";
             try { AddTargets(p, p.Mod.EnumerateMajorRecords()); }
-            catch (Exception err) when (Recoverable(err))
+            catch (Exception err) when (Fatal.Recoverable(err))
             {
                 foreach (var prop in p.Mod.GetType().GetProperties())
                 {
@@ -160,20 +164,27 @@ public static class Analyzer
                     var what = GroupName(prop);
                     object? val;
                     try { val = prop.GetValue(p.Mod); }
-                    catch (Exception e) when (Recoverable(e))
+                    catch (Exception e) when (Fatal.Recoverable(e))
                     {
                         if (typeof(IMajorRecordGetterEnumerable).IsAssignableFrom(prop.PropertyType)) ReadProblem(p, what, e);
                         continue;
                     }
                     if (val is not IMajorRecordGetterEnumerable group || val is IMajorRecordGetter || val is IModGetter) continue;
                     try { AddTargets(p, group.EnumerateMajorRecords()); }
-                    catch (Exception e) when (Recoverable(e)) { ReadProblem(p, what, e); }
+                    catch (Exception e) when (Fatal.Recoverable(e)) { ReadProblem(p, what, e); }
                 }
             }
         }
         result.RecordsOverriddenByMods = targets.Count;
         Info($"{targets.Count} records overridden by mods");
         Progress?.Invoke($"{targets.Count} records overridden by mods, in {targets.Values.Distinct().Count()} record types");
+
+        // Overrides that give a record another type (0.5.2): the passes below read one record type at a time, so they
+        // can't see them; read the record headers raw instead.
+        Where = "comparing record types";
+        var typeWatch = System.Diagnostics.Stopwatch.StartNew();
+        result.TypeChanges.AddRange(TypeChanges.Find(plugins, targets, result.Errors.Add));
+        Progress?.Invoke($"record types compared in {typeWatch.Elapsed.TotalSeconds:F1} s: {result.TypeChanges.Count} overrides change a record's type");
 
         // Record references in impact text read as "EditorID (type)" rather than raw FormKeys. The cache keeps EditorIDs
         // only and is asked for the link's own record type: a whole-record, any-type lookup made Mutagen index and keep
@@ -195,7 +206,7 @@ public static class Analyzer
                     ? $"{editorId ?? link.FormKey.ToString()} ({Impact.TypeName(RecordName(found ?? link.Type))})"
                     : link.FormKey.ToString();
             }
-            catch (Exception err) when (Recoverable(err)) { text = link.FormKey.ToString(); }
+            catch (Exception err) when (Fatal.Recoverable(err)) { text = link.FormKey.ToString(); }
             return names[key] = text;
         }
         // INavigationMeshGetter -> NavigationMesh, the record class name the type table uses.
@@ -217,7 +228,10 @@ public static class Analyzer
         var order = new Dictionary<FormKey, int>();
         foreach (var fk in targets.Keys) order[fk] = order.Count;
         var costAt = new Dictionary<(string Earlier, string Later), List<int>>();
-        foreach (var group in targets.GroupBy(t => t.Value).OrderBy(g => g.Key.Name, StringComparer.Ordinal))
+        // (record, type) pairs: a record that mods give two types is compared once as each
+        var pairs = targets.Select(t => (t.Key, t.Value)).Concat(otherTypes.SelectMany(o => o.Value.Select(t => (o.Key, t)))).ToList();
+        bool IsTarget(FormKey fk, Type type) => targets.TryGetValue(fk, out var t) && (t == type || (otherTypes.TryGetValue(fk, out var more) && more.Contains(type)));
+        foreach (var group in pairs.GroupBy(t => t.Item2).OrderBy(g => g.Key.Name, StringComparer.Ordinal))
         {
             var type = group.Key;
             var found = new Dictionary<FormKey, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>>();
@@ -229,15 +243,15 @@ public static class Analyzer
                 {
                     foreach (var rec in p.Mod.EnumerateMajorRecords(type))
                     {
-                        if (!targets.TryGetValue(rec.FormKey, out var t) || t != type) continue;
+                        if (!IsTarget(rec.FormKey, type)) continue;
                         if (!found.TryGetValue(rec.FormKey, out var list)) found[rec.FormKey] = list = new();
                         if (list.Count == 0 || list[^1].Plugin != p) list.Add((p, rec));  // one version per plugin
                     }
                 }
-                catch (Exception e) when (Recoverable(e)) { ReadProblem(p, Impact.TypeName(TypeShort(type)), e); partly.Add(p); }
+                catch (Exception e) when (Fatal.Recoverable(e)) { ReadProblem(p, Impact.TypeName(TypeShort(type)), e); partly.Add(p); }
                 // also between plugins while a record type is read, so --max-memory holds during the read itself (0.5.0)
                 if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
-                    throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while reading {TypeShort(type)} records from {p.FileName} ({done} of {targets.Count} done)");
+                    throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while reading {TypeShort(type)} records from {p.FileName} ({done} of {pairs.Count} done)");
             }
             Progress?.Invoke($"  {TypeShort(type)}: {group.Count()} records, {found.Values.Sum(l => l.Count)} versions, managed memory {GC.GetTotalMemory(false) / 1e9:F1} GB");
             // A plugin read only partly may hold an unread version of a record (code review). A plugin can only override
@@ -263,9 +277,9 @@ public static class Analyzer
         foreach (var (formKey, _) in group)
         {
             whereRecord = null;   // a skipped record must not leave the previous one named (code review)
-            if (++done % 5000 == 0) Info($"  {done}/{targets.Count}");
+            if (++done % 5000 == 0) Info($"  {done}/{pairs.Count}");
             if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
-                throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {targets.Count} done)");
+                throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {pairs.Count} done)");
             found.TryGetValue(formKey, out var versions);
             if (partly.Count > 0 && MayHoldUnread(formKey, versions) is { } unread)
             {
@@ -306,7 +320,7 @@ public static class Analyzer
                 for (int f = 0; f < nf; f++)
                 {
                     try { prov[i, f] = FieldCompare.Provides(versions[i].Rec, fields[f], out vals[i, f]); }
-                    catch (Exception err) when (Recoverable(err))
+                    catch (Exception err) when (Fatal.Recoverable(err))
                     {
                         unsure[i] = true;
                         Unreadable(versions[i].Rec, fields[f].Name);
@@ -329,7 +343,7 @@ public static class Analyzer
                     var baseVal = b >= 0 ? vals[b, f] : null;
                     bool same;
                     try { same = FieldCompare.DeepEq(vals[i, f], baseVal, 0); }
-                    catch (Exception err) when (Recoverable(err)) { same = true; unsure[i] = true; Unreadable(versions[i].Rec, fields[f].Name); }
+                    catch (Exception err) when (Fatal.Recoverable(err)) { same = true; unsure[i] = true; Unreadable(versions[i].Rec, fields[f].Name); }
                     if (!same) intended[i].Add(f);
                 }
                 // Parents (cells, worldspaces, topics) must be copied unchanged to hold child records, so they are not ITMs.
@@ -365,7 +379,7 @@ public static class Analyzer
                     if (winnerMasters.Contains(loser.Mod.ModKey)) continue;   // winner saw this plugin and decided
                     bool same;
                     try { same = FieldCompare.DeepEq(vals[i, f], vals[k, f], 0); }
-                    catch (Exception err) when (Recoverable(err)) { same = true; Unreadable(versions[i].Rec, fields[f].Name); }   // counted in Tool limits (0.5.0)
+                    catch (Exception err) when (Fatal.Recoverable(err)) { same = true; Unreadable(versions[i].Rec, fields[f].Name); }   // counted in Tool limits (0.5.0)
                     if (same) continue;
                     lostByPair.TryAdd((i, k), new());
                     // The base game value: the first version that supplies this field (normally the defining plugin).
@@ -376,13 +390,13 @@ public static class Analyzer
                     // (0.5.1), not dropped silently.
                     bool partUnreadable = false;
                     void Mark() => partUnreadable = true;
-                    List<Difference> Safe(Func<List<Difference>> make) { try { return make(); } catch (Exception err) when (Recoverable(err)) { Mark(); return new(); } }
+                    List<Difference> Safe(Func<List<Difference>> make) { try { return make(); } catch (Exception err) when (Fatal.Recoverable(err)) { Mark(); return new(); } }
                     var outerMark = Overrides.OnUnreadable;
                     Overrides.OnUnreadable = Mark;   // also land flags shown as "unreadable" in the values (code review)
                     try
                     {
                         string original;
-                        try { original = Impact.Describe(vals[o, f], Name); } catch (Exception err) when (Recoverable(err)) { Mark(); original = "(could not describe)"; }
+                        try { original = Impact.Describe(vals[o, f], Name); } catch (Exception err) when (Fatal.Recoverable(err)) { Mark(); original = "(could not describe)"; }
                         lostByPair[(i, k)].Add(new(field, intended[k].Contains(f),
                             FieldCompare.Show(versions[i].Rec, field), FieldCompare.Show(versions[k].Rec, field),
                             Safe(() => Impact.Differences(field, vals[i, f], vals[k, f], Name, Mark)),
@@ -398,7 +412,7 @@ public static class Analyzer
             {
                 var (loseRec, winRec) = (versions[i].Rec, versions[k].Rec);
                 string? recName = null;
-                try { recName = versions.Select(v => (v.Rec as ITranslatedNamedGetter)?.Name?.String).LastOrDefault(s => !string.IsNullOrEmpty(s)); recName = recName is null ? null : Impact.OneLine(recName); } catch (Exception err) when (Recoverable(err)) { }
+                try { recName = versions.Select(v => (v.Rec as ITranslatedNamedGetter)?.Name?.String).LastOrDefault(s => !string.IsNullOrEmpty(s)); recName = recName is null ? null : Impact.OneLine(recName); } catch (Exception err) when (Fatal.Recoverable(err)) { }
                 recLost.Add(new(formKey, loseRec.Registration.ClassType.Name, Impact.OneLine(winRec.EditorID ?? loseRec.EditorID), recName,
                     versions[0].Plugin.FileName, versions[i].Plugin.FileName, versions[i].Plugin.Official,
                     versions[k].Plugin.FileName, versions[k].Plugin.Official, lost));
@@ -415,7 +429,7 @@ public static class Analyzer
                     {
                         if (!intended[lt].Contains(f) || !prov[e, f]) continue;
                         List<Difference> d;
-                        try { d = Impact.Differences(fields[f].Name, vals[lt, f], vals[e, f], Name); } catch (Exception err) when (Recoverable(err)) { d = new() { new("?", false) }; }
+                        try { d = Impact.Differences(fields[f].Name, vals[lt, f], vals[e, f], Name); } catch (Exception err) when (Fatal.Recoverable(err)) { d = new() { new("?", false) }; }
                         if (d.Count == 0 || d.All(x => x.Minor)) continue;
                         recCost.Add(((pe.FileName, pl.FileName), $"{versions[lt].Rec.Registration.ClassType.Name} {Impact.OneLine(versions[lt].Rec.EditorID ?? formKey.ToString())}: {fields[f].Name}"));
                     }
@@ -431,8 +445,8 @@ public static class Analyzer
                 costAt[pair].Add(order[formKey]);
             }
             }
-            // --max-memory and running out of memory still stop the run (Recoverable), as they did before this catch existed
-            catch (Exception e) when (Recoverable(e))
+            // --max-memory and running out of memory still stop the run (Fatal.Recoverable), as they did before this catch existed
+            catch (Exception e) when (Fatal.Recoverable(e))
             {
                 result.Errors.Add($"{formKey} ({Impact.TypeName(TypeShort(type))}): could not compare its versions in {string.Join(", ", versions.Select(v => v.Plugin.FileName))}, " +
                                   $"so it was skipped ({e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])})");

@@ -19,8 +19,9 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.5.1 (`conflict` carries on past records it can't read; 0.5.0 added the `conflict` command for whole load
-orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
+Version 0.5.2 (`conflict` reports overrides that change a record's type, and running out of memory always stops a run
+instead of leaving a report that looks whole; 0.5.1 carried on past records it can't read; 0.5.0 added the `conflict`
+command for whole load orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
 mods are welcome (see [Issues](https://github.com/taosecurity/sfmodcheck/issues)).
 
 ## Quick start (Creation Kit and xEdit authors)
@@ -126,7 +127,7 @@ plugin's full path.
 
 ### What the output looks like
 
-    sfmodcheck 0.5.1 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
+    sfmodcheck 0.5.2 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
     ERROR [links] MyMod_Misc [MISC:000801:MyMod.esm] links to 000FF0:MyMod.esm, which doesn't exist (expects Keyword)
     HINT [links] A field points at a record that doesn't exist, ...
     WARNING [itm] SomeKeyword [KYWD:0A1B2C:Starfield.esm] is identical to the master version it overrides (ITM)
@@ -145,7 +146,11 @@ plugin's full path.
 |---|---|
 | 0 | no errors (warnings are allowed) |
 | 1 | errors |
-| 2 | couldn't check: bad arguments, a missing file, or a file it couldn't open (the RESULT line then says `CANNOT CHECK`) |
+| 2 | couldn't check: bad arguments, a missing file, a file it couldn't open, or it ran out of memory (the RESULT line then says `CANNOT CHECK`) |
+
+A record or field Mutagen can't read is listed as a finding and the check carries on. Running out of memory is
+different: the check stops with `CANNOT CHECK` and exit code 2, so a result is never shown for a check that didn't
+finish.
 
 Scripts should read the exit code and the lines that start with `ERROR `, `WARNING ` and `RESULT: `. Other lines
 (the summary, HINT lines, notes on stderr) may change between versions.
@@ -159,7 +164,12 @@ Scripts should read the exit code and the lines that start with `ERROR `, `WARNI
 - **one mod's changes lost to another:** two mods change the same record and the later one doesn't have the earlier
   one as a master;
 - **ITMs** (overrides identical to the record they override) and **load-order problems** (missing masters, plugins
-  listed before their masters, files it can't read).
+  listed before their masters, files it can't read);
+- **overrides that change a record's type** (since 0.5.2): a mod's record has the FormID of an earlier record of
+  another type, for example an armor record on a Shattered Space cell's ID. The game keeps whichever record loads
+  first and silently drops the other (armor and armor addon records may replace each other); for placed objects in
+  temporary groups, the object may vanish when its cell loads. The report lists each one as "record type differs
+  between plugins: <first plugin> has a CELL, <mod> an ARMO".
 
 Each lost field is labelled **Forwardable** (the winner didn't mean to change it, so a patch can copy the lost value
 forward safely), **Choice** (both changed it, so you pick) or **No effect** (they differ only in list order, letter
@@ -204,8 +214,9 @@ navmeshes) took about 2 minutes and 8.4 to 8.8 GB at its peak; a small load orde
 placed objects and navmeshes cost the most. `--max-memory` sets a hard stop.
 
 **Exit codes:** 0 = report written (whatever it found); 2 = couldn't run (bad arguments, a missing folder or file,
-a report it couldn't write; the RESULT line says `CANNOT CHECK` and, when it stopped while reading or comparing,
-which plugin and record it was on); 3 = stopped at `--max-memory` (`RESULT: STOPPED`). The last line on stdout is
+a report it couldn't write, or it ran out of memory; the RESULT line says `CANNOT CHECK` and, when it stopped while
+reading or comparing, which plugin and record it was on; no report is written); 3 = stopped at `--max-memory`
+(`RESULT: STOPPED`). The last line on stdout is
 always the RESULT line, for example:
 
     RESULT: OK, 29 lost-change entries (19 official, 10 mod vs mod), 103 ITMs, 0 load-order problems (report: ...\sfmodcheck-conflict\report.html; 122 s)
@@ -215,6 +226,7 @@ problem. A record that Mutagen 0.54.4 can't read (a field written by a newer Cre
 that plugin's group of records of that type: the rest of the load order is still checked, and the report's "Tool
 limits hit" section lists the plugin, the record type and, where Mutagen names it, the record, once each. The RESULT
 line then adds "read problems (records not compared ...)". Run `sfmodcheck check` on that plugin to see the record.
+Running out of memory is never skipped that way: the run stops with `CANNOT CHECK` and writes no report.
 
 **What it doesn't check:** scripts, assets (meshes, textures, sounds) and loose files; only plugin records. Fields
 that are bookkeeping or that the Creation Kit regenerates are skipped (the report lists them). A patch it suggests is
@@ -236,8 +248,8 @@ Each finding names its check in brackets.
 - **read**: records Mutagen can't read.
 - **links**: every link points to a record that exists in the plugin or its masters, of a type that field can hold.
   A link to a deleted record is a WARNING; an override of a record no master has is a WARNING ("injected"); an
-  override that changes the record's type is an ERROR. Records the game's engine creates itself (such as PlayerRef)
-  count as existing.
+  override that changes the record's type is an ERROR (the game keeps whichever record loads first and silently drops
+  the other). Records the game's engine creates itself (such as PlayerRef) count as existing.
 - **conditions**: a condition whose form parameter is empty where the official masters always fill it for that
   function (WARNING: the condition tests nothing).
 - **dialogue**: a response with Emotion 0, where the official masters use "none" or an emotion keyword (WARNING).
@@ -267,7 +279,7 @@ What each check's findings mean and how to fix them. These are the same lines sf
 - **header**: xEdit: select the File Header record. Missing master: install it, or remove it with Clean Masters (only when nothing uses it). Master order: right-click > Sort Masters. Flags: an .esm needs the ESM (Master) flag, and only one of Light (ESL) or Medium. Next Object ID: edit HEDR > Next Object ID in the File Header so it is above the plugin's highest own FormID.
 - **ids**: Own FormIDs must fit the plugin type (light 000-FFF, medium 0000-FFFF). xEdit: Compact FormIDs for ESL / for Medium, or take the Light or Medium flag off. A master index past the master list is a broken FormID: add the missing master in xEdit, or rebuild the record.
 - **read**: Mutagen (the library sfmodcheck reads plugins with) can't read this record, so the game may not either. Look at the named record in xEdit for errors in red, fields from another game or a wrong field size, then fix the field or make the record again in the CK.
-- **links**: A field points at a record that doesn't exist, is the wrong type or is deleted. xEdit: open the named record; the field shows the FormID, often in red. Point it at an existing record of the right type, or clear it. 'Doesn't exist' often means a master is missing or a master record was removed. CK: re-pick the item in that form's drop-down and save. 'Injected record' means the plugin adds a record in a master's FormID range: fine only if you meant it.
+- **links**: A field points at a record that doesn't exist, is the wrong type or is deleted. xEdit: open the named record; the field shows the FormID, often in red. Point it at an existing record of the right type, or clear it. 'Doesn't exist' often means a master is missing or a master record was removed. CK: re-pick the item in that form's drop-down and save. 'Injected record' means the plugin adds a record in a master's FormID range: fine only if you meant it. 'Overrides ..., which is a <type>' means the plugin's record has the FormID of a master record of another type. The game keeps whichever record loads first and silently drops the other (armor and armor addon records are the exception: they may replace each other); for placed objects in temporary groups, the object may vanish when its cell loads. Usually the plugin meant to add a new record and has a wrong master index or FormID: give the record its own FormID (xEdit: right-click > Change FormID) or remove it.
 - **navi**: The navmesh info map (NAVI) points at a navmesh that doesn't exist, isn't a navmesh or is deleted. CK: load the cell, select its navmesh and Finalize it, then save. If the plugin deletes a navmesh that others link to, restore it instead. xEdit can't safely fix navmesh data by hand.
 - **conditions**: A condition leaves its form parameter empty, where the game's own uses of that function always fill it. CK: open the record's condition list, edit the condition and pick the form (or remove the condition). xEdit: fill in the condition's Parameter #1/#2 field.
 - **dialogue**: A dialogue response has an empty Emotion. CK: open the topic info, edit the response and pick an emotion (Neutral is fine). xEdit: set the response's TRDA Emotion to a real value.
