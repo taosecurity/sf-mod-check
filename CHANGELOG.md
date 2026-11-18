@@ -9,10 +9,13 @@ record types are read straight from the file headers (only each record's type an
 every such override is listed as "record type differs between plugins: <first plugin> has a CELL, <mod> an ARMO", in
 report.html, report.md (a new section and a Summary row) and conflicts.json (`typeChanges`), with a Medium
 recommendation per plugin; the RESULT line adds the count when there are any. The text says what the game does with
-such a record: it keeps whichever record loads first and silently drops the other (armor and armor addon records may
-replace each other); for placed objects in temporary groups, the object may vanish when its cell loads. An ordinary
-override of the same record that loads after the type-changing one is now compared as well (before, it was skipped
-too). `check` already reported these as a links ERROR; its links hint now carries the same explanation.
+such a record: it keeps whichever record loads first and silently drops the other; for placed objects in temporary
+groups, the object may vanish when its cell loads. Armor and armor addon records may replace each other in the game,
+so a swap between those two isn't listed. An ordinary override of the same record that loads after the type-changing
+one is now compared as well (before, it was skipped too), while the records the game drops are not compared with each
+other. A plugin whose record types can't all be read says so under "Tool limits hit", on the same line as its other
+read problem when it has one. `check` already reported these as a links ERROR; its links hint now carries the same
+explanation.
 
 One rule for errors that must stop a run. A record or field that can't be read is still skipped and listed, as before.
 Running out of memory (and conflict's `--max-memory` stop, and a thread running out of stack) now always ends the run:
@@ -30,7 +33,7 @@ The RESULT line after such an error is built once the run's memory is released, 
 Code: check's itm comparison and conflict's field comparison are one comparer (DeepCompare) with six options where
 the two differ, so each keeps exactly its earlier answers: proved by running the 0.5.1 code beside the new one on
 awkward values and on every field of real records in the tests, and by identical `check` output on all 18 official
-masters and four mods and identical `conflict` findings on a 149-plugin load order. No option changed. 172 tests (14 new; one 0.5.1 test moved into the new ones).
+masters and four mods and identical `conflict` findings on a 149-plugin load order. No option changed. 175 tests (17 new; one 0.5.1 test moved into the new ones). After a run that runs out of memory while writing its report, the report files are removed, so a half-written report never stays behind.
 
 ## 0.5.1 (2026-11-17)
 

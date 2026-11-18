@@ -167,7 +167,7 @@ Scripts should read the exit code and the lines that start with `ERROR `, `WARNI
   listed before their masters, files it can't read);
 - **overrides that change a record's type** (since 0.5.2): a mod's record has the FormID of an earlier record of
   another type, for example an armor record on a Shattered Space cell's ID. The game keeps whichever record loads
-  first and silently drops the other (armor and armor addon records may replace each other); for placed objects in
+  first and silently drops the other (armor and armor addon records may replace each other, so that swap isn't listed); for placed objects in
   temporary groups, the object may vanish when its cell loads. The report lists each one as "record type differs
   between plugins: <first plugin> has a CELL, <mod> an ARMO".
 
