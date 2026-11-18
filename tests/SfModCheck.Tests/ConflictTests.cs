@@ -829,7 +829,10 @@ public class ConflictTests
         Assert.StartsWith("RESULT: CANNOT CHECK", ExeTests.ResultLine(stdout));
         Assert.False(File.Exists(Path.Combine(outDir, "report.md")));
         Assert.False(File.Exists(Path.Combine(outDir, "report.html")));
-        Assert.Contains("could not be removed and may be old or incomplete: " + jsonPath, stderr);
+        // Windows won't delete a file another program holds open, so it is named; Linux deletes it anyway (CI, 0.5.3),
+        // so nothing is left to name.
+        if (OperatingSystem.IsWindows()) Assert.Contains("could not be removed and may be old or incomplete: " + jsonPath, stderr);
+        else { Assert.False(File.Exists(jsonPath)); Assert.DoesNotContain("could not be removed", stderr); }
     }
 
     // Code review 0.5.3: the record-type pass's first holder (ModT) isn't the real one when an earlier plugin it couldn't
