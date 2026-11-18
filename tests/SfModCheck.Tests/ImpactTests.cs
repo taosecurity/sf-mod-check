@@ -52,6 +52,12 @@ public class ImpactTests
         Assert.Equal(new[] { "items is 20 bytes of data (from byte 12: AB 00 00 00 00 00 00 00) in game instead of 20 bytes of data (from byte 12: 00 00 00 00 00 00 00 00)" }, Diff(a, b));
     }
 
+    // Code review round 2: a short blob next to a long one is still shown in full.
+    [Fact]
+    public void A_short_blob_beside_a_long_one_is_shown_in_full() =>
+        Assert.Equal(new[] { "items is 40 bytes of data (from byte 0: 00 00 00 00 00 00 00 00 …) in game instead of 01 00 00 00" },
+            Diff(new byte[] { 1, 0, 0, 0 }, new byte[40]));
+
     // Code review of 0.5.1: land flags shown as "unreadable" in a described entry are counted too, not only in the walk.
     [Fact]
     public void Unreadable_land_flags_in_a_described_entry_are_counted()

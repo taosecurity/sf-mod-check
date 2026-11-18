@@ -406,7 +406,7 @@ public static class Impact
         return (Part(sa, at), Part(sb, at));
     }
 
-    static string Part(ReadOnlySpan<byte> s, int at) =>
+    static string Part(ReadOnlySpan<byte> s, int at) => s.Length <= 16 ? (s.Length == 0 ? "no bytes" : Hex(s)) :   // a short one in full, as BlobText
         $"{s.Length} bytes of data" + (at < s.Length ? $" (from byte {at}: {Hex(s.Slice(at, Math.Min(8, s.Length - at)))}{(s.Length - at > 8 ? " …" : "")})" : "");
 
     static string TypeLabel(object v) => Words(v.GetType().Name.Replace("BinaryOverlay", ""));

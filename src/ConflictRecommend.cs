@@ -34,8 +34,8 @@ public static class Recommend
     // Recommendations for one winner/loser pair; empty when nothing needs doing (only "No effect" fields).
     public static IReadOnlyList<Recommendation> ForGroup(IGrouping<(string Winner, string Loser), LostChange> g, LoadOrderSetup lo, Analysis a)
     {
-        var settings = (lo, ReportDir, DataDir, PluginsTxt);   // LoadOrderSetup by reference, the paths by text
-        if (!Cache.TryGetValue(a, out var cached) || !ReferenceEquals(cached.Settings.Lo, lo) || cached.Settings != settings)
+        var settings = (lo, ReportDir, DataDir, PluginsTxt);   // LoadOrderSetup has no Equals of its own: compared by reference
+        if (!Cache.TryGetValue(a, out var cached) || cached.Settings != settings)
         {
             cached = new Cached(settings);
             Cache.AddOrUpdate(a, cached);

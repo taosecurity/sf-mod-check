@@ -233,19 +233,24 @@ public static class Analyzer
             // records of its own masters, so it matters only for those; and only where its version would win or be the
             // base of a later version (a master of it). Those records are skipped and counted, not reported wrongly.
             var notCompared = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // by file name: hashing a PluginInfo record hashes its whole plugin through Mutagen
+            var partlyMasters = partly.Select(p => p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
+                .OfType<ModKey>().Append(p.Mod.ModKey).ToHashSet()).ToList();
             PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
             {
-                foreach (var p in partly)
+                for (int u = 0; u < partly.Count; u++)
                 {
+                    var p = partly[u];
+                    if (!partlyMasters[u].Contains(fk.ModKey)) continue;   // it can't override this record
                     if (vs?.Any(v => ReferenceEquals(v.Plugin, p)) == true) continue;   // its version was read before the failure
-                    if (fk.ModKey != p.Mod.ModKey && !p.Masters.Contains(fk.ModKey.FileName.String, StringComparer.OrdinalIgnoreCase)) continue;
                     if (vs is null || vs.Count == 0 || p.Index > vs[^1].Plugin.Index
                         || vs.Any(v => v.Plugin.Index > p.Index && MastersOf(v.Plugin).Contains(p.Mod.ModKey))) return p;
                 }
                 return null;
             }
+            Where = $"comparing {TypeShort(type)} records";
         foreach (var (formKey, _) in group)
         {
+            whereRecord = null;   // a skipped record must not leave the previous one named (code review)
             if (++done % 5000 == 0) Info($"  {done}/{targets.Count}");
             if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
                 throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {targets.Count} done)");
@@ -262,6 +267,7 @@ public static class Analyzer
             var recLost = new List<LostChange>();
             var recItms = new List<ItmRecord>();
             var recCost = new List<((string Earlier, string Later) Pair, string Text)>();
+            var recUnreadable = new List<string>();
             // A record whose versions can't be compared is skipped and listed, not the whole run (0.5.1; reads are lazy,
             // so a damaged field can throw anywhere below).
             try
@@ -282,8 +288,7 @@ public static class Analyzer
             var unsure = new bool[n];   // a field couldn't be read or compared: never call this version an ITM (0.5.0)
             void Unreadable(IMajorRecordGetter r, string field)
             {
-                var key = $"{r.Registration.ClassType.Name}.{field}";
-                result.UnreadableFields[key] = result.UnreadableFields.GetValueOrDefault(key) + 1;
+                recUnreadable.Add($"{r.Registration.ClassType.Name}.{field}");
             }
             for (int i = 0; i < n; i++)
                 for (int f = 0; f < nf; f++)
@@ -405,6 +410,7 @@ public static class Analyzer
                 }
 
             result.Lost.AddRange(recLost);
+            foreach (var key in recUnreadable) result.UnreadableFields[key] = result.UnreadableFields.GetValueOrDefault(key) + 1;
             result.Itms.AddRange(recItms);
             foreach (var (pair, text) in recCost)
             {

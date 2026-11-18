@@ -25,7 +25,7 @@ Other `conflict` fixes, from the 0.5.0 code review:
   is no longer copied in memory to place its menu.
 
 Code: one set of command-line helpers for `check` and `conflict` (Cli.cs); the load-order problem list is read-only
-outside the code that cleans each entry. No option or output format changed. 157 tests (15 new).
+outside the code that cleans each entry. No option or output format changed. 158 tests (16 new).
 
 ## 0.5.0 (2026-11-16)
 
