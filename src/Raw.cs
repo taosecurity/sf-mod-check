@@ -200,6 +200,16 @@ public sealed class RawWalker
     public Action<RawRecord, List<(string Type, byte[] Data)>>? OnFields;
     public readonly Dictionary<string, int> Census = new();
     public int Groups, Records;
+    /// <summary>Why the walk stopped before the end of the file or of a group (the first such problem), or null when
+    /// every record was reached. Records after that point were never seen (0.5.2: conflict's record-type pass).</summary>
+    public string? StoppedEarly { get; private set; }
+
+    // A problem after which the rest of the file or group can't be read.
+    void Stop(long off, string text)
+    {
+        StoppedEarly ??= text;
+        problem("ERROR", off, text);
+    }
     readonly HashSet<string> topLabels = new();
 
     public RawWalker(RawFile file, bool deep, Action<string, long, string> problem)
@@ -215,9 +225,9 @@ public sealed class RawWalker
 
     public void Walk()
     {
-        if (f.Length < 24 || f.Sig(0) != "TES4") { problem("ERROR", 0, "the file does not start with a TES4 header"); return; }
+        if (f.Length < 24 || f.Sig(0) != "TES4") { Stop(0, "the file does not start with a TES4 header"); return; }
         var hsize = f.U32(4);
-        if (24 + (long)hsize > f.Length) { problem("ERROR", 0, $"the TES4 header ({hsize} bytes) runs past the end of the file"); return; }
+        if (24 + (long)hsize > f.Length) { Stop(0, $"the TES4 header ({hsize} bytes) runs past the end of the file"); return; }
         if (deep)
         {
             Subrecords.Parse(f.Span(24, (int)hsize), out var why);
@@ -234,13 +244,13 @@ public sealed class RawWalker
         RawRecord? prev = null;
         while (off < end)
         {
-            if (end - off < 24) { problem("ERROR", off, $"{end - off} stray bytes at the end of {Where(ctx)}"); return; }
+            if (end - off < 24) { Stop(off, $"{end - off} stray bytes at the end of {Where(ctx)}"); return; }
             var sig = f.Sig(off);
             var size = f.U32(off + 4);
             if (sig == "GRUP")
             {
                 Groups++;
-                if (size < 24 || off + size > end) { problem("ERROR", off, $"group size {size} does not fit in {Where(ctx)} ({end - off} bytes left)"); return; }
+                if (size < 24 || off + size > end) { Stop(off, $"group size {size} does not fit in {Where(ctx)} ({end - off} bytes left)"); return; }
                 var label = f.U32(off + 8);
                 var type = f.I32(off + 12);
                 var labelSig = f.Sig(off + 8);
@@ -252,9 +262,9 @@ public sealed class RawWalker
                 off += size;
                 continue;
             }
-            if (!IsSig(sig)) { problem("ERROR", off, $"'{Printable(sig)}' is not a record type (in {Where(ctx)}); the rest of this group can't be read"); return; }
+            if (!IsSig(sig)) { Stop(off, $"'{Printable(sig)}' is not a record type (in {Where(ctx)}); the rest of this group can't be read"); return; }
             long recEnd = off + 24 + size;
-            if (recEnd > end) { problem("ERROR", off, $"{sig} record size {size} runs {recEnd - end} bytes past the end of {Where(ctx)}"); return; }
+            if (recEnd > end) { Stop(off, $"{sig} record size {size} runs {recEnd - end} bytes past the end of {Where(ctx)}"); return; }
             var rec = new RawRecord(sig, f.U32(off + 8), f.U32(off + 12), off, size, f.U16(off + 20));
             Records++;
             var key = $"{sig} in {(ctx == null ? "top" : ctx.Type == 0 ? "type 0" : "type " + ctx.Type)}";

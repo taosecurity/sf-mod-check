@@ -48,11 +48,12 @@ public static class Fatal
         }
     }
 
-    /// <summary>Runs the extra messages after a RESULT line (stderr note, log); a fatal error while writing them is
-    /// dropped, so the exit code stays 2 and the RESULT line already printed stays the last word.</summary>
+    /// <summary>Runs the extra messages after a RESULT line (stderr note, log). Any error while writing them (out of
+    /// memory, a closed stderr pipe) is dropped, so the exit code stays as decided and the RESULT line already printed
+    /// stays the only one (code review 0.5.2).</summary>
     public static void AfterResult(Action write)
     {
         try { write(); }
-        catch (Exception e) when (IsFatal(e)) { }
+        catch (Exception) { /* the RESULT line has been printed; nothing may change it now */ }
     }
 }

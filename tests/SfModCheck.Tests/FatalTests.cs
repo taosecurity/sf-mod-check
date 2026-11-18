@@ -47,6 +47,14 @@ public class FatalTests
         Assert.Equal("RESULT: CANNOT CHECK (an error that could not be described)", Fatal.ResultLine(new IOException(), () => throw new FormatException()));
     }
 
+    // Code review 0.5.2: after the RESULT line nothing may escape (a closed stderr pipe would print a second RESULT).
+    [Fact]
+    public void Nothing_escapes_the_writes_after_the_result_line()
+    {
+        Fatal.AfterResult(() => throw new IOException("pipe closed"));
+        Fatal.AfterResult(() => throw new OutOfMemoryException());
+    }
+
     // The helpers conflict and check call used to catch everything (0.5.1 review round 6). Each must still turn an
     // ordinary error into "unreadable" text, and let a fatal one through.
     [Fact]

@@ -600,6 +600,19 @@ public class ConflictTests
         var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
         Assert.Contains(errors, e => e.StartsWith("ModZ.esm: could not read its keyword records"));
         Assert.Contains(errors, e => e.StartsWith("ModZ.esm: 1 other keyword record was not compared"));
+        // The record-type pass meets the same damage. In the report it isn't listed a second time (0.5.1: once per
+        // spot); on its own it says where it stopped (code review 0.5.2).
+        Assert.DoesNotContain(errors, e => e.Contains("records' types"));
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        var lo = LoadOrderSetup.Build(game.Data, txt);
+        try
+        {
+            var said = new List<string>();
+            var target = new Dictionary<FormKey, Type> { [lo.Plugins[0].Mod.EnumerateMajorRecords().First().FormKey] = typeof(IKeywordGetter) };
+            TypeChanges.Find(lo.Plugins, target, (p, text) => said.Add(text));
+            Assert.Contains(said, e => e.StartsWith("ModZ.esm: its records' types could be read only up to a damaged spot"));
+        }
+        finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }
     }
 
 
@@ -703,5 +716,36 @@ public class ConflictTests
         Assert.Equal(1, code);
         Assert.Contains(stdout.Split('\n'), l => l.StartsWith("ERROR [links]") && l.Contains("which is a MISC in Base.esm"));
         Assert.Contains(stdout.Split('\n'), l => l.StartsWith("HINT [links]") && l.Contains("The game keeps whichever record loads first and silently drops the other"));
+    }
+
+    // Code review 0.5.2: the game lets armor and armor addon records replace each other, so that swap isn't listed.
+    [Fact]
+    public void Armor_and_armor_addon_swaps_are_not_listed_as_type_changes()
+    {
+        using var game = new Game();
+        game.Mod("ModX.esm", (m, open) => m.ArmorAddons.AddNew("X_Arma"));
+        game.Mod("ModT.esm", (m, open) => m.Armors.Add(new Armor(open("ModX.esm").ArmorAddons.First().FormKey, StarfieldRelease.Starfield) { EditorID = "T_Armo" }));
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModX.esm", "ModT.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Empty(json.GetProperty("typeChanges").EnumerateArray());
+    }
+
+    // Code review 0.5.2: records the game drops are not compared among themselves (the first type-changing mod used to
+    // be taken as the base, so a later copy of it read as an ITM).
+    [Fact]
+    public void Copies_of_a_dropped_record_are_not_compared_with_each_other()
+    {
+        using var game = new Game();
+        game.Mod("ModT.esm", (m, open) => { Clash(m, open("Base.esm")); m.Keywords.AddNew("T_Own"); });
+        game.Mod("ModU.esm", (m, open) =>
+        {   // a copy of ModT's record, built with ModT as a master (the link makes it one)
+            m.Keywords.Add(new Keyword(open("Base.esm").MiscItems.First().FormKey, StarfieldRelease.Starfield) { EditorID = "T_Clash" });
+            m.FormLists.AddNew("U_List").Items.Add(open("ModT.esm").Keywords.First(k => k.EditorID == "T_Own").ToLink<IStarfieldMajorRecordGetter>());
+        });
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModT.esm", "ModU.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Equal(2, json.GetProperty("typeChanges").GetArrayLength());   // both differ from Base's MISC
+        Assert.Empty(Itms(json));
+        Assert.Empty(Lost(json));
     }
 }

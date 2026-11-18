@@ -124,14 +124,14 @@ public static class Overrides
 
     static bool SameFields(object a, object b, int depth)
     {
-        foreach (var p in Compared(a.GetType()))
+        foreach (var p in DeepCompare.Itm.Properties(a.GetType()))   // the comparer's own lists, so the top level can't drift from it
         {
             var sw = depth == 0 && Profile ? System.Diagnostics.Stopwatch.StartNew() : null;
             var eq = DeepCompare.Itm.Eq(p.GetValue(a), p.GetValue(b), depth + 1);
             if (sw != null && sw.Elapsed.TotalSeconds > 0.2) Console.Error.WriteLine($"itm: slow field {a.GetType().Name}.{p.Name} {sw.Elapsed.TotalSeconds:F2} s");
             if (!eq) return false;
         }
-        foreach (var f in a.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
+        foreach (var f in DeepCompare.Itm.Fields(a.GetType()))
             if (!DeepCompare.Itm.Eq(f.GetValue(a), f.GetValue(b), depth + 1)) return false;
         return true;
     }

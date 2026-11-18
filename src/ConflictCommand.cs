@@ -192,6 +192,13 @@ public static class ConflictCommand
             Recommend.DataDir = dataDir;
             Recommend.PluginsTxt = pluginsTxt;
             try { Report.Write(outDir, lo, analysis); }
+            catch (Exception e) when (Fatal.IsFatal(e))
+            {
+                // out of memory part way: never leave a report that looks whole (code review 0.5.2)
+                foreach (var f in new[] { "report.md", "report.html", "conflicts.json" })
+                    try { File.Delete(Path.Combine(outDir, f)); } catch (Exception x) when (x is IOException or UnauthorizedAccessException) { }
+                throw;
+            }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 cantWhy = $"the report can't be written to {outDir}";
@@ -208,9 +215,9 @@ public static class ConflictCommand
                               $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems" +
                               $"{(analysis.TypeChanges.Count is var tcn and > 0 ? $", {tcn} override{(tcn == 1 ? "" : "s")} that change{(tcn == 1 ? "s" : "")} a record's type" : "")}{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} read problems (records not compared; see the report's \"Tool limits hit\")" : "")} " +
                               $"(report: {Path.Combine(outDir, "report.html")}; {sw.Elapsed.TotalSeconds:F0} s)");
-            Log.Write($"result: {analysis.Lost.Count} lost-change entries, {analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems, " +
+            Fatal.AfterResult(() => Log.Write($"result: {analysis.Lost.Count} lost-change entries, {analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems, " +
                       $"{analysis.TypeChanges.Count} type-changing overrides, " +
-                      $"{analysis.Errors.Count} errors, exit code 0, {sw.Elapsed.TotalSeconds:F1} s, peak working set {Process.GetCurrentProcess().PeakWorkingSet64 / 1e9:F1} GB");
+                      $"{analysis.Errors.Count} errors, exit code 0, {sw.Elapsed.TotalSeconds:F1} s, peak working set {Process.GetCurrentProcess().PeakWorkingSet64 / 1e9:F1} GB"));   // after the RESULT line: nothing may print a second one
             return 0;
         }
         finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }

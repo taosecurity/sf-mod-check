@@ -177,13 +177,19 @@ public static class Analyzer
         }
         result.RecordsOverriddenByMods = targets.Count;
         Info($"{targets.Count} records overridden by mods");
-        Progress?.Invoke($"{targets.Count} records overridden by mods, in {targets.Values.Distinct().Count()} record types");
+        Progress?.Invoke($"{targets.Count} records overridden by mods, in {targets.Values.Concat(otherTypes.Values.SelectMany(t => t)).Distinct().Count()} record types");
 
         // Overrides that give a record another type (0.5.2): the passes below read one record type at a time, so they
         // can't see them; read the record headers raw instead.
         Where = "comparing record types";
         var typeWatch = System.Diagnostics.Stopwatch.StartNew();
-        result.TypeChanges.AddRange(TypeChanges.Find(plugins, targets, result.Errors.Add));
+        result.TypeChanges.AddRange(TypeChanges.Find(plugins, targets, (p, text) =>
+        {
+            // a plugin already listed as partly unreadable is listed once (0.5.1), not again for its record types
+            if (!reportedTypes.Any(r => r.Plugin == p.FileName.ToLowerInvariant())) result.Errors.Add(text);
+        }));
+        var firstHolder = new Dictionary<FormKey, string>();
+        foreach (var tc in result.TypeChanges) firstHolder.TryAdd(tc.FormKey, tc.First);
         Progress?.Invoke($"record types compared in {typeWatch.Elapsed.TotalSeconds:F1} s: {result.TypeChanges.Count} overrides change a record's type");
 
         // Record references in impact text read as "EditorID (type)" rather than raw FormKeys. The cache keeps EditorIDs
@@ -287,6 +293,11 @@ public static class Analyzer
                 continue;
             }
             if (versions is null || versions.Count < 2) continue;
+            // A record given another type: the game keeps the first plugin's record and drops the others, so versions
+            // of another type are compared only when the first of them is that first record (code review: the first
+            // type-changing mod was taken as the base, giving ITMs and lost changes against the wrong record). The
+            // type change itself is already a finding.
+            if (firstHolder.TryGetValue(formKey, out var keeper) && !versions[0].Plugin.FileName.Equals(keeper, StringComparison.OrdinalIgnoreCase)) continue;
             whereRecord = (formKey, type, versions);
             // This record's results are kept only once all of it is worked out (code review): a failure part way used to
             // leave some entries behind, and a reorder-cost key without its position, which stopped the final sort.

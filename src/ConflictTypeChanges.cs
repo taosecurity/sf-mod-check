@@ -33,11 +33,13 @@ public static class TypeChanges
     /// <summary>Every later mod record whose type differs from the first record with the same FormID, in load order.
     /// targets: the records mods override (FormKey and the first override's Mutagen type). error: a plugin that couldn't
     /// be read for this, listed under "Tool limits hit".</summary>
-    public static List<TypeChange> Find(IReadOnlyList<PluginInfo> plugins, IReadOnlyDictionary<FormKey, Type> targets, Action<string> error)
+    public static List<TypeChange> Find(IReadOnlyList<PluginInfo> plugins, IReadOnlyDictionary<FormKey, Type> targets, Action<PluginInfo, string> error)
     {
         var changes = new List<TypeChange>();
         if (targets.Count == 0) return changes;
-        // each file's style (full, medium, light) decides how its FormIDs are written and how its local IDs are masked
+        // Each file's style (full, medium, light) decides how its FormIDs are written and how its local IDs are masked.
+        // Style and masters come from Mutagen, which opened the plugin for the comparison, so both passes read the same
+        // master list (code review: a damaged header size gave the raw header reader no masters, with no error).
         var styleOf = new Dictionary<string, Style>(StringComparer.OrdinalIgnoreCase);
         var masters = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var modKeys = new Dictionary<string, ModKey>(StringComparer.OrdinalIgnoreCase);
@@ -46,10 +48,11 @@ public static class TypeChanges
             modKeys[p.FileName] = p.Mod.ModKey;
             try
             {
-                var h = RawHeader.Read(p.Path);
-                if (h is null) continue;
-                styleOf[p.FileName] = h.Style;
-                masters[p.FileName] = h.Masters;
+                styleOf[p.FileName] = ((Mutagen.Bethesda.Plugins.Records.IModMasterStyledGetter)p.Mod).MasterStyle switch
+                {
+                    MasterStyle.Small => Style.Light, MasterStyle.Medium => Style.Medium, _ => Style.Full,
+                };
+                masters[p.FileName] = p.Mod.MasterReferences.Select(m => m.Master.FileName.String).ToList();
             }
             catch (Exception e) when (Fatal.Recoverable(e)) { }   // reported below, when its records are read
         }
@@ -61,7 +64,7 @@ public static class TypeChanges
             if (p.Official && !origins.Contains(p.Mod.ModKey)) continue;
             if (!masters.TryGetValue(p.FileName, out var ms))
             {
-                error($"{p.FileName}: could not read its file header, so its records' types were not compared");
+                error(p, $"{p.FileName}: could not read its file header, so its records' types were not compared");
                 continue;
             }
             try
@@ -78,19 +81,26 @@ public static class TypeChanges
                         if (!targets.ContainsKey(fk)) return;
                         if (!sigs.TryGetValue(rec.Sig, out var sig)) sigs[rec.Sig] = sig = rec.Sig;
                         if (!first.TryGetValue(fk, out var had)) { first[fk] = (p, sig); return; }
-                        if (ReferenceEquals(had.Plugin, p) || had.Sig == sig || p.Official) return;
+                        if (ReferenceEquals(had.Plugin, p) || had.Sig == sig || p.Official || ArmorPair(had.Sig, sig)) return;
                         changes.Add(new(fk, had.Plugin.FileName, had.Sig, p.FileName, sig, EditorId(f, rec)));
                     },
                 };
                 w.Walk();
+                // a damaged spot ends the walk of its file or group, so later records were never seen (code review)
+                if (w.StoppedEarly is { } why)
+                    error(p, $"{p.FileName}: its records' types could be read only up to a damaged spot ({Impact.OneLine(why)}), so a record type it changes after that may be missing");
             }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                error($"{p.FileName}: could not read its records' types, so a record type it changes may be missing ({e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])})");
+                error(p, $"{p.FileName}: could not read its records' types, so a record type it changes may be missing ({e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])})");
             }
         }
         return changes;
     }
+
+    /// <summary>Armor (ARMO) and armor addon (ARMA) records may replace each other in the game, so a mod that swaps one
+    /// for the other isn't dropped and isn't listed (code review: the finding said "dropped" next to a hint saying not).</summary>
+    static bool ArmorPair(string a, string b) => (a, b) is ("ARMO", "ARMA") or ("ARMA", "ARMO");
 
     /// <summary>A record's EditorID read from its EDID field, or null (none, or the record can't be read).</summary>
     static string? EditorId(RawFile f, RawRecord rec)
