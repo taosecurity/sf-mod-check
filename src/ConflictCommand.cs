@@ -51,6 +51,23 @@ public static class ConflictCommand
 
     static readonly string[] ReportFiles = { "report.md", "report.html", "conflicts.json" };
 
+    /// <summary>Deletes the three report files after a failed write; returns those still there (a missing file or folder
+    /// is no error). fatal: after running out of memory, any error deleting one file moves on to the next (review 0.5.3).</summary>
+    static List<string> DeleteReportFiles(string outDir, bool fatal)
+    {
+        var left = new List<string>();
+        foreach (var f in ReportFiles)
+        {
+            var path = Path.Combine(outDir, f);
+            try { File.Delete(path); }
+            catch (Exception x) when (fatal || x is IOException or UnauthorizedAccessException)
+            {
+                try { if (File.Exists(path)) left.Add(path); } catch (Exception) when (fatal) { left.Add(path); }
+            }
+        }
+        return left;
+    }
+
     static int RunLogged(string[] a, string version, string byline, out bool resultPrinted, out string cantWhy)
     {
         Analyzer.MaxManagedBytes = 0; Analyzer.Progress = null; Analyzer.Where = "";   // fresh settings for every run in one process (0.5.0)
@@ -203,26 +220,15 @@ public static class ConflictCommand
                 // is the one that goes on.
                 if (Fatal.IsFatal(e))
                 {
-                    var anyLeft = false;
                     try
                     {
-                        foreach (var f in ReportFiles)
-                        {
-                            var path = Path.Combine(outDir, f);
-                            try { File.Delete(path); } catch (Exception x) when (x is IOException or UnauthorizedAccessException) { anyLeft |= File.Exists(path); }
-                        }
-                        if (anyLeft) Console.Error.WriteLine("note: some report files could not be removed and may be old or incomplete");
+                        if (DeleteReportFiles(outDir, fatal: true).Count > 0)
+                            Console.Error.WriteLine("note: some report files could not be removed and may be old or incomplete");
                     }
                     catch (Exception) { }   // never replace the first error
                     throw;
                 }
-                var left = new List<string>();
-                foreach (var f in ReportFiles)
-                {
-                    var path = Path.Combine(outDir, f);
-                    try { File.Delete(path); }   // a missing file (or folder) is no error
-                    catch (Exception x) when (x is IOException or UnauthorizedAccessException) { if (File.Exists(path)) left.Add(path); }
-                }
+                var left = DeleteReportFiles(outDir, fatal: false);
                 if (left.Count > 0)
                 {
                     Console.Error.WriteLine($"note: these report files could not be removed and may be old or incomplete: {string.Join(", ", left)}");
