@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 (not released yet)
+## 0.5.1 (2026-11-17)
 
 `conflict` no longer stops at the first record it can't read. On a 157-plugin load order (a large overhaul with many
 add-ons), one record that Mutagen 0.54.4 can't parse (a component name its enum doesn't know) ended the whole run with
