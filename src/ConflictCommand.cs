@@ -207,7 +207,10 @@ public static class ConflictCommand
                     try
                     {
                         foreach (var f in ReportFiles)
-                            try { File.Delete(Path.Combine(outDir, f)); } catch (Exception x) when (x is IOException or UnauthorizedAccessException) { anyLeft = true; }
+                        {
+                            var path = Path.Combine(outDir, f);
+                            try { File.Delete(path); } catch (Exception x) when (x is IOException or UnauthorizedAccessException) { anyLeft |= File.Exists(path); }
+                        }
                         if (anyLeft) Console.Error.WriteLine("note: some report files could not be removed and may be old or incomplete");
                     }
                     catch (Exception) { }   // never replace the first error

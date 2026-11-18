@@ -106,7 +106,7 @@ public static class Overrides
     /// factions 2026-11-09), and a record that differs elsewhere never needs it. A new array each call: DeepCompare.Itm
     /// calls it once per type and keeps the list (0.5.3: it was cached twice; read the cached list through
     /// DeepCompare.Itm.Properties).</summary>
-    public static PropertyInfo[] FindCompared(Type t) => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+    internal static PropertyInfo[] FindCompared(Type t) => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
         .Where(p => p.CanRead && p.GetIndexParameters().Length == 0 && !Ignored.Contains(p.Name) && !HoldsRecords(p.PropertyType))
         .OrderBy(p => typeof(Mutagen.Bethesda.Strings.ITranslatedStringGetter).IsAssignableFrom(p.PropertyType) ? 1 : 0)
         .ToArray();

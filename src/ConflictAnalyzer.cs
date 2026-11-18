@@ -337,8 +337,10 @@ public static class Analyzer
                 // raw pass read it, isn't this pass's type (review rounds 1-2: judged from the type, not from which
                 // plugins the raw pass happened to read). The game drops every version of this type, unread ones too,
                 // so nothing is counted either. Armor and armor addon may replace each other: not dropped.
-                if (hasKeeper && ReferenceEquals(first, keeper.Plugin) && groupSigs is { } gs && !gs.Contains(keeper.Sig)
-                    && !gs.Any(g => TypeChanges.ArmorPair(g, keeper.Sig))) continue;
+                // (A record type with no known signature falls back to 0.5.2's rule: a first record that isn't this
+                // pass's first version is of another type, since the raw pass listed it as a type change.)
+                if (hasKeeper && ReferenceEquals(first, keeper.Plugin)
+                    && (groupSigs is not { } gs || (!gs.Contains(keeper.Sig) && !gs.Any(g => TypeChanges.ArmorPair(g, keeper.Sig))))) continue;
             }
             // A version that may be unread is counted, never dropped silently (code review 0.5.2 round 3).
             if (partly.Count > 0 && MayHoldUnread(formKey, versions) is { } unread)

@@ -39,8 +39,8 @@ public sealed class DeepCompare
     public bool EmptyByEquals { get; init; }
 
     /// <summary>Rule 5. The properties compared on a type, in order. Check skips bookkeeping and child records at every
-    /// level and compares texts last; conflict skips only Mutagen's registration data (Overrides.FindCompared,
-    /// FieldCompare.NestedProperties).</summary>
+    /// level and compares texts last; conflict skips only Mutagen's registration data (check: Overrides.FindCompared;
+    /// conflict: FieldCompare.NestedProperties).</summary>
     public required Func<Type, PropertyInfo[]> SelectProperties { get; init; }
 
     /// <summary>Rule 6. Leave out Mutagen's undocumented "Unknown*" members (padding the Creation Kit fills with junk);
