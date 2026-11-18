@@ -390,9 +390,11 @@ public static class Impact
     static string? BlobText(object v)
     {
         if (!SfModCheck.Overrides.TryBlob(v, out var s)) return null;
-        if (s.Length == 0) return "no bytes";
-        return s.Length <= 16 ? Hex(s) : $"{s.Length} bytes of data";
+        return Short(s) ?? $"{s.Length} bytes of data";
     }
+
+    // A blob of 16 bytes or fewer in full ("no bytes", or its hex); null for a longer one.
+    static string? Short(ReadOnlySpan<byte> s) => s.Length == 0 ? "no bytes" : s.Length <= 16 ? Hex(s) : null;
 
     static string Hex(ReadOnlySpan<byte> s) => BitConverter.ToString(s.ToArray()).Replace('-', ' ');
 
@@ -406,7 +408,7 @@ public static class Impact
         return (Part(sa, at), Part(sb, at));
     }
 
-    static string Part(ReadOnlySpan<byte> s, int at) => s.Length <= 16 ? (s.Length == 0 ? "no bytes" : Hex(s)) :   // a short one in full, as BlobText
+    static string Part(ReadOnlySpan<byte> s, int at) => Short(s) ??   // a short one in full, as BlobText
         $"{s.Length} bytes of data" + (at < s.Length ? $" (from byte {at}: {Hex(s.Slice(at, Math.Min(8, s.Length - at)))}{(s.Length - at > 8 ? " …" : "")})" : "");
 
     static string TypeLabel(object v) => Words(v.GetType().Name.Replace("BinaryOverlay", ""));

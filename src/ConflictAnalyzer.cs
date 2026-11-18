@@ -233,7 +233,8 @@ public static class Analyzer
             // records of its own masters, so it matters only for those; and only where its version would win or be the
             // base of a later version (a master of it). Those records are skipped and counted, not reported wrongly.
             var notCompared = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // by file name: hashing a PluginInfo record hashes its whole plugin through Mutagen
-            var partlyMasters = partly.Select(p => p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
+            // direct masters only: a record's FormID can only name the plugin itself or one of its own masters
+            var partlyMasters = partly.Count == 0 ? new() : partly.Select(p => p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
                 .OfType<ModKey>().Append(p.Mod.ModKey).ToHashSet()).ToList();
             PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
             {
@@ -410,7 +411,6 @@ public static class Analyzer
                 }
 
             result.Lost.AddRange(recLost);
-            foreach (var key in recUnreadable) result.UnreadableFields[key] = result.UnreadableFields.GetValueOrDefault(key) + 1;
             result.Itms.AddRange(recItms);
             foreach (var (pair, text) in recCost)
             {
@@ -424,6 +424,13 @@ public static class Analyzer
             {
                 result.Errors.Add($"{formKey} ({Impact.TypeName(TypeShort(type))}): could not compare its versions in {string.Join(", ", versions.Select(v => v.Plugin.FileName))}, " +
                                   $"so it was skipped ({e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])})");
+            }
+            finally
+            {
+                // The fields it couldn't read are counted even when the record was skipped: they are the best clue to
+                // why (code review round 3). Its findings are kept only on success (above).
+                foreach (var key in recUnreadable) result.UnreadableFields[key] = result.UnreadableFields.GetValueOrDefault(key) + 1;
+                whereRecord = null;
             }
         }
             foreach (var (p, count) in notCompared)
