@@ -296,8 +296,9 @@ public static class Analyzer
             var partlyMasters = partly.Select(DirectAndSelf).ToList();
             var groupSigs = Checker.SigsOf(type);   // this pass's record type(s), e.g. KYWD
             // Mutagen gives every record type a signature; if one ever has none, the first record (listed by the raw
-            // pass as a type change) is taken to be of another type, 0.5.2's rule (review round 5-6).
-            if (groupSigs is null) Info($"  {TypeShort(type)}: no record signature known; type-changed records use 0.5.2's rule");
+            // pass as a type change) is taken to be of another type, 0.5.2's rule, and the records skipped that way
+            // are listed under "Tool limits hit" (final review rounds).
+            int noSigSkipped = 0;
             PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
             {
                 for (int u = 0; u < partly.Count; u++)
@@ -340,8 +341,11 @@ public static class Analyzer
                 // raw pass read it, isn't this pass's type (review rounds 1-2: judged from the type, not from which
                 // plugins the raw pass happened to read). The game drops every version of this type, unread ones too,
                 // so nothing is counted either. Armor and armor addon may replace each other: not dropped.
-                if (hasKeeper && ReferenceEquals(first, keeper.Plugin) && !ReferenceEquals(first, versions[0].Plugin)
-                    && (groupSigs is null || (!groupSigs.Contains(keeper.Sig) && !groupSigs.Any(g => TypeChanges.ArmorPair(g, keeper.Sig))))) continue;
+                if (hasKeeper && ReferenceEquals(first, keeper.Plugin) && !ReferenceEquals(first, versions[0].Plugin))
+                {
+                    if (groupSigs is null) { noSigSkipped++; continue; }
+                    if (!groupSigs.Contains(keeper.Sig) && !groupSigs.Any(g => TypeChanges.ArmorPair(g, keeper.Sig))) continue;
+                }
             }
             // A version that may be unread is counted, never dropped silently (code review 0.5.2 round 3).
             if (partly.Count > 0 && MayHoldUnread(formKey, versions) is { } unread)
@@ -526,6 +530,9 @@ public static class Analyzer
             foreach (var (p, count) in notCompared)
                 result.Errors.Add($"{p}: {count} other {Impact.TypeName(TypeShort(type))} record{(count == 1 ? " was" : "s were")} not compared, " +
                                   $"because {p} may change {(count == 1 ? "it" : "them")} too but its {Impact.TypeName(TypeShort(type))} records could not all be read");
+            if (noSigSkipped > 0)
+                result.Errors.Add($"{noSigSkipped} {Impact.TypeName(TypeShort(type))} record{(noSigSkipped == 1 ? " was" : "s were")} not compared: " +
+                                  "this record type has no known signature, so a version after an earlier record listed as a type change was taken as dropped");
             foreach (var (p, count) in notComparedType)
                 result.Errors.Add($"{p}: {count} other {Impact.TypeName(TypeShort(type))} record{(count == 1 ? " was" : "s were")} not compared, " +
                                   $"because {p} may hold the first version of {(count == 1 ? "it" : "them")} as another record type, but its records' types could not all be read");

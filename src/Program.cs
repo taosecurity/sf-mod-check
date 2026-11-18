@@ -16,7 +16,7 @@
 using System.Diagnostics;
 using SfModCheck;
 
-const string Version = "0.5.2";
+const string Version = "0.5.3";
 // Attribution (the author's request, 2026-11-11): stderr at the start of a check (not with --quiet), and --version.
 const string Byline = "sfmodcheck " + Version + " by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck";
 const string DefaultData = Cli.SteamData;

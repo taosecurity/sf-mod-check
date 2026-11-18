@@ -16,7 +16,8 @@ Fixes from the 0.5.2 code reviews.
   record whose FormID belongs to an earlier record of another type), nor records with only one version (nothing is
   compared for those). Whether a version is dropped now follows the first record's type as the record-type pass read
   it; where that pass couldn't read an earlier plugin that may hold the record, the record is counted, not
-  compared.
+  compared. (A record type with no known signature, which Mutagen 0.54.4 never has, falls back to 0.5.2's rule and its
+  skipped records are listed under "Tool limits hit".)
 - `check`: an armor record on an armor addon's FormID (or the other way round) is now a links WARNING, not an ERROR.
   The game lets those two replace each other, and `conflict` already left that swap out; it is still usually a wrong
   FormID, so it stays on the list. Any other type change is still an ERROR.

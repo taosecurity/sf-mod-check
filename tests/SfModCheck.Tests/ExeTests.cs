@@ -59,6 +59,16 @@ public class ExeTests
 
     internal static string ResultLine(string output) => output.Split('\n').Select(l => l.TrimEnd('\r')).LastOrDefault(l => l.StartsWith("RESULT: ")) ?? "(no RESULT line)\n" + output;
 
+    // 0.5.3: the release candidate's package said 0.5.3 but --version said 0.5.2 (Program.cs keeps its own constant).
+    [Fact]
+    public void Version_text_matches_the_package_version()
+    {
+        var v = typeof(SfModCheck.Checker).Assembly.GetName().Version!;
+        var (code, output) = Run("--version");
+        Assert.Equal(0, code);
+        Assert.StartsWith($"sfmodcheck {v.Major}.{v.Minor}.{v.Build} by ", output);
+    }
+
     [Fact]
     public void Clean_plugin_exits_0()
     {
