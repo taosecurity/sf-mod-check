@@ -60,11 +60,16 @@ public static class ConflictCommand
         var left = new List<string>(ReportFiles.Length);
         foreach (var f in ReportFiles)
         {
-            var path = Path.Combine(outDir, f);   // outDir already worked for the report itself
-            try { File.Delete(path); }
+            string? path = null;
+            try
+            {
+                path = Path.Combine(outDir, f);
+                File.Delete(path);
+            }
             catch (Exception x) when (fatal || Fatal.Recoverable(x))
             {
-                if (!fatal && x is not (IOException or UnauthorizedAccessException)) Log.Write($"report cleanup: {path}: {x}");
+                if (!fatal) try { Log.Write($"report cleanup: {path ?? f}: {x.GetType().Name}: {x.Message}"); } catch (Exception z) when (Fatal.Recoverable(z)) { }
+                if (path is null) continue;   // no path, so nothing of ours to name
                 try { if (File.Exists(path)) left.Add(path); } catch (Exception y) when (fatal || Fatal.Recoverable(y)) { left.Add(path); }
             }
         }

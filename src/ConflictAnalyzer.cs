@@ -296,8 +296,8 @@ public static class Analyzer
             var partlyMasters = partly.Select(DirectAndSelf).ToList();
             var groupSigs = Checker.SigsOf(type);   // this pass's record type(s), e.g. KYWD
             // Mutagen gives every record type a signature; if one ever has none, the first record (listed by the raw
-            // pass as a type change) is taken to be of another type, 0.5.2's rule, and the records skipped that way
-            // are listed under "Tool limits hit" (final review rounds).
+            // pass as a type change) is taken to be of another type, 0.5.2's rule, and the records with two or more
+            // versions skipped that way are listed under "Tool limits hit" (final review rounds).
             int noSigSkipped = 0;
             PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
             {
