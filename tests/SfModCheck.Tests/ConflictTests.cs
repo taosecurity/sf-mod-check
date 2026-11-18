@@ -602,6 +602,18 @@ public class ConflictTests
         Assert.Contains(errors, e => e.StartsWith("ModZ.esm: 1 other keyword record was not compared"));
     }
 
+    // Code review of 0.5.1 (rounds 4-5): running out of memory must stop the run, even wrapped by a reflection call;
+    // an ordinary read error is skipped and listed.
+    [Fact]
+    public void Out_of_memory_stops_the_run_and_ordinary_read_errors_do_not()
+    {
+        Assert.True(Analyzer.Recoverable(new InvalidOperationException("damaged field")));
+        Assert.False(Analyzer.Recoverable(new OutOfMemoryException()));
+        Assert.False(Analyzer.Recoverable(new System.Reflection.TargetInvocationException(new OutOfMemoryException())));
+        Assert.False(Analyzer.Recoverable(new MemoryLimitException("memory passed 8.0 GB")));
+        Assert.False(Analyzer.Recoverable(new InsufficientExecutionStackException()));
+    }
+
     // Code review of 0.5.1: the recommendation cache must not hand a second report the first one's prompt paths.
     [Fact]
     public void Recommendations_follow_the_report_folder_they_are_written_for()
