@@ -40,9 +40,27 @@ public class ImpactTests
     public void A_short_byte_blob_is_shown_as_hex_and_a_long_one_by_length()
     {
         Assert.Equal(new[] { "items is 02 00 00 00 in game instead of 01 00 00 00" }, Diff(new byte[] { 1, 0, 0, 0 }, new byte[] { 2, 0, 0, 0 }));
-        var (a, b) = (new byte[100], new byte[100]);
-        b[50] = 1;
-        Assert.Equal(new[] { "items is 100 bytes of data in game instead of 100 bytes of data" }, Diff(a, b));
+        Assert.Equal("100 bytes of data", Impact.Describe(new byte[100], NoName));   // inside a described entry
+    }
+
+    // Code review of 0.5.1: two long blobs of the same length read the same by length alone.
+    [Fact]
+    public void Long_byte_blobs_show_where_they_first_differ()
+    {
+        var (a, b) = (new byte[20], new byte[20]);
+        b[12] = 0xAB;
+        Assert.Equal(new[] { "items is 20 bytes of data (from byte 12: AB 00 00 00 00 00 00 00) in game instead of 20 bytes of data (from byte 12: 00 00 00 00 00 00 00 00)" }, Diff(a, b));
+    }
+
+    // Code review of 0.5.1: land flags shown as "unreadable" in a described entry are counted too, not only in the walk.
+    [Fact]
+    public void Unreadable_land_flags_in_a_described_entry_are_counted()
+    {
+        int unreadable = 0;
+        var grid = new BadFlagsGrid(new P2Int(3, 4));
+        var texts = Diff(new List<object>(), new List<object> { grid }, () => unreadable++);
+        Assert.True(unreadable >= 1);
+        Assert.Contains(texts, t => t.Contains("land flags unreadable"));
     }
 
     [Fact]

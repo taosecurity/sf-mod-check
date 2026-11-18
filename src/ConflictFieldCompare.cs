@@ -155,7 +155,7 @@ public static class FieldCompare
             var s = p is null ? "?" : Dump(Get(p, rec)).Replace("\n", " ").Replace("|", "/");
             return s.Length > max ? s[..max] + "…" : s;
         }
-        catch (Exception e) { return $"(unreadable: {e.GetType().Name})"; }
+        catch (Exception e) { SfModCheck.Overrides.OnUnreadable?.Invoke(); return $"(unreadable: {e.GetType().Name})"; }
     }
 
     static string Dump(object? v, int depth = 0)

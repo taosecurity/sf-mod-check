@@ -570,6 +570,60 @@ public class ConflictTests
         Assert.Single(md.Split('\n'), l => l.StartsWith("- ModA.esm: could not read"));
     }
 
+    // Code review of 0.5.1: when a later plugin's keywords can't all be read, its version of a keyword after the bad
+    // record is unknown, so a conflict between two earlier mods there may name the wrong winner. Such records are
+    // skipped and counted, not reported.
+    [Fact]
+    public void A_record_a_partly_read_later_plugin_may_win_is_not_reported_with_the_wrong_winner()
+    {
+        using var game = new Game();
+        game.Mod("ModX.esm", (m, open) => m.Keywords.GetOrAddAsOverride(open("Base.esm").Keywords.Skip(1).First()).EditorID = "X_K001");
+        game.Mod("ModY.esm", (m, open) => m.Keywords.GetOrAddAsOverride(open("Base.esm").Keywords.Skip(1).First()).EditorID = "Y_K001");
+        game.Mod("ModZ.esm", (m, open) =>
+        {
+            var b = open("Base.esm");
+            m.Keywords.GetOrAddAsOverride(b.Keywords.First());           // damaged below
+            m.Keywords.GetOrAddAsOverride(b.Keywords.Skip(1).First()).EditorID = "Z_K001";   // unread: after the damage
+        });
+        var path = Path.Combine(game.Data, "ModZ.esm");
+        var bytes = File.ReadAllBytes(path);
+        var keywords = Bytes.Items(bytes).Where(i => i.Sig == "KYWD").ToList();
+        Assert.Equal(2, keywords.Count);
+        var first = keywords[0];
+        Assert.True(Bytes.U32(bytes, first.Off + 12) < Bytes.U32(bytes, keywords[1].Off + 12));   // B_K000 is first, so B_K001 can't be read
+        Bytes.SetU32(bytes, first.Off + 4, 0x7FFF_FFF0);
+        File.WriteAllBytes(path, bytes);
+
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModX.esm", "ModY.esm", "ModZ.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.DoesNotContain(Lost(json), l => S(l, "RecordType") == "Keyword");   // not "ModY wins over ModX"
+        var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
+        Assert.Contains(errors, e => e.StartsWith("ModZ.esm: could not read its keyword records"));
+        Assert.Contains(errors, e => e.StartsWith("ModZ.esm: 1 other keyword record was not compared"));
+    }
+
+    // Code review of 0.5.1: the recommendation cache must not hand a second report the first one's prompt paths.
+    [Fact]
+    public void Recommendations_follow_the_report_folder_they_are_written_for()
+    {
+        var a = new Analysis();
+        var field = new LostField("Value", false, "10", "5", new() { new("value is 5 in game instead of 10", false) }, "5",
+            new() { new("changes value from 5 to 10", false) }, new());
+        a.Lost.Add(new(FormKey.Factory("000801:Base.esm"), "MiscItem", "B_Misc", null, "Base.esm", "ModA.esm", false, "ModB.esm", false, new() { field }));
+        var lo = new LoadOrderSetup();
+        var g = a.Lost.GroupBy(l => (l.Winner, l.Loser)).Single();
+        var before = Recommend.ReportDir;
+        try
+        {
+            Recommend.ReportDir = @"C:\first";
+            Assert.Contains(@"C:\first", Recommend.ForGroup(g, lo, a).Single(r => r.Prompt is not null).Prompt);
+            Recommend.ReportDir = @"C:\second";
+            Assert.Contains(@"C:\second", Recommend.ForGroup(g, lo, a).Single(r => r.Prompt is not null).Prompt);
+            Assert.Same(Recommend.ForGroup(g, lo, a), Recommend.ForGroup(g, lo, a));   // and cached while nothing changes
+        }
+        finally { Recommend.ReportDir = before; }
+    }
+
     [Fact]
     public void Memory_limit_stops_with_exit_3_and_no_report()
     {

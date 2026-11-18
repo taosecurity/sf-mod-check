@@ -240,16 +240,15 @@ public static class Impact
     }
 
     // unreadable: called when a part of the value can't be read during the walk, so the caller can count it under
-    // "Tool limits hit" instead of the part silently dropping out of the text (0.5.1).
-    [ThreadStatic] static Action? onUnreadable;
-
+    // "Tool limits hit" instead of the part silently dropping out of the text (0.5.1). Kept in Overrides.OnUnreadable,
+    // which LandFlagsText also calls; without one given, the caller's own (if any) stays in force.
     static List<RawDiff> Raw(string field, object? a, object? b, Func<IFormLinkGetter, string> name, Action? unreadable)
     {
         var res = new List<RawDiff>();
-        var outer = onUnreadable;
-        onUnreadable = unreadable;
+        var outer = SfModCheck.Overrides.OnUnreadable;
+        SfModCheck.Overrides.OnUnreadable = unreadable ?? outer;
         try { Walk(a, b, Noun(field).Replace(' ', '_'), 0, res, name); }
-        finally { onUnreadable = outer; }
+        finally { SfModCheck.Overrides.OnUnreadable = outer; }
         return res;
     }
 
@@ -320,7 +319,9 @@ public static class Impact
             }
             // Top-level field paths come through Noun() in lower case ("unknown"), nested ones keep Mutagen's case.
             var minor = path.Split(' ').Any(t => t.StartsWith("Unknown", StringComparison.OrdinalIgnoreCase));
-            res.Add(new(Label(path), "changed", Describe(a, name, 1), Describe(b, name, 1), minor));
+            // long byte blobs of the same length would both read "N bytes of data": show where they differ (code review)
+            var (from, to) = a is not null && b is not null && BlobPair(a, b) is { } pair ? pair : (Describe(a, name, 1), Describe(b, name, 1));
+            res.Add(new(Label(path), "changed", from, to, minor));
             return;
         }
         foreach (var p in a.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
@@ -329,12 +330,12 @@ public static class Impact
             if (p.Name == "Flags" && a is Mutagen.Bethesda.Starfield.ICellGridGetter ga && b is Mutagen.Bethesda.Starfield.ICellGridGetter gb)
             {   // XCLC: only the land-flag byte, read typed (0.5.0)
                 uint fa, fb;
-                try { (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb)); } catch (Exception) { onUnreadable?.Invoke(); continue; }
+                try { (fa, fb) = (SfModCheck.Overrides.LandFlags(ga), SfModCheck.Overrides.LandFlags(gb)); } catch (Exception) { SfModCheck.Overrides.OnUnreadable?.Invoke(); continue; }
                 if (fa != fb) res.Add(new(Label($"{path} land flags"), "changed", $"0x{fa:X2}", $"0x{fb:X2}", false));
                 continue;
             }
             object? va, vb;
-            try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { onUnreadable?.Invoke(); continue; }
+            try { va = p.GetValue(a); vb = p.GetValue(b); } catch (Exception) { SfModCheck.Overrides.OnUnreadable?.Invoke(); continue; }
             Walk(va, vb, $"{path} {p.Name}", depth + 1, res, name);
         }
     }
@@ -388,17 +389,25 @@ public static class Impact
     // A byte blob as text: its bytes in hex when short ("01 00 00 00"), else its length; null when v isn't a blob.
     static string? BlobText(object v)
     {
-        ReadOnlySpan<byte> s;
-        switch (v)
-        {
-            case Noggog.ReadOnlyMemorySlice<byte> r: s = r.Span; break;
-            case Noggog.MemorySlice<byte> m: s = m.Span; break;
-            case byte[] b: s = b; break;
-            default: return null;
-        }
+        if (!SfModCheck.Overrides.TryBlob(v, out var s)) return null;
         if (s.Length == 0) return "no bytes";
-        return s.Length <= 16 ? Convert.ToHexString(s).Chunk(2).Select(c => new string(c)).Aggregate((x, y) => x + " " + y) : $"{s.Length} bytes of data";
+        return s.Length <= 16 ? Hex(s) : $"{s.Length} bytes of data";
     }
+
+    static string Hex(ReadOnlySpan<byte> s) => BitConverter.ToString(s.ToArray()).Replace('-', ' ');
+
+    // Two byte blobs, one of them over 16 bytes, as "N bytes (from byte K: 01 02 …)": the length alone reads the same
+    // for both. Null when they aren't both blobs or are both short (BlobText shows those in full).
+    static (string From, string To)? BlobPair(object a, object b)
+    {
+        if (!SfModCheck.Overrides.TryBlob(a, out var sa) || !SfModCheck.Overrides.TryBlob(b, out var sb) || (sa.Length <= 16 && sb.Length <= 16)) return null;
+        int at = 0;
+        while (at < sa.Length && at < sb.Length && sa[at] == sb[at]) at++;
+        return (Part(sa, at), Part(sb, at));
+    }
+
+    static string Part(ReadOnlySpan<byte> s, int at) =>
+        $"{s.Length} bytes of data" + (at < s.Length ? $" (from byte {at}: {Hex(s.Slice(at, Math.Min(8, s.Length - at)))}{(s.Length - at > 8 ? " …" : "")})" : "");
 
     static string TypeLabel(object v) => Words(v.GetType().Name.Replace("BinaryOverlay", ""));
 

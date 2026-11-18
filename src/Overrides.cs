@@ -149,30 +149,35 @@ public static class Overrides
     public static string LandFlagsText(ICellGridGetter g)
     {
         try { return $"0x{LandFlags(g):X2}"; }
-        catch (Exception) { return "unreadable"; }
+        catch (Exception) { OnUnreadable?.Invoke(); return "unreadable"; }
     }
+
+    /// <summary>Set by a caller that counts the parts of a value it couldn't read while describing it (conflict's "Tool
+    /// limits hit"); called by LandFlagsText and the conflict report's describers when a read fails (0.5.1).</summary>
+    [ThreadStatic] public static Action? OnUnreadable;
 
     /// <summary>Byte blobs (unknown data, navmesh geometry) compare by their bytes, not by slice positions in two files;
     /// null when a and b aren't the same kind of blob.</summary>
-    public static bool? BlobEq(object a, object b) => (a, b) switch
+    public static bool? BlobEq(object a, object b) =>
+        a.GetType() == b.GetType() && TryBlob(a, out var sa) && TryBlob(b, out var sb) ? sa.SequenceEqual(sb) : (bool?)null;
+
+    /// <summary>The bytes of a byte blob (ReadOnlyMemorySlice, MemorySlice or byte[]); false when v isn't one. The one
+    /// place that knows the blob types (BlobEq, BlobHash, the conflict report's text; code review 0.5.1).</summary>
+    public static bool TryBlob(object v, out ReadOnlySpan<byte> bytes)
     {
-        (ReadOnlyMemorySlice<byte> ra, ReadOnlyMemorySlice<byte> rb) => ra.Span.SequenceEqual(rb.Span),
-        (MemorySlice<byte> ma, MemorySlice<byte> mb) => ma.Span.SequenceEqual(mb.Span),
-        (byte[] ba, byte[] bb) => ba.AsSpan().SequenceEqual(bb),
-        _ => null,
-    };
+        switch (v)
+        {
+            case ReadOnlyMemorySlice<byte> r: bytes = r.Span; return true;
+            case MemorySlice<byte> m: bytes = m.Span; return true;
+            case byte[] b: bytes = b; return true;
+            default: bytes = default; return false;
+        }
+    }
 
     /// <summary>A hash of a byte blob's bytes (equal for every pair BlobEq calls equal); null when v isn't a blob.</summary>
     public static int? BlobHash(object v)
     {
-        ReadOnlySpan<byte> s;
-        switch (v)
-        {
-            case ReadOnlyMemorySlice<byte> r: s = r.Span; break;
-            case MemorySlice<byte> m: s = m.Span; break;
-            case byte[] b: s = b; break;
-            default: return null;
-        }
+        if (!TryBlob(v, out var s)) return null;
         var h = new HashCode();
         h.AddBytes(s);
         return h.ToHashCode();

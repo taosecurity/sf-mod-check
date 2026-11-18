@@ -6,8 +6,11 @@
 add-ons), one record that Mutagen 0.54.4 can't parse (a component name its enum doesn't know) ended the whole run with
 `CANNOT CHECK`. Now a plugin whose records can't all be read is read group by group: only the group holding the bad
 record is skipped (records read before it are kept), and the report's "Tool limits hit" lists it once, with the
-record type and, where Mutagen names it, the record. A record whose versions can't be compared is skipped the same way.
-If a run still stops, the RESULT line names the plugin and record it was reading or comparing.
+record type and, where Mutagen names it, the record. Because that plugin's later records of the type are unknown, a
+record it may also change (one from its own masters, where its version would win or be the base of a later one) is not
+compared either: "Tool limits hit" counts those, so no conflict is reported with the wrong winner. A record whose
+versions can't be compared is skipped the same way, with none of its results kept. If a run still stops, the RESULT
+line names the plugin and record it was reading or comparing.
 
 Other `conflict` fixes, from the 0.5.0 code review:
 - report.md escapes plugin text everywhere it appears (load-order problems, recommendations, headings, the summary
@@ -16,13 +19,13 @@ Other `conflict` fixes, from the 0.5.0 code review:
 - A part of a value that can't be read while it is described (a cell grid's land flags, for example) is counted under
   "Tool limits hit" instead of silently dropping out of the text; the text then says "land flags unreadable".
 - A list that was reordered and also edited is described by the entries that went and came, not as every shifted
-  entry "changed". Short byte blobs show their bytes in hex ("01 00 00 00") instead of "a list of 4"; long ones give
-  their length. "has an extra an entry" now reads "has an extra entry".
+  entry "changed". Short byte blobs show their bytes in hex ("01 00 00 00") instead of "a list of 4"; a changed long
+  one gives its length and the bytes from where it first differs. "has an extra an entry" now reads "has an extra entry".
 - Speed: recommendations are worked out once per conflict pair (they were worked out about 8 times), and report.html
   is no longer copied in memory to place its menu.
 
 Code: one set of command-line helpers for `check` and `conflict` (Cli.cs); the load-order problem list is read-only
-outside the code that cleans each entry. No option or output format changed. 153 tests (11 new).
+outside the code that cleans each entry. No option or output format changed. 157 tests (15 new).
 
 ## 0.5.0 (2026-11-16)
 
