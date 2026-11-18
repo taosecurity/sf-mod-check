@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.3 (not released yet)
+## 0.5.3 (2026-11-18)
 
 Fixes from the 0.5.2 code reviews.
 
