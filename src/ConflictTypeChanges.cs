@@ -32,8 +32,8 @@ public static class TypeChanges
 
     /// <summary>Every later mod record whose type differs from the first record with the same FormID, in load order.
     /// targets: the records mods override (FormKey and the first override's Mutagen type). error: a plugin that couldn't
-    /// be read for this, listed under "Tool limits hit".</summary>
-    public static List<TypeChange> Find(IReadOnlyList<PluginInfo> plugins, IReadOnlyDictionary<FormKey, Type> targets, Action<PluginInfo, string> error)
+    /// be read for this: (plugin, a line of its own, a short form the caller can add to the plugin's own read-problem line).</summary>
+    public static List<TypeChange> Find(IReadOnlyList<PluginInfo> plugins, IReadOnlyDictionary<FormKey, Type> targets, Action<PluginInfo, string, string> error)
     {
         var changes = new List<TypeChange>();
         if (targets.Count == 0) return changes;
@@ -64,7 +64,8 @@ public static class TypeChanges
             if (p.Official && !origins.Contains(p.Mod.ModKey)) continue;
             if (!masters.TryGetValue(p.FileName, out var ms))
             {
-                error(p, $"{p.FileName}: could not read its file header, so its records' types were not compared");
+                error(p, $"{p.FileName}: could not read its file header, so its records' types were not compared",
+                    "its records' types were not compared either");
                 continue;
             }
             try
@@ -88,11 +89,14 @@ public static class TypeChanges
                 w.Walk();
                 // a damaged spot ends the walk of its file or group, so later records were never seen (code review)
                 if (w.StoppedEarly is { } why)
-                    error(p, $"{p.FileName}: its records' types could be read only up to a damaged spot ({Impact.OneLine(why)}), so a record type it changes after that may be missing");
+                    error(p, $"{p.FileName}: some of its records' types could not be read ({Impact.OneLine(why)}), so a record type it changes there may be missing",
+                        $"some of its records' types could not be read either ({Impact.OneLine(why)}), so a record type it changes there may be missing");
             }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                error(p, $"{p.FileName}: could not read its records' types, so a record type it changes may be missing ({e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])})");
+                var why = $"{e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])}";
+                error(p, $"{p.FileName}: could not read its records' types, so a record type it changes may be missing ({why})",
+                    $"its records' types could not be read either ({why})");
             }
         }
         return changes;

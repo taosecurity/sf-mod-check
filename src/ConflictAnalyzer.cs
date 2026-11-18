@@ -183,11 +183,11 @@ public static class Analyzer
         // can't see them; read the record headers raw instead.
         Where = "comparing record types";
         var typeWatch = System.Diagnostics.Stopwatch.StartNew();
-        result.TypeChanges.AddRange(TypeChanges.Find(plugins, targets, (p, text) =>
-        {
-            // a plugin already listed as partly unreadable is listed once (0.5.1), not again for its record types
-            if (!reportedTypes.Any(r => r.Plugin == p.FileName.ToLowerInvariant())) result.Errors.Add(text);
-        }));
+        // A plugin's record-type problem is kept aside and placed after both passes: merged into that plugin's own
+        // "could not read" line when there is one (one line per plugin, as 0.5.1 lists read problems), else on its own
+        // (code review 0.5.2, rounds 1-2).
+        var typeProblems = new List<(PluginInfo Plugin, string Text, string Short)>();
+        result.TypeChanges.AddRange(TypeChanges.Find(plugins, targets, (p, text, shortText) => typeProblems.Add((p, text, shortText))));
         var firstHolder = new Dictionary<FormKey, string>();
         foreach (var tc in result.TypeChanges) firstHolder.TryAdd(tc.FormKey, tc.First);
         Progress?.Invoke($"record types compared in {typeWatch.Elapsed.TotalSeconds:F1} s: {result.TypeChanges.Count} overrides change a record's type");
@@ -287,17 +287,17 @@ public static class Analyzer
             if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
                 throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {pairs.Count} done)");
             found.TryGetValue(formKey, out var versions);
+            // A record given another type: the game keeps the first plugin's record and drops the others, so versions
+            // of another type are compared only when the first of them is that first record (code review: the first
+            // type-changing mod was taken as the base, giving ITMs and lost changes against the wrong record). The
+            // type change itself is already a finding. Checked first, so a dropped record isn't counted below.
+            if (versions is { Count: > 0 } && firstHolder.TryGetValue(formKey, out var keeper) && !versions[0].Plugin.FileName.Equals(keeper, StringComparison.OrdinalIgnoreCase)) continue;
             if (partly.Count > 0 && MayHoldUnread(formKey, versions) is { } unread)
             {
                 notCompared[unread.FileName] = notCompared.GetValueOrDefault(unread.FileName) + 1;
                 continue;
             }
             if (versions is null || versions.Count < 2) continue;
-            // A record given another type: the game keeps the first plugin's record and drops the others, so versions
-            // of another type are compared only when the first of them is that first record (code review: the first
-            // type-changing mod was taken as the base, giving ITMs and lost changes against the wrong record). The
-            // type change itself is already a finding.
-            if (firstHolder.TryGetValue(formKey, out var keeper) && !versions[0].Plugin.FileName.Equals(keeper, StringComparison.OrdinalIgnoreCase)) continue;
             whereRecord = (formKey, type, versions);
             // This record's results are kept only once all of it is worked out (code review): a failure part way used to
             // leave some entries behind, and a reorder-cost key without its position, which stopped the final sort.
@@ -474,6 +474,12 @@ public static class Analyzer
             foreach (var (p, count) in notCompared)
                 result.Errors.Add($"{p}: {count} other {Impact.TypeName(TypeShort(type))} record{(count == 1 ? " was" : "s were")} not compared, " +
                                   $"because {p} may change {(count == 1 ? "it" : "them")} too but its {Impact.TypeName(TypeShort(type))} records could not all be read");
+        }
+        foreach (var (p, text, shortText) in typeProblems)
+        {
+            var own = result.Errors.FindIndex(e => e.StartsWith($"{p.FileName}: could not read its ", StringComparison.Ordinal));
+            if (own >= 0) result.Errors[own] += $"; {shortText}";
+            else result.Errors.Add(text);
         }
         Where = "sorting the results";   // the command sets the next step
 

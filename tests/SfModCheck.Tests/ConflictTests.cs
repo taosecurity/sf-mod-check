@@ -600,17 +600,18 @@ public class ConflictTests
         var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
         Assert.Contains(errors, e => e.StartsWith("ModZ.esm: could not read its keyword records"));
         Assert.Contains(errors, e => e.StartsWith("ModZ.esm: 1 other keyword record was not compared"));
-        // The record-type pass meets the same damage. In the report it isn't listed a second time (0.5.1: once per
-        // spot); on its own it says where it stopped (code review 0.5.2).
-        Assert.DoesNotContain(errors, e => e.Contains("records' types"));
+        // The record-type pass meets the same damage. Its note joins the plugin's own line (0.5.1: one line per
+        // spot); on its own it says what it couldn't read (code review 0.5.2, rounds 1-2).
+        Assert.Contains(errors, e => e.StartsWith("ModZ.esm: could not read its keyword records") && e.Contains("; some of its records' types could not be read either"));
+        Assert.DoesNotContain(errors, e => e.StartsWith("ModZ.esm: some of its records' types"));
         var txt = Path.Combine(game.Dir, "Plugins.txt");
         var lo = LoadOrderSetup.Build(game.Data, txt);
         try
         {
             var said = new List<string>();
             var target = new Dictionary<FormKey, Type> { [lo.Plugins[0].Mod.EnumerateMajorRecords().First().FormKey] = typeof(IKeywordGetter) };
-            TypeChanges.Find(lo.Plugins, target, (p, text) => said.Add(text));
-            Assert.Contains(said, e => e.StartsWith("ModZ.esm: its records' types could be read only up to a damaged spot"));
+            TypeChanges.Find(lo.Plugins, target, (p, text, _) => said.Add(text));
+            Assert.Contains(said, e => e.StartsWith("ModZ.esm: some of its records' types could not be read ("));
         }
         finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }
     }
