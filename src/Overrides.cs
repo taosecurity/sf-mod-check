@@ -103,9 +103,12 @@ public static class Overrides
 
     /// <summary>The properties compared on a type: readable, not indexers, not ignored, not child records. Texts come
     /// last: the first text read from a master loads that master's whole strings file (about 1 s; projectviper's
-    /// factions 2026-11-09), and a record that differs elsewhere never needs it. Not cached here: DeepCompare.Itm
-    /// keeps each type's list (0.5.3; it was cached twice), so use DeepCompare.Itm.Properties in hot code.</summary>
-    public static PropertyInfo[] Compared(Type t) => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+    /// factions 2026-11-09), and a record that differs elsewhere never needs it. Cached once, in DeepCompare.Itm
+    /// (0.5.3; it was cached twice).</summary>
+    public static PropertyInfo[] Compared(Type t) => DeepCompare.Itm.Properties(t);
+
+    /// <summary>Works out Compared's list; DeepCompare.Itm calls it once per type.</summary>
+    internal static PropertyInfo[] FindCompared(Type t) => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
         .Where(p => p.CanRead && p.GetIndexParameters().Length == 0 && !Ignored.Contains(p.Name) && !HoldsRecords(p.PropertyType))
         .OrderBy(p => typeof(Mutagen.Bethesda.Strings.ITranslatedStringGetter).IsAssignableFrom(p.PropertyType) ? 1 : 0)
         .ToArray();

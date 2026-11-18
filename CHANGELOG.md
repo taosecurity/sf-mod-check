@@ -18,7 +18,7 @@ Fixes from the 0.5.2 code reviews.
 - `check`: an armor record on an armor addon's FormID (or the other way round) is now a links WARNING, not an ERROR.
   The game lets those two replace each other, and `conflict` already left that swap out; it is still usually a wrong
   FormID, so it stays on the list. Any other type change is still an ERROR.
-- `check`: type names read "an ACHR", "an OTFT" (were "a ACHR").
+- `check`: type names read "an ACHR", "an OTFT", "an NPC_" (were "a ACHR").
 - `conflict`: the record-type pass's notes under "Tool limits hit" share one wording ("its file header could not be
   read (reason), so ..."; joined to the plugin's own line as "... also could not be read (reason), so ..."), and a file
   header that can't be read now gives its reason.

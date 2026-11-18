@@ -831,4 +831,54 @@ public class ConflictTests
         Assert.False(File.Exists(Path.Combine(outDir, "report.html")));
         Assert.Contains("could not be removed and may be old or incomplete: " + jsonPath, stderr);
     }
+
+    // Code review 0.5.3: the record-type pass's first holder (ModT) isn't the real one when an earlier plugin it couldn't
+    // read (ModP) holds the FormID first; ModA and ModB's versions used to be dropped silently as "another type".
+    [Fact]
+    public void An_unread_earlier_holder_makes_the_versions_counted_not_dropped()
+    {
+        using var game = new Game();
+        FormKey injected = default;
+        game.Mod("ModP.esm", (m, open) =>
+        {
+            injected = new FormKey(open("Base.esm").ModKey, 0xF00);
+            m.Keywords.Add(new Keyword(injected, StarfieldRelease.Starfield) { EditorID = "P_Kw" });   // damaged below
+        });
+        game.Mod("ModT.esm", (m, open) => { open("Base.esm"); m.MiscItems.Add(new MiscItem(injected, StarfieldRelease.Starfield) { EditorID = "T_Misc" }); });
+        game.Mod("ModA.esm", (m, open) => { open("Base.esm"); m.Keywords.Add(new Keyword(injected, StarfieldRelease.Starfield) { EditorID = "A_Kw" }); });
+        game.Mod("ModB.esm", (m, open) => { open("Base.esm"); m.Keywords.Add(new Keyword(injected, StarfieldRelease.Starfield) { EditorID = "A_Kw" }); });
+        var path = Path.Combine(game.Data, "ModP.esm");
+        var bytes = File.ReadAllBytes(path);
+        Bytes.SetU32(bytes, Bytes.Items(bytes).Single(i => i.Sig == "KYWD").Off + 4, 0x7FFF_FFF0);
+        File.WriteAllBytes(path, bytes);
+
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModP.esm", "ModT.esm", "ModA.esm", "ModB.esm" });
+        Assert.True(code == 0, stdout);
+        var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
+        Assert.Contains(errors, e => e.StartsWith("ModP.esm: 1 other keyword record was not compared, because ModP.esm may hold the first version"));
+    }
+
+    // Code review 0.5.3: a folder that can't be made isn't "report files that may be old or incomplete".
+    [Fact]
+    public void A_report_folder_that_cannot_be_made_names_no_leftover_files()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, new[] { "*Base.esm", "*ModA.esm" });
+        var blocker = Path.Combine(game.Dir, "afile");
+        File.WriteAllText(blocker, "not a folder");
+        var (code, stdout, stderr) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", txt, "--out", Path.Combine(blocker, "report"), "--quiet");
+        Assert.Equal(2, code);
+        Assert.StartsWith("RESULT: CANNOT CHECK", ExeTests.ResultLine(stdout));
+        Assert.DoesNotContain("could not be removed", stderr);
+    }
+
+    [Theory]
+    [InlineData("CELL", "a CELL")]
+    [InlineData("ACHR", "an ACHR")]
+    [InlineData("OTFT", "an OTFT")]
+    [InlineData("NPC_", "an NPC_")]
+    [InlineData("MISC", "a MISC")]
+    public void Record_types_get_a_or_an(string sig, string expected) => Assert.Equal(expected, SfModCheck.Conflict.Impact.WithArticle(sig));
 }

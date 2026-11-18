@@ -51,11 +51,13 @@ public static class TypeChanges
             modKeys[p.FileName] = p.Mod.ModKey;
             try
             {
-                styleOf[p.FileName] = ((Mutagen.Bethesda.Plugins.Records.IModMasterStyledGetter)p.Mod).MasterStyle switch
+                var style = ((Mutagen.Bethesda.Plugins.Records.IModMasterStyledGetter)p.Mod).MasterStyle switch
                 {
                     MasterStyle.Small => Style.Light, MasterStyle.Medium => Style.Medium, _ => Style.Full,
                 };
-                masters[p.FileName] = p.Mod.MasterReferences.Select(m => m.Master.FileName.String).ToList();
+                var ms = p.Mod.MasterReferences.Select(m => m.Master.FileName.String).ToList();
+                styleOf[p.FileName] = style;   // both or neither (code review 0.5.3)
+                masters[p.FileName] = ms;
             }
             catch (Exception e) when (Fatal.Recoverable(e)) { headerError[p.FileName] = Impact.Summary(e); }   // reported below, when its records are read
         }

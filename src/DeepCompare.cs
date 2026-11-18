@@ -132,7 +132,7 @@ public sealed class DeepCompare
     public static readonly DeepCompare Itm = new()
     {
         EqualsFirst = false, WalkValueTypeLists = false, TypesByEquals = true, EmptyByEquals = true,
-        SelectProperties = Overrides.Compared,
+        SelectProperties = Overrides.FindCompared,
     };
 
     /// <summary>conflict: Equals first, then the walk.</summary>

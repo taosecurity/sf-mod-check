@@ -20,9 +20,11 @@ record RawDiff(string Path, string Kind, string From, string To, bool Minor);
 
 public static class Impact
 {
-    /// <summary>"a CELL", "an ARMO", "an OTFT": a record signature (or word) with its article, by its first letter
-    /// (0.5.3: check said "a ACHR"; conflict already picked a/an).</summary>
-    public static string WithArticle(string sig) => ("AEIOU".Contains(char.ToUpperInvariant(sig.FirstOrDefault())) ? "an " : "a ") + sig;
+    /// <summary>"a CELL", "an ARMO", "an OTFT", "an NPC_": a record signature with its article (0.5.3: check said
+    /// "a ACHR"; conflict already picked a/an). Signatures are read as words, so the first letter decides, except NPC_,
+    /// which everyone reads as letters ("an N-P-C").</summary>
+    public static string WithArticle(string sig) =>
+        ("AEIOU".Contains(char.ToUpperInvariant(sig.FirstOrDefault())) || sig.StartsWith("NPC", StringComparison.OrdinalIgnoreCase) ? "an " : "a ") + sig;
 
     /// <summary>An exception as one short line, "IOException: first line of its message" (0.5.3: one helper for every
     /// read-problem note in conflict).</summary>

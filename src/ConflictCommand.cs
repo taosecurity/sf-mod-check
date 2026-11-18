@@ -197,12 +197,19 @@ public static class ConflictCommand
                 // Any failure part way (out of memory, a full disk, a file another program holds open) would leave new
                 // and old report files mixed: never leave a report that looks whole (code review 0.5.2; every failure
                 // since 0.5.3, IO errors included). A file that can't be deleted is named, so nobody trusts it.
+                // Out of memory: only the deletes, nothing that allocates, so the first error is the one that goes on.
+                if (Fatal.IsFatal(e))
+                {
+                    foreach (var f in new[] { "report.md", "report.html", "conflicts.json" })
+                        try { File.Delete(Path.Combine(outDir, f)); } catch (Exception x) when (x is IOException or UnauthorizedAccessException) { }
+                    throw;
+                }
                 var left = new List<string>();
                 foreach (var f in new[] { "report.md", "report.html", "conflicts.json" })
                 {
                     var path = Path.Combine(outDir, f);
-                    try { File.Delete(path); }
-                    catch (Exception x) when (x is IOException or UnauthorizedAccessException) { left.Add(path); }
+                    try { File.Delete(path); }   // a missing file (or folder) is no error
+                    catch (Exception x) when (x is IOException or UnauthorizedAccessException) { if (File.Exists(path)) left.Add(path); }
                 }
                 if (left.Count > 0)
                 {

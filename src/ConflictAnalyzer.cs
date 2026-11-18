@@ -113,17 +113,26 @@ public static class Analyzer
                 if (byName.TryGetValue(m, out var mp)) { set.Add(mp.Mod.ModKey); set.UnionWith(MastersOf(mp)); }
             return allMasters[p.Mod.ModKey] = set;
         }
+        // A plugin's direct masters and itself: a record's FormID can only name one of these.
+        static HashSet<ModKey> DirectAndSelf(PluginInfo p) => p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
+            .OfType<ModKey>().Append(p.Mod.ModKey).ToHashSet();
 
         // Every record that at least one mod overrides.
         var targets = new Dictionary<FormKey, Type>();
         // The other record types later mods give the same FormID (0.5.2; rare). Until 0.5.1 only the first override's type
         // was kept, so an ordinary override after a type-changing one was never compared either.
         var otherTypes = new Dictionary<FormKey, HashSet<Type>>();
+        // The overrides each mod holds, as Mutagen read them, and the mods whose records Mutagen could not all read
+        // (0.5.3: tells the record-type pass's unread plugins that can't hold a record apart from those that may).
+        var heldBy = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
+        var collectFailed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void AddTargets(PluginInfo p, IEnumerable<IMajorRecordGetter> recs)
         {
+            if (!heldBy.TryGetValue(p.FileName, out var held)) heldBy[p.FileName] = held = new();
             foreach (var rec in recs)
             {
                 if (rec.FormKey.ModKey == p.Mod.ModKey) continue;
+                held.Add(rec.FormKey);
                 var type = rec.Registration.GetterType;
                 if (!targets.TryAdd(rec.FormKey, type) && targets[rec.FormKey] != type)
                 {
@@ -158,6 +167,7 @@ public static class Analyzer
             try { AddTargets(p, p.Mod.EnumerateMajorRecords()); }
             catch (Exception err) when (Fatal.Recoverable(err))
             {
+                collectFailed.Add(p.FileName);
                 foreach (var prop in p.Mod.GetType().GetProperties())
                 {
                     if (prop.GetIndexParameters().Length > 0) continue;
@@ -188,13 +198,18 @@ public static class Analyzer
         // (code review 0.5.2, rounds 1-2).
         var typeProblems = new List<(PluginInfo Plugin, string Text, string Short)>();
         result.TypeChanges.AddRange(TypeChanges.Find(plugins, targets, (p, text, shortText) => typeProblems.Add((p, text, shortText))));
-        var firstHolder = new Dictionary<FormKey, string>();
-        foreach (var tc in result.TypeChanges) firstHolder.TryAdd(tc.FormKey, tc.First);
+        var firstHolder = new Dictionary<FormKey, PluginInfo>();
+        foreach (var tc in result.TypeChanges) if (byName.TryGetValue(tc.First, out var fp)) firstHolder.TryAdd(tc.FormKey, fp);
+        // (record, plugin) pairs whose record has another type than the first record with that FormID
+        var changedAt = result.TypeChanges.Select(tc => (tc.FormKey, tc.Plugin.ToLowerInvariant())).ToHashSet();
         // Plugins the record-type pass read only partly or not at all (0.5.3): one of them may hold, with another type, the
         // first record of a FormID, which the game keeps, so later versions would be compared against the wrong base.
         var typeUnread = typeProblems.Select(t => t.Plugin).DistinctBy(p => p.FileName, StringComparer.OrdinalIgnoreCase)
-            .Select(p => (Plugin: p, Holds: p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
-                .OfType<ModKey>().Append(p.Mod.ModKey).ToHashSet())).ToList();
+            .Select(p => (Plugin: p, Holds: DirectAndSelf(p))).ToList();
+        // Whether an unread plugin may hold this record: Mutagen saw it hold it, or Mutagen couldn't read it all either,
+        // or it's an official file or the record's own plugin (their own records aren't collected) (code review 0.5.3).
+        bool MayHold(PluginInfo p, FormKey fk) => p.Official || collectFailed.Contains(p.FileName) || p.Mod.ModKey == fk.ModKey
+            || (heldBy.TryGetValue(p.FileName, out var held) && held.Contains(fk));
         Progress?.Invoke($"record types compared in {typeWatch.Elapsed.TotalSeconds:F1} s: {result.TypeChanges.Count} overrides change a record's type");
 
         // Record references in impact text read as "EditorID (type)" rather than raw FormKeys. The cache keeps EditorIDs
@@ -271,16 +286,12 @@ public static class Analyzer
             var notCompared = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // by file name: hashing a PluginInfo record hashes its whole plugin through Mutagen
             var notComparedType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // the same, for the record-type pass
             // direct masters only: a record's FormID can only name the plugin itself or one of its own masters
-            var partlyMasters = partly.Select(p => p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
-                .OfType<ModKey>().Append(p.Mod.ModKey).ToHashSet()).ToList();
-            // only: when the game drops these versions (another plugin holds the first record, of another type), only that
-            // keeper's unread version could matter (0.5.3: such records were counted as not compared).
-            PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs, string? only)
+            var partlyMasters = partly.Select(DirectAndSelf).ToList();
+            PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
             {
                 for (int u = 0; u < partly.Count; u++)
                 {
                     var p = partly[u];
-                    if (only != null && !p.FileName.Equals(only, StringComparison.OrdinalIgnoreCase)) continue;
                     if (!partlyMasters[u].Contains(fk.ModKey)) continue;   // it can't override this record
                     if (vs?.Any(v => ReferenceEquals(v.Plugin, p)) == true) continue;   // its version was read before the failure
                     if (vs is null || vs.Count == 0 || p.Index > vs[^1].Plugin.Index
@@ -296,28 +307,34 @@ public static class Analyzer
             if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
                 throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {pairs.Count} done)");
             found.TryGetValue(formKey, out var versions);
-            // A record given another type: the game keeps the first plugin's record and drops the others, so versions
-            // of another type are compared only when the first of them is that first record (code review: the first
-            // type-changing mod was taken as the base, giving ITMs and lost changes against the wrong record). The
-            // type change itself is already a finding.
-            var dropped = firstHolder.TryGetValue(formKey, out var keeper) && versions is { Count: > 0 }
-                && !versions[0].Plugin.FileName.Equals(keeper, StringComparison.OrdinalIgnoreCase);
-            // A version that may be unread is counted, never dropped silently (code review round 3); for dropped
-            // versions only the keeper's own unread version counts (0.5.3).
-            if (partly.Count > 0 && MayHoldUnread(formKey, versions, dropped ? keeper : null) is { } unread)
+            if (versions is { Count: > 0 })
+            {
+                // The first record with this FormID is the earlier of the record-type pass's first holder and this
+                // type's first version (Mutagen may see a plugin the raw pass could not read).
+                var first = firstHolder.TryGetValue(formKey, out var keeper) && keeper.Index < versions[0].Plugin.Index ? keeper : versions[0].Plugin;
+                // Unless that is the record's own plugin, an earlier plugin the record-type pass couldn't read may hold
+                // the first record with another type, so the base is unknown: counted, not compared (0.5.3).
+                if (typeUnread.Count > 0 && first.Mod.ModKey != formKey.ModKey
+                    && typeUnread.FirstOrDefault(t => t.Plugin.Index < first.Index && t.Holds.Contains(formKey.ModKey) && MayHold(t.Plugin, formKey)).Plugin is { } maybeFirst)
+                {
+                    notComparedType[maybeFirst.FileName] = notComparedType.GetValueOrDefault(maybeFirst.FileName) + 1;
+                    continue;
+                }
+                // A record given another type: the game keeps the first record and drops the others, so versions of
+                // another type are not compared (code review 0.5.2: the first type-changing mod was taken as the base,
+                // giving ITMs and lost changes against the wrong record). Dropped only when the record-type pass saw
+                // this first version's type differ from the first record's (code review 0.5.3: a keeper whose own
+                // versions Mutagen couldn't read made later versions of the same type look dropped). Those versions
+                // and any unread one of the same type are all dropped by the game, so nothing is counted either.
+                if (!ReferenceEquals(first, versions[0].Plugin) && changedAt.Contains((formKey, versions[0].Plugin.FileName.ToLowerInvariant()))) continue;
+            }
+            // A version that may be unread is counted, never dropped silently (code review 0.5.2 round 3).
+            if (partly.Count > 0 && MayHoldUnread(formKey, versions) is { } unread)
             {
                 notCompared[unread.FileName] = notCompared.GetValueOrDefault(unread.FileName) + 1;
                 continue;
             }
-            if (versions is null || versions.Count < 2 || dropped) continue;
-            // The first version isn't the record's own plugin's, so an earlier plugin may hold the first record with
-            // another type; if the record-type pass couldn't read such a plugin, the base is unknown (0.5.3).
-            if (typeUnread.Count > 0 && !versions[0].Plugin.Mod.ModKey.Equals(formKey.ModKey)
-                && typeUnread.FirstOrDefault(t => t.Plugin.Index < versions[0].Plugin.Index && t.Holds.Contains(formKey.ModKey)).Plugin is { } maybeFirst)
-            {
-                notComparedType[maybeFirst.FileName] = notComparedType.GetValueOrDefault(maybeFirst.FileName) + 1;
-                continue;
-            }
+            if (versions is null || versions.Count < 2) continue;
             whereRecord = (formKey, type, versions);
             // This record's results are kept only once all of it is worked out (code review): a failure part way used to
             // leave some entries behind, and a reorder-cost key without its position, which stopped the final sort.

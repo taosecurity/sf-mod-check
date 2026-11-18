@@ -444,9 +444,12 @@ public static class Checker
             // disassembler), so that swap is a WARNING, as conflict leaves it out (0.5.3); any other type change is dropped
             // by the game, an ERROR.
             else if (sig != null && t.Sig != sig)
-                add(Conflict.TypeChanges.ArmorPair(t.Sig, sig) ? "WARNING" : "ERROR", "links",
+            {
+                var armor = Conflict.TypeChanges.ArmorPair(t.Sig, sig);
+                add(armor ? "WARNING" : "ERROR", "links",
                     $"{Name(ov)} overrides {ov.FormKey}, which is {Conflict.Impact.WithArticle(t.Sig)} in {t.DefinedIn}"
-                    + (Conflict.TypeChanges.ArmorPair(t.Sig, sig) ? " (the game lets armor and armor addon records replace each other, but this is usually a wrong FormID)" : ""));
+                    + (armor ? " (the game lets armor and armor addon records replace each other, but this is usually a wrong FormID)" : ""));
+            }
         }
 
         // 5. itm (0.4.0, from an earlier stand-alone itm-check): overrides identical to the master version they override

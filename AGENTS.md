@@ -1,7 +1,7 @@
 # sfmodcheck: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sfmodcheck. Every command
-here was run once on sfmodcheck 0.5.2 before release. The [README](README.md) has the full description.
+here was run once on sfmodcheck 0.5.3 before release. The [README](README.md) has the full description.
 
 ## 1. What it is for
 
@@ -30,34 +30,34 @@ Don't use either to fix a plugin or a load order (they never change files), or `
 
 ## 3. Install
 
-Pick one. Files come from https://github.com/taosecurity/sfmodcheck/releases (version 0.5.2 shown here).
+Pick one. Files come from https://github.com/taosecurity/sfmodcheck/releases (version 0.5.3 shown here).
 
-1. **Stand-alone exe (Windows):** download `sfmodcheck-0.5.2-win-x64.zip` and its `.sha256` file, check the
+1. **Stand-alone exe (Windows):** download `sfmodcheck-0.5.3-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 
-       certutil -hashfile sfmodcheck-0.5.2-win-x64.zip SHA256
+       certutil -hashfile sfmodcheck-0.5.3-win-x64.zip SHA256
        mkdir C:\Tools\sfmodcheck
-       tar -xf sfmodcheck-0.5.2-win-x64.zip -C C:\Tools\sfmodcheck
+       tar -xf sfmodcheck-0.5.3-win-x64.zip -C C:\Tools\sfmodcheck
 
-   Compare the printed hash with the one in `sfmodcheck-0.5.2-win-x64.zip.sha256`. The program is then
+   Compare the printed hash with the one in `sfmodcheck-0.5.3-win-x64.zip.sha256`. The program is then
    `C:\Tools\sfmodcheck\sfmodcheck.exe`.
 
-2. **dotnet tool (Windows or Linux):** download `sfmodcheck.0.5.2.nupkg` into a folder (here `C:\Downloads`), then
+2. **dotnet tool (Windows or Linux):** download `sfmodcheck.0.5.3.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
 
-       dotnet tool install --global sfmodcheck --add-source C:\Downloads --version 0.5.2
+       dotnet tool install --global sfmodcheck --add-source C:\Downloads --version 0.5.3
 
    or into a folder of its own (nothing global changes):
 
-       dotnet tool install sfmodcheck --tool-path C:\Tools\sfmodcheck-tool --add-source C:\Downloads --version 0.5.2
+       dotnet tool install sfmodcheck --tool-path C:\Tools\sfmodcheck-tool --add-source C:\Downloads --version 0.5.3
 
-   On Linux, `sha256sum -c sfmodcheck.0.5.2.nupkg.sha256` checks the download.
+   On Linux, `sha256sum -c sfmodcheck.0.5.3.nupkg.sha256` checks the download.
 
 ## 4. Prove the install works
 
     sfmodcheck --version
 
-Its first line is `sfmodcheck 0.5.2 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck`
+Its first line is `sfmodcheck 0.5.3 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
 `--quiet` is given. (Use the full path, such as `C:\Tools\sfmodcheck\sfmodcheck.exe
 --version`, when the folder isn't on PATH.)
