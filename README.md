@@ -19,8 +19,9 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.5.2 (`conflict` reports overrides that change a record's type, and running out of memory always stops a run
-instead of leaving a report that looks whole; 0.5.1 carried on past records it can't read; 0.5.0 added the `conflict`
+Version 0.5.3 (fixes from the 0.5.2 reviews: a report that fails part way never leaves old and new files mixed, and
+`check` gives an armor record on an armor addon's FormID a WARNING; 0.5.2 reports overrides that change a record's type,
+and running out of memory always stops a run instead of leaving a report that looks whole; 0.5.1 carried on past records it can't read; 0.5.0 added the `conflict`
 command for whole load orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
 mods are welcome (see [Issues](https://github.com/taosecurity/sfmodcheck/issues)).
 
@@ -127,7 +128,7 @@ plugin's full path.
 
 ### What the output looks like
 
-    sfmodcheck 0.5.2 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
+    sfmodcheck 0.5.3 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
     ERROR [links] MyMod_Misc [MISC:000801:MyMod.esm] links to 000FF0:MyMod.esm, which doesn't exist (expects Keyword)
     HINT [links] A field points at a record that doesn't exist, ...
     WARNING [itm] SomeKeyword [KYWD:0A1B2C:Starfield.esm] is identical to the master version it overrides (ITM)
@@ -249,7 +250,8 @@ Each finding names its check in brackets.
 - **links**: every link points to a record that exists in the plugin or its masters, of a type that field can hold.
   A link to a deleted record is a WARNING; an override of a record no master has is a WARNING ("injected"); an
   override that changes the record's type is an ERROR (the game keeps whichever record loads first and silently drops
-  the other). Records the game's engine creates itself (such as PlayerRef) count as existing.
+  the other), except an armor record on an armor addon's FormID or the other way round, a WARNING (the game lets
+  those two replace each other, but it is usually a wrong FormID). Records the game's engine creates itself (such as PlayerRef) count as existing.
 - **conditions**: a condition whose form parameter is empty where the official masters always fill it for that
   function (WARNING: the condition tests nothing).
 - **dialogue**: a response with Emotion 0, where the official masters use "none" or an emotion keyword (WARNING).

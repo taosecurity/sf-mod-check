@@ -192,15 +192,24 @@ public static class ConflictCommand
             Recommend.DataDir = dataDir;
             Recommend.PluginsTxt = pluginsTxt;
             try { Report.Write(outDir, lo, analysis); }
-            catch (Exception e) when (Fatal.IsFatal(e))
+            catch (Exception e)
             {
-                // out of memory part way: never leave a report that looks whole (code review 0.5.2)
+                // Any failure part way (out of memory, a full disk, a file another program holds open) would leave new
+                // and old report files mixed: never leave a report that looks whole (code review 0.5.2; every failure
+                // since 0.5.3, IO errors included). A file that can't be deleted is named, so nobody trusts it.
+                var left = new List<string>();
                 foreach (var f in new[] { "report.md", "report.html", "conflicts.json" })
-                    try { File.Delete(Path.Combine(outDir, f)); } catch (Exception x) when (x is IOException or UnauthorizedAccessException) { }
-                throw;
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
+                {
+                    var path = Path.Combine(outDir, f);
+                    try { File.Delete(path); }
+                    catch (Exception x) when (x is IOException or UnauthorizedAccessException) { left.Add(path); }
+                }
+                if (left.Count > 0)
+                {
+                    Console.Error.WriteLine($"note: these report files could not be removed and may be old or incomplete: {string.Join(", ", left)}");
+                    Log.Write($"report files left after the failure: {string.Join(", ", left)}");
+                }
+                if (e is not (IOException or UnauthorizedAccessException)) throw;
                 cantWhy = $"the report can't be written to {outDir}";
                 Console.Error.WriteLine($"can't write the report to {outDir}: {e.Message} Give --out a folder you can write to.");
                 Log.Write($"stopped: writing the report: {e}");

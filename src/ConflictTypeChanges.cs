@@ -15,9 +15,7 @@ namespace SfModCheck.Conflict;
 public record TypeChange(FormKey FormKey, string First, string FirstType, string Plugin, string PluginType, string? EditorID)
 {
     /// <summary>"record type differs between plugins: A.esm has a CELL, B.esm an ARMO" (the finding, in every report).</summary>
-    public string Text => $"record type differs between plugins: {First} has {A(FirstType)}, {Plugin} {A(PluginType)}";
-
-    static string A(string sig) => ("AEIOU".Contains(char.ToUpperInvariant(sig.FirstOrDefault())) ? "an " : "a ") + sig;
+    public string Text => $"record type differs between plugins: {First} has {Impact.WithArticle(FirstType)}, {Plugin} {Impact.WithArticle(PluginType)}";
 }
 
 public static class TypeChanges
@@ -32,7 +30,8 @@ public static class TypeChanges
 
     /// <summary>Every later mod record whose type differs from the first record with the same FormID, in load order.
     /// targets: the records mods override (FormKey and the first override's Mutagen type). error: a plugin that couldn't
-    /// be read for this: (plugin, a line of its own, a short form the caller can add to the plugin's own read-problem line).</summary>
+    /// be read for this: (plugin, a line of its own, a short form the caller can add to the plugin's own read-problem line).
+    /// Every plugin passed to error was read only partly or not at all, so a record of it may be missing here.</summary>
     public static List<TypeChange> Find(IReadOnlyList<PluginInfo> plugins, IReadOnlyDictionary<FormKey, Type> targets, Action<PluginInfo, string, string> error)
     {
         var changes = new List<TypeChange>();
@@ -43,6 +42,10 @@ public static class TypeChanges
         var styleOf = new Dictionary<string, Style>(StringComparer.OrdinalIgnoreCase);
         var masters = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var modKeys = new Dictionary<string, ModKey>(StringComparer.OrdinalIgnoreCase);
+        var headerError = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // One wording for every problem: the line of its own and the short form share their parts (0.5.3).
+        void Problem(PluginInfo p, string subject, string cause, string effect) =>
+            error(p, $"{p.FileName}: {subject} could not be read ({cause}), so {effect}", $"{subject} also could not be read ({cause}), so {effect}");
         foreach (var p in plugins)
         {
             modKeys[p.FileName] = p.Mod.ModKey;
@@ -54,7 +57,7 @@ public static class TypeChanges
                 };
                 masters[p.FileName] = p.Mod.MasterReferences.Select(m => m.Master.FileName.String).ToList();
             }
-            catch (Exception e) when (Fatal.Recoverable(e)) { }   // reported below, when its records are read
+            catch (Exception e) when (Fatal.Recoverable(e)) { headerError[p.FileName] = Impact.Summary(e); }   // reported below, when its records are read
         }
         var origins = targets.Keys.Select(k => k.ModKey).ToHashSet();
         var first = new Dictionary<FormKey, (PluginInfo Plugin, string Sig)>();
@@ -64,8 +67,7 @@ public static class TypeChanges
             if (p.Official && !origins.Contains(p.Mod.ModKey)) continue;
             if (!masters.TryGetValue(p.FileName, out var ms))
             {
-                error(p, $"{p.FileName}: could not read its file header, so its records' types were not compared",
-                    "its file header could not be read either, so its records' types were not compared");
+                Problem(p, "its file header", headerError.GetValueOrDefault(p.FileName, "no reason given"), "its records' types were not compared");
                 continue;
             }
             try
@@ -89,14 +91,11 @@ public static class TypeChanges
                 w.Walk();
                 // a damaged spot ends the walk of its file or group, so later records were never seen (code review)
                 if (w.StoppedEarly is { } why)
-                    error(p, $"{p.FileName}: some of its records' types could not be read ({Impact.OneLine(why)}), so a record type it changes there may be missing",
-                        $"some of its records' types could not be read either ({Impact.OneLine(why)}), so a record type it changes there may be missing");
+                    Problem(p, "some of its records' types", Impact.OneLine(why), "a record type it changes there may be missing");
             }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                var why = $"{e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])}";
-                error(p, $"{p.FileName}: could not read its records' types, so a record type it changes may be missing ({why})",
-                    $"its records' types could not be read either ({why})");
+                Problem(p, "its records' types", Impact.Summary(e), "a record type it changes may be missing");
             }
         }
         return changes;
@@ -104,7 +103,7 @@ public static class TypeChanges
 
     /// <summary>Armor (ARMO) and armor addon (ARMA) records may replace each other in the game, so a mod that swaps one
     /// for the other isn't dropped and isn't listed (code review: the finding said "dropped" next to a hint saying not).</summary>
-    static bool ArmorPair(string a, string b) => (a, b) is ("ARMO", "ARMA") or ("ARMA", "ARMO");
+    public static bool ArmorPair(string a, string b) => (a, b) is ("ARMO", "ARMA") or ("ARMA", "ARMO");
 
     /// <summary>A record's EditorID read from its EDID field, or null (none, or the record can't be read).</summary>
     static string? EditorId(RawFile f, RawRecord rec)

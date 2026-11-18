@@ -417,7 +417,7 @@ public static class Checker
                 // Where the official masters already use types outside Mutagen's list, Mutagen's list is known to be
                 // incomplete for this link type, so an unusual type is only a WARNING there.
                 add(MutagenListIncomplete(l.Type, allowed) ? "WARNING" : "ERROR", "links",
-                    $"{Name(from)} links to {l.FormKey}, a {t.Sig}, where it expects {TypeName(l.Type)} ({Short(allowed)}"
+                    $"{Name(from)} links to {l.FormKey}, {Conflict.Impact.WithArticle(t.Sig)}, where it expects {TypeName(l.Type)} ({Short(allowed)}"
                     + (MutagenListIncomplete(l.Type, allowed) ? $" or what the official masters use there: {Short(Seen.Value[l.Type.Name].Where(s => !s.StartsWith('~')).ToHashSet())})" : ")"));
             if (t.Deleted) add("WARNING", "links", $"{Name(from)} links to {l.FormKey} ({t.Sig}), which is deleted");
         }
@@ -430,7 +430,7 @@ public static class Checker
             if (!found.TryGetValue(k, out var t)) add("ERROR", "navi", $"{rec}: {what} {k.Item2:X6}:{k.Item1} doesn't exist (stored {fid:X8})");
             // like the link check: any type the official masters use for navmesh links is fine (NAVM, REFR of pack-ins and
             // ships, and a few odd vanilla values: ARMA, CELL, DIAL, INFO, NPC_, RFGP; data\link-types-seen.txt)
-            else if (t.Sig != "NAVM" && !SeenInMasters(typeof(INavigationMeshGetter), t.Sig)) add("ERROR", "navi", $"{rec}: {what} {k.Item2:X6}:{k.Item1} is a {t.Sig} in {t.DefinedIn}, not a navmesh");
+            else if (t.Sig != "NAVM" && !SeenInMasters(typeof(INavigationMeshGetter), t.Sig)) add("ERROR", "navi", $"{rec}: {what} {k.Item2:X6}:{k.Item1} is {Conflict.Impact.WithArticle(t.Sig)} in {t.DefinedIn}, not a navmesh");
             else if (t.Deleted) add("WARNING", "navi", $"{rec}: {what} {k.Item2:X6}:{k.Item1} is a deleted navmesh");
         }
 
@@ -440,8 +440,13 @@ public static class Checker
             var sig = SigOf(ov);
             if (!found.TryGetValue(K(ov.FormKey), out var t) || t.DefinedIn.Equals(self, StringComparison.OrdinalIgnoreCase))
                 add("WARNING", "links", $"{Name(ov)} overrides {ov.FormKey}, which isn't in {ov.FormKey.ModKey} (injected record)");
+            // Armor and armor addon records may replace each other in the game (Starfield 1.16.244, read in a
+            // disassembler), so that swap is a WARNING, as conflict leaves it out (0.5.3); any other type change is dropped
+            // by the game, an ERROR.
             else if (sig != null && t.Sig != sig)
-                add("ERROR", "links", $"{Name(ov)} overrides {ov.FormKey}, which is a {t.Sig} in {t.DefinedIn}");
+                add(Conflict.TypeChanges.ArmorPair(t.Sig, sig) ? "WARNING" : "ERROR", "links",
+                    $"{Name(ov)} overrides {ov.FormKey}, which is {Conflict.Impact.WithArticle(t.Sig)} in {t.DefinedIn}"
+                    + (Conflict.TypeChanges.ArmorPair(t.Sig, sig) ? " (the game lets armor and armor addon records replace each other, but this is usually a wrong FormID)" : ""));
         }
 
         // 5. itm (0.4.0, from an earlier stand-alone itm-check): overrides identical to the master version they override

@@ -20,6 +20,14 @@ record RawDiff(string Path, string Kind, string From, string To, bool Minor);
 
 public static class Impact
 {
+    /// <summary>"a CELL", "an ARMO", "an OTFT": a record signature (or word) with its article, by its first letter
+    /// (0.5.3: check said "a ACHR"; conflict already picked a/an).</summary>
+    public static string WithArticle(string sig) => ("AEIOU".Contains(char.ToUpperInvariant(sig.FirstOrDefault())) ? "an " : "a ") + sig;
+
+    /// <summary>An exception as one short line, "IOException: first line of its message" (0.5.3: one helper for every
+    /// read-problem note in conflict).</summary>
+    public static string Summary(Exception e) => $"{e.GetType().Name}: {OneLine(e.Message.Split('\n')[0])}";
+
     // What a field means to a player, by field name. Anything not listed falls back to its split-up name.
     static readonly Dictionary<string, string> FieldMeaning = new()
     {

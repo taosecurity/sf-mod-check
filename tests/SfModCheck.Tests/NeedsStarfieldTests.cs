@@ -70,7 +70,7 @@ public class NeedsStarfieldTests
         game.Open("Starfield.esm");
         var p = Build(s, game, "enginetype", m =>
             m.MiscItems.AddNew("SFM_Misc").Keywords = [FormKey.Factory(Sf(0x38A)).ToLink<IKeywordGetter>()]);
-        Expect.Finding(Check(s, p, NeedsStarfieldFactAttribute.Data), "ERROR", "links", "a AVIF, where it expects Keyword");
+        Expect.Finding(Check(s, p, NeedsStarfieldFactAttribute.Data), "ERROR", "links", "an AVIF, where it expects Keyword");
     }
 
     /// <summary>An override of an official scene under an alias-less override of its quest.</summary>

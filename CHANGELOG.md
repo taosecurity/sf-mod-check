@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.3 (not released yet)
+
+Fixes from the 0.5.2 code reviews.
+
+- `conflict`: a report that fails part way (a full disk, a report file another program holds open) no longer leaves new
+  and old report files mixed. All three files are removed on any failure, as they already were when memory ran out;
+  a file that can't be removed is named on screen and in the log, so nobody trusts it.
+- `conflict`: when the record-type pass can't read a plugin (a damaged spot or file header), that plugin may hold the
+  first version of a record as another type, which the game keeps. Later versions of such a record are no longer
+  compared against each other (they could read as an ITM or a lost change against the wrong base); they are counted
+  under "Tool limits hit" ("N other ... records were not compared, because X may hold the first version of them as
+  another record type").
+- `conflict`: "N other records were not compared" no longer counts records the game drops anyway (a record whose
+  FormID belongs to an earlier record of another type), unless the plugin that couldn't be read is the one whose
+  record the game keeps.
+- `check`: an armor record on an armor addon's FormID (or the other way round) is now a links WARNING, not an ERROR.
+  The game lets those two replace each other, and `conflict` already left that swap out; it is still usually a wrong
+  FormID, so it stays on the list. Any other type change is still an ERROR.
+- `check`: type names read "an ACHR", "an OTFT" (were "a ACHR").
+- `conflict`: the record-type pass's notes under "Tool limits hit" share one wording ("its file header could not be
+  read (reason), so ..."; joined to the plugin's own line as "... also could not be read (reason), so ..."), and a file
+  header that can't be read now gives its reason.
+- Code: one helper for exception summaries; the itm property lists are cached once, not twice.
+
 ## 0.5.2 (2026-11-17)
 
 `conflict` reports overrides that change a record's type. A mod record with the FormID of an earlier record of another

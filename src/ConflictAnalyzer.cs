@@ -142,7 +142,7 @@ public static class Analyzer
         void ReadProblem(PluginInfo p, string what, Exception e)
         {
             while (e is System.Reflection.TargetInvocationException { InnerException: { } inner }) e = inner;   // a group property's getter
-            var why = $"{e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])}";
+            var why = Impact.Summary(e);
             var at = RecordOf(e);
             var plugin = p.FileName.ToLowerInvariant();
             if (!reportedTypes.Add((plugin, what)) | (at.Length > 0 && !reported.Add((plugin, at, why)))) return;
@@ -190,6 +190,11 @@ public static class Analyzer
         result.TypeChanges.AddRange(TypeChanges.Find(plugins, targets, (p, text, shortText) => typeProblems.Add((p, text, shortText))));
         var firstHolder = new Dictionary<FormKey, string>();
         foreach (var tc in result.TypeChanges) firstHolder.TryAdd(tc.FormKey, tc.First);
+        // Plugins the record-type pass read only partly or not at all (0.5.3): one of them may hold, with another type, the
+        // first record of a FormID, which the game keeps, so later versions would be compared against the wrong base.
+        var typeUnread = typeProblems.Select(t => t.Plugin).DistinctBy(p => p.FileName, StringComparer.OrdinalIgnoreCase)
+            .Select(p => (Plugin: p, Holds: p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
+                .OfType<ModKey>().Append(p.Mod.ModKey).ToHashSet())).ToList();
         Progress?.Invoke($"record types compared in {typeWatch.Elapsed.TotalSeconds:F1} s: {result.TypeChanges.Count} overrides change a record's type");
 
         // Record references in impact text read as "EditorID (type)" rather than raw FormKeys. The cache keeps EditorIDs
@@ -264,14 +269,18 @@ public static class Analyzer
             // records of its own masters, so it matters only for those; and only where its version would win or be the
             // base of a later version (a master of it). Those records are skipped and counted, not reported wrongly.
             var notCompared = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // by file name: hashing a PluginInfo record hashes its whole plugin through Mutagen
+            var notComparedType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // the same, for the record-type pass
             // direct masters only: a record's FormID can only name the plugin itself or one of its own masters
             var partlyMasters = partly.Select(p => p.Masters.Select(m => ModKey.TryFromFileName(m, out var mk) ? mk : (ModKey?)null)
                 .OfType<ModKey>().Append(p.Mod.ModKey).ToHashSet()).ToList();
-            PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
+            // only: when the game drops these versions (another plugin holds the first record, of another type), only that
+            // keeper's unread version could matter (0.5.3: such records were counted as not compared).
+            PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs, string? only)
             {
                 for (int u = 0; u < partly.Count; u++)
                 {
                     var p = partly[u];
+                    if (only != null && !p.FileName.Equals(only, StringComparison.OrdinalIgnoreCase)) continue;
                     if (!partlyMasters[u].Contains(fk.ModKey)) continue;   // it can't override this record
                     if (vs?.Any(v => ReferenceEquals(v.Plugin, p)) == true) continue;   // its version was read before the failure
                     if (vs is null || vs.Count == 0 || p.Index > vs[^1].Plugin.Index
@@ -287,18 +296,28 @@ public static class Analyzer
             if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
                 throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {pairs.Count} done)");
             found.TryGetValue(formKey, out var versions);
-            if (partly.Count > 0 && MayHoldUnread(formKey, versions) is { } unread)
+            // A record given another type: the game keeps the first plugin's record and drops the others, so versions
+            // of another type are compared only when the first of them is that first record (code review: the first
+            // type-changing mod was taken as the base, giving ITMs and lost changes against the wrong record). The
+            // type change itself is already a finding.
+            var dropped = firstHolder.TryGetValue(formKey, out var keeper) && versions is { Count: > 0 }
+                && !versions[0].Plugin.FileName.Equals(keeper, StringComparison.OrdinalIgnoreCase);
+            // A version that may be unread is counted, never dropped silently (code review round 3); for dropped
+            // versions only the keeper's own unread version counts (0.5.3).
+            if (partly.Count > 0 && MayHoldUnread(formKey, versions, dropped ? keeper : null) is { } unread)
             {
                 notCompared[unread.FileName] = notCompared.GetValueOrDefault(unread.FileName) + 1;
                 continue;
             }
-            if (versions is null || versions.Count < 2) continue;
-            // A record given another type: the game keeps the first plugin's record and drops the others, so versions
-            // of another type are compared only when the first of them is that first record (code review: the first
-            // type-changing mod was taken as the base, giving ITMs and lost changes against the wrong record). The
-            // type change itself is already a finding. (After the partly-read check, so a version that may be unread is
-            // still counted, never dropped silently: code review round 3.)
-            if (firstHolder.TryGetValue(formKey, out var keeper) && !versions[0].Plugin.FileName.Equals(keeper, StringComparison.OrdinalIgnoreCase)) continue;
+            if (versions is null || versions.Count < 2 || dropped) continue;
+            // The first version isn't the record's own plugin's, so an earlier plugin may hold the first record with
+            // another type; if the record-type pass couldn't read such a plugin, the base is unknown (0.5.3).
+            if (typeUnread.Count > 0 && !versions[0].Plugin.Mod.ModKey.Equals(formKey.ModKey)
+                && typeUnread.FirstOrDefault(t => t.Plugin.Index < versions[0].Plugin.Index && t.Holds.Contains(formKey.ModKey)).Plugin is { } maybeFirst)
+            {
+                notComparedType[maybeFirst.FileName] = notComparedType.GetValueOrDefault(maybeFirst.FileName) + 1;
+                continue;
+            }
             whereRecord = (formKey, type, versions);
             // This record's results are kept only once all of it is worked out (code review): a failure part way used to
             // leave some entries behind, and a reorder-cost key without its position, which stopped the final sort.
@@ -461,7 +480,7 @@ public static class Analyzer
             catch (Exception e) when (Fatal.Recoverable(e))
             {
                 result.Errors.Add($"{formKey} ({Impact.TypeName(TypeShort(type))}): could not compare its versions in {string.Join(", ", versions.Select(v => v.Plugin.FileName))}, " +
-                                  $"so it was skipped ({e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])})");
+                                  $"so it was skipped ({Impact.Summary(e)})");
             }
             finally
             {
@@ -475,6 +494,9 @@ public static class Analyzer
             foreach (var (p, count) in notCompared)
                 result.Errors.Add($"{p}: {count} other {Impact.TypeName(TypeShort(type))} record{(count == 1 ? " was" : "s were")} not compared, " +
                                   $"because {p} may change {(count == 1 ? "it" : "them")} too but its {Impact.TypeName(TypeShort(type))} records could not all be read");
+            foreach (var (p, count) in notComparedType)
+                result.Errors.Add($"{p}: {count} other {Impact.TypeName(TypeShort(type))} record{(count == 1 ? " was" : "s were")} not compared, " +
+                                  $"because {p} may hold the first version of {(count == 1 ? "it" : "them")} as another record type, but its records' types could not all be read");
         }
         foreach (var (p, text, shortText) in typeProblems)
         {

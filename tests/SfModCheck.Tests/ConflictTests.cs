@@ -602,7 +602,7 @@ public class ConflictTests
         Assert.Contains(errors, e => e.StartsWith("ModZ.esm: 1 other keyword record was not compared"));
         // The record-type pass meets the same damage. Its note joins the plugin's own line (0.5.1: one line per
         // spot); on its own it says what it couldn't read (code review 0.5.2, rounds 1-2).
-        Assert.Contains(errors, e => e.StartsWith("ModZ.esm: could not read its keyword records") && e.Contains("; some of its records' types could not be read either"));
+        Assert.Contains(errors, e => e.StartsWith("ModZ.esm: could not read its keyword records") && e.Contains("; some of its records' types also could not be read ("));
         Assert.DoesNotContain(errors, e => e.StartsWith("ModZ.esm: some of its records' types"));
         var txt = Path.Combine(game.Dir, "Plugins.txt");
         var lo = LoadOrderSetup.Build(game.Data, txt);
@@ -748,5 +748,87 @@ public class ConflictTests
         Assert.Equal(2, json.GetProperty("typeChanges").GetArrayLength());   // both differ from Base's MISC
         Assert.Empty(Itms(json));
         Assert.Empty(Lost(json));
+    }
+
+    // 0.5.3 item 7 and item 4: check names the type with a/an, and an armor override of an armor addon (which the game
+    // lets replace each other, so conflict doesn't list it) is a WARNING, not an ERROR.
+    [Fact]
+    public void Check_gives_an_armor_on_armor_addon_override_a_warning()
+    {
+        using var game = new Game();
+        game.Mod("ModX.esm", (m, open) => m.ArmorAddons.AddNew("X_Arma"));
+        game.Mod("ModT.esm", (m, open) => m.Armors.Add(new Armor(open("ModX.esm").ArmorAddons.First().FormKey, StarfieldRelease.Starfield) { EditorID = "T_Armo" }));
+        var (code, stdout, _) = ExeTests.RunSplit("check", Path.Combine(game.Data, "ModT.esm"), "--data", game.Data);
+        Assert.True(code == 0, stdout);
+        Assert.Contains(stdout.Split('\n'), l => l.StartsWith("WARNING [links]") && l.Contains("which is an ARMA in ModX.esm") && l.Contains("replace each other"));
+        Assert.DoesNotContain(stdout.Split('\n'), l => l.StartsWith("ERROR [links]"));
+    }
+
+    // 0.5.3 item 3: a record the game drops (another type holds its FormID first) isn't counted as "not compared" just
+    // because a later plugin's records of that type could not all be read: only the keeper's unread version matters.
+    [Fact]
+    public void A_dropped_record_is_not_counted_as_not_compared_for_a_partly_read_plugin()
+    {
+        using var game = new Game();
+        game.Mod("ModT.esm", (m, open) => Clash(m, open("Base.esm")));
+        game.Mod("ModZ.esm", (m, open) => m.Keywords.GetOrAddAsOverride(open("Base.esm").Keywords.First()));   // damaged below
+        var path = Path.Combine(game.Data, "ModZ.esm");
+        var bytes = File.ReadAllBytes(path);
+        Bytes.SetU32(bytes, Bytes.Items(bytes).Single(i => i.Sig == "KYWD").Off + 4, 0x7FFF_FFF0);
+        File.WriteAllBytes(path, bytes);
+
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModT.esm", "ModZ.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Single(json.GetProperty("typeChanges").EnumerateArray());
+        var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
+        Assert.Contains(errors, e => e.StartsWith("ModZ.esm: could not read its keyword records"));   // the damage is still listed
+        Assert.DoesNotContain(errors, e => e.Contains("not compared, because"));
+    }
+
+    // 0.5.3 item 2: when the record-type pass can't read an earlier plugin, that plugin may hold the record's first
+    // version as another type (which the game keeps), so later versions are counted as not compared, not compared
+    // against each other (here they would read as an ITM).
+    [Fact]
+    public void Versions_after_a_plugin_the_type_pass_could_not_read_are_not_compared()
+    {
+        using var game = new Game();
+        FormKey injected = default;
+        game.Mod("ModP.esm", (m, open) =>
+        {
+            injected = new FormKey(open("Base.esm").ModKey, 0xF00);   // no record in Base.esm has this ID
+            m.MiscItems.Add(new MiscItem(injected, StarfieldRelease.Starfield) { EditorID = "P_Misc" });   // damaged below
+        });
+        game.Mod("ModA.esm", (m, open) => { open("Base.esm"); m.Keywords.Add(new Keyword(injected, StarfieldRelease.Starfield) { EditorID = "A_Kw" }); });
+        game.Mod("ModB.esm", (m, open) => { open("Base.esm"); m.Keywords.Add(new Keyword(injected, StarfieldRelease.Starfield) { EditorID = "A_Kw" }); });
+        var path = Path.Combine(game.Data, "ModP.esm");
+        var bytes = File.ReadAllBytes(path);
+        Bytes.SetU32(bytes, Bytes.Items(bytes).Single(i => i.Sig == "MISC").Off + 4, 0x7FFF_FFF0);
+        File.WriteAllBytes(path, bytes);
+
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModP.esm", "ModA.esm", "ModB.esm" });
+        Assert.True(code == 0, stdout);
+        var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
+        Assert.DoesNotContain(Itms(json), t => S(t, "Plugin") == "ModB.esm");
+        Assert.Contains(errors, e => e.StartsWith("ModP.esm: 1 other keyword record was not compared, because ModP.esm may hold the first version of it as another record type"));
+    }
+
+    // 0.5.3 item 1: a report that fails part way never leaves new and old files mixed; a file that can't be removed is named.
+    [Fact]
+    public void A_report_that_fails_part_way_leaves_no_mixed_files()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        var (code, stdout, _) = game.Conflict(new[] { "Base.esm", "ModA.esm" });
+        Assert.True(code == 0, stdout);
+        var outDir = Path.Combine(game.Dir, "report");
+        var jsonPath = Path.Combine(outDir, "conflicts.json");
+        string stderr;
+        using (File.Open(jsonPath, FileMode.Open, FileAccess.Read, FileShare.None))   // written last: the run fails there
+            (code, stdout, stderr) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", Path.Combine(game.Dir, "Plugins.txt"), "--out", outDir, "--quiet");
+        Assert.Equal(2, code);
+        Assert.StartsWith("RESULT: CANNOT CHECK", ExeTests.ResultLine(stdout));
+        Assert.False(File.Exists(Path.Combine(outDir, "report.md")));
+        Assert.False(File.Exists(Path.Combine(outDir, "report.html")));
+        Assert.Contains("could not be removed and may be old or incomplete: " + jsonPath, stderr);
     }
 }
