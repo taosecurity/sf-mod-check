@@ -65,7 +65,7 @@ public static class TypeChanges
             if (!masters.TryGetValue(p.FileName, out var ms))
             {
                 error(p, $"{p.FileName}: could not read its file header, so its records' types were not compared",
-                    "its records' types were not compared either");
+                    "its file header could not be read either, so its records' types were not compared");
                 continue;
             }
             try

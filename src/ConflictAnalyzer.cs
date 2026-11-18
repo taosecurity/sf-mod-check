@@ -287,17 +287,18 @@ public static class Analyzer
             if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
                 throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {pairs.Count} done)");
             found.TryGetValue(formKey, out var versions);
-            // A record given another type: the game keeps the first plugin's record and drops the others, so versions
-            // of another type are compared only when the first of them is that first record (code review: the first
-            // type-changing mod was taken as the base, giving ITMs and lost changes against the wrong record). The
-            // type change itself is already a finding. Checked first, so a dropped record isn't counted below.
-            if (versions is { Count: > 0 } && firstHolder.TryGetValue(formKey, out var keeper) && !versions[0].Plugin.FileName.Equals(keeper, StringComparison.OrdinalIgnoreCase)) continue;
             if (partly.Count > 0 && MayHoldUnread(formKey, versions) is { } unread)
             {
                 notCompared[unread.FileName] = notCompared.GetValueOrDefault(unread.FileName) + 1;
                 continue;
             }
             if (versions is null || versions.Count < 2) continue;
+            // A record given another type: the game keeps the first plugin's record and drops the others, so versions
+            // of another type are compared only when the first of them is that first record (code review: the first
+            // type-changing mod was taken as the base, giving ITMs and lost changes against the wrong record). The
+            // type change itself is already a finding. (After the partly-read check, so a version that may be unread is
+            // still counted, never dropped silently: code review round 3.)
+            if (firstHolder.TryGetValue(formKey, out var keeper) && !versions[0].Plugin.FileName.Equals(keeper, StringComparison.OrdinalIgnoreCase)) continue;
             whereRecord = (formKey, type, versions);
             // This record's results are kept only once all of it is worked out (code review): a failure part way used to
             // leave some entries behind, and a reorder-cost key without its position, which stopped the final sort.
