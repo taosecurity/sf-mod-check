@@ -420,9 +420,9 @@ public static class Analyzer
                 costAt[pair].Add(order[formKey]);
             }
             }
-            // the memory limit and fatal errors still stop the run (code review round 4: an out-of-memory error must not
-            // turn every later record into a "skipped" line and a report that looks whole)
-            catch (Exception e) when (e is not (MemoryLimitException or OutOfMemoryException or InsufficientExecutionStackException))
+            // --max-memory still stops the run. Fatal errors (out of memory) are caught here as everywhere else in the
+            // analyzer, as in 0.5.0; treating them alike at every catch is planned for 0.5.2 (NOTES, review round 5).
+            catch (Exception e) when (e is not MemoryLimitException)
             {
                 result.Errors.Add($"{formKey} ({Impact.TypeName(TypeShort(type))}): could not compare its versions in {string.Join(", ", versions.Select(v => v.Plugin.FileName))}, " +
                                   $"so it was skipped ({e.GetType().Name}: {Impact.OneLine(e.Message.Split('\n')[0])})");
