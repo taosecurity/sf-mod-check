@@ -248,6 +248,9 @@ public static class ReleaseCommand
 
     static readonly System.Text.RegularExpressions.Regex UnreadableArchive = new(@"^archive (.+?) could not be read \(", System.Text.RegularExpressions.RegexOptions.Singleline);
 
+    /// <summary>The last part of a path written with either kind of slash (the same on every system).</summary>
+    static string LastName(string path) => path[(path.LastIndexOfAny(['\\', '/']) + 1)..];
+
     /// <summary>An archive that can't be read is reported by the zip rules (ba2-unreadable) and again by the needs step
     /// (script-missing). Keep the first and drop the repeat, so one broken archive is one PROBLEM.</summary>
     public static List<ReleaseFinding> DedupeUnreadable(List<ReleaseFinding> findings)
@@ -257,14 +260,14 @@ public static class ReleaseCommand
             .Select(f => System.Text.RegularExpressions.Regex.Match(f.Text, @"^(.+?): can't read the archive"))
             .Where(m => m.Success)
             // the text before ": can't read" is "<zip>:<archive path>"; an unpacked path never holds a colon
-            .Select(m => Path.GetFileName(m.Groups[1].Value[(m.Groups[1].Value.LastIndexOf(':') + 1)..].Replace('/', '\\'))).ToList();
+            .Select(m => LastName(m.Groups[1].Value[(m.Groups[1].Value.LastIndexOf(':') + 1)..])).ToList();
         if (rules.Count == 0) return findings;
         return findings.Where(f =>
         {
             if (f.Rule != "script-missing") return true;
             var m = UnreadableArchive.Match(f.Text);
             if (!m.Success) return true;
-            var file = Path.GetFileName(m.Groups[1].Value.Replace('/', '\\').Trim());
+            var file = LastName(m.Groups[1].Value.Trim());
             return !rules.Any(r => r.Equals(file, StringComparison.OrdinalIgnoreCase));
         }).ToList();
     }
