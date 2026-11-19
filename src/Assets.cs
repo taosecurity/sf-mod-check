@@ -194,8 +194,9 @@ public sealed class AssetIndex
     /// <summary>The loose file for a data-relative path ("scripts\foo.pex") under a folder, or null. Windows paths
     /// ignore case and take "\" as a separator; on Linux and macOS (Proton, Wine) each part is matched without regard
     /// to case, as the game sees it, so "Scripts/Foo.pex" on disk counts (CI on ubuntu, 0.6.0). When folders differ only
-    /// in case ("Scripts" and "scripts", from two mods), each is searched. A rooted name (an INI's archive list may
-    /// hold one) is looked up as given; a Windows drive path off Windows is not found.</summary>
+    /// in case ("Scripts" and "scripts", from two mods), each is searched. One leading "\" means under Data; another
+    /// rooted name (an INI's archive list may hold one) is looked up as given; a Windows drive path off Windows is not
+    /// found.</summary>
     internal string? LooseFile(string dir, string rel)
     {
         // one leading "\" ("\x.ba2" in an INI) means under Data on every system, not the drive's root (code review 0.6.0)
