@@ -174,7 +174,11 @@ Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://gith
   problems (report: <path>; <seconds> s)` (with ", <n> overrides that change a record's type", ", <n> missing assets
   (<s> scripts, <m> models)", ", <n> archives that can't be read" (with `--no-assets`: ", <n> archives that can't be
   read (not counted)"), ", WARNING <n> general|texture archives (over 256)", ", <n> read problems (records not
-  compared ...)" and ", <n> assets-check notes (...)" before `(report:` when there are any), or `RESULT: CANNOT CHECK (...)` or `RESULT: STOPPED (...)`. Progress lines go to stderr.
+  compared ...)" and ", <n> assets-check notes (...)" before `(report:` when there are any), or `RESULT: CANNOT CHECK (...)` or `RESULT: STOPPED (...)`. Progress lines go to stderr. Before the summary line,
+  stdout can also hold stack traces that Mutagen (the plugin library) prints itself when it can't fully read a
+  scene's actions, for example `System.ArgumentException: Unexpected header type: PAQO` (5 on the author's 157-mod
+  order; `check` can print them too). sfmodcheck doesn't count or report these yet, so scripts should read only the
+  exit code and the `RESULT: ` line (in `check`, also the `ERROR ` and `WARNING ` lines).
 - **conflict exit codes:** 0 = report written (whatever it found); 2 = couldn't run (running out of memory included:
   no report); 3 = stopped at `--max-memory` (no report).
 - **Caches:** `%LOCALAPPDATA%\sfmodcheck\` on Windows, `~/.local/share/sfmodcheck/` on Linux (the masters' EditorIDs and

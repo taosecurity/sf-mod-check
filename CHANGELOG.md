@@ -65,6 +65,9 @@
 - `--version` and the byline read the version from the build, so the program can't disagree with the package.
 - `conflict`: the report-cleanup log line after a failed write names the full error; a missing report folder is no
   longer logged as a problem.
+- Docs: README and AGENTS.md now say that stdout can hold stack traces Mutagen prints itself for scene actions it
+  can't fully read (`Unexpected header type: PAQO`; unchanged behavior, also in 0.5.3), and that scripts should read
+  only the exit code and the RESULT line.
 
 ## 0.5.3 (2026-11-18)
 

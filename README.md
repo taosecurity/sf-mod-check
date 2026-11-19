@@ -261,6 +261,10 @@ always the RESULT line, for example:
 
     RESULT: OK, 29 lost-change entries (19 official, 10 mod vs mod), 103 ITMs, 0 load-order problems (report: ...\sfmodcheck-conflict\report.html; 122 s)
 
+Before the summary line, stdout can also hold stack traces such as `System.ArgumentException: Unexpected header
+type: PAQO`. Mutagen (the plugin library) prints these itself when it can't fully read a scene's actions; sfmodcheck
+doesn't count or report them yet. A script should read only the exit code and the RESULT line.
+
 **Plugins and records it can't read:** a plugin that can't be opened at all is skipped and listed as a load-order
 problem. A record that Mutagen 0.54.4 can't read (a field written by a newer Creation Kit, or a damaged one) skips only
 that plugin's group of records of that type: the rest of the load order is still checked, and the report's "Tool
