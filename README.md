@@ -98,7 +98,8 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sfmodcheck/rel
 - `--quiet`: leave out the first summary line.
 - `--no-hints`: leave out the HINT lines.
 - `--no-assets`: skip the assets check (missing scripts and models), for example when the plugin's archive isn't
-  built yet.
+  built yet. If the assets check itself can't finish (a folder that can't be listed, a disk error), the other checks
+  still count and one `WARNING assets` line says the scripts and models weren't checked.
 - `--ini <file>`: also read this INI's `[Archive]` lists for the archives the game loads, after `Starfield.ini` in the
   game folder and `StarfieldCustom.ini` in `Documents\My Games\Starfield`; can be given more than once. Use it for an
   install whose INIs are elsewhere.
@@ -222,7 +223,9 @@ Then open `sfmodcheck-conflict\report.html` in a browser.
   conflicts.json has them as `missingAssets` and `unreadableArchives`. With `--no-assets` the section says the check
   was off. If the assets step itself stops (a folder that can't be listed, a disk error), the report is still
   written: the section and "Tool limits hit" say why, and conflicts.json has the reason as `assetsFailed` (else
-  null).
+  null). The RESULT line counts that note (and a `--max-memory` stop in the assets lookups) as ", N assets-check
+  notes", apart from the read problems, since every record was still compared. The warning on stderr shows with
+  `--quiet` too.
 - **The archive limit (0.6.0):** `conflict` also counts the archives the game would load for the load order (the
   same list: every active plugin's `<plugin> - *.ba2` and the INIs' lists, other languages' voice archives left out),
   separately for general archives (GNRL: scripts, meshes, materials, sounds) and texture archives (DX10). The game
@@ -232,7 +235,9 @@ Then open `sfmodcheck-conflict\report.html` in a browser.
   WARNING and a High recommended action, listed first (remove or merge mods that bring archives, or use a BA2 limit fix). The
   counts are always in the report's Summary and "Missing assets" section and in conflicts.json (`archiveCounts`:
   `gnrl`, `dx10`, `slots`; `archiveLimitWarnings`). `--no-assets` still counts them (it reads only each archive's
-  header). An archive whose header can't be read isn't counted. Each archive is counted by its header type (GNRL
+  header). An archive whose header can't be read isn't counted: the archive paragraph names it and says the true
+  counts may be higher, and with `--no-assets` the RESULT line adds ", N archives that can't be read (not counted)".
+  Each archive is counted by its header type (GNRL
   general, DX10 texture), as the game does, not by its name: a GNRL archive named `- Textures.ba2` counts as general.
 - `--quiet`: leave out the byline, the progress lines and the summary line.
 - `--verbose` and `--log <file>`: the troubleshooting log, as for `check`. It records the Data folder and load order

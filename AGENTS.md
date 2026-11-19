@@ -128,7 +128,9 @@ Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://gith
     A missing file an override inherits (the version it overrides, in the last of its masters that has the record,
     names it too; often a vanilla record) isn't reported against the override; `inheritedAssetUses` counts those uses
     and `--log` lists them. If the assets step stops part way, the report is still written and conflicts.json's
-    `assetsFailed` holds the reason (null when it ran to the end); `Errors` has a line for it too.
+    `assetsFailed` holds the reason (null when it ran to the end); `Errors` has a line for it too, which the RESULT
+    line counts as an assets-check note, not a read problem. In `check`, the same failure is one `WARNING assets`
+    line and the other checks still count.
 
 12. `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, even with
     `--no-assets`. The game has 256 slots for each kind; over that, the RESULT line adds
@@ -136,7 +138,8 @@ Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://gith
     High recommended action. To read the counts in a script, use conflicts.json's `archiveCounts` (`gnrl`, `dx10`,
     `slots`) and `archiveLimitWarnings` (one text per registry over the limit, else empty). Each archive is counted
     by its header type (GNRL general, DX10 texture), as the game does, so a GNRL archive named `- Textures.ba2`
-    counts as general.
+    counts as general. An archive whose header can't be read isn't counted; `unreadableArchives` lists it (with
+    `--no-assets` too).
 
 ## 6. Inputs and outputs
 
@@ -169,8 +172,9 @@ Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://gith
   `archiveLimitWarnings`). On
   stdout a summary line and always one last line `RESULT: OK, <n> lost-change entries (...), <n> ITMs, <n> load-order
   problems (report: <path>; <seconds> s)` (with ", <n> overrides that change a record's type", ", <n> missing assets
-  (<s> scripts, <m> models)", ", <n> archives that can't be read" and ", WARNING <n> general|texture archives (over
-  256)" before `(report:` when there are any), or `RESULT: CANNOT CHECK (...)` or `RESULT: STOPPED (...)`. Progress lines go to stderr.
+  (<s> scripts, <m> models)", ", <n> archives that can't be read" (with `--no-assets`: ", <n> archives that can't be
+  read (not counted)"), ", WARNING <n> general|texture archives (over 256)", ", <n> read problems (records not
+  compared ...)" and ", <n> assets-check notes (...)" before `(report:` when there are any), or `RESULT: CANNOT CHECK (...)` or `RESULT: STOPPED (...)`. Progress lines go to stderr.
 - **conflict exit codes:** 0 = report written (whatever it found); 2 = couldn't run (running out of memory included:
   no report); 3 = stopped at `--max-memory` (no report).
 - **Caches:** `%LOCALAPPDATA%\sfmodcheck\` on Windows, `~/.local/share/sfmodcheck/` on Linux (the masters' EditorIDs and

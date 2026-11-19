@@ -30,6 +30,13 @@
 - `conflict`: if the assets step (or the archive count) stops part way, the report is still written instead of
   CANNOT CHECK; the "Missing assets" section and "Tool limits hit" say why, and conflicts.json gets `assetsFailed`
   (null when it ran to the end). The `--log` has one "counted: general (GNRL)" line per counted general archive.
+- Code review (0.6.0): in `check`, an assets step that can't finish (a folder it can't list) is one
+  `WARNING assets` line instead of CANNOT CHECK, so the other checks' results stand. In `conflict`, an archive whose
+  header can't be read is listed with `--no-assets` too (RESULT ", N archives that can't be read (not counted)",
+  `unreadableArchives`), and the archive paragraph names it; the RESULT line counts the assets step's own notes as
+  ", N assets-check notes", not as read problems; "Missing assets" says "None found before the check stopped." when
+  the step stopped; the step-stopped warning shows with `--quiet`, like the archive-limit warning. A model or
+  script path that is rooted (`C:\...`) or uses `..` never counts as found, since the game looks only under Data.
 - `--language` takes the 6-letter code `zhhans`, which its own message listed but refused (both modes).
 - `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, and warns when
   either is over the game's 256 slots: the RESULT line adds ", WARNING N general archives (over 256)" (or texture),

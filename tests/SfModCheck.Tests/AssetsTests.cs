@@ -212,4 +212,38 @@ public class AssetsTests
         Expect.Finding(r, "ERROR", "assets", "SfmTest:InTextures");
         Expect.Finding(r, "WARNING", "assets", "archive arch - Main.ba2 could not be read");
     }
+
+    // code review 0.6.0: in check mode a failure in the assets step costs only that step (one WARNING), not the
+    // whole check (CANNOT CHECK, exit 2)
+    [Fact]
+    public void A_failure_in_the_assets_step_is_one_warning_in_check_mode()
+    {
+        using var w = new World();
+        var p = w.Build("assetsfail", m => AttachScript(m, "SfmTest:Whatever"));
+        Result r;
+        try
+        {
+            Assets.AfterIndex = () => throw new IOException("made-up disk error");
+            r = w.Check(p);
+        }
+        finally { Assets.AfterIndex = null; }
+        Expect.Finding(r, "WARNING", "assets", "the assets check stopped (IOException: made-up disk error)");
+        Assert.False(r.CannotCheckLinks);
+        Assert.DoesNotContain(r.Findings, f => f.Severity == "ERROR");
+    }
+
+    // code review 0.6.0: a path outside Data (rooted, or with "..") never counts as found, even if the file exists
+    [Fact]
+    public void A_path_outside_data_never_counts_as_found()
+    {
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        File.WriteAllBytes(Path.Combine(s.Dir, "outside.nif"), new byte[4]);
+        File.WriteAllBytes(Path.Combine(data, "inside.nif"), new byte[4]);
+        var index = AssetIndex.Build(Array.Empty<string>(), new[] { data }, Array.Empty<string>(), "en");
+        Assert.True(index.Has("inside.nif"));
+        Assert.False(index.Has("..\\outside.nif"));
+        Assert.False(index.Has("meshes/../../outside.nif"));
+        Assert.False(index.Has(Path.Combine(s.Dir, "outside.nif")));
+    }
 }

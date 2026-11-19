@@ -73,6 +73,19 @@ public static class ConflictCommand
         var part = "";
         if (a.GnrlArchives > AssetIndex.ArchiveSlots) part += $", WARNING {a.GnrlArchives} general archives (over {AssetIndex.ArchiveSlots})";
         if (a.Dx10Archives > AssetIndex.ArchiveSlots) part += $", WARNING {a.Dx10Archives} texture archives (over {AssetIndex.ArchiveSlots})";
+        // with --no-assets the assets part is empty, so archives left out of the counts are named here (code review 0.6.0)
+        if (!a.AssetsChecked && a.UnreadableArchives.Count is var u and > 0) part += $", {u} archive{(u == 1 ? "" : "s")} that can't be read (not counted)";
+        return part;
+    }
+
+    /// <summary>The RESULT line's errors part: the read problems (records not compared), and apart from them the
+    /// assets step's own notes (it stopped, or passed --max-memory during its lookups), which don't mean records went
+    /// uncompared (code review 0.6.0). Both are listed in the report's "Tool limits hit".</summary>
+    internal static string ErrorsPart(Analysis a)
+    {
+        var read = a.Errors.Count - a.AssetNotes;
+        var part = read > 0 ? $", {read} read problems (records not compared; see the report's \"Tool limits hit\")" : "";
+        if (a.AssetNotes > 0) part += $", {a.AssetNotes} assets-check note{(a.AssetNotes == 1 ? "" : "s")} (see the report's \"Tool limits hit\")";
         return part;
     }
 
@@ -286,8 +299,10 @@ public static class ConflictCommand
                 analysis.AssetsFailed = $"{e.GetType().Name}: {Impact.OneLine(e.Message)}";
                 analysis.Errors.Add($"the {(noAssets ? "archive count" : "assets check")} stopped while {Analyzer.Where} ({analysis.AssetsFailed}), " +
                                     "so its results are missing or incomplete");
+                analysis.AssetNotes++;
                 Log.Write($"assets: stopped ({analysis.AssetsFailed})");
-                if (!quiet) Console.Error.WriteLine($"WARNING: the {(noAssets ? "archive count" : "assets check")} stopped ({analysis.AssetsFailed}); the report notes it");
+                // a warning, like the archive-limit lines below: shown with --quiet too (code review 0.6.0)
+                Console.Error.WriteLine($"WARNING: the {(noAssets ? "archive count" : "assets check")} stopped ({analysis.AssetsFailed}); the report notes it");
             }
             foreach (var w in Assets.ArchiveLimitWarnings(analysis)) Console.Error.WriteLine($"WARNING: {w}");
             Analyzer.Where = $"writing the report to {outDir}";
@@ -334,7 +349,7 @@ public static class ConflictCommand
                               $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems" +
                               $"{(analysis.TypeChanges.Count is var tcn and > 0 ? $", {tcn} override{(tcn == 1 ? "" : "s")} that change{(tcn == 1 ? "s" : "")} a record's type" : "")}" +
                               MissingAssetsPart(analysis) + ArchiveLimitPart(analysis) +
-                              $"{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} read problems (records not compared; see the report's \"Tool limits hit\")" : "")} " +
+                              ErrorsPart(analysis) + " " +
                               $"(report: {Path.Combine(outDir, "report.html")}; {sw.Elapsed.TotalSeconds:F0} s)");
             Fatal.AfterResult(() => Log.Write($"result: {analysis.Lost.Count} lost-change entries, {analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems, " +
                       $"{analysis.TypeChanges.Count} type-changing overrides, " +

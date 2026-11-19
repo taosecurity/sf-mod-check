@@ -164,6 +164,9 @@ public sealed class AssetIndex
         var p = Ba2Names.Normalize(relPath);
         if (inArchives.Contains(p)) return true;
         if (looseSeen.TryGetValue(p, out var known)) return known;
+        // A rooted path ("c:\x\a.nif") or one with ".." points outside Data: the game won't load it, so a file that
+        // happens to be there on this machine doesn't count (code review 0.6.0)
+        if (Path.IsPathRooted(p) || p.Contains(':') || p.Split('\\').Contains("..")) return looseSeen[p] = false;
         var found = false;
         foreach (var d in looseDirs)
         {
@@ -279,6 +282,7 @@ public static class Assets
                     var note = $"the assets check passed --max-memory ({Conflict.Analyzer.MaxManagedBytes / 1e9:F1} GB) while looking up the records " +
                                $"overrides replace (at {p.FileName}); from there on a missing path an override inherits is reported too";
                     analysis.Errors.Add(note);
+                    analysis.AssetNotes++;
                     Log.Write("assets: " + note);
                     return null;
                 }
@@ -309,8 +313,13 @@ public static class Assets
     /// <summary>conflict --no-assets: only the archive counts (each archive's 24-byte header), so the archive-limit
     /// warning still works when scripts and models aren't checked.</summary>
     public static void CountArchives(IReadOnlyList<Conflict.PluginInfo> plugins, IReadOnlyList<string> dirs, IEnumerable<string> inis,
-                                     string language, Conflict.Analysis analysis) =>
-        SetArchiveCounts(AssetIndex.Build(plugins.Select(p => p.FileName), dirs, inis, language, names: false), analysis);
+                                     string language, Conflict.Analysis analysis)
+    {
+        var index = AssetIndex.Build(plugins.Select(p => p.FileName), dirs, inis, language, names: false);
+        // an archive whose header can't be read isn't in either count, so the report must say so (code review 0.6.0)
+        analysis.UnreadableArchives.AddRange(index.Unreadable);
+        SetArchiveCounts(index, analysis);
+    }
 
     static void SetArchiveCounts(AssetIndex index, Conflict.Analysis analysis)
     {

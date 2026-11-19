@@ -1237,6 +1237,36 @@ public class ConflictTests
         Assert.Contains(json.GetProperty("Errors").EnumerateArray(), e => (e.GetString() ?? "").StartsWith("the assets check stopped while checking scripts and models"));
         var md = File.ReadAllText(Path.Combine(outDir, "report.md"));
         Assert.Contains("The check stopped part way (IOException: made-up disk error), so this list may be incomplete.", md);
+        Assert.Contains("None found before the check stopped.", md);   // code review 0.6.0: not a plain "None found."
+        Assert.Contains("None found before the check stopped.", File.ReadAllText(Path.Combine(outDir, "report.html")));
+    }
+
+    // code review 0.6.0: the assets step's own notes are counted apart from read problems on the RESULT line
+    [Fact]
+    public void Assets_notes_are_not_counted_as_read_problems()
+    {
+        var a = new Analysis();
+        a.Errors.Add("Foo.esm: NPC_ records not compared");
+        a.Errors.Add("the assets check stopped while ...");
+        a.AssetNotes = 1;
+        Assert.Equal(", 1 read problems (records not compared; see the report's \"Tool limits hit\"), 1 assets-check note (see the report's \"Tool limits hit\")",
+                     ConflictCommand.ErrorsPart(a));
+        a.Errors.RemoveAt(0);
+        Assert.Equal(", 1 assets-check note (see the report's \"Tool limits hit\")", ConflictCommand.ErrorsPart(a));
+    }
+
+    // code review 0.6.0: with --no-assets an archive whose header can't be read is still named, since it's in neither count
+    [Fact]
+    public void An_unreadable_archive_is_named_with_no_assets_too()
+    {
+        using var game = new Game();
+        File.WriteAllBytes(Path.Combine(game.Data, "Base - Main.ba2"), System.Text.Encoding.ASCII.GetBytes("damaged, not BTDX at all......"));
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm" }, "--no-assets");
+        Assert.True(code == 0, stdout);
+        Assert.Contains(", 1 archive that can't be read (not counted)", ExeTests.ResultLine(stdout));
+        Assert.Single(json.GetProperty("unreadableArchives").EnumerateArray());
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        Assert.Contains("1 archive couldn't be read and isn't in either count, so the true counts may be higher: Base - Main.ba2.", md);
     }
 
     [Fact]

@@ -105,7 +105,7 @@ public static class Report
             foreach (var (archive, why) in a.UnreadableArchives)
                 md.AppendLine($"- **WARNING** archive {Md(archive)} can't be read ({Md(Impact.OneLine(why))}), so its files count as missing.");
             if (a.UnreadableArchives.Count > 0) md.AppendLine();
-            if (a.MissingAssets.Count == 0) { md.AppendLine("None found."); md.AppendLine(); }
+            if (a.MissingAssets.Count == 0) { md.AppendLine(a.AssetsFailed != null ? "None found before the check stopped." : "None found."); md.AppendLine(); }
             foreach (var g in AssetsByPlugin(a))
             {
                 md.AppendLine($"### {Md(g.Key)}");
@@ -245,7 +245,11 @@ public static class Report
         $"Archives the game loads for this load order: {a.GnrlArchives} general (GNRL) and {a.Dx10Archives} texture (DX10). " +
         $"The game has {AssetIndex.ArchiveSlots} slots for each kind; more than that leads to memory damage, wrong textures or crashes. " +
         "Counted: the archives named after each active plugin and those the game's INI lists (other languages' voice archives don't load and aren't counted). " +
-        "Each archive is counted by its header type (GNRL general, DX10 texture), as the game does, so a GNRL archive named \"- Textures.ba2\" counts as general.";
+        "Each archive is counted by its header type (GNRL general, DX10 texture), as the game does, so a GNRL archive named \"- Textures.ba2\" counts as general." +
+        (a.UnreadableArchives.Count is var u and > 0
+            ? $" {u} archive{(u == 1 ? "" : "s")} couldn't be read and {(u == 1 ? "isn't" : "aren't")} in either count, so the true counts may be higher: " +
+              string.Join(", ", a.UnreadableArchives.Take(3).Select(x => x.Archive)) + (u > 3 ? $" and {u - 3} more" : "") + "."
+            : "");
 
     /// <summary>The "What this report does not check" line about assets.</summary>
     public static string AssetsNotChecked(Analysis a) => a.AssetsChecked

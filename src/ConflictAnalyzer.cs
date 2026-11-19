@@ -47,6 +47,9 @@ public class Analysis
     // Why the assets step (or the archive count) stopped part way, else null (code review 2026-11-18: a folder that
     // can't be listed no longer costs the whole report). Also in Errors.
     public string? AssetsFailed;
+    // How many of Errors are the assets step's own notes (it stopped, or passed --max-memory in its lookups): the
+    // RESULT line counts them apart from read problems, since every record was still compared (code review 0.6.0).
+    public int AssetNotes;
     public List<AssetFinding> MissingAssets { get; } = new();
     public List<(string Archive, string Why)> UnreadableArchives { get; } = new();
     // The archive counts per registry (0.6.0 part 2): made with or without --no-assets; ArchivesCounted is false only

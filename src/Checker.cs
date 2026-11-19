@@ -476,10 +476,22 @@ public static class Checker
         if (o.NoAssets) { Log.Write("assets: skipped (--no-assets)"); return; }
         var assetDirs = MasterDirs(o).Append(o.DataDir).ToList();
         var assetPlugins = game.LoadOrder.Select(m => m.ModKey.FileName.String).Append(self).ToList();
-        var index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language);
-        var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache);
-        r.Scripts = scriptCount; r.Models = modelCount;
-        Stage($"assets: {scriptCount} script uses, {modelCount} model uses, {index.Loaded.Count} archives read");
+        // A folder that can't be listed (or another recoverable error) costs only this step, not the checks above
+        // (code review 0.6.0, as conflict mode since 2026-11-18): one WARNING says the assets weren't checked.
+        try
+        {
+            var index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language);
+            Assets.AfterIndex?.Invoke();
+            var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache);
+            r.Scripts = scriptCount; r.Models = modelCount;
+            Stage($"assets: {scriptCount} script uses, {modelCount} model uses, {index.Loaded.Count} archives read");
+        }
+        catch (Exception e) when (Fatal.Recoverable(e))
+        {
+            var why = $"{e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)}";
+            add("WARNING", "assets", $"the assets check stopped ({why}), so scripts and models are not checked or only partly checked");
+            Log.Write($"assets: stopped ({why})");
+        }
     }
 
     static string Short(HashSet<string> s) => s.Count <= 8 ? string.Join("/", s.Order()) : string.Join("/", s.Order().Take(8)) + $"/... {s.Count} types";

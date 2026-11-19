@@ -193,7 +193,7 @@ public static class HtmlReport
                     h.Append($"<li class=\"f\"><span class=\"badge p2\">WARNING</span> archive {HtmlEncode(archive)} can't be read ({HtmlEncode(why)}), so its files count as missing.</li>");
                 h.Append("</ul>");
             }
-            if (a.MissingAssets.Count == 0) h.Append("<p>None found.</p>");
+            if (a.MissingAssets.Count == 0) h.Append(a.AssetsFailed != null ? "<p>None found before the check stopped.</p>" : "<p>None found.</p>");
             else
             {
                 h.Append("<div class=\"scroll\"><table><tr><th>Plugin</th><th>Severity</th><th>Kind</th><th>File</th><th>Used by</th></tr>");
@@ -308,7 +308,7 @@ public static class HtmlReport
         if (a.TypeChanges.Count > 0) { Item("type-changes", "Record type changes", a.TypeChanges.Count); n.Append("</li>"); }
         // the section also lists unreadable archives and the archive-limit warnings: count them too (code review 2026-11-18)
         var limits = Assets.ArchiveLimitWarnings(a).Count;
-        Item("assets", "Missing assets", a.AssetsChecked ? a.MissingAssets.Count + a.UnreadableArchives.Count + limits : limits > 0 ? limits : null); n.Append("</li>");
+        Item("assets", "Missing assets", a.AssetsChecked ? a.MissingAssets.Count + a.UnreadableArchives.Count + limits : limits + a.UnreadableArchives.Count is var c and > 0 ? c : null); n.Append("</li>");
         Item("official", "Official changes lost", official.Select(l => l.FormKey).Distinct().Count()); Pairs(official); n.Append("</li>");
         Item("mod-vs-mod", "Mod changes lost", modVsMod.Select(l => l.FormKey).Distinct().Count()); Pairs(modVsMod); n.Append("</li>");
         Item("itm", "ITM records", a.Itms.Count); n.Append("</li>");
