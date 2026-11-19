@@ -60,7 +60,6 @@ public sealed class AssetIndex
         {
             if (taken.Add(Path.GetFileName(path))) archives.Add((path, why));
         }
-        var unlistable = new HashSet<string>(StringComparer.Ordinal);   // reported once each, not once per plugin
         foreach (var plugin in plugins)
         {
             var stem = Path.GetFileNameWithoutExtension(plugin);
@@ -68,22 +67,11 @@ public sealed class AssetIndex
             {
                 if (!Directory.Exists(dir)) continue;
                 // case-insensitive on every system, as the game sees names under Proton (code review 0.6.0)
-                // AttributesToSkip 0: hidden and system archives count, as before; a folder that can't be listed is
-                // reported as unreadable, not the end of the step (code review 0.6.0)
-                List<string> found;
-                try
-                {
-                    found = Directory.EnumerateFiles(dir, stem + " - *.ba2", new EnumerationOptions
-                            { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0, IgnoreInaccessible = false })
-                        .Order(StringComparer.OrdinalIgnoreCase).ThenBy(x => x, StringComparer.Ordinal).ToList();
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                {
-                    // shown like an unreadable archive (WARNING, RESULT, report, unreadableArchives), once per folder
-                    if (unlistable.Add(dir)) index.Unreadable.Add(($"{dir} (folder)", $"can't be listed: {e.Message}"));
-                    continue;
-                }
-                foreach (var ba2 in found)
+                // AttributesToSkip 0 and IgnoreInaccessible false: hidden and system archives count, and a folder that
+                // can't be listed stops the assets step with its documented warning, both as before (code review 0.6.0)
+                foreach (var ba2 in Directory.EnumerateFiles(dir, stem + " - *.ba2", new EnumerationOptions
+                             { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0, IgnoreInaccessible = false })
+                             .Order(StringComparer.OrdinalIgnoreCase).ThenBy(x => x, StringComparer.Ordinal))
                 {
                     var suffix = Path.GetFileNameWithoutExtension(ba2)[(stem.Length + 3)..];
                     if (OtherLanguageVoices(suffix, language)) { index.Skipped.Add((Path.GetFileName(ba2), $"voices for another language (--language {language})")); continue; }
