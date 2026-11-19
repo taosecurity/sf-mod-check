@@ -187,8 +187,11 @@ public class AssetsTests
         Assert.True(index.Has("scripts\\.\\sfmtest\\foo.pex"));
         Assert.False(index.Has("scripts\\sfmtest\\bar.pex"));
         Assert.False(index.Has("scripts\\..\\scripts\\sfmtest\\foo.pex"));
+        // a part ending in a dot or space never counts, on every system
+        Assert.False(index.Has("scripts\\... \\sfmtest\\foo.pex"));
+        Assert.False(index.Has("scripts\\sfmtest.\\foo.pex"));
+        Assert.False(index.Has("scripts\\.. \\scripts\\sfmtest\\foo.pex"));
         if (!OperatingSystem.IsLinux()) return;   // Windows and macOS (by default) folders can't differ only in case
-        Assert.False(index.Has("scripts\\... \\sfmtest\\foo.pex"));   // no part is trimmed or dropped but "."
         Assert.False(Directory.Exists(Path.Combine(data, "scripts")));
         Directory.CreateDirectory(Path.Combine(data, "scripts", "sfmtest"));
         File.WriteAllBytes(Path.Combine(data, "scripts", "sfmtest", "Bar.pex"), new byte[4]);

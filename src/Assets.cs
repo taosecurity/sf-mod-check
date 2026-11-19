@@ -51,9 +51,9 @@ public sealed class AssetIndex
     /// counts (conflict --no-assets); the index then finds nothing in archives.</summary>
     public static AssetIndex Build(IEnumerable<string> plugins, IReadOnlyList<string> dirs, IEnumerable<string> inis, string language, bool names = true)
     {
-        // on Linux "/g/Data" and "/g/data" are two folders; Windows and macOS (by default) ignore case (code review 0.6.0)
+        // off Windows "/g/Data" and "/g/data" may be two folders, so they stay apart (at worst one is searched twice)
         var index = new AssetIndex(dirs.Select(Path.GetFullPath)
-            .Distinct(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase).ToList());
+            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).ToList());
         var archives = new List<(string Path, string Why)>();
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // by file name: the first folder that has it wins
         void Take(string path, string why)
@@ -67,10 +67,21 @@ public sealed class AssetIndex
             {
                 if (!Directory.Exists(dir)) continue;
                 // case-insensitive on every system, as the game sees names under Proton (code review 0.6.0)
-                // AttributesToSkip 0 and IgnoreInaccessible false: hidden and system archives count, as before
-                foreach (var ba2 in Directory.EnumerateFiles(dir, stem + " - *.ba2", new EnumerationOptions
-                             { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0, IgnoreInaccessible = false })
-                             .Order(StringComparer.OrdinalIgnoreCase).ThenBy(x => x, StringComparer.Ordinal))
+                // AttributesToSkip 0: hidden and system archives count, as before; a folder that can't be listed is
+                // skipped with its reason, not the end of the step (code review 0.6.0)
+                List<string> found;
+                try
+                {
+                    found = Directory.EnumerateFiles(dir, stem + " - *.ba2", new EnumerationOptions
+                            { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0, IgnoreInaccessible = false })
+                        .Order(StringComparer.OrdinalIgnoreCase).ThenBy(x => x, StringComparer.Ordinal).ToList();
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    index.Skipped.Add((dir, $"folder can't be listed ({e.Message})"));
+                    continue;
+                }
+                foreach (var ba2 in found)
                 {
                     var suffix = Path.GetFileNameWithoutExtension(ba2)[(stem.Length + 3)..];
                     if (OtherLanguageVoices(suffix, language)) { index.Skipped.Add((Path.GetFileName(ba2), $"voices for another language (--language {language})")); continue; }
@@ -172,7 +183,11 @@ public sealed class AssetIndex
         if (looseSeen.TryGetValue(p, out var known)) return known;
         // A rooted path ("c:\x\a.nif") or one with ".." points outside Data: the game won't load it, so a file that
         // happens to be there on this machine doesn't count (code review 0.6.0)
-        if (Path.IsPathRooted(p) || p.Contains(':') || p.Split('\\').Contains("..")) return looseSeen[p] = false;
+        // A part ending in a dot or space ("foo.", ".. ") never counts either: Windows trims those and Linux doesn't, so
+        // the two would disagree, and ".. " would climb out of Data on Windows (code review 0.6.0)
+        if (Path.IsPathRooted(p) || p.Contains(':') ||
+            p.Split('\\').Any(s => s == ".." || s.Length > 0 && s != "." && (s.EndsWith('.') || s.EndsWith(' '))))
+            return looseSeen[p] = false;
         var found = false;
         foreach (var d in looseDirs)
         {
@@ -194,8 +209,8 @@ public sealed class AssetIndex
     internal string? LooseFile(string dir, string rel)
     {
         if (OperatingSystem.IsWindows() || Path.IsPathRooted(rel)) { var w = Path.Combine(dir, rel); return File.Exists(w) ? w : null; }
-        // a Windows drive or root ("C:\Mods\x.ba2", "\x.ba2", as a Proton INI may hold) has no Linux path we can know
-        if (rel.Length >= 2 && rel[1] == ':' || rel.StartsWith('\\')) return null;
+        // a Windows drive path ("C:\Mods\x.ba2", as a Proton INI may hold) has no Linux path we can know
+        if (rel.Length >= 2 && rel[1] == ':') return null;
         // "." parts name the same folder; a ".." part is never followed (code review 0.6.0)
         var parts = rel.Split('\\', '/', StringSplitOptions.RemoveEmptyEntries).Where(s => s != ".").ToArray();
         return parts.Length == 0 || parts.Contains("..") ? null : Walk(dir, parts, 0);
