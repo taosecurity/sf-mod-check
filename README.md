@@ -389,6 +389,8 @@ filter.
   (`- Main_xbox.ba2`, `- Main01.ba2`) and a longer plugin's archives (`Foo - Patch - Main.ba2` counts for `Foo.esm`
   when `Foo - Patch.esm` isn't active), so the archive count and the archives searched for assets can be a little
   wider than what the game opens.
+- A script or model path with a part that ends in a dot or a space (`meshes\armor.\helm.nif`) is always reported
+  missing, though Windows may trim the part and the game may load the file.
 
 ## Build from source
 

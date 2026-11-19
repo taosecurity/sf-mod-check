@@ -60,6 +60,7 @@ public sealed class AssetIndex
         {
             if (taken.Add(Path.GetFileName(path))) archives.Add((path, why));
         }
+        var unlistable = new HashSet<string>(StringComparer.Ordinal);   // logged once each, not once per plugin
         foreach (var plugin in plugins)
         {
             var stem = Path.GetFileNameWithoutExtension(plugin);
@@ -78,7 +79,7 @@ public sealed class AssetIndex
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException)
                 {
-                    index.Skipped.Add((dir, $"folder can't be listed ({e.Message})"));
+                    if (unlistable.Add(dir)) Log.Write($"assets: folder {dir} can't be listed, its archives not counted ({e.Message})");
                     continue;
                 }
                 foreach (var ba2 in found)
@@ -208,6 +209,8 @@ public sealed class AssetIndex
     /// hold one) is looked up as given; a Windows drive path off Windows is not found.</summary>
     internal string? LooseFile(string dir, string rel)
     {
+        // one leading "\" ("\x.ba2" in an INI) means under Data on every system, not the drive's root (code review 0.6.0)
+        if (rel.StartsWith('\\') && !rel.StartsWith(@"\\")) rel = rel.TrimStart('\\');
         if (OperatingSystem.IsWindows() || Path.IsPathRooted(rel)) { var w = Path.Combine(dir, rel); return File.Exists(w) ? w : null; }
         // a Windows drive path ("C:\Mods\x.ba2", as a Proton INI may hold) has no Linux path we can know
         if (rel.Length >= 2 && rel[1] == ':') return null;

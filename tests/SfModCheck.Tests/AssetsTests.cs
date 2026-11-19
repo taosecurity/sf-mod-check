@@ -187,6 +187,8 @@ public class AssetsTests
         Assert.True(index.Has("scripts\\.\\sfmtest\\foo.pex"));
         Assert.False(index.Has("scripts\\sfmtest\\bar.pex"));
         Assert.False(index.Has("scripts\\..\\scripts\\sfmtest\\foo.pex"));
+        // one leading "\" (an INI's archive name) means under Data on every system
+        Assert.NotNull(index.LooseFile(data, "\\Scripts\\SfmTest\\Foo.pex"));
         // a part ending in a dot or space never counts, on every system
         Assert.False(index.Has("scripts\\... \\sfmtest\\foo.pex"));
         Assert.False(index.Has("scripts\\sfmtest.\\foo.pex"));
