@@ -44,7 +44,8 @@
   archives are found whatever their case, Data folders whose names differ only in case stay apart, and an INI's
   `C:\...` archive path is reported not found. On every system, a record path with a part ending in a dot or space
   (`foo.`, `.. `) never counts as found, an INI archive name with one leading `\` is looked up under Data, and a
-  folder that can't be listed is logged once (`assets: folder ... can't be listed`) instead of stopping the check.
+  Data folder whose archives can't be listed is reported once with the archives that can't be read, instead of
+  stopping the check.
 - README "Known gaps": a plugin's archives are every `<plugin> - *.ba2`, which can be a little wider than what the
   game opens.
 - `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, and warns when

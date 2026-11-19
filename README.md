@@ -98,8 +98,9 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sfmodcheck/rel
 - `--quiet`: leave out the first summary line.
 - `--no-hints`: leave out the HINT lines.
 - `--no-assets`: skip the assets check (missing scripts and models), for example when the plugin's archive isn't
-  built yet. If the assets check itself can't finish (a folder that can't be listed, a disk error), the other checks
-  still count and one `WARNING assets` line says the scripts and models weren't checked.
+  built yet. A Data folder whose archives can't be listed gets a `WARNING assets` line like an archive that can't be
+  read. If the assets check itself can't finish (a disk error), the other checks still count and one
+  `WARNING assets` line says the scripts and models weren't checked.
 - `--ini <file>`: also read this INI's `[Archive]` lists for the archives the game loads, after `Starfield.ini` in the
   game folder and `StarfieldCustom.ini` in `Documents\My Games\Starfield`; can be given more than once. Use it for an
   install whose INIs are elsewhere.
@@ -221,7 +222,8 @@ Then open `sfmodcheck-conflict\report.html` in a browser.
   "Missing assets" section lists them by plugin (scripts, an ERROR, before models, a WARNING), with the number of
   archives read and any archive that can't be read; each plugin with missing files gets a recommended action, and
   conflicts.json has them as `missingAssets` and `unreadableArchives`. With `--no-assets` the section says the check
-  was off. If the assets step itself stops (a folder that can't be listed, a disk error), the report is still
+  was off. A Data folder whose archives can't be listed is shown with the archives that can't be read. If the
+  assets step itself stops (a disk error), the report is still
   written: the section and "Tool limits hit" say why, and conflicts.json has the reason as `assetsFailed` (else
   null). The RESULT line counts that note (and a `--max-memory` stop in the assets lookups) as ", N assets-check
   notes", apart from the read problems, since every record was still compared. The warning on stderr shows with

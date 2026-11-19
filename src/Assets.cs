@@ -60,7 +60,7 @@ public sealed class AssetIndex
         {
             if (taken.Add(Path.GetFileName(path))) archives.Add((path, why));
         }
-        var unlistable = new HashSet<string>(StringComparer.Ordinal);   // logged once each, not once per plugin
+        var unlistable = new HashSet<string>(StringComparer.Ordinal);   // reported once each, not once per plugin
         foreach (var plugin in plugins)
         {
             var stem = Path.GetFileNameWithoutExtension(plugin);
@@ -69,7 +69,7 @@ public sealed class AssetIndex
                 if (!Directory.Exists(dir)) continue;
                 // case-insensitive on every system, as the game sees names under Proton (code review 0.6.0)
                 // AttributesToSkip 0: hidden and system archives count, as before; a folder that can't be listed is
-                // skipped with its reason, not the end of the step (code review 0.6.0)
+                // reported as unreadable, not the end of the step (code review 0.6.0)
                 List<string> found;
                 try
                 {
@@ -79,7 +79,8 @@ public sealed class AssetIndex
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException)
                 {
-                    if (unlistable.Add(dir)) Log.Write($"assets: folder {dir} can't be listed, its archives not counted ({e.Message})");
+                    // shown like an unreadable archive (WARNING, RESULT, report, unreadableArchives), once per folder
+                    if (unlistable.Add(dir)) index.Unreadable.Add(($"{dir} (folder)", $"can't be listed: {e.Message}"));
                     continue;
                 }
                 foreach (var ba2 in found)
