@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 (not released yet)
+## 0.6.0 (2026-11-19)
 
 - New `assets` check in `check`: every script a record attaches (attached scripts, and the fragment and alias scripts
   of quests, scenes, perks, topic infos and packages) must have its `.pex`, an ERROR when missing (the script never
@@ -38,6 +38,8 @@
   the step stopped; the step-stopped warning shows with `--quiet`, like the archive-limit warning. A model or
   script path that is rooted (`C:\...`) or uses `..` never counts as found, since the game looks only under Data.
 - `--language` takes the 6-letter code `zhhans`, which its own message listed but refused (both modes).
+- README "Known gaps": a plugin's archives are every `<plugin> - *.ba2`, which can be a little wider than what the
+  game opens.
 - `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, and warns when
   either is over the game's 256 slots: the RESULT line adds ", WARNING N general archives (over 256)" (or texture),
   the report a WARNING in "Missing assets" and a High recommended action. The counts are always in the report's

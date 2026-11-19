@@ -385,6 +385,10 @@ filter.
 - Not checked: "missing required field" checks, face data, and what is inside loose files or BA2 archives (the
   `assets` check only looks up the names of attached scripts and models).
 - `check` checks one plugin against its masters. Conflicts between mods are `sfmodcheck conflict`'s job.
+- A plugin's archives are every `<plugin> - *.ba2` (Mutagen's rule). That also takes archives with any suffix
+  (`- Main_xbox.ba2`, `- Main01.ba2`) and a longer plugin's archives (`Foo - Patch - Main.ba2` counts for `Foo.esm`
+  when `Foo - Patch.esm` isn't active), so the archive count and the archives searched for assets can be a little
+  wider than what the game opens.
 
 ## Build from source
 
