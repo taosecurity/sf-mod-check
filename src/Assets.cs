@@ -51,9 +51,9 @@ public sealed class AssetIndex
     /// counts (conflict --no-assets); the index then finds nothing in archives.</summary>
     public static AssetIndex Build(IEnumerable<string> plugins, IReadOnlyList<string> dirs, IEnumerable<string> inis, string language, bool names = true)
     {
-        // folder names ignore case on Windows only: on Linux "/g/Data" and "/g/data" are two folders (code review 0.6.0)
+        // on Linux "/g/Data" and "/g/data" are two folders; Windows and macOS (by default) ignore case (code review 0.6.0)
         var index = new AssetIndex(dirs.Select(Path.GetFullPath)
-            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).ToList());
+            .Distinct(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase).ToList());
         var archives = new List<(string Path, string Why)>();
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // by file name: the first folder that has it wins
         void Take(string path, string why)
@@ -67,8 +67,10 @@ public sealed class AssetIndex
             {
                 if (!Directory.Exists(dir)) continue;
                 // case-insensitive on every system, as the game sees names under Proton (code review 0.6.0)
-                foreach (var ba2 in Directory.EnumerateFiles(dir, stem + " - *.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
-                             .Order(StringComparer.OrdinalIgnoreCase))
+                // AttributesToSkip 0 and IgnoreInaccessible false: hidden and system archives count, as before
+                foreach (var ba2 in Directory.EnumerateFiles(dir, stem + " - *.ba2", new EnumerationOptions
+                             { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0, IgnoreInaccessible = false })
+                             .Order(StringComparer.OrdinalIgnoreCase).ThenBy(x => x, StringComparer.Ordinal))
                 {
                     var suffix = Path.GetFileNameWithoutExtension(ba2)[(stem.Length + 3)..];
                     if (OtherLanguageVoices(suffix, language)) { index.Skipped.Add((Path.GetFileName(ba2), $"voices for another language (--language {language})")); continue; }
@@ -187,15 +189,16 @@ public sealed class AssetIndex
     /// <summary>The loose file for a data-relative path ("scripts\foo.pex") under a folder, or null. Windows paths
     /// ignore case and take "\" as a separator; on Linux and macOS (Proton, Wine) each part is matched without regard
     /// to case, as the game sees it, so "Scripts/Foo.pex" on disk counts (CI on ubuntu, 0.6.0). When folders differ only
-    /// in case ("Scripts" and "scripts", from two mods), each is searched, exact case first. A rooted name (an INI's
-    /// archive list may hold one) is looked up as given.</summary>
+    /// in case ("Scripts" and "scripts", from two mods), each is searched. A rooted name (an INI's archive list may
+    /// hold one) is looked up as given; a Windows drive path off Windows is not found.</summary>
     internal string? LooseFile(string dir, string rel)
     {
         if (OperatingSystem.IsWindows() || Path.IsPathRooted(rel)) { var w = Path.Combine(dir, rel); return File.Exists(w) ? w : null; }
-        // "." parts name the same folder; Windows also drops trailing dots and spaces from each part (code review 0.6.0)
-        var parts = rel.Split('\\', '/', StringSplitOptions.RemoveEmptyEntries)
-            .Select(s => s.TrimEnd('.', ' ')).Where(s => s.Length > 0).ToArray();
-        return parts.Length == 0 ? null : Walk(dir, parts, 0);
+        // a Windows drive or root ("C:\Mods\x.ba2", "\x.ba2", as a Proton INI may hold) has no Linux path we can know
+        if (rel.Length >= 2 && rel[1] == ':' || rel.StartsWith('\\')) return null;
+        // "." parts name the same folder; a ".." part is never followed (code review 0.6.0)
+        var parts = rel.Split('\\', '/', StringSplitOptions.RemoveEmptyEntries).Where(s => s != ".").ToArray();
+        return parts.Length == 0 || parts.Contains("..") ? null : Walk(dir, parts, 0);
     }
 
     string? Walk(string cur, string[] parts, int i)
@@ -218,7 +221,8 @@ public sealed class AssetIndex
         }
         if (!entries.TryGetValue(parts[i], out var candidates)) return null;
         var last = i == parts.Length - 1;
-        foreach (var next in candidates.OrderBy(c => Path.GetFileName(c) == parts[i] ? 0 : 1))   // exact case first, as Wine does
+        // exact case first, then a fixed order (Has passes lower-cased paths, so there it only makes the order fixed)
+        foreach (var next in candidates.OrderBy(c => Path.GetFileName(c) == parts[i] ? 0 : 1).ThenBy(c => c, StringComparer.Ordinal))
         {
             if (last) { if (File.Exists(next)) return next; continue; }
             var found = Walk(next, parts, i + 1);

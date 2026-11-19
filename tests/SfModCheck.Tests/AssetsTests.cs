@@ -173,7 +173,7 @@ public class AssetsTests
     }
 
     // Code review 0.6.0 (Linux fix): a loose file is found whatever its case and folder separators, on every system;
-    // on Linux and macOS two folders that differ only in case ("Scripts", "scripts") are both searched.
+    // on Linux two folders that differ only in case ("Scripts", "scripts") are both searched.
     [Fact]
     public void Loose_files_are_found_without_regard_to_case_and_in_every_case_variant_folder()
     {
@@ -187,7 +187,9 @@ public class AssetsTests
         Assert.True(index.Has("scripts\\.\\sfmtest\\foo.pex"));
         Assert.False(index.Has("scripts\\sfmtest\\bar.pex"));
         Assert.False(index.Has("scripts\\..\\scripts\\sfmtest\\foo.pex"));
-        if (OperatingSystem.IsWindows()) return;   // Windows folders can't differ only in case
+        if (!OperatingSystem.IsLinux()) return;   // Windows and macOS (by default) folders can't differ only in case
+        Assert.False(index.Has("scripts\\... \\sfmtest\\foo.pex"));   // no part is trimmed or dropped but "."
+        Assert.False(Directory.Exists(Path.Combine(data, "scripts")));
         Directory.CreateDirectory(Path.Combine(data, "scripts", "sfmtest"));
         File.WriteAllBytes(Path.Combine(data, "scripts", "sfmtest", "Bar.pex"), new byte[4]);
         var fresh = AssetIndex.Build(Array.Empty<string>(), new[] { data }, Array.Empty<string>(), "en");
