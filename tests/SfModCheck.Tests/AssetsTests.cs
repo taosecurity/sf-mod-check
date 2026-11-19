@@ -172,6 +172,29 @@ public class AssetsTests
         Expect.No(w.Check(p), "assets");
     }
 
+    // Code review 0.6.0 (Linux fix): a loose file is found whatever its case and folder separators, on every system;
+    // on Linux and macOS two folders that differ only in case ("Scripts", "scripts") are both searched.
+    [Fact]
+    public void Loose_files_are_found_without_regard_to_case_and_in_every_case_variant_folder()
+    {
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        Directory.CreateDirectory(Path.Combine(data, "Scripts", "SfmTest"));
+        File.WriteAllBytes(Path.Combine(data, "Scripts", "SfmTest", "Foo.pex"), new byte[4]);
+        var index = AssetIndex.Build(Array.Empty<string>(), new[] { data }, Array.Empty<string>(), "en");
+        Assert.True(index.Has("scripts\\sfmtest\\foo.pex"));
+        Assert.True(index.Has("SCRIPTS/SfmTest/FOO.PEX"));
+        Assert.True(index.Has("scripts\\.\\sfmtest\\foo.pex"));
+        Assert.False(index.Has("scripts\\sfmtest\\bar.pex"));
+        Assert.False(index.Has("scripts\\..\\scripts\\sfmtest\\foo.pex"));
+        if (OperatingSystem.IsWindows()) return;   // Windows folders can't differ only in case
+        Directory.CreateDirectory(Path.Combine(data, "scripts", "sfmtest"));
+        File.WriteAllBytes(Path.Combine(data, "scripts", "sfmtest", "Bar.pex"), new byte[4]);
+        var fresh = AssetIndex.Build(Array.Empty<string>(), new[] { data }, Array.Empty<string>(), "en");
+        Assert.True(fresh.Has("scripts\\sfmtest\\bar.pex"));
+        Assert.True(fresh.Has("scripts\\sfmtest\\foo.pex"));
+    }
+
     // 0.6.0 part 2 item 2: the archives we count for the limit are the ones Mutagen says apply to each plugin
     // (Archive.GetApplicableArchivePaths per ModKey), less other languages' voice archives, which the game doesn't load.
     [Fact]
@@ -179,6 +202,7 @@ public class AssetsTests
     {
         // Mutagen's GetApplicableArchivePaths reads the game's Plugins.txt folder under LocalAppData, which it can't find
         // on Linux or macOS (CI 2026-11-19), so the comparison runs on Windows only; our own count is tested elsewhere.
+        // (xunit 2.9 has no runtime skip, so elsewhere it shows as passed.)
         if (!OperatingSystem.IsWindows()) return;
         using var s = new Sandbox();
         var data = s.Sub("Data");

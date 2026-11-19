@@ -40,6 +40,8 @@
 - `--language` takes the 6-letter code `zhhans`, which its own message listed but refused (both modes).
 - `assets` on Linux and macOS: loose files are found without regard to case and with `/` folders (`Scripts/Foo.pex`
   counts for `scripts\foo.pex`), as the game sees them under Proton; before, no loose file was ever found there.
+  Folders that differ only in case (`Scripts` and `scripts`) are both searched, a plugin's `<plugin> - *.ba2`
+  archives are found whatever their case, and Data folders whose names differ only in case stay apart.
 - README "Known gaps": a plugin's archives are every `<plugin> - *.ba2`, which can be a little wider than what the
   game opens.
 - `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, and warns when

@@ -51,7 +51,9 @@ public sealed class AssetIndex
     /// counts (conflict --no-assets); the index then finds nothing in archives.</summary>
     public static AssetIndex Build(IEnumerable<string> plugins, IReadOnlyList<string> dirs, IEnumerable<string> inis, string language, bool names = true)
     {
-        var index = new AssetIndex(dirs.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+        // folder names ignore case on Windows only: on Linux "/g/Data" and "/g/data" are two folders (code review 0.6.0)
+        var index = new AssetIndex(dirs.Select(Path.GetFullPath)
+            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).ToList());
         var archives = new List<(string Path, string Why)>();
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // by file name: the first folder that has it wins
         void Take(string path, string why)
@@ -64,7 +66,9 @@ public sealed class AssetIndex
             foreach (var dir in index.looseDirs)
             {
                 if (!Directory.Exists(dir)) continue;
-                foreach (var ba2 in Directory.EnumerateFiles(dir, stem + " - *.ba2").Order(StringComparer.OrdinalIgnoreCase))
+                // case-insensitive on every system, as the game sees names under Proton (code review 0.6.0)
+                foreach (var ba2 in Directory.EnumerateFiles(dir, stem + " - *.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
+                             .Order(StringComparer.OrdinalIgnoreCase))
                 {
                     var suffix = Path.GetFileNameWithoutExtension(ba2)[(stem.Length + 3)..];
                     if (OtherLanguageVoices(suffix, language)) { index.Skipped.Add((Path.GetFileName(ba2), $"voices for another language (--language {language})")); continue; }
@@ -176,34 +180,51 @@ public sealed class AssetIndex
         return looseSeen[p] = found;
     }
 
-    // folder -> its entries by lower-case name (Linux and macOS only)
-    readonly Dictionary<string, Dictionary<string, string>> listings = new(StringComparer.Ordinal);
+    // folder -> its entries by name, matched without regard to case; several when names differ only in case (Linux and
+    // macOS only)
+    readonly Dictionary<string, Dictionary<string, List<string>>> listings = new(StringComparer.Ordinal);
 
     /// <summary>The loose file for a data-relative path ("scripts\foo.pex") under a folder, or null. Windows paths
     /// ignore case and take "\" as a separator; on Linux and macOS (Proton, Wine) each part is matched without regard
-    /// to case, as the game sees it, so "Scripts/Foo.pex" on disk counts (CI on ubuntu, 0.6.0).</summary>
+    /// to case, as the game sees it, so "Scripts/Foo.pex" on disk counts (CI on ubuntu, 0.6.0). When folders differ only
+    /// in case ("Scripts" and "scripts", from two mods), each is searched, exact case first. A rooted name (an INI's
+    /// archive list may hold one) is looked up as given.</summary>
     internal string? LooseFile(string dir, string rel)
     {
-        if (OperatingSystem.IsWindows()) { var w = Path.Combine(dir, rel); return File.Exists(w) ? w : null; }
-        var parts = rel.Split('\\', '/', StringSplitOptions.RemoveEmptyEntries);
-        var cur = dir;
-        for (var i = 0; i < parts.Length; i++)
+        if (OperatingSystem.IsWindows() || Path.IsPathRooted(rel)) { var w = Path.Combine(dir, rel); return File.Exists(w) ? w : null; }
+        // "." parts name the same folder; Windows also drops trailing dots and spaces from each part (code review 0.6.0)
+        var parts = rel.Split('\\', '/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.TrimEnd('.', ' ')).Where(s => s.Length > 0).ToArray();
+        return parts.Length == 0 ? null : Walk(dir, parts, 0);
+    }
+
+    string? Walk(string cur, string[] parts, int i)
+    {
+        if (!listings.TryGetValue(cur, out var entries))
         {
-            if (!listings.TryGetValue(cur, out var entries))
+            entries = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            try
             {
-                entries = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                try
-                {
-                    if (Directory.Exists(cur))
-                        foreach (var e in Directory.EnumerateFileSystemEntries(cur)) entries.TryAdd(Path.GetFileName(e), e);
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // a folder it can't list has nothing found in it
-                listings[cur] = entries;
+                if (Directory.Exists(cur))
+                    foreach (var e in Directory.EnumerateFileSystemEntries(cur))
+                    {
+                        var name = Path.GetFileName(e);
+                        if (!entries.TryGetValue(name, out var same)) entries[name] = same = new List<string>();
+                        same.Add(e);
+                    }
             }
-            if (!entries.TryGetValue(parts[i], out var next)) return null;
-            cur = next;
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // a folder it can't list has nothing found in it
+            listings[cur] = entries;
         }
-        return File.Exists(cur) ? cur : null;
+        if (!entries.TryGetValue(parts[i], out var candidates)) return null;
+        var last = i == parts.Length - 1;
+        foreach (var next in candidates.OrderBy(c => Path.GetFileName(c) == parts[i] ? 0 : 1))   // exact case first, as Wine does
+        {
+            if (last) { if (File.Exists(next)) return next; continue; }
+            var found = Walk(next, parts, i + 1);
+            if (found != null) return found;
+        }
+        return null;
     }
 }
 
