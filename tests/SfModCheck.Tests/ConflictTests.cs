@@ -896,9 +896,9 @@ public class ConflictTests
         Assert.Equal(2, code);
         var logText = File.ReadAllText(log);
         Assert.Contains("stopped: writing the report: ", logText);
-        Assert.DoesNotContain("DirectoryNotFoundException", logText);
         // Windows reports the missing folder as DirectoryNotFoundException; Linux may name "not a directory" differently,
-        // so the cleanup asks whether the folder exists, and no system logs a line (review)
+        // so the cleanup asks whether the folder exists, and no system logs a line (review). The "stopped" line itself
+        // may name DirectoryNotFoundException (Linux does, CI 2026-11-19), so only the cleanup line is checked.
         Assert.DoesNotContain("report cleanup:", logText);
     }
 

@@ -38,6 +38,8 @@
   the step stopped; the step-stopped warning shows with `--quiet`, like the archive-limit warning. A model or
   script path that is rooted (`C:\...`) or uses `..` never counts as found, since the game looks only under Data.
 - `--language` takes the 6-letter code `zhhans`, which its own message listed but refused (both modes).
+- `assets` on Linux and macOS: loose files are found without regard to case and with `/` folders (`Scripts/Foo.pex`
+  counts for `scripts\foo.pex`), as the game sees them under Proton; before, no loose file was ever found there.
 - README "Known gaps": a plugin's archives are every `<plugin> - *.ba2`, which can be a little wider than what the
   game opens.
 - `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, and warns when

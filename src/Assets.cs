@@ -74,7 +74,7 @@ public sealed class AssetIndex
         }
         foreach (var (key, name, ini) in IniArchives(inis))
         {
-            var found = index.looseDirs.Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
+            var found = index.looseDirs.Select(d => index.LooseFile(d, name)).FirstOrDefault(f => f != null);
             if (found == null) { index.Skipped.Add((name, $"listed in {ini} ({key}) but not found")); continue; }
             Take(found, $"listed in {Path.GetFileName(ini)} ({key})");
         }
@@ -170,10 +170,40 @@ public sealed class AssetIndex
         var found = false;
         foreach (var d in looseDirs)
         {
-            try { if (File.Exists(Path.Combine(d, p))) { found = true; break; } }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or IOException) { }   // a path no file can have
+            try { if (LooseFile(d, p) != null) { found = true; break; } }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException) { }   // a path no file can have
         }
         return looseSeen[p] = found;
+    }
+
+    // folder -> its entries by lower-case name (Linux and macOS only)
+    readonly Dictionary<string, Dictionary<string, string>> listings = new(StringComparer.Ordinal);
+
+    /// <summary>The loose file for a data-relative path ("scripts\foo.pex") under a folder, or null. Windows paths
+    /// ignore case and take "\" as a separator; on Linux and macOS (Proton, Wine) each part is matched without regard
+    /// to case, as the game sees it, so "Scripts/Foo.pex" on disk counts (CI on ubuntu, 0.6.0).</summary>
+    internal string? LooseFile(string dir, string rel)
+    {
+        if (OperatingSystem.IsWindows()) { var w = Path.Combine(dir, rel); return File.Exists(w) ? w : null; }
+        var parts = rel.Split('\\', '/', StringSplitOptions.RemoveEmptyEntries);
+        var cur = dir;
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (!listings.TryGetValue(cur, out var entries))
+            {
+                entries = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    if (Directory.Exists(cur))
+                        foreach (var e in Directory.EnumerateFileSystemEntries(cur)) entries.TryAdd(Path.GetFileName(e), e);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // a folder it can't list has nothing found in it
+                listings[cur] = entries;
+            }
+            if (!entries.TryGetValue(parts[i], out var next)) return null;
+            cur = next;
+        }
+        return File.Exists(cur) ? cur : null;
     }
 }
 
