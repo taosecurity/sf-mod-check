@@ -6,7 +6,9 @@ plugin's range, links to records that don't exist, broken conditions, scenes and
 deleted records and "identical to master" records. After each kind of problem it says how to fix it in xEdit or the
 Creation Kit. It only reads files: it never changes a plugin. A typical mod takes about 4 seconds. A second command,
 [`conflict`](#conflicts-between-mods-sfmodcheck-conflict), reads your whole load order and reports which changes it
-throws away (official changes undone by mods, one mod's changes lost to another) and what to do about each.
+throws away (official changes undone by mods, one mod's changes lost to another) and what to do about each. A third,
+[`release`](#check-a-release-zip-sfmodcheck-release), checks the zip you are about to upload: plugin names the game
+drops, missing scripts and files, sounds packed so they play silent, and every plugin inside.
 
 **First command:** download the exe zip from [Releases](https://github.com/taosecurity/sfmodcheck/releases), unzip it,
 and drag `MyMod.esm` onto `sfmodcheck.exe`. Or, from a prompt:
@@ -19,7 +21,8 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.6.0 (adds the `assets` check: scripts and models a plugin names but that aren't loose or in an archive
+Version 0.7.0 (adds the [`release`](#check-a-release-zip-sfmodcheck-release) command: one OK or FAIL for the zip you
+are about to upload; 0.6.0 added the `assets` check: scripts and models a plugin names but that aren't loose or in an archive
 the game loads, in `check` and `conflict`; 0.5.3 fixed issues from the 0.5.2 reviews: a report that fails part way never leaves old and new files mixed, and
 `check` gives an armor record on an armor addon's FormID a WARNING; 0.5.2 reports overrides that change a record's type,
 and running out of memory always stops a run instead of leaving a report that looks whole; 0.5.1 carried on past records it can't read; 0.5.0 added the `conflict`
@@ -277,6 +280,56 @@ materials, sounds; see the `assets` entry under `check`). Fields
 that are bookkeeping or that the Creation Kit regenerates are skipped (the report lists them). A patch it suggests is
 for your own game: it holds other authors' data, so don't publish it. To see its working for one record, set the
 environment variable `SFMODCHECK_DEBUG_RECORD` to that record's FormKey (for example `064F3C:Starfield.esm`).
+
+## Check a release zip: `sfmodcheck release`
+
+Run it on the zip you are about to upload to Nexus, Bethesda Creations or a friend. It unpacks the zip into a temp
+folder (always removed afterwards) and says OK or FAIL for what would break the mod for a player: a plugin name the
+game drops, a script or file the mod needs that isn't in the zip, sound files packed so the game plays them silent,
+and everything `check` finds in each plugin.
+
+    sfmodcheck release MyMod-1.0.0.zip
+
+    sfmodcheck release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]...
+                                [--dmmdeps <exe>] [--papyrus <exe> --ck-sources <ContentResources.zip>]
+                                [--profile basic|house] [--quiet] [--verbose] [--log <file>]
+
+- `<zip>`: the release zip. Give an add-on's zip together with its main mod's zip, so the add-on's plugin finds
+  the main plugin and its scripts.
+- `--data`, `--masters-dir`: as for `check`. Masters and archives of mods the zip builds on go in a `--masters-dir`
+  folder.
+- `--master-archive <ba2>`: the archive of the mod your plugin patches. Scripts and models in it count as present
+  (a patch that overrides another mod's records keeps that mod's fragment scripts there). Can be given more than once.
+- `--dmmdeps <exe>`: also run DMMDeps (`dmmdeps-fat.exe`, from ZeeOgre's DevModManager) to find files the plugin uses
+  that the zip lacks. sfmodcheck runs only the reviewed v0.4.1 build and refuses any other, by its SHA-256
+  (`8a5367865ef21e29b17301a3341b2195fdacbf163c151678c0c420747ff9e6f8`). DMMDeps has gaps (its issues #175 to #177:
+  base scripts, face files, some models), so what it can't see is a REVIEW line and never "not needed". Without it,
+  one NOTE says that only the scripts and models were checked. DMMDeps runs on a copy in the temp folder and takes a
+  minute or more on big mods (15 minutes at most).
+- `--papyrus <exe>` with `--ck-sources <ContentResources.zip>`: lint the `.psc` sources a zip ships under
+  `Scripts\Source`, with papyrus-tools v0.16.3 (SHA-256 `954ec6d7559713c8cdf6aaaf20bde5d9feedf52a6404a90cfca5b2107559c4fa`)
+  and the vanilla sources from the Creation Kit's `Tools\ContentResources.zip`. Every finding is a WARNING. Without
+  the vanilla sources the lint is skipped with a WARNING (it would only report noise).
+- `--profile basic` (default): only what breaks the mod in the game makes it FAIL. `--profile house`: also fails on
+  packaging rules (below), which `basic` only shows as WARNING lines.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`.
+
+Output is PROBLEM lines (fail), REVIEW lines (look at them), WARNING and NOTE lines, each with its rule in brackets,
+then `RESULT: OK|FAIL (n problems, n to review, n warnings)`. Exit codes: 0 OK, 1 FAIL, 2 can't check (bad
+arguments, a zip that can't be unpacked or sits inside the game folder, a missing file). It never writes into the
+zip, the game folder or the Data folder.
+
+| Rule | Fails in | What it means |
+|---|---|---|
+| `plugin-name` | basic, house | A plugin named `...-ShatteredSpace.esm`, `-Constellation`, `-Starfield`, `-OldMars` or `-SFBGS...`, or `BlueprintShips-...`: Starfield drops it from Plugins.txt and it stops loading. Rename it, for example `-ShatteredSpaceAddon.esm`. |
+| `voice-compressed` | basic, house | `.wem` or `.ffxanim` stored compressed in a `.ba2`: the game plays them silent. Pack with Archive2 `-compression=None`. |
+| `ba2-unreadable` | basic, house | An archive whose header or records don't add up. |
+| `script-missing`, `model-missing` | basic, house (models: WARNING) | A script a plugin attaches, or a model it names, is in none of the zip's files and archives, the `--masters-dir` mods' archives or the game's archives. |
+| `dmmdeps` | basic, house | With `--dmmdeps`: a file the plugin needs isn't in the zip (PROBLEM), a file is referenced but found nowhere (PROBLEM), a file in the zip is not used (REVIEW), or also in the game's archives (REVIEW). |
+| `plugin-check` | basic, house | An ERROR from the same checks as `check`, run on every plugin in the zips, or a plugin that can't be checked. |
+| `mutagen-gap` | basic, house | Data the Mutagen library 0.54.4 loses when it writes a plugin, and a missing ONAM list (the game ignores edits to the master's placed references). |
+| `master`, `one-plugin`, `script-source`, `root-md`, `private-file` | house only | A `BlueprintShips` master; more than one plugin in a zip; `.psc` sources in the zip; a root `.md` such as `README.md` with no mod name in it (it overwrites another mod's copy in Data; use `README-<ModName>.md`); a file such as `PERMISSION.md` that should never ship. |
+| `papyrus-lint` | never | Lint findings (WARNING only). |
 
 ## What it checks
 

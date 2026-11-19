@@ -28,6 +28,7 @@ const string Usage =
     "                                 [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]\n" +
     "       sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
     "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]\n" +
+    "       sfmodcheck release <zip>... [--profile basic|house] [--dmmdeps <exe>] [...]   (sfmodcheck release --help)\n" +
     "       sfmodcheck --version";
 // A plugin past this many records (the header's count) gets the memory note on stderr. Mods stay far below it; the
 // official Starfield.esm has about 3.8 million and needs over 30 GB of memory to check.
@@ -77,6 +78,9 @@ int Dispatch(string[] args)
         return 0;
     }
 
+    // Hidden: the gap check alone, with mutagen-gap-check.py's own arguments (tools\gap_parity.py compares the two).
+    if (args.Length > 0 && args[0] == "--gap-check") return GapCheck.Cli(args.Skip(1).ToArray());
+
     if (args.Length >= 2 && args[0] == "--census")
     {
         foreach (var path in args.Skip(1))
@@ -99,10 +103,11 @@ int Dispatch(string[] args)
         return 0;
     }
 
-    // Commands: "check" (one plugin) and "conflict" (a whole load order, ConflictCommand.cs, since 0.5.0); "release"
-    // comes later. A first argument that isn't a command is read as the plugin, so callers written for
-    // StarfieldPluginCheck keep working.
+    // Commands: "check" (one plugin), "conflict" (a whole load order, ConflictCommand.cs, since 0.5.0) and "release"
+    // (release zips, ReleaseCommand.cs, since 0.7.0). A first argument that isn't a command is read as the plugin, so
+    // callers written for StarfieldPluginCheck keep working.
     if (args.Length > 0 && args[0] == "conflict") return ConflictCommand.Run(args.Skip(1).ToArray(), Version, Byline);
+    if (args.Length > 0 && args[0] == "release") return ReleaseCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     var rest = args.Length > 0 && args[0] == "check" ? args.Skip(1).ToArray() : args;
     return Check(rest);
 }

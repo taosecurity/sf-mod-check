@@ -52,6 +52,65 @@ public static class Ba2Names
         return names;
     }
 
+    /// <summary>One archive entry: its name (as Read gives it) and whether any of its stored blocks is compressed.</summary>
+    public readonly record struct Entry(string Name, bool Compressed);
+
+    /// <summary>Every entry with its compression (0.7.0, for the release command's voice check). Reads the file records
+    /// after the header: GNRL records are 36 bytes with the packed size at 24; DX10 records are a 24-byte header (chunk
+    /// count at 13, chunk header size at 14) plus one chunk header per chunk with its packed size at 8. A packed size of
+    /// 0 means stored as is. Version 2 headers are 8 bytes longer and version 3 headers 12 (as tools\ba2-extract.py).
+    /// Throws InvalidDataException, naming the file, when the header or records don't add up.</summary>
+    public static List<Entry> ReadEntries(string path)
+    {
+        var names = Read(path);   // checks the header and the name table
+        var name = Path.GetFileName(path);
+        using var f = File.OpenRead(path);
+        var head = new byte[24];
+        f.ReadExactly(head);
+        var version = BitConverter.ToUInt32(head, 4);
+        var type = System.Text.Encoding.ASCII.GetString(head, 8, 4);
+        var nameOfs = (long)BitConverter.ToUInt64(head, 16);
+        long pos = 24 + version switch { 2 => 8, 3 => 12, _ => 0 };
+        if (type != "GNRL" && type != "DX10") throw new InvalidDataException($"{name}: unsupported archive type \"{type}\" (expected GNRL or DX10)");
+        if (pos > nameOfs) throw new InvalidDataException($"{name}: its name table starts inside the header");
+        // The records follow the header; the file data (skipped) and then the name table come after them. Only the
+        // records are read, never past the name table.
+        f.Seek(pos, SeekOrigin.Begin);
+        var buf = new byte[36];
+        void Take(int n, string what)
+        {
+            if (f.Position + n > nameOfs) throw new InvalidDataException($"{name}: {what} run into the name table");
+            f.ReadExactly(buf, 0, n);
+        }
+        var result = new List<Entry>(names.Count);
+        for (int i = 0; i < names.Count; i++)
+        {
+            bool packed = false;
+            if (type == "GNRL")
+            {
+                Take(36, $"its file records (entry {i + 1} of {names.Count})");
+                packed = BitConverter.ToUInt32(buf, 24) != 0;
+            }
+            else
+            {
+                Take(24, $"its texture records (entry {i + 1} of {names.Count})");
+                int chunks = buf[13];
+                int chunkHdr = BitConverter.ToUInt16(buf, 14);
+                if (chunkHdr == 0) chunkHdr = 24;
+                if (chunkHdr < 12) throw new InvalidDataException($"{name}: entry {i + 1} has a chunk header size of {chunkHdr} bytes, too small to hold a packed size");
+                for (int k = 0; k < chunks; k++)
+                {
+                    Take(12, $"the chunks of entry {i + 1} of {names.Count}");
+                    if (BitConverter.ToUInt32(buf, 8) != 0) packed = true;
+                    if (f.Position - 12 + chunkHdr > nameOfs) throw new InvalidDataException($"{name}: the chunks of entry {i + 1} of {names.Count} run into the name table");
+                    f.Seek(chunkHdr - 12, SeekOrigin.Current);
+                }
+            }
+            result.Add(new Entry(names[i], packed));
+        }
+        return result;
+    }
+
     /// <summary>A data-relative path the way archives and the lookups compare it: lower case, backslashes, no leading
     /// separator.</summary>
     public static string Normalize(string p) => p.Replace('/', '\\').TrimStart('\\').ToLowerInvariant();

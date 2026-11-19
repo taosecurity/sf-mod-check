@@ -1,7 +1,7 @@
 # sfmodcheck: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sfmodcheck. Every command
-here was run once on sfmodcheck 0.6.0 before release. The [README](README.md) has the full description.
+here was run once on sfmodcheck 0.7.0 before release. The [README](README.md) has the full description.
 
 ## 1. What it is for
 
@@ -18,7 +18,12 @@ away: official DLC and update changes undone by mods, one mod's changes lost to 
 overrides that change a record's type (the game then keeps only the record that loads first), each with a recommendation (a safe load-order move, an update to look for, or a small local patch, with a prompt for
 building it). Use it when mods may be fighting over the same records, or after adding mods to a load order.
 
-Don't use either to fix a plugin or a load order (they never change files), or `check` on Bethesda's own masters
+Its third command, `sfmodcheck release <zip>`, checks the release zip a mod author is about to upload (Nexus, Bethesda
+Creations or a friend) and prints OK or FAIL: plugin names the game drops, scripts and files the mod needs that the zip
+lacks, sound files packed so the game plays them silent, and the `check` checks on every plugin in the zip. Use it as
+the last step before an upload.
+
+Don't use any of them to fix a plugin or a load order (they never change files), or `check` on Bethesda's own masters
 (Starfield.esm needs over 30 GB of memory).
 
 ## 2. Prerequisites
@@ -30,34 +35,34 @@ Don't use either to fix a plugin or a load order (they never change files), or `
 
 ## 3. Install
 
-Pick one. Files come from https://github.com/taosecurity/sfmodcheck/releases (version 0.6.0 shown here).
+Pick one. Files come from https://github.com/taosecurity/sfmodcheck/releases (version 0.7.0 shown here).
 
-1. **Stand-alone exe (Windows):** download `sfmodcheck-0.6.0-win-x64.zip` and its `.sha256` file, check the
+1. **Stand-alone exe (Windows):** download `sfmodcheck-0.7.0-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 
-       certutil -hashfile sfmodcheck-0.6.0-win-x64.zip SHA256
+       certutil -hashfile sfmodcheck-0.7.0-win-x64.zip SHA256
        mkdir C:\Tools\sfmodcheck
-       tar -xf sfmodcheck-0.6.0-win-x64.zip -C C:\Tools\sfmodcheck
+       tar -xf sfmodcheck-0.7.0-win-x64.zip -C C:\Tools\sfmodcheck
 
-   Compare the printed hash with the one in `sfmodcheck-0.6.0-win-x64.zip.sha256`. The program is then
+   Compare the printed hash with the one in `sfmodcheck-0.7.0-win-x64.zip.sha256`. The program is then
    `C:\Tools\sfmodcheck\sfmodcheck.exe`.
 
-2. **dotnet tool (Windows or Linux):** download `sfmodcheck.0.6.0.nupkg` into a folder (here `C:\Downloads`), then
+2. **dotnet tool (Windows or Linux):** download `sfmodcheck.0.7.0.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
 
-       dotnet tool install --global sfmodcheck --add-source C:\Downloads --version 0.6.0
+       dotnet tool install --global sfmodcheck --add-source C:\Downloads --version 0.7.0
 
    or into a folder of its own (nothing global changes):
 
-       dotnet tool install sfmodcheck --tool-path C:\Tools\sfmodcheck-tool --add-source C:\Downloads --version 0.6.0
+       dotnet tool install sfmodcheck --tool-path C:\Tools\sfmodcheck-tool --add-source C:\Downloads --version 0.7.0
 
-   On Linux, `sha256sum -c sfmodcheck.0.6.0.nupkg.sha256` checks the download.
+   On Linux, `sha256sum -c sfmodcheck.0.7.0.nupkg.sha256` checks the download.
 
 ## 4. Prove the install works
 
     sfmodcheck --version
 
-Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck`
+Its first line is `sfmodcheck 0.7.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
 `--quiet` is given. (Use the full path, such as `C:\Tools\sfmodcheck\sfmodcheck.exe
 --version`, when the folder isn't on PATH.)
@@ -141,6 +146,21 @@ Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://gith
     counts as general. An archive whose header can't be read isn't counted; `unreadableArchives` lists it (with
     `--no-assets` too).
 
+13. Check a release zip before uploading it (0.7.0). The result is OK or FAIL; read every PROBLEM line first:
+
+        sfmodcheck release MyMod-1.0.0.zip
+
+    An add-on's zip goes together with its main mod's zip, so the add-on's plugin finds the main plugin and its scripts:
+
+        sfmodcheck release MyMod-Addon-1.0.0.zip MyMod-1.0.0.zip
+
+    The `basic` profile (default) fails only on what breaks the mod for a player. `--profile house` also fails on
+    packaging rules (a root `README.md` with no mod name, more than one plugin in a zip, `.psc` sources in the zip,
+    private files such as `PERMISSION.md`), which `basic` shows as WARNING lines. A patch whose master mod's scripts
+    live in that mod's archive: `--master-archive "C:\Mods\MainMod - Main.ba2"`. To also find files the plugin uses
+    that the zip lacks, give the reviewed DMMDeps v0.4.1 build (any other build is refused):
+    `--dmmdeps C:\Tools\dmmdeps-fat.exe`. Every line has its rule in brackets; the README lists them.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -153,7 +173,10 @@ Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://gith
   starting with `ERROR `, `WARNING ` and `RESULT: `.
 - **stderr:** notes (very large plugin, no Starfield.esm found), error messages for bad arguments, and the
   `--verbose` log lines (`log: ...`).
-- **Exit codes:** 0 = no errors (warnings allowed); 1 = errors; 2 = couldn't check (bad arguments, a missing file or
+- **`release`:** input is one or more zips. Output (stdout) is `PROBLEM`, `REVIEW`, `WARNING` and `NOTE` lines, each as
+  `<LEVEL> [rule] text`, then `RESULT: OK|FAIL (n problems, n to review, n warnings)` (or `RESULT: CANNOT CHECK (...)`).
+  Exit codes: 0 OK, 1 FAIL, 2 can't check. Scripts should read the exit code and the `PROBLEM ` and `RESULT: ` lines.
+- **Exit codes (`check`):** 0 = no errors (warnings allowed); 1 = errors; 2 = couldn't check (bad arguments, a missing file or
   folder, a file it couldn't open, or it ran out of memory: then no result is shown for an unfinished check).
 - **Log:** only when asked: `--log <file>` writes it to that file (overwritten each run; a plugin or archive name is refused), `--verbose` to stderr. It
   holds the version, the arguments, the plugin, the Data folder and why it was chosen, where each master was found (or
@@ -188,8 +211,10 @@ Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://gith
 ## 7. Limits
 
 1. It never changes, moves or deletes a plugin, the load order or anything in the game folder. It writes only its
-   caches, the `--log` file and (conflict) the `--out` report folder.
-2. It makes no network connections and uploads nothing.
+   caches, the `--log` file, (conflict) the `--out` report folder and (release) a temp folder holding the unpacked zips,
+   which it removes at the end. It never changes the zip.
+2. It makes no network connections and uploads nothing. With `--dmmdeps` or `--papyrus` it starts that program, and
+   only the exact builds named in the README (checked by SHA-256).
 3. `check` checks one plugin against its masters; `conflict` compares plugin records across a load order. The
    `assets` check in both only looks up the names of attached scripts and model files in loose files and BA2
    archives; neither reads what is inside a script, model or archive, and textures, materials and sounds aren't

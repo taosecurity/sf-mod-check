@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.0 (2026-11-19)
+
+- New command `sfmodcheck release <zip>...`: one OK or FAIL for the zip you are about to upload. It unpacks each zip
+  into a temp folder (removed at the end) and checks: plugin names the game drops from Plugins.txt; sound files
+  (`.wem`, `.ffxanim`) stored compressed in an archive (the game plays them silent); archives that can't be read;
+  scripts a plugin attaches (and, without DMMDeps, models it names) that are in none of the zip's files and archives,
+  a `--masters-dir` mod's archives or the game's; the `check` checks on every plugin in the zips; and the data
+  Mutagen 0.54.4 loses when it writes a plugin, plus a missing ONAM list. Output is PROBLEM, REVIEW, WARNING and
+  NOTE lines with a `[rule]` tag, then `RESULT: OK|FAIL`; exit 0, 1 or 2.
+- `--profile basic` (default) fails only on what breaks the mod in the game. `--profile house` also fails on packaging
+  rules: a BlueprintShips master, more than one plugin per zip, `.psc` sources in the zip, a root `.md` without the
+  mod's name, files that must never ship (permission records, private comparison notes). In `basic` these are
+  WARNING lines.
+- Optional `--dmmdeps <exe>`: runs DMMDeps (the reviewed v0.4.1 build only, by SHA-256) on a copy of the zip's
+  contents to find files a plugin needs that the zip lacks; its known gaps (its issues #175 to #177) are REVIEW lines.
+  It stops after 15 minutes. Without it, one NOTE says only scripts and models were checked.
+- Optional `--papyrus <exe> --ck-sources <ContentResources.zip>`: Papyrus lint of the `.psc` sources a zip ships,
+  WARNING lines only; skipped with a WARNING when papyrus-tools isn't the tested v0.16.3 build or the vanilla sources
+  are missing.
+- `--master-archive <ba2>` (repeatable): the archive of a mod the plugin patches; its scripts and models count as
+  present.
+- The gap check (data Mutagen 0.54.4 loses when writing, missing ONAM) is built in; its lines start with the plugin
+  name. A master that isn't installed is one WARNING ("gap check could not run on <plugin>: master X not found").
+- DMMDeps' parent-file matches are no longer taken from stale cached copies of the mod's own archives: before, a mod
+  whose archive had been cached before (an earlier build of the same mod) came out with every file "also in the
+  game's archives" (2,299 REVIEW lines on one mod; now 18).
+- An archive that can't be read is one PROBLEM, not two.
+
 ## 0.6.0 (2026-11-19)
 
 - New `assets` check in `check`: every script a record attaches (attached scripts, and the fragment and alias scripts

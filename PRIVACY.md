@@ -39,9 +39,15 @@ It prints its results to the console. It writes a log file only when you ask for
 you name (`--verbose` prints the same lines on the console instead). The log lists the paths of the plugin, its
 masters, the Data folder and the caches, so it can include your Windows user name; read it before you share it.
 
+`release` unpacks the zips you give it into a temp folder (`%TEMP%\sfmodcheck-release-...`) and removes that folder
+when it ends, also after an error. With `--dmmdeps` it makes a second copy of the zip's files for DMMDeps in the same
+temp folder.
+
 ## Other programs it starts
 
-None.
+Only on request, and only the exact build it checks by SHA-256: `release --dmmdeps <exe>` starts DMMDeps
+(`dmmdeps-fat.exe`, v0.4.1) and `release --papyrus <exe>` starts papyrus-tools (v0.16.3). Both are other
+people's programs that run on your computer on the temp copy; what they do is covered by their own documents. Without those options it starts nothing.
 
 ## Personal data
 
