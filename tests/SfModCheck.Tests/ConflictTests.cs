@@ -561,11 +561,14 @@ public class ConflictTests
         var lost = Assert.Single(Lost(json));   // ModA's misc item change, lost to ModB, is still found
         Assert.Equal(("ModA.esm", "ModB.esm", "MiscItem"), (S(lost, "Loser"), S(lost, "Winner"), S(lost, "RecordType")));
         var errors = json.GetProperty("Errors").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
-        Assert.True(errors.Count == 1, string.Join(" || ", errors));
+        // 0.5.4 item 2: ModA, read only partly, may hold an unread version of ModB's keyword too; ModB doesn't have ModA
+        // as a master, so the keyword is compared and ModA named (before 0.5.4 that went unsaid).
+        Assert.True(errors.Count == 2, string.Join(" || ", errors));
         var error = errors[0];
         Assert.StartsWith("ModA.esm: could not read its keyword records", error);
         Assert.Contains("so its changes to them were not checked", error);
-        Assert.Contains("1 read problems", ExeTests.ResultLine(stdout));
+        Assert.StartsWith("ModA.esm: 1 other keyword record was compared without its version", errors[1]);
+        Assert.Contains("2 read problems", ExeTests.ResultLine(stdout));   // the RESULT line counts every "Tool limits hit" line
         var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
         Assert.Single(md.Split('\n'), l => l.StartsWith("- ModA.esm: could not read"));
     }
@@ -833,6 +836,70 @@ public class ConflictTests
         // so nothing is left to name.
         if (OperatingSystem.IsWindows()) Assert.Contains("could not be removed and may be old or incomplete: " + jsonPath, stderr);
         else { Assert.False(File.Exists(jsonPath)); Assert.DoesNotContain("could not be removed", stderr); }
+        Assert.Contains($"can't write the report to {outDir}: ", stderr);   // both systems (0.5.4 item 7)
+    }
+
+    // 0.5.4 items 4 and 7: a leftover named on Linux too (the held-open test above names one only on Windows), and the
+    // cleanup log line carries the full exception. Windows: conflicts.json is read-only, so it can be neither written
+    // nor deleted. Linux and macOS: the folder is read-only as well, so no file in it can be deleted.
+    [Fact]
+    public void A_read_only_report_file_is_named_as_left_and_its_cleanup_logged()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        var (code, stdout, _) = game.Conflict(new[] { "Base.esm", "ModA.esm" });
+        Assert.True(code == 0, stdout);
+        var outDir = Path.Combine(game.Dir, "report");
+        var jsonPath = Path.Combine(outDir, "conflicts.json");
+        var log = Path.Combine(game.Dir, "cleanup.log");
+        var dirMode = OperatingSystem.IsWindows() ? default : File.GetUnixFileMode(outDir);
+        File.SetAttributes(jsonPath, FileAttributes.ReadOnly);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(outDir, UnixFileMode.UserRead | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
+        string stderr;
+        try
+        {
+            // root (some containers) ignores file permissions: nothing would fail, so there's nothing to test
+            try { using (File.OpenWrite(jsonPath)) { } return; } catch (UnauthorizedAccessException) { }
+            (code, stdout, stderr) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", Path.Combine(game.Dir, "Plugins.txt"), "--out", outDir, "--quiet", "--log", log);
+        }
+        finally
+        {
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(outDir, dirMode);
+            File.SetAttributes(jsonPath, FileAttributes.Normal);   // so the sandbox can be removed
+        }
+        Assert.Equal(2, code);
+        Assert.StartsWith("RESULT: CANNOT CHECK", ExeTests.ResultLine(stdout));
+        Assert.Contains($"can't write the report to {outDir}: ", stderr);
+        Assert.Contains("could not be removed and may be old or incomplete: ", stderr);
+        Assert.Contains(jsonPath, stderr);
+        foreach (var f in new[] { "report.md", "report.html" })   // deleted on Windows; left (and so named) elsewhere
+            if (File.Exists(Path.Combine(outDir, f))) Assert.Contains(Path.Combine(outDir, f), stderr);
+        var logText = File.ReadAllText(log);
+        // the full exception: its full type name and where it was thrown, not only "UnauthorizedAccessException: message"
+        Assert.Contains($"report cleanup: {jsonPath}: System.UnauthorizedAccessException: ", logText);
+        Assert.Contains("   at ", logText[logText.IndexOf("report cleanup: ", StringComparison.Ordinal)..]);
+    }
+
+    // 0.5.4 item 4: a report folder that doesn't exist isn't a cleanup error (like a missing file), so it isn't logged.
+    [Fact]
+    public void A_report_folder_that_cannot_be_made_logs_no_cleanup_error()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, new[] { "*Base.esm", "*ModA.esm" });
+        var blocker = Path.Combine(game.Dir, "afile");
+        File.WriteAllText(blocker, "not a folder");
+        var log = Path.Combine(game.Dir, "cleanup.log");
+        var (code, _, _) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", txt, "--out", Path.Combine(blocker, "report"), "--quiet", "--log", log);
+        Assert.Equal(2, code);
+        var logText = File.ReadAllText(log);
+        Assert.Contains("stopped: writing the report: ", logText);
+        Assert.DoesNotContain("DirectoryNotFoundException", logText);
+        // Windows reports the missing folder as DirectoryNotFoundException; Linux may name "not a directory" differently,
+        // so the cleanup asks whether the folder exists, and no system logs a line (review)
+        Assert.DoesNotContain("report cleanup:", logText);
     }
 
     // Code review 0.5.3: the record-type pass's first holder (ModT) isn't the real one when an earlier plugin it couldn't
@@ -886,4 +953,304 @@ public class ConflictTests
     [InlineData("NPC_", "an NPC_")]
     [InlineData("MISC", "a MISC")]
     public void Record_types_get_a_or_an(string sig, string expected) => Assert.Equal(expected, SfModCheck.Conflict.Impact.WithArticle(sig));
+
+    // 0.6.0 part 2: the assets check in conflict mode. Every active plugin's archives load, so a script packed in another
+    // active mod's archive is found; one in an inactive plugin's archive isn't.
+    static void ScriptedMisc(StarfieldMod m, string script) =>
+        m.MiscItems.AddNew("S_Misc").VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = { new ScriptEntry { Name = script } } };
+
+    // SWG hand-check 2026-11-18: mods overriding vanilla MQ305, City_NA_Well01 and two MagPerk perks were blamed for
+    // scripts Bethesda's own records name and the game doesn't ship. A missing path the original record names too is
+    // inherited: reported once, against the plugin that defines the record, not against each override.
+    [Fact]
+    public void A_missing_script_an_override_inherits_from_the_original_record_is_not_reported_against_the_override()
+    {
+        using var game = new Game();
+        game.Mod("ModS.esm", (m, _) => ScriptedMisc(m, "SfmTest:Gone"));
+        game.Mod("ModT.esm", (m, open) => Misc(m, open("ModS.esm")).VirtualMachineAdapter!.Scripts.Add(new ScriptEntry { Name = "SfmTest:TOwn" }));
+        var log = Path.Combine(game.Dir, "debug.log");
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModS.esm", "ModT.esm" }, "--log", log);
+        Assert.True(code == 0, stdout);
+        var ma = json.GetProperty("missingAssets").EnumerateArray().Select(f => (S(f, "plugin"), S(f, "script"))).OrderBy(x => x).ToList();
+        Assert.Equal(new[] { ("ModS.esm", "SfmTest:Gone"), ("ModT.esm", "SfmTest:TOwn") }, ma);
+        Assert.Equal(1, json.GetProperty("inheritedAssetUses").GetInt32());
+        Assert.Contains("the record it overrides names it too: not reported", File.ReadAllText(log));
+        Assert.Contains("(1 such use left out; --verbose lists them)", File.ReadAllText(Path.Combine(game.Dir, "report", "report.md")));
+    }
+
+    [Fact]
+    public void A_missing_script_is_counted_in_conflict_and_a_pex_in_any_active_plugins_archive_clears_it()
+    {
+        using var game = new Game();
+        game.Mod("ModS.esm", (m, _) => ScriptedMisc(m, "SfmTest:InConflict"));
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        var log = Path.Combine(game.Dir, "debug.log");
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModS.esm", "ModA.esm" }, "--log", log);
+        Assert.True(code == 0, stdout);
+        Assert.Contains(", 1 missing asset (1 script, 0 models)", ExeTests.ResultLine(stdout));
+        Assert.Contains("assets: ModS.esm: 1 missing", File.ReadAllText(log));
+        // all three reports: the section, the finding, the hint, and a Medium action for the plugin
+        Assert.True(json.GetProperty("assetsChecked").GetBoolean());
+        var ma = json.GetProperty("missingAssets").EnumerateArray().ToList();
+        Assert.Single(ma);
+        Assert.Equal("ModS.esm", S(ma[0], "plugin"));
+        Assert.Equal("ERROR", S(ma[0], "severity"));
+        Assert.Equal("script", S(ma[0], "kind"));
+        Assert.Equal("scripts\\sfmtest\\inconflict.pex", S(ma[0], "path"));
+        Assert.Equal("SfmTest:InConflict", S(ma[0], "script"));
+        Assert.Single(ma[0].GetProperty("users").EnumerateArray());
+        Assert.Contains("script SfmTest:InConflict (scripts\\sfmtest\\inconflict.pex) is in no loose file or loaded archive", S(ma[0], "finding"));
+        Assert.Equal(0, json.GetProperty("unreadableArchives").GetArrayLength());
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        var html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
+        foreach (var page in new[] { md, System.Net.WebUtility.HtmlDecode(html) })
+        {
+            Assert.Contains("Missing assets", page);
+            Assert.Contains("SfmTest:InConflict", page);
+            Assert.Contains("scripts\\sfmtest\\inconflict.pex", page);
+            Assert.Contains("1 missing script; those records' scripts never run", page);
+            Assert.Contains("never runs; a missing model shows as an empty or error", page);   // the assets hint
+        }
+        Assert.Contains("| Missing scripts and models | 1 (1 script, 0 models) |", md);
+        Assert.Contains("**Medium** — ModS.esm: 1 missing script", md);
+        Assert.Contains("<a href=\"#assets\">ModS.esm</a>", html);
+
+        // in an inactive plugin's archive: still missing
+        File.WriteAllBytes(Path.Combine(game.Data, "Inactive - Main.ba2"), AssetsTests.Ba2("GNRL", "scripts\\sfmtest\\inconflict.pex"));
+        (code, stdout, _) = game.Conflict(new[] { "Base.esm", "ModS.esm", "ModA.esm" });
+        Assert.Contains("1 missing asset", ExeTests.ResultLine(stdout));
+
+        // in another active mod's archive: found (conflict reads every active plugin's archives)
+        File.WriteAllBytes(Path.Combine(game.Data, "ModA - Main.ba2"), AssetsTests.Ba2("GNRL", "Scripts/SfmTest/InConflict.pex"));
+        (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModS.esm", "ModA.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.DoesNotContain("missing asset", ExeTests.ResultLine(stdout));
+        Assert.Equal(0, json.GetProperty("missingAssets").GetArrayLength());
+        md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        Assert.Contains("| Missing scripts and models | 0 |", md);
+        Assert.Contains("## Missing assets", md);
+        Assert.DoesNotContain("SfmTest:InConflict", md);
+        Assert.DoesNotContain("ModS.esm: 1 missing", md);
+    }
+
+    [Fact]
+    public void A_loose_pex_clears_a_missing_script_in_conflict_and_no_assets_turns_the_check_off()
+    {
+        using var game = new Game();
+        game.Mod("ModS.esm", (m, _) => ScriptedMisc(m, "SfmTest:Loose"));
+        var (_, stdout, _) = game.Conflict(new[] { "Base.esm", "ModS.esm" });
+        Assert.Contains(", 1 missing asset (1 script, 0 models)", ExeTests.ResultLine(stdout));
+        var log = Path.Combine(game.Dir, "noassets.log");
+        JsonElement json;
+        (_, stdout, json) = game.Conflict(new[] { "Base.esm", "ModS.esm" }, "--no-assets", "--log", log);
+        Assert.DoesNotContain("missing asset", ExeTests.ResultLine(stdout));
+        Assert.Contains("assets: skipped (--no-assets)", File.ReadAllText(log));
+        Assert.False(json.GetProperty("assetsChecked").GetBoolean());
+        Assert.Equal(0, json.GetProperty("missingAssets").GetArrayLength());
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        var html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
+        foreach (var page in new[] { md, System.Net.WebUtility.HtmlDecode(html) })
+        {
+            Assert.Contains("Not checked: the run used --no-assets.", page);
+            Assert.Contains("Scripts, models and other assets are not checked (--no-assets)", page);
+            Assert.DoesNotContain("SfmTest:Loose", page);
+        }
+        Assert.Contains("| Missing scripts and models | not checked (--no-assets) |", md);
+        Assert.Contains("Nothing needs doing.", md);
+        Directory.CreateDirectory(Path.Combine(game.Data, "Scripts", "SfmTest"));
+        File.WriteAllBytes(Path.Combine(game.Data, "Scripts", "SfmTest", "Loose.pex"), new byte[4]);
+        var (code, stdout2, _) = game.Conflict(new[] { "Base.esm", "ModS.esm" });
+        Assert.True(code == 0, stdout2);
+        Assert.DoesNotContain("missing asset", ExeTests.ResultLine(stdout2));
+    }
+
+    [Fact]
+    public void A_missing_model_and_a_damaged_archive_are_counted_in_conflict()
+    {
+        using var game = new Game();
+        game.Mod("ModM.esm", (m, _) => m.MiscItems.AddNew("M_Misc").Model =
+            new Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>("SfmTest\\Gone.nif") });
+        File.WriteAllBytes(Path.Combine(game.Data, "ModM - Main.ba2"), System.Text.Encoding.ASCII.GetBytes("damaged, not BTDX at all......"));
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModM.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Contains(", 1 missing asset (0 scripts, 1 model), 1 archive that can't be read", ExeTests.ResultLine(stdout));
+        var ma = json.GetProperty("missingAssets").EnumerateArray().ToList();
+        Assert.Single(ma);
+        Assert.Equal("WARNING", S(ma[0], "severity"));
+        Assert.Equal("model", S(ma[0], "kind"));
+        Assert.Equal(JsonValueKind.Null, ma[0].GetProperty("script").ValueKind);
+        var ua = json.GetProperty("unreadableArchives").EnumerateArray().ToList();
+        Assert.Single(ua);
+        Assert.Equal("ModM - Main.ba2", S(ua[0], "archive"));
+        Assert.NotEqual("", S(ua[0], "why"));
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        var html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
+        foreach (var page in new[] { md, System.Net.WebUtility.HtmlDecode(html) })
+        {
+            Assert.Contains("Missing assets", page);
+            Assert.Contains("1 missing model; those records show an empty or error mesh", page);
+            Assert.Contains("ModM - Main.ba2 can't be read", page);
+        }
+        Assert.Contains("**Low** — ModM.esm: 1 missing model", md);
+        Assert.Contains("**Medium** — ModM - Main.ba2: this archive can't be read", md);
+        Assert.Contains("**WARNING** archive ModM - Main.ba2 can't be read", md);
+    }
+
+    // 0.6.0 part 2 item 2: the game has 256 slots per archive registry (general GNRL, texture DX10). 256 is fine, the
+    // 257th is a WARNING in the RESULT line, all three reports and a High action; --no-assets still counts.
+    [Fact]
+    public void Archives_are_counted_per_registry_and_more_than_256_general_ones_is_a_warning()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        var tiny = AssetsTests.Ba2("GNRL", "meshes\\sfmtest\\a.nif");
+        for (int i = 0; i < 255; i++) File.WriteAllBytes(Path.Combine(game.Data, $"ModA - Main{i:000}.ba2"), tiny);
+        File.WriteAllBytes(Path.Combine(game.Data, "Base - Main.ba2"), tiny);                       // 256 general
+        File.WriteAllBytes(Path.Combine(game.Data, "ModA - Textures.ba2"), AssetsTests.Ba2("DX10", "textures\\a.dds"));
+        File.WriteAllBytes(Path.Combine(game.Data, "Inactive - Main.ba2"), tiny);                   // not loaded: not counted
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.DoesNotContain("WARNING", ExeTests.ResultLine(stdout));
+        var counts = json.GetProperty("archiveCounts");
+        Assert.Equal(256, counts.GetProperty("gnrl").GetInt32());
+        Assert.Equal(1, counts.GetProperty("dx10").GetInt32());
+        Assert.Equal(256, counts.GetProperty("slots").GetInt32());
+        Assert.Equal(0, json.GetProperty("archiveLimitWarnings").GetArrayLength());
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        Assert.Contains("| Archives loaded (general / texture; 256 slots each) | 256 / 1 |", md);
+        Assert.Contains("Archives the game loads for this load order: 256 general (GNRL) and 1 texture (DX10).", md);
+        Assert.Contains("Nothing needs doing.", md);
+
+        // the 257th general archive
+        File.WriteAllBytes(Path.Combine(game.Data, "ModA - Main255.ba2"), tiny);
+        var log = Path.Combine(game.Dir, "over.log");
+        (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm" }, "--log", log);
+        Assert.True(code == 0, stdout);
+        Assert.Contains(", WARNING 257 general archives (over 256)", ExeTests.ResultLine(stdout));
+        Assert.DoesNotContain("texture archives (over", ExeTests.ResultLine(stdout));
+        Assert.Contains("assets: archives the game would load: 257 general (GNRL) and 1 texture (DX10)", File.ReadAllText(log));
+        Assert.Equal(257, json.GetProperty("archiveCounts").GetProperty("gnrl").GetInt32());
+        var warn = json.GetProperty("archiveLimitWarnings").EnumerateArray().Select(w => w.GetString() ?? "").ToList();
+        Assert.Single(warn);
+        Assert.StartsWith("257 general (GNRL) archives load, over the game's 256 slots for them by 1", warn[0]);
+        md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        var html = System.Net.WebUtility.HtmlDecode(File.ReadAllText(Path.Combine(game.Dir, "report", "report.html")));
+        foreach (var page in new[] { md, html })
+        {
+            Assert.Contains("257 general (GNRL) archives load, over the game's 256 slots", page);
+            Assert.Contains("use a BA2 limit fix", page);
+        }
+        Assert.Contains("| Archives loaded (general / texture; 256 slots each) | 257 / 1 (over the limit) |", md);
+        Assert.Contains("- **High** — Archive limit: 257 general (GNRL) archives load", md);
+        Assert.Contains("- **WARNING** 257 general (GNRL) archives load", md);
+        Assert.Contains(">High</span> <a href=\"#assets\">Archive limit</a>: 257 general", html);
+        Assert.Contains("data-section=\"assets\"><span class=\"name\">Missing assets</span><span class=\"count\">1</span>", html);   // the warning counts in the menu
+
+        // code review 2026-11-18: with another mod's conflict in the list, the High archive-limit action still comes first
+        game.Mod("ModB.esm", (m, open) => Misc(m, open("ModA.esm")).Value = 20);
+        (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm", "ModB.esm" });
+        Assert.True(code == 0, stdout);
+        md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        var actions = md[(md.IndexOf("## Recommended actions", StringComparison.Ordinal) + 1)..];
+        actions = actions[..actions.IndexOf("\n## ", StringComparison.Ordinal)];
+        var items = actions.Split('\n').Where(l => l.StartsWith("- **", StringComparison.Ordinal)).ToList();
+        Assert.True(items.Count >= 2, actions);
+        Assert.StartsWith("- **High** — Archive limit:", items[0]);
+        html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
+        var recs = html[html.IndexOf("<ul class=\"recs\">", StringComparison.Ordinal)..];
+        Assert.Contains("Archive limit", recs[..recs.IndexOf("</li>", StringComparison.Ordinal)]);
+
+        // --no-assets: scripts and models aren't checked, but the archives are still counted
+        log = Path.Combine(game.Dir, "noassets.log");
+        (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm" }, "--no-assets", "--log", log);
+        Assert.True(code == 0, stdout);
+        Assert.Contains(", WARNING 257 general archives (over 256)", ExeTests.ResultLine(stdout));
+        Assert.False(json.GetProperty("assetsChecked").GetBoolean());
+        Assert.Equal(257, json.GetProperty("archiveCounts").GetProperty("gnrl").GetInt32());
+        // each counted general archive is logged, --no-assets too (tools\compare_ba2count.py reads these lines)
+        Assert.Equal(257, File.ReadAllLines(log).Count(l => l.Contains(" counted: general (GNRL)", StringComparison.Ordinal)));
+        html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
+        Assert.Contains("data-section=\"assets\"><span class=\"name\">Missing assets</span><span class=\"count\">1</span>", html);
+    }
+
+    // code review 2026-11-18: the 6-letter code zhhans, which the error message itself lists, was refused
+    [Fact]
+    public void Language_zhhans_is_accepted_in_conflict()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Misc(m, open("Base.esm")).Value = 10);
+        File.WriteAllBytes(Path.Combine(game.Data, "ModA - Voices_zhhans.ba2"), AssetsTests.Ba2("GNRL", "sound\\voice\\a.wem"));
+        File.WriteAllBytes(Path.Combine(game.Data, "ModA - Voices_en.ba2"), AssetsTests.Ba2("GNRL", "sound\\voice\\b.wem"));
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModA.esm" }, "--language", "zhhans");
+        Assert.True(code == 0, stdout);
+        Assert.Equal(1, json.GetProperty("archiveCounts").GetProperty("gnrl").GetInt32());   // zhhans loads, en doesn't
+        Assert.Equal(2, game.Conflict(new[] { "Base.esm", "ModA.esm" }, "--language", "zhhansx").Code);
+    }
+
+    // code review 2026-11-18: the version an override replaces is the last of its masters that has the record (as in
+    // check mode), not only the plugin that defines the FormID. ModU adds a missing script to Base's record; ModT, with
+    // ModU as a master, overrides ModU's version and keeps it: inherited from ModU, reported once, against ModU.
+    [Fact]
+    public void A_missing_script_inherited_from_a_master_mods_version_is_reported_against_that_master_only()
+    {
+        using var game = new Game();
+        game.Mod("ModU.esm", (m, open) =>
+        {
+            Misc(m, open("Base.esm")).VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = { new ScriptEntry { Name = "SfmTest:FromU" } } };
+            m.Keywords.AddNew("U_K");
+        });
+        game.Mod("ModT.esm", (m, open) =>
+        {
+            var u = open("ModU.esm");
+            var o = m.MiscItems.GetOrAddAsOverride(u.MiscItems.First());
+            o.Keywords ??= new();
+            o.Keywords.Add(u.Keywords.First().ToLink());   // makes ModU a master
+            o.Value = 30;
+        });
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModU.esm", "ModT.esm" });
+        Assert.True(code == 0, stdout);
+        var ma = json.GetProperty("missingAssets").EnumerateArray().Select(f => (S(f, "plugin"), S(f, "script"))).ToList();
+        Assert.Equal(new[] { ("ModU.esm", "SfmTest:FromU") }, ma);
+        Assert.Equal(1, json.GetProperty("inheritedAssetUses").GetInt32());
+    }
+
+    // code review 2026-11-18: a failure in the assets step is noted in the report's errors, and the report is still
+    // written instead of CANNOT CHECK. Run in this process, with a disk error thrown right after the index is built.
+    [Fact]
+    public void A_failure_in_the_assets_step_is_noted_and_the_report_is_still_written()
+    {
+        using var game = new Game();
+        game.Mod("ModS.esm", (m, _) => ScriptedMisc(m, "SfmTest:Gone"));
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, new[] { "*Base.esm", "*ModS.esm" });
+        var outDir = Path.Combine(game.Dir, "report");
+        int code;
+        try
+        {
+            Assets.AfterIndex = () => throw new IOException("made-up disk error");
+            code = ConflictCommand.Run(new[] { "--data", game.Data, "--plugins", txt, "--out", outDir, "--quiet" }, "test", "test");
+        }
+        finally { Assets.AfterIndex = null; }
+        Assert.Equal(0, code);
+        var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "conflicts.json"))).RootElement;
+        Assert.Equal("IOException: made-up disk error", json.GetProperty("assetsFailed").GetString());
+        Assert.Contains(json.GetProperty("Errors").EnumerateArray(), e => (e.GetString() ?? "").StartsWith("the assets check stopped while checking scripts and models"));
+        var md = File.ReadAllText(Path.Combine(outDir, "report.md"));
+        Assert.Contains("The check stopped part way (IOException: made-up disk error), so this list may be incomplete.", md);
+    }
+
+    [Fact]
+    public void More_than_256_texture_archives_is_a_warning_of_its_own()
+    {
+        using var game = new Game();
+        var dds = AssetsTests.Ba2("DX10", "textures\\a.dds");
+        for (int i = 0; i < 257; i++) File.WriteAllBytes(Path.Combine(game.Data, $"Base - Textures{i:000}.ba2"), dds);
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Contains(", WARNING 257 texture archives (over 256)", ExeTests.ResultLine(stdout));
+        Assert.DoesNotContain("general archives (over", ExeTests.ResultLine(stdout));
+        Assert.Equal(0, json.GetProperty("archiveCounts").GetProperty("gnrl").GetInt32());
+        Assert.Equal(257, json.GetProperty("archiveCounts").GetProperty("dx10").GetInt32());
+        Assert.StartsWith("257 texture (DX10) archives load", json.GetProperty("archiveLimitWarnings")[0].GetString());
+    }
 }

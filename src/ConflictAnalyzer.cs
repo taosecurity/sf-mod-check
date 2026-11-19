@@ -37,7 +37,26 @@ public class Analysis
     public List<string> Errors { get; } = new();
     // Overrides whose record type differs from the first record with that FormID (0.5.2), in load order.
     public List<TypeChange> TypeChanges { get; } = new();
+    // The assets check (0.6.0 part 2): each mod plugin's missing scripts and models, in load order. AssetsChecked is
+    // false with --no-assets.
+    public bool AssetsChecked;
+    public int ArchivesRead, AssetScriptUses, AssetModelUses;
+    // Missing path uses not reported because the version the override replaces (in the last of its masters that has
+    // the record) names the same path: inherited, often from Bethesda's own records (SWG hand-check 2026-11-18).
+    public int AssetsInherited;
+    // Why the assets step (or the archive count) stopped part way, else null (code review 2026-11-18: a folder that
+    // can't be listed no longer costs the whole report). Also in Errors.
+    public string? AssetsFailed;
+    public List<AssetFinding> MissingAssets { get; } = new();
+    public List<(string Archive, string Why)> UnreadableArchives { get; } = new();
+    // The archive counts per registry (0.6.0 part 2): made with or without --no-assets; ArchivesCounted is false only
+    // when the run stopped before them.
+    public bool ArchivesCounted;
+    public int GnrlArchives, Dx10Archives;
 }
+
+/// <summary>A missing script or model, and the plugin whose records use it.</summary>
+public record AssetFinding(string Plugin, MissingAsset Asset);
 
 public static class Analyzer
 {
@@ -47,6 +66,13 @@ public static class Analyzer
 
     // --max-memory: stop with MemoryLimitException when managed memory passes this many bytes (0 = no limit).
     public static long MaxManagedBytes;
+    // The managed memory the --max-memory checks compare with it; tests replace it to stop the run at one chosen spot.
+    public static Func<long> ManagedBytes = () => GC.GetTotalMemory(false);
+    // One guard and one message for every --max-memory check (review 0.5.4: four hand-kept copies).
+    static bool OverMemory() => MaxManagedBytes > 0 && ManagedBytes() > MaxManagedBytes;
+    // The same test for steps after the analysis (the assets check's lookups, code review 2026-11-18).
+    public static bool OverMemoryLimit() => OverMemory();
+    static MemoryLimitException MemoryStop(string doing) => new($"memory passed {MaxManagedBytes / 1e9:F1} GB while {doing}");
     // --verbose / --log: one line per record type (records, versions, memory).
     public static Action<string>? Progress;
     // Progress for the person waiting (stderr in sfmodcheck; nothing with --quiet).
@@ -211,9 +237,29 @@ public static class Analyzer
             if (p.Official || collectFailed.Contains(p.FileName) || p.Mod.ModKey == fk.ModKey) return true;
             if (!heldBy.TryGetValue(p.FileName, out var held))
             {
-                try { held = p.Mod.EnumerateMajorRecords().Where(r => r.FormKey.ModKey != p.Mod.ModKey).Select(r => r.FormKey).ToHashSet(); }
+                // A whole-plugin read: named for a run stopped here, and held to --max-memory like the other reads,
+                // during the read too (0.5.4 item 6; review: a check only after it came too late for a big plugin). The
+                // caller's label comes back afterwards; a stop leaves this one in place.
+                var (wasWhere, wasRecord) = (where, whereRecord);
+                Where = $"reading {p.FileName} to see which records it overrides";
+                void CheckMemory()
+                {
+                    if (OverMemory()) throw MemoryStop($"reading {p.FileName} to see which records it overrides");
+                }
+                try
+                {
+                    held = new HashSet<FormKey>();
+                    int n = 0;
+                    foreach (var r in p.Mod.EnumerateMajorRecords())
+                    {
+                        if (r.FormKey.ModKey != p.Mod.ModKey) held.Add(r.FormKey);
+                        if (++n % 4096 == 0) CheckMemory();   // MemoryLimitException isn't recoverable: it passes the catch
+                    }
+                }
                 catch (Exception e) when (Fatal.Recoverable(e)) { held = null; }   // can't tell: it may hold it
                 heldBy[p.FileName] = held;
+                CheckMemory();
+                (where, whereRecord) = (wasWhere, wasRecord);
             }
             return held is null || held.Contains(fk);
         }
@@ -283,41 +329,65 @@ public static class Analyzer
                 }
                 catch (Exception e) when (Fatal.Recoverable(e)) { ReadProblem(p, Impact.TypeName(TypeShort(type)), e); partly.Add(p); }
                 // also between plugins while a record type is read, so --max-memory holds during the read itself (0.5.0)
-                if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
-                    throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while reading {TypeShort(type)} records from {p.FileName} ({done} of {pairs.Count} done)");
+                if (OverMemory()) throw MemoryStop($"reading {TypeShort(type)} records from {p.FileName} ({done} of {pairs.Count} done)");
             }
             Progress?.Invoke($"  {TypeShort(type)}: {group.Count()} records, {found.Values.Sum(l => l.Count)} versions, managed memory {GC.GetTotalMemory(false) / 1e9:F1} GB");
             // A plugin read only partly may hold an unread version of a record (code review). A plugin can only override
-            // records of its own masters, so it matters only for those; and only where its version would win or be the
-            // base of a later version (a master of it). Those records are skipped and counted, not reported wrongly.
+            // records of its own masters, so it matters only for those. Those records are skipped and counted, or compared
+            // with the plugin named (MayHoldUnread below), never reported wrongly.
             var notCompared = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // by file name: hashing a PluginInfo record hashes its whole plugin through Mutagen
             var notComparedType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // the same, for the record-type pass
+            var comparedWithout = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // compared, but a partly-read plugin's own change can't be checked (0.5.4 item 2)
             // direct masters only: a record's FormID can only name the plugin itself or one of its own masters
             var partlyMasters = partly.Select(DirectAndSelf).ToList();
-            var groupSigs = Checker.SigsOf(type);   // this pass's record type(s), e.g. KYWD
-            // Mutagen gives every record type a signature; if one ever has none, the first record (listed by the raw
-            // pass as a type change) is taken to be of another type, 0.5.2's rule, and the records with two or more
-            // versions skipped that way are listed under "Tool limits hit" (final review rounds).
-            int noSigSkipped = 0;
-            PluginInfo? MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
+            // This pass's record type(s), e.g. KYWD. Mutagen gives every record type a signature (0.5.4 item 5:
+            // ConflictUnreadTests checks every Starfield record type), so the no-signature branch of 0.5.3 was dead code
+            // and is gone; a Mutagen update that breaks this stops the run with a clear message instead of guessing.
+            var groupSigs = Checker.SigsOf(type) ?? throw new InvalidOperationException(
+                $"sfmodcheck does not know the record signature of {TypeShort(type)} (a Mutagen change?), so it can't tell which of its versions the game drops");
+            // A partly-read plugin that may override this record (the record's FormID names it or one of its direct
+            // masters) and whose version wasn't read. Where its version would win, or be the base of a later version (a
+            // master of it), the record's results would be wrong: skip and count it (Skip). The same when only partial
+            // forms load after it: a partial form supplies only some fields, so the unread version may still win the
+            // others (review round 2). Elsewhere, with a full version after it and nothing later depending on it, the
+            // read versions' results stand (a later full version beats it on every field), but
+            // its own entries (a change lost to a later plugin, an ITM, a reorder cost) can't be seen. Before 0.5.4 that
+            // went unsaid (item 2); now the record is compared and each such plugin is named (Middle). Skipping these too
+            // hid other plugins' real findings (review round 1).
+            // Round 3: the test is whether a full version loads after it (that one beats it on every field, whatever
+            // partial forms sit between), and every plugin that forces a skip is named, not only the first. Lists are
+            // made only when needed: nearly every record matches no partly-read plugin.
+            (List<PluginInfo>? Skip, List<PluginInfo>? Middle) MayHoldUnread(FormKey fk, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>? vs)
             {
+                List<PluginInfo>? skip = null, middle = null;
                 for (int u = 0; u < partly.Count; u++)
                 {
                     var p = partly[u];
                     if (!partlyMasters[u].Contains(fk.ModKey)) continue;   // it can't override this record
-                    if (vs?.Any(v => ReferenceEquals(v.Plugin, p)) == true) continue;   // its version was read before the failure
-                    if (vs is null || vs.Count == 0 || p.Index > vs[^1].Plugin.Index
-                        || vs.Any(v => v.Plugin.Index > p.Index && MastersOf(v.Plugin).Contains(p.Mod.ModKey))) return p;
+                    // one pass over the read versions: p's own read version, a full version after it, a later one built on it
+                    bool read = false, beaten = false, builtOn = false;
+                    if (vs is not null)
+                        foreach (var v in vs)
+                        {
+                            if (ReferenceEquals(v.Plugin, p)) { read = true; break; }
+                            if (v.Plugin.Index <= p.Index) continue;
+                            if (!beaten) beaten = !FieldCompare.IsPartial(v.Rec);
+                            if (!builtOn) builtOn = MastersOf(v.Plugin).Contains(p.Mod.ModKey);
+                        }
+                    if (read) continue;   // its version was read before the failure
+                    if (!beaten || builtOn)
+                        (skip ??= new()).Add(p);
+                    else
+                        (middle ??= new()).Add(p);
                 }
-                return null;
+                return (skip, middle);
             }
             Where = $"comparing {TypeShort(type)} records";
         foreach (var (formKey, _) in group)
         {
             whereRecord = null;   // a skipped record must not leave the previous one named (code review)
             if (++done % 5000 == 0) Info($"  {done}/{pairs.Count}");
-            if (MaxManagedBytes > 0 && GC.GetTotalMemory(false) > MaxManagedBytes)
-                throw new MemoryLimitException($"memory passed {MaxManagedBytes / 1e9:F1} GB while comparing {TypeShort(type)} records ({done} of {pairs.Count} done)");
+            if (OverMemory()) throw MemoryStop($"comparing {TypeShort(type)} records ({done} of {pairs.Count} done)");
             found.TryGetValue(formKey, out var versions);
             if (versions is { Count: > 0 })
             {
@@ -343,15 +413,25 @@ public static class Analyzer
                 // so nothing is counted either. Armor and armor addon may replace each other: not dropped.
                 if (hasKeeper && ReferenceEquals(first, keeper.Plugin) && !ReferenceEquals(first, versions[0].Plugin))
                 {
-                    if (groupSigs is null) { if (versions.Count > 1) noSigSkipped++; continue; }
                     if (!groupSigs.Contains(keeper.Sig) && !groupSigs.Any(g => TypeChanges.ArmorPair(g, keeper.Sig))) continue;
                 }
             }
             // A version that may be unread is counted, never dropped silently (code review 0.5.2 round 3).
-            if (partly.Count > 0 && MayHoldUnread(formKey, versions) is { } unread)
+            List<PluginInfo>? middles = null;   // counted once the record's results are kept (review round 2)
+            if (partly.Count > 0)
             {
-                notCompared[unread.FileName] = notCompared.GetValueOrDefault(unread.FileName) + 1;
-                continue;
+                var (skip, middle) = MayHoldUnread(formKey, versions);
+                // Counted even with fewer than two read versions (0.5.3's rule; review round 4): the unread versions may
+                // themselves be the ones that clash, so the record can't be called conflict-free.
+                // Nothing to compare: not compared. Rare (a middle needs a read full version after it, so this takes a base
+                // that is itself partly read), but then nothing else would name the plugin.
+                if (skip is null && middle is not null && versions is not { Count: > 1 }) skip = middle;
+                if (skip is not null)
+                {
+                    foreach (var s in skip) notCompared[s.FileName] = notCompared.GetValueOrDefault(s.FileName) + 1;
+                    continue;
+                }
+                middles = middle;
             }
             if (versions is null || versions.Count < 2) continue;
             whereRecord = (formKey, type, versions);
@@ -393,6 +473,21 @@ public static class Analyzer
                         Unreadable(versions[i].Rec, fields[f].Name);
                     }
                 }
+            // A middle plugin is safe to leave out only if a later full version beats it on every field; one whose field
+            // couldn't be read may not (the field's winner falls back to an earlier version). Then the record is not
+            // compared after all, and counted as such (review round 4).
+            if (middles is not null)
+            {
+                int lastSure = -1;   // the load index of the last full version whose fields all read
+                for (int i = n - 1; i >= 0 && lastSure < 0; i--)
+                    if (!FieldCompare.IsPartial(versions[i].Rec) && !unsure[i]) lastSure = versions[i].Plugin.Index;
+                if (middles.Any(p => p.Index > lastSure))
+                {
+                    // every middle plugin is named: the record isn't compared, and each of them may change it (round 5)
+                    foreach (var s in middles) notCompared[s.FileName] = notCompared.GetValueOrDefault(s.FileName) + 1;
+                    continue;   // nothing of this record is kept (its results are added only at the end)
+                }
+            }
 
             // What each version meant to change: fields that differ from the latest earlier value among its own masters.
             var intended = new HashSet<int>[n];
@@ -504,6 +599,8 @@ public static class Analyzer
 
             result.Lost.AddRange(recLost);
             result.Itms.AddRange(recItms);
+            if (middles is not null)
+                foreach (var m in middles) comparedWithout[m.FileName] = comparedWithout.GetValueOrDefault(m.FileName) + 1;
             foreach (var (pair, text) in recCost)
             {
                 result.ReorderCost.TryAdd(pair, new());
@@ -530,9 +627,10 @@ public static class Analyzer
             foreach (var (p, count) in notCompared)
                 result.Errors.Add($"{p}: {count} other {Impact.TypeName(TypeShort(type))} record{(count == 1 ? " was" : "s were")} not compared, " +
                                   $"because {p} may change {(count == 1 ? "it" : "them")} too but its {Impact.TypeName(TypeShort(type))} records could not all be read");
-            if (noSigSkipped > 0)
-                result.Errors.Add($"{noSigSkipped} {Impact.TypeName(TypeShort(type))} record{(noSigSkipped == 1 ? " was" : "s were")} not compared: " +
-                                  "this record type has no known signature, so a version after an earlier record listed as a type change was taken as dropped");
+            foreach (var (p, count) in comparedWithout)
+                result.Errors.Add($"{p}: {count} other {Impact.TypeName(TypeShort(type))} record{(count == 1 ? " was" : "s were")} compared without its version: " +
+                                  $"{p} may change {(count == 1 ? "it" : "them")} too, but its {Impact.TypeName(TypeShort(type))} records could not all be read, " +
+                                  $"so its own entries (a change a later plugin overrides, an ITM, a reorder cost) are not listed");
             foreach (var (p, count) in notComparedType)
                 result.Errors.Add($"{p}: {count} other {Impact.TypeName(TypeShort(type))} record{(count == 1 ? " was" : "s were")} not compared, " +
                                   $"because {p} may hold the first version of {(count == 1 ? "it" : "them")} as another record type, but its records' types could not all be read");

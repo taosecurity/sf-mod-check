@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.6.0 (not released yet)
+
+- New `assets` check in `check`: every script a record attaches (attached scripts, and the fragment and alias scripts
+  of quests, scenes, perks, topic infos and packages) must have its `.pex`, an ERROR when missing (the script never
+  runs); every model path a record names must have its file, a WARNING when missing. A file counts when it is loose in
+  the Data folder (or a `--masters-dir` folder) or inside an archive the game loads: `<plugin> - *.ba2` for the plugin
+  and its masters (other languages' voice archives left out) plus the archives `Starfield.ini` and
+  `StarfieldCustom.ini` list. Archive names are read from each archive's name table; nothing is unpacked. New options
+  `--no-assets`, `--ini <file>` and `--language <code>`. Not checked yet: textures and materials, `.mesh` geometry,
+  files the game finds by name (voice, lip and face animation, animations, LOD, Wwise), a script's parents and
+  imports, SFSE plugins, and which copy of a file wins (README).
+- The `assets` check in `conflict` too: every mod plugin in the load order is checked against the archives of every
+  active plugin, the INIs' archive lists and loose files (the `--extra-data` folder, then Data); Bethesda's own
+  plugins aren't checked. Same options as `check` (`--no-assets`, `--ini`, `--language`). The RESULT line adds
+  ", N missing assets (S scripts, M models)" and ", N archives that can't be read" when there are any. report.html
+  and report.md get a "Missing assets" section (by plugin, scripts before models, with the archives read, any archive
+  that can't be read, and how to fix it), a Summary row, and a recommended action per plugin (Medium when a script is
+  missing, Low for models only) and per unreadable archive (Medium). conflicts.json gets `assetsChecked`,
+  `archivesRead`, `missingAssets` (plugin, severity, kind, path, script, users, finding) and `unreadableArchives`
+  (archive, why). With `--no-assets` the section says the check was off.
+- `assets`, both modes: a missing script or model in an override isn't reported when the version it overrides names
+  the same path (the masters' winning version: in `conflict`, the record in the last of the plugin's masters, in
+  load order, that has it). Found on the Star Wars Genesis load order, where four mods were blamed for scripts
+  vanilla MQ305, City_NA_Well01 and two MagPerk perks attach and the game doesn't ship. `--verbose`/`--log` lists
+  each use left out; conflicts.json gets `inheritedAssetUses` and the report's "Missing assets" intro says how many.
+  In `conflict` these lookups obey `--max-memory`: past it they stop and every missing path is reported, with a line
+  in "Tool limits hit".
+- `conflict`: if the assets step (or the archive count) stops part way, the report is still written instead of
+  CANNOT CHECK; the "Missing assets" section and "Tool limits hit" say why, and conflicts.json gets `assetsFailed`
+  (null when it ran to the end). The `--log` has one "counted: general (GNRL)" line per counted general archive.
+- `--language` takes the 6-letter code `zhhans`, which its own message listed but refused (both modes).
+- `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, and warns when
+  either is over the game's 256 slots: the RESULT line adds ", WARNING N general archives (over 256)" (or texture),
+  the report a WARNING in "Missing assets" and a High recommended action. The counts are always in the report's
+  Summary and in conflicts.json (`archiveCounts` gnrl, dx10, slots; `archiveLimitWarnings`), with `--no-assets` too
+  (headers only). The list matches Mutagen's `GetApplicableArchivePaths` for each plugin, less other languages'
+  voice archives (test). Each archive is counted by its header type (GNRL general, DX10 texture), as the game does
+  (checked in the game's code for 1.16.244), so a GNRL archive named "- Textures.ba2" counts as general; the
+  report's archive paragraph says so.
+- `conflict`: when a plugin's records of one type can't all be read and it sits in the middle of a record's versions
+  (it doesn't win, no later version has it as a master, and every later version is a full record), the record is
+  still compared, and "Tool limits hit" now says "N other ... records were compared without its version": its own
+  entries (a change a later plugin overrides, an ITM, a reorder cost) can't be listed. Before, this went unsaid.
+  Records where its version would win, be a later version's base, or still win fields that the partial forms after
+  it leave alone (or that a later version couldn't read) are skipped and counted as not compared (the last two cases
+  are new; 0.5.3 compared those without it).
+  Every plugin that stops a comparison is named, not only the first. The RESULT line's "read problems" count includes
+  these lines.
+- `conflict`: the one-time read that tells which records a partly-read plugin overrides is now named in the "where it
+  stopped" message and held to `--max-memory` during the read, like every other read.
+- `conflict`: the "record type has no known signature" fallback is gone. Every Starfield record type has one (a test
+  checks them all); a future Mutagen without one stops with a clear message instead of guessing.
+- "a"/"an" before record signatures spelled out letter by letter: "an FLST", "an LVLI", "an MGEF", "an FSTP" (before:
+  "a FLST"). Signatures said as words keep the first-letter rule ("a MISC", "a LCTN"). Every Starfield signature that
+  could take "an" is sorted into one list or the other, and a test fails on a new one.
+- `--version` and the byline read the version from the build, so the program can't disagree with the package.
+- `conflict`: the report-cleanup log line after a failed write names the full error; a missing report folder is no
+  longer logged as a problem.
+
 ## 0.5.3 (2026-11-18)
 
 Fixes from the 0.5.2 code reviews.

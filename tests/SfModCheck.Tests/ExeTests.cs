@@ -59,14 +59,21 @@ public class ExeTests
 
     internal static string ResultLine(string output) => output.Split('\n').Select(l => l.TrimEnd('\r')).LastOrDefault(l => l.StartsWith("RESULT: ")) ?? "(no RESULT line)\n" + output;
 
-    // 0.5.3: the release candidate's package said 0.5.3 but --version said 0.5.2 (Program.cs keeps its own constant).
+    // 0.5.3: the release candidate's package said 0.5.3 but --version said 0.5.2 (Program.cs kept its own constant).
+    // 0.5.4: Program.cs reads the version from the assembly; this still checks it against the csproj's <Version> text,
+    // and that SourceLink's "+<commit>" is cut off.
     [Fact]
     public void Version_text_matches_the_package_version()
     {
-        var v = typeof(SfModCheck.Checker).Assembly.GetName().Version!;
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "sfmodcheck.csproj"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\sfmodcheck.csproj not found above " + AppContext.BaseDirectory);
+        var m = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(Path.Combine(dir!.FullName, "src", "sfmodcheck.csproj")), "<Version>([^<]+)</Version>");
+        Assert.True(m.Success, "no <Version> in sfmodcheck.csproj");
         var (code, output) = Run("--version");
         Assert.Equal(0, code);
-        Assert.StartsWith($"sfmodcheck {v.Major}.{v.Minor}.{v.Build} by ", output);
+        Assert.StartsWith($"sfmodcheck {m.Groups[1].Value} by ", output);
+        Assert.DoesNotContain("+", Lines(output)[0]);
     }
 
     [Fact]
@@ -252,9 +259,9 @@ public class ExeTests
             System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(Path.Combine(dir!.FullName, "src", file)), @"case ""(--[a-z-]+)"":")
                 .Select(m => m.Groups[1].Value).Where(o => o != "--help").ToHashSet();
         var check = Options("Program.cs");
-        Assert.Equal(new[] { "--data", "--log", "--masters-dir", "--max", "--no-hints", "--quiet", "--verbose" }, check.Order());
+        Assert.Equal(new[] { "--data", "--ini", "--language", "--log", "--masters-dir", "--max", "--no-assets", "--no-hints", "--quiet", "--verbose" }, check.Order());
         var conflict = Options("ConflictCommand.cs");
-        Assert.Equal(new[] { "--data", "--extra-data", "--log", "--max-memory", "--out", "--plugins", "--quiet", "--verbose" }, conflict.Order());
+        Assert.Equal(new[] { "--data", "--extra-data", "--ini", "--language", "--log", "--max-memory", "--no-assets", "--out", "--plugins", "--quiet", "--verbose" }, conflict.Order());
         var (_, usage) = Run("check");
         var (_, conflictUsage) = Run("conflict", "--help");
         foreach (var file in new[] { "README.md", "AGENTS.md" })
@@ -412,7 +419,7 @@ public class ExeTests
         var re = new System.Text.RegularExpressions.Regex(@"\b[Aa]dd\((?:""(?:ERROR|WARNING)""|sev), ""([a-z]+)""");
         var used = Directory.GetFiles(Path.Combine(dir!.FullName, "src"), "*.cs")
             .SelectMany(f => re.Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value)).ToHashSet();
-        Assert.Equal(12, used.Count);   // structure, header, ids, records, read, links, navi, conditions, dialogue, scenes, editorids, itm
+        Assert.Equal(13, used.Count);   // structure, header, ids, records, read, links, navi, conditions, dialogue, scenes, editorids, itm, assets
         Assert.Equal(used.OrderBy(x => x), Hints.ByCheck.Keys.OrderBy(x => x));
         Assert.All(Hints.ByCheck.Values, h => Assert.True(h.Length > 40 && !h.Contains('\n'), "hint too short or not one line: " + h));
         // README's "For Creation Kit and xEdit authors" section repeats each hint word for word.

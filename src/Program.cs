@@ -2,6 +2,7 @@
 // build gates use: it prints ERROR / WARNING lines, a HINT line per check that found something, and one RESULT line.
 // Exit 0 = no errors, 1 = errors, 2 = could not run.
 //   sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]
+//                    [--no-assets] [--ini <file>]... [--language <code>]
 //                             [--verbose] [--log <file>]        (troubleshooting log: Log.cs)
 //   sfmodcheck conflict [--plugins <Plugins.txt>] [--data D] [--extra-data F] [--out F] [--max-memory GB] [--quiet]
 //                       [--verbose] [--log <file>]        (whole load order: ConflictCommand.cs; exit 0, 2 or 3)
@@ -16,13 +17,15 @@
 using System.Diagnostics;
 using SfModCheck;
 
-const string Version = "0.5.3";
+// The version comes from the csproj's <Version>, the only place it is set (0.5.4: Program.cs kept its own constant
+// until then, and 0.5.3's release candidate said 0.5.2).
+var Version = ProgramVersion.Current;
 // Attribution (the author's request, 2026-11-11): stderr at the start of a check (not with --quiet), and --version.
-const string Byline = "sfmodcheck " + Version + " by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck";
+var Byline = "sfmodcheck " + Version + " by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck";
 const string DefaultData = Cli.SteamData;
 const string Usage =
     "usage: sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]\n" +
-    "                                 [--verbose] [--log <file>]\n" +
+    "                                 [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]\n" +
     "       sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
     "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]\n" +
     "       sfmodcheck --version";
@@ -161,6 +164,18 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
             case "--verbose": verbose = true; break;
             case "--quiet": quiet = true; break;
             case "--no-hints": hints = false; break;
+            case "--no-assets": o.NoAssets = true; break;
+            case "--ini":
+                if (Value(ref i, "an INI file") is not { } ini) return 2;
+                o.Inis.Add(ini); break;
+            case "--language":
+                if (Value(ref i, "a language code such as en or de") is not { } lang) return 2;
+                if (lang.Length is < 2 or > 6 || !lang.All(char.IsAsciiLetter))   // 6: zhhans (code review 2026-11-18)
+                {
+                    Console.Error.WriteLine($"--language needs a voice language code as in the archive names (en, de, fr, es, it, ja, pl, ptbr, zhhans), not \"{lang}\"");
+                    return 2;
+                }
+                o.Language = lang; break;
             case "-h": case "--help": plugin = null; i = a.Length; break;
             default:
                 if (a[i].StartsWith("--"))
@@ -308,4 +323,22 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
         Log.Write($"result: {verdict}, {r.Errors} errors, {r.Warnings} warnings, exit code {(r.Errors > 0 ? 1 : 0)}, {r.Elapsed.TotalSeconds:F1} s");
     }
     return r.Errors > 0 ? 1 : 0;
+}
+
+namespace SfModCheck
+{
+    /// <summary>The program's version, read from the assembly (0.5.4): the build writes the csproj's &lt;Version&gt; into
+    /// AssemblyInformationalVersion, and the .NET SDK's SourceLink adds "+&lt;commit&gt;", which is cut off.</summary>
+    public static class ProgramVersion
+    {
+        public static string Current { get; } = Of(typeof(ProgramVersion).Assembly);
+
+        public static string Of(System.Reflection.Assembly a) =>
+            Clean(System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(a)?.InformationalVersion
+                  ?? (a.GetName().Version is { } v ? (v.Build >= 0 ? v.ToString(3) : v.ToString()) : "unknown"));   // ToString(3) throws on a two-part version (review)
+
+        /// <summary>"0.5.3+5a98c1a..." becomes "0.5.3"; a version without a "+" is left as it is.</summary>
+        public static string Clean(string informational) =>
+            informational.IndexOf('+') is var i and >= 0 ? informational[..i] : informational;
+    }
 }

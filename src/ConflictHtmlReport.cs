@@ -113,6 +113,10 @@ public static class HtmlReport
         Card(h, a.Itms.Count.ToString(), "overrides that change nothing (ITM)");
         Card(h, lo.Problems.Count.ToString(), "load-order problems", lo.Problems.Count > 0);
         Card(h, a.TypeChanges.Count.ToString(), "overrides that change a record's type", a.TypeChanges.Count > 0);
+        Card(h, a.AssetsChecked ? a.MissingAssets.Count.ToString() : "off", a.AssetsChecked ? "missing scripts and models" : $"missing scripts and models: not checked ({(a.AssetsFailed != null ? "the step stopped" : "--no-assets")})",
+             a.MissingAssets.Count > 0 || a.UnreadableArchives.Count > 0 || a.AssetsFailed != null);
+        if (a.ArchivesCounted)
+            Card(h, $"{a.GnrlArchives} / {a.Dx10Archives}", $"archives loaded (general / texture; {AssetIndex.ArchiveSlots} slots each)", Assets.ArchiveLimitWarnings(a).Count > 0);
         h.Append("""
             </div>
             <div class="explain">Each lost change is labeled
@@ -127,10 +131,14 @@ public static class HtmlReport
         var recs = allGroups.SelectMany(g => Recommend.ForGroup(g, lo, a)).OrderBy(r => r.Priority).ToList();
         if (Recommend.Combined(allGroups, lo, a) is { } combined) recs.Insert(0, combined);
         h.Append("<h2 id=\"actions\">Recommended actions</h2>");
-        if (recs.Count == 0 && a.TypeChanges.Count == 0) h.Append("<p>Nothing needs doing.</p>");
+        var assetActions = Report.AssetActions(a);
+        if (recs.Count == 0 && a.TypeChanges.Count == 0 && assetActions.Count == 0) h.Append("<p>Nothing needs doing.</p>");
         else
         {
             h.Append("<ul class=\"recs\">");
+            // the archive limit (High: a crash risk) first, as in report.md (code review 2026-11-18)
+            foreach (var r in assetActions.Where(Report.IsArchiveLimit))
+                h.Append($"<li class=\"f\"><span class=\"badge p{r.Priority}\">{r.Level}</span> <a href=\"#assets\">{HtmlEncode(r.Winner)}</a>: {HtmlEncode(r.Text)}.</li>");
             foreach (var r in recs)
                 h.Append($"<li class=\"f\"><span class=\"badge p{r.Priority}\">{r.Level}</span> " +
                          (r.Winner.Length > 0 ? $"<a href=\"#{Anchor(r.Winner, r.Loser)}\">{HtmlEncode(LoadOrderSetup.Display(r.Winner))} over {HtmlEncode(LoadOrderSetup.Display(r.Loser))}</a>: " : "<strong>All patchable conflicts</strong>: ") +
@@ -138,6 +146,8 @@ public static class HtmlReport
             foreach (var g in Report.TypeChangesByPlugin(a))
                 h.Append($"<li class=\"f\"><span class=\"badge p2\">Medium</span> <a href=\"#type-changes\">{HtmlEncode(g.Key)}</a>: {g.Count()} override{(g.Count() == 1 ? "" : "s")} " +
                          $"change{(g.Count() == 1 ? "s" : "")} a record's type, so the game drops one of the two records.</li>");
+            foreach (var r in assetActions.Where(r => !Report.IsArchiveLimit(r)))
+                h.Append($"<li class=\"f\"><span class=\"badge p{r.Priority}\">{r.Level}</span> <a href=\"#assets\">{HtmlEncode(r.Winner)}</a>: {HtmlEncode(r.Text)}.</li>");
             if (a.Itms.Count > 0)
                 h.Append($"<li><span class=\"badge p3\">Low</span> Optional: {a.Itms.Count} override{(a.Itms.Count == 1 ? "" : "s")} that change nothing (ITM) in {HtmlEncode(string.Join(", ", a.Itms.Select(i => i.Plugin).Distinct()))}. Harmless here; xEdit's Quick Auto Clean can remove them.</li>");
             h.Append("</ul>");
@@ -158,6 +168,41 @@ public static class HtmlReport
             foreach (var t in a.TypeChanges)
                 h.Append($"<tr class=\"f\"><td><code>{HtmlEncode(t.FormKey.ToString())}</code> {HtmlEncode(t.EditorID ?? "")}</td><td>{HtmlEncode(t.Plugin)}</td><td>{HtmlEncode(t.Text)}</td></tr>");
             h.Append("</table></div>");
+        }
+
+        h.Append("<h2 id=\"assets\">Missing assets</h2>");
+        h.Append($"<p class=\"muted\">{HtmlEncode(Report.AssetsIntro(a))}</p>");
+        if (a.ArchivesCounted)
+        {
+            h.Append($"<p class=\"muted\">{HtmlEncode(Report.ArchiveCountIntro(a))}</p>");
+            if (Assets.ArchiveLimitWarnings(a) is { Count: > 0 } limits)
+            {
+                h.Append("<ul class=\"problems\">");
+                foreach (var w in limits)
+                    h.Append($"<li class=\"f\"><span class=\"badge p2\">WARNING</span> {HtmlEncode(w)}.</li>");
+                h.Append("</ul>");
+            }
+        }
+        if (a.AssetsChecked)
+        {
+            h.Append($"<p class=\"muted\">{HtmlEncode(Hints.For("assets") ?? "")}</p>");
+            if (a.UnreadableArchives.Count > 0)
+            {
+                h.Append("<ul class=\"problems\">");
+                foreach (var (archive, why) in a.UnreadableArchives)
+                    h.Append($"<li class=\"f\"><span class=\"badge p2\">WARNING</span> archive {HtmlEncode(archive)} can't be read ({HtmlEncode(why)}), so its files count as missing.</li>");
+                h.Append("</ul>");
+            }
+            if (a.MissingAssets.Count == 0) h.Append("<p>None found.</p>");
+            else
+            {
+                h.Append("<div class=\"scroll\"><table><tr><th>Plugin</th><th>Severity</th><th>Kind</th><th>File</th><th>Used by</th></tr>");
+                foreach (var g in Report.AssetsByPlugin(a))
+                    foreach (var f in g)
+                        h.Append($"<tr class=\"f\"><td>{HtmlEncode(f.Plugin)}</td><td><span class=\"badge {(f.Kind == "script" ? "p1" : "p2")}\">{f.Severity}</span></td><td>{f.Kind}</td>" +
+                                 $"<td>{(f.Script is null ? "" : HtmlEncode(f.Script) + " ")}<code>{HtmlEncode(f.Path)}</code></td><td>{HtmlEncode(Assets.Users(f.Users))}</td></tr>");
+                h.Append("</table></div>");
+            }
         }
 
         h.Append("<h2 id=\"official\">Official changes lost to mods</h2><p class=\"muted\">A mod built without a DLC or update as a master overrides a record that the DLC or update also changed. Where the mod wins, the official change is undone in game.</p>");
@@ -183,7 +228,7 @@ public static class HtmlReport
         h.Append("<h2 id=\"not-checked\">What this report does not check</h2><ul class=\"muted\">");
         h.Append($"<li>Fields ignored as bookkeeping or engine-generated: {HtmlEncode(string.Join(", ", FieldCompare.IgnoredFields.Order()))}; also the 3 unused bytes after a cell grid's land flags (XCLC), which hold junk in the official files.</li>");
         h.Append("<li>Child records (cell references, quest dialogue, navmeshes) are checked as records of their own, not as part of their parent.</li>");
-        h.Append("<li>Scripts, assets (meshes, textures, sounds) and loose files are not checked; only plugin records.</li></ul>");
+        h.Append($"<li>{HtmlEncode(Report.AssetsNotChecked(a))}</li></ul>");
         if (a.UnreadableFields.Count > 0 || a.Errors.Count > 0)
         {
             h.Append("<h2 id=\"tool-limits\">Tool limits hit</h2><ul>");
@@ -256,11 +301,14 @@ public static class HtmlReport
         }
         var groups = a.Lost.GroupBy(l => (l.Winner, l.Loser)).ToList();
         var actions = groups.Sum(g => Recommend.ForGroup(g, lo, a).Count) + (Recommend.Combined(groups, lo, a) is null ? 0 : 1) + (a.Itms.Count > 0 ? 1 : 0)
-                      + Report.TypeChangesByPlugin(a).Count;
+                      + Report.TypeChangesByPlugin(a).Count + Report.AssetActions(a).Count;
         Item("summary", "Summary"); n.Append("</li>");
         Item("actions", "Recommended actions", actions); n.Append("</li>");
         if (lo.Problems.Count > 0) { Item("problems", "Load-order problems", lo.Problems.Count); n.Append("</li>"); }
         if (a.TypeChanges.Count > 0) { Item("type-changes", "Record type changes", a.TypeChanges.Count); n.Append("</li>"); }
+        // the section also lists unreadable archives and the archive-limit warnings: count them too (code review 2026-11-18)
+        var limits = Assets.ArchiveLimitWarnings(a).Count;
+        Item("assets", "Missing assets", a.AssetsChecked ? a.MissingAssets.Count + a.UnreadableArchives.Count + limits : limits > 0 ? limits : null); n.Append("</li>");
         Item("official", "Official changes lost", official.Select(l => l.FormKey).Distinct().Count()); Pairs(official); n.Append("</li>");
         Item("mod-vs-mod", "Mod changes lost", modVsMod.Select(l => l.FormKey).Distinct().Count()); Pairs(modVsMod); n.Append("</li>");
         Item("itm", "ITM records", a.Itms.Count); n.Append("</li>");

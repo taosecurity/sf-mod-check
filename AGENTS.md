@@ -1,7 +1,7 @@
 # sfmodcheck: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sfmodcheck. Every command
-here was run once on sfmodcheck 0.5.3 before release. The [README](README.md) has the full description.
+here was run once on sfmodcheck 0.6.0 before release. The [README](README.md) has the full description.
 
 ## 1. What it is for
 
@@ -30,34 +30,34 @@ Don't use either to fix a plugin or a load order (they never change files), or `
 
 ## 3. Install
 
-Pick one. Files come from https://github.com/taosecurity/sfmodcheck/releases (version 0.5.3 shown here).
+Pick one. Files come from https://github.com/taosecurity/sfmodcheck/releases (version 0.6.0 shown here).
 
-1. **Stand-alone exe (Windows):** download `sfmodcheck-0.5.3-win-x64.zip` and its `.sha256` file, check the
+1. **Stand-alone exe (Windows):** download `sfmodcheck-0.6.0-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 
-       certutil -hashfile sfmodcheck-0.5.3-win-x64.zip SHA256
+       certutil -hashfile sfmodcheck-0.6.0-win-x64.zip SHA256
        mkdir C:\Tools\sfmodcheck
-       tar -xf sfmodcheck-0.5.3-win-x64.zip -C C:\Tools\sfmodcheck
+       tar -xf sfmodcheck-0.6.0-win-x64.zip -C C:\Tools\sfmodcheck
 
-   Compare the printed hash with the one in `sfmodcheck-0.5.3-win-x64.zip.sha256`. The program is then
+   Compare the printed hash with the one in `sfmodcheck-0.6.0-win-x64.zip.sha256`. The program is then
    `C:\Tools\sfmodcheck\sfmodcheck.exe`.
 
-2. **dotnet tool (Windows or Linux):** download `sfmodcheck.0.5.3.nupkg` into a folder (here `C:\Downloads`), then
+2. **dotnet tool (Windows or Linux):** download `sfmodcheck.0.6.0.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
 
-       dotnet tool install --global sfmodcheck --add-source C:\Downloads --version 0.5.3
+       dotnet tool install --global sfmodcheck --add-source C:\Downloads --version 0.6.0
 
    or into a folder of its own (nothing global changes):
 
-       dotnet tool install sfmodcheck --tool-path C:\Tools\sfmodcheck-tool --add-source C:\Downloads --version 0.5.3
+       dotnet tool install sfmodcheck --tool-path C:\Tools\sfmodcheck-tool --add-source C:\Downloads --version 0.6.0
 
-   On Linux, `sha256sum -c sfmodcheck.0.5.3.nupkg.sha256` checks the download.
+   On Linux, `sha256sum -c sfmodcheck.0.6.0.nupkg.sha256` checks the download.
 
 ## 4. Prove the install works
 
     sfmodcheck --version
 
-Its first line is `sfmodcheck 0.5.3 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck`
+Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
 `--quiet` is given. (Use the full path, such as `C:\Tools\sfmodcheck\sfmodcheck.exe
 --version`, when the folder isn't on PATH.)
@@ -88,6 +88,9 @@ Its first line is `sfmodcheck 0.5.3 by Richard Bejtlich - GPL-3.0 - https://gith
    `--verbose` prints the same log lines on the screen (stderr) instead.
 
 6. Fewer lines: `--max 20` (at most 20 lines per check), `--no-hints` (no HINT lines), `--quiet` (no summary line).
+   The `assets` check (missing scripts and models) is on by default: `--no-assets` turns it off (for a plugin whose
+   archive isn't built yet), `--ini <file>` adds an INI's archive lists (installs whose INIs aren't in the usual
+   places), and `--language de` counts German voice archives instead of English.
 
 7. Check a whole load order for conflicts (Steam, the game's own `%LOCALAPPDATA%\Starfield\Plugins.txt`), then open
    `sfmodcheck-conflict\report.html`:
@@ -114,6 +117,27 @@ Its first line is `sfmodcheck 0.5.3 by Richard Bejtlich - GPL-3.0 - https://gith
     author's 148-plugin order peaks near 8.5 GB, so with 8 it sometimes finishes and sometimes stops.)
     `--quiet` leaves out the byline, progress and summary lines; `--verbose` prints the log on stderr.
 
+11. `conflict` also runs the assets check (0.6.0) on every mod plugin in the load order, against the archives of every
+    active plugin, the INIs' archive lists and loose files. The same options as `check` apply:
+
+        sfmodcheck conflict --no-assets
+        sfmodcheck conflict --ini "D:\MyGames\StarfieldCustom.ini" --language de
+
+    The RESULT line then adds ", <n> missing assets (<s> scripts, <m> models)" when there are any, and the report's
+    "Missing assets" section and conflicts.json's `missingAssets` list each one with the plugin and the records using it.
+    A missing file an override inherits (the version it overrides, in the last of its masters that has the record,
+    names it too; often a vanilla record) isn't reported against the override; `inheritedAssetUses` counts those uses
+    and `--log` lists them. If the assets step stops part way, the report is still written and conflicts.json's
+    `assetsFailed` holds the reason (null when it ran to the end); `Errors` has a line for it too.
+
+12. `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, even with
+    `--no-assets`. The game has 256 slots for each kind; over that, the RESULT line adds
+    ", WARNING <n> general archives (over 256)" or ", WARNING <n> texture archives (over 256)", and the report has a
+    High recommended action. To read the counts in a script, use conflicts.json's `archiveCounts` (`gnrl`, `dx10`,
+    `slots`) and `archiveLimitWarnings` (one text per registry over the limit, else empty). Each archive is counted
+    by its header type (GNRL general, DX10 texture), as the game does, so a GNRL archive named `- Textures.ba2`
+    counts as general.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -136,10 +160,17 @@ Its first line is `sfmodcheck 0.5.3 by Richard Bejtlich - GPL-3.0 - https://gith
   `%LOCALAPPDATA%\Starfield\Plugins.txt`; with neither it stops with exit code 2), the plugins themselves from
   `--extra-data` and then the Data folder (`--data`, else Steam's usual one). Bethesda's own files load first.
 - **conflict output:** a report folder (`--out`, default `sfmodcheck-conflict`) with `report.html` (to read),
-  `report.md` and `conflicts.json` (for scripts: `lost`, `itms`, `loadOrderProblems`, `typeChanges`, `Errors`). On
+  `report.md` and `conflicts.json` (for scripts: `lost`, `itms`, `loadOrderProblems`, `typeChanges`, `Errors`, and
+  since 0.6.0 `assetsChecked` (false with `--no-assets`), `archivesRead`, `inheritedAssetUses` (missing-path uses
+  left out because the version they override names them too), `assetsFailed` (why the assets step stopped part
+  way, else null), `missingAssets` (each with `plugin`,
+  `severity` ERROR for a script or WARNING for a model, `kind`, `path`, `script`, `users`, `finding`) and
+  `unreadableArchives` (`archive`, `why`), `archiveCounts` (`gnrl`, `dx10`, `slots`; null if not counted) and
+  `archiveLimitWarnings`). On
   stdout a summary line and always one last line `RESULT: OK, <n> lost-change entries (...), <n> ITMs, <n> load-order
-  problems (report: <path>; <seconds> s)` (with ", <n> overrides that change a record's type" before `(report:`
-  when there are any), or `RESULT: CANNOT CHECK (...)` or `RESULT: STOPPED (...)`. Progress lines go to stderr.
+  problems (report: <path>; <seconds> s)` (with ", <n> overrides that change a record's type", ", <n> missing assets
+  (<s> scripts, <m> models)", ", <n> archives that can't be read" and ", WARNING <n> general|texture archives (over
+  256)" before `(report:` when there are any), or `RESULT: CANNOT CHECK (...)` or `RESULT: STOPPED (...)`. Progress lines go to stderr.
 - **conflict exit codes:** 0 = report written (whatever it found); 2 = couldn't run (running out of memory included:
   no report); 3 = stopped at `--max-memory` (no report).
 - **Caches:** `%LOCALAPPDATA%\sfmodcheck\` on Windows, `~/.local/share/sfmodcheck/` on Linux (the masters' EditorIDs and

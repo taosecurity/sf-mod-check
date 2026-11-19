@@ -23,6 +23,12 @@ public static class Hints
             "Mutagen (the library sfmodcheck reads plugins with) can't read this record, so the game may not either. " +
             "Look at the named record in xEdit for errors in red, fields from another game or a wrong field size, " +
             "then fix the field or make the record again in the CK.",
+        ["assets"] =
+            "A missing script means the record's script never runs; a missing model shows as an empty or error " +
+            "mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file " +
+            "under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file " +
+            "comes from another mod, make that mod a master or a requirement. Run with --verbose to see which archives " +
+            "were read.",
         ["records"] =
             "Deleted records can crash the game when the game or another mod still uses them. xEdit: on placed " +
             "references (REFR, ACHR) use right-click > Undelete and Disable References. For other types, remove " +

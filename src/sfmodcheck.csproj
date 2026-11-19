@@ -21,7 +21,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SfModCheck</RootNamespace>
     <AssemblyName>sfmodcheck</AssemblyName>
-    <Version>0.5.3</Version>
+    <Version>0.6.0</Version>
     <!-- Shown in the exe's file properties (Details tab); attribution added 2026-11-11. -->
     <Product>sfmodcheck</Product>
     <AssemblyTitle>sfmodcheck: read-only checks of Starfield plugins</AssemblyTitle>
@@ -77,6 +77,11 @@
     <EmbeddedResource Include="..\data\link-types-seen.txt" LogicalName="link-types-seen.txt" Condition="Exists('..\data\link-types-seen.txt')" />
     <EmbeddedResource Include="..\data\condition-params-seen.txt" LogicalName="condition-params-seen.txt" Condition="Exists('..\data\condition-params-seen.txt')" />
     <EmbeddedResource Include="..\data\scene-alias-quirks.txt" LogicalName="scene-alias-quirks.txt" Condition="'$(EmbedSceneQuirks)' != 'false' And Exists('..\data\scene-alias-quirks.txt')" />
+  </ItemGroup>
+
+  <!-- Tests only: lets the test project reach internal test hooks such as Assets.AfterIndex. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SfModCheck.Tests" />
   </ItemGroup>
 
   <!-- Mutagen.Bethesda.Starfield 0.54.4 comes through BuildKit (exact pin, never the local taosecurity package). -->

@@ -2,7 +2,8 @@
 // mods, one mod's changes lost to another, ITMs, load-order problems), with a recommendation for each. Read-only:
 // it writes only its report folder. Moved in from the author's StarfieldConflictCheck on 2026-11-16 (0.5.0).
 //   sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
-//                       [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
+//                       [--max-memory <GB>] [--no-assets] [--ini <file>]... [--language <code>]
+//                       [--quiet] [--verbose] [--log <file>]
 // Exit 0 = report written, 2 = could not run, 3 = stopped at --max-memory. Every run ends with one RESULT line.
 using System.Diagnostics;
 using System.Globalization;
@@ -14,7 +15,8 @@ public static class ConflictCommand
 {
     public const string Usage =
         "usage: sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
-        "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]";
+        "                           [--max-memory <GB>] [--no-assets] [--ini <file>]... [--language <code>]\n" +
+        "                           [--quiet] [--verbose] [--log <file>]";
 
     // The game's own load order file (the game writes it; Vortex and the in-game Creations menu update it).
     static string GamePluginsTxt() =>
@@ -49,7 +51,32 @@ public static class ConflictCommand
         finally { Log.Close(); }
     }
 
-    static readonly string[] ReportFiles = { "report.md", "report.html", "conflicts.json" };
+    /// <summary>The RESULT line's assets part (0.6.0): ", 3 missing assets (1 script, 2 models)" and any unreadable
+    /// archives; nothing when none are missing (so a load order with none reads as before).</summary>
+    internal static string MissingAssetsPart(Analysis a)
+    {
+        if (!a.AssetsChecked) return "";
+        var s = a.MissingAssets.Count(f => f.Asset.Kind == "script");
+        var m = a.MissingAssets.Count - s;
+        var part = a.MissingAssets.Count > 0
+            ? $", {a.MissingAssets.Count} missing asset{(a.MissingAssets.Count == 1 ? "" : "s")} ({s} script{(s == 1 ? "" : "s")}, {m} model{(m == 1 ? "" : "s")})"
+            : "";
+        if (a.UnreadableArchives.Count is var u and > 0) part += $", {u} archive{(u == 1 ? "" : "s")} that can't be read";
+        return part;
+    }
+
+    /// <summary>The RESULT line's archive-limit part (0.6.0): ", WARNING 261 general archives (over 256)" per registry
+    /// over the limit; nothing otherwise, so ordinary runs read as in 0.5.3.</summary>
+    internal static string ArchiveLimitPart(Analysis a)
+    {
+        if (!a.ArchivesCounted) return "";
+        var part = "";
+        if (a.GnrlArchives > AssetIndex.ArchiveSlots) part += $", WARNING {a.GnrlArchives} general archives (over {AssetIndex.ArchiveSlots})";
+        if (a.Dx10Archives > AssetIndex.ArchiveSlots) part += $", WARNING {a.Dx10Archives} texture archives (over {AssetIndex.ArchiveSlots})";
+        return part;
+    }
+
+    static readonly string[] ReportFiles ={ "report.md", "report.html", "conflicts.json" };
 
     /// <summary>Deletes the three report files after a failed write; returns those still there (a missing file or folder
     /// is no error). fatal: after running out of memory, any error deleting one file moves on to the next (review 0.5.3).</summary>
@@ -58,18 +85,23 @@ public static class ConflictCommand
         // Never throws a recoverable error, so the files already known to be left are never lost; out of memory is best
         // effort (the fatal caller swallows anything and goes on with the first error).
         var left = new List<string>(ReportFiles.Length);
+        // Path.Combine of two non-null strings never throws on .NET (it checks only for null), so the path is built
+        // outside the try (0.5.4: building it inside left a null-path branch that could never run).
         foreach (var f in ReportFiles)
         {
-            string? path = null;
-            try
-            {
-                path = Path.Combine(outDir, f);
-                File.Delete(path);
-            }
+            var path = Path.Combine(outDir, f);
+            try { File.Delete(path); }
+            // no folder, so no file: not an error, like a missing file (0.5.4: was logged). Linux and macOS may give another
+            // IOException for a path whose parent isn't a folder, so the folder itself is asked (review).
+            catch (IOException x) when (x is DirectoryNotFoundException || !Directory.Exists(outDir)) { }
             catch (Exception x) when (fatal || Fatal.Recoverable(x))
             {
-                if (!fatal) try { Log.Write($"report cleanup: {path ?? f}: {x.GetType().Name}: {x.Message}"); } catch (Exception z) when (Fatal.Recoverable(z)) { }
-                if (path is null) continue;   // no path, so nothing of ours to name
+                if (!fatal)
+                {
+                    // the full exception (0.5.4): the type and message alone left out where it failed
+                    try { Log.Write($"report cleanup: {path}: {x}"); }
+                    catch (Exception z) when (Fatal.Recoverable(z)) { }
+                }
                 try { if (File.Exists(path)) left.Add(path); } catch (Exception y) when (fatal || Fatal.Recoverable(y)) { left.Add(path); }
             }
         }
@@ -83,7 +115,9 @@ public static class ConflictCommand
         cantWhy = "bad arguments; see the message above";
         string? pluginsTxt = null, dataDir = null, extraDir = null, outDir = null, logFile = null;
         double maxGb = 0;
-        bool quiet = false, verbose = false;
+        bool quiet = false, verbose = false, noAssets = false;
+        var inis = new List<string>();
+        var language = "en";
         string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
         for (int i = 0; i < a.Length; i++)
         {
@@ -114,6 +148,18 @@ public static class ConflictCommand
                     logFile = lf; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
+                case "--no-assets": noAssets = true; break;
+                case "--ini":
+                    if (Value(ref i, "an INI file") is not { } ini) return 2;
+                    inis.Add(ini); break;
+                case "--language":
+                    if (Value(ref i, "a language code such as en or de") is not { } lang) return 2;
+                    if (lang.Length is < 2 or > 6 || !lang.All(char.IsAsciiLetter))   // 6: zhhans (code review 2026-11-18)
+                    {
+                        Console.Error.WriteLine($"--language needs a voice language code as in the archive names (en, de, fr, es, it, ja, pl, ptbr, zhhans), not \"{lang}\"");
+                        return 2;
+                    }
+                    language = lang; break;
                 case "-h": case "--help":
                     Console.Error.WriteLine(Usage);
                     return 2;
@@ -214,6 +260,36 @@ public static class ConflictCommand
                 Log.Write($"stopped at the memory limit: {e.Message}");
                 return 3;
             }
+            // the assets check (0.6.0): every active plugin's archives load; each mod plugin's scripts and models are
+            // looked up in them and in loose files (the --extra-data folder first, then Data)
+            // the archive counts per registry are made either way (--no-assets reads only each archive's header)
+            var assetDirs = (extraDir != null ? new[] { extraDir, dataDir } : new[] { dataDir }).ToList();
+            // A failure here (a folder this account can't list, a disk error) is noted in the report's errors and the
+            // report is still written: the slow analysis is done (code review 2026-11-18).
+            try
+            {
+                if (noAssets)
+                {
+                    Log.Write("assets: skipped (--no-assets); counting archives only");
+                    Analyzer.Where = "counting the archives the game loads";
+                    Assets.CountArchives(lo.Plugins, assetDirs, AssetIndex.DefaultInis(dataDir, inis), language, analysis);
+                }
+                else
+                {
+                    Analyzer.Where = "checking scripts and models (the assets check)";
+                    Assets.CheckLoadOrder(lo.Plugins, assetDirs, AssetIndex.DefaultInis(dataDir, inis), language, analysis);
+                    if (!quiet) Console.Error.WriteLine($"Checked scripts and models: {analysis.MissingAssets.Count} missing, {analysis.ArchivesRead} archives read");
+                }
+            }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                analysis.AssetsFailed = $"{e.GetType().Name}: {Impact.OneLine(e.Message)}";
+                analysis.Errors.Add($"the {(noAssets ? "archive count" : "assets check")} stopped while {Analyzer.Where} ({analysis.AssetsFailed}), " +
+                                    "so its results are missing or incomplete");
+                Log.Write($"assets: stopped ({analysis.AssetsFailed})");
+                if (!quiet) Console.Error.WriteLine($"WARNING: the {(noAssets ? "archive count" : "assets check")} stopped ({analysis.AssetsFailed}); the report notes it");
+            }
+            foreach (var w in Assets.ArchiveLimitWarnings(analysis)) Console.Error.WriteLine($"WARNING: {w}");
             Analyzer.Where = $"writing the report to {outDir}";
             Recommend.ReportDir = outDir;
             Recommend.DataDir = dataDir;
@@ -256,10 +332,14 @@ public static class ConflictCommand
             if (analysis.Errors.Count > 5) Console.Error.WriteLine($"note: ... and {analysis.Errors.Count - 5} more (the report's \"Tool limits hit\" section)");
             Console.WriteLine($"RESULT: OK, {analysis.Lost.Count} lost-change entries ({official} official, {analysis.Lost.Count - official} mod vs mod), " +
                               $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems" +
-                              $"{(analysis.TypeChanges.Count is var tcn and > 0 ? $", {tcn} override{(tcn == 1 ? "" : "s")} that change{(tcn == 1 ? "s" : "")} a record's type" : "")}{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} read problems (records not compared; see the report's \"Tool limits hit\")" : "")} " +
+                              $"{(analysis.TypeChanges.Count is var tcn and > 0 ? $", {tcn} override{(tcn == 1 ? "" : "s")} that change{(tcn == 1 ? "s" : "")} a record's type" : "")}" +
+                              MissingAssetsPart(analysis) + ArchiveLimitPart(analysis) +
+                              $"{(analysis.Errors.Count > 0 ? $", {analysis.Errors.Count} read problems (records not compared; see the report's \"Tool limits hit\")" : "")} " +
                               $"(report: {Path.Combine(outDir, "report.html")}; {sw.Elapsed.TotalSeconds:F0} s)");
             Fatal.AfterResult(() => Log.Write($"result: {analysis.Lost.Count} lost-change entries, {analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems, " +
                       $"{analysis.TypeChanges.Count} type-changing overrides, " +
+                      (analysis.AssetsChecked ? $"{analysis.MissingAssets.Count} missing assets, " : "assets not checked, ") +
+                      $"{analysis.GnrlArchives} general and {analysis.Dx10Archives} texture archives, " +
                       $"{analysis.Errors.Count} errors, exit code 0, {sw.Elapsed.TotalSeconds:F1} s, peak working set {Process.GetCurrentProcess().PeakWorkingSet64 / 1e9:F1} GB"));   // after the RESULT line: nothing may print a second one
             return 0;
         }

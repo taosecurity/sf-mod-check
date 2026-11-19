@@ -32,6 +32,8 @@ public static class Report
         md.AppendLine($"| Overrides that change nothing (ITM) | {a.Itms.Count} |");
         md.AppendLine($"| Load-order problems | {lo.Problems.Count} |");
         md.AppendLine($"| Overrides that change a record's type | {a.TypeChanges.Count} |");
+        md.AppendLine($"| Missing scripts and models | {AssetsCount(a)} |");
+        if (a.ArchivesCounted) md.AppendLine($"| Archives loaded (general / texture; {AssetIndex.ArchiveSlots} slots each) | {ArchiveCountText(a)} |");
         md.AppendLine();
         md.AppendLine("How to read the tables: **Forwardable** means the winning plugin did not mean to change that field; it just carries an older value, so a patch can copy the lost value forward safely. **Choice** means both plugins changed the same field, so someone has to pick. **No effect** means the versions differ only in list order, letter case or undocumented fields.");
         md.AppendLine();
@@ -41,7 +43,11 @@ public static class Report
         if (Recommend.Combined(allGroups, lo, a) is { } combined) recs.Insert(0, combined);
         md.AppendLine("## Recommended actions");
         md.AppendLine();
-        if (recs.Count == 0 && a.TypeChanges.Count == 0) md.AppendLine("Nothing needs doing.");
+        var assetActions = AssetActions(a);
+        if (recs.Count == 0 && a.TypeChanges.Count == 0 && assetActions.Count == 0) md.AppendLine("Nothing needs doing.");
+        // the archive limit (High: a crash risk) comes first, the other asset actions after the conflicts (code review 2026-11-18)
+        foreach (var r in assetActions.Where(IsArchiveLimit))
+            md.AppendLine($"- **{r.Level}** — {Md(r.Winner)}: {Md(r.Text)} (\"Missing assets\" below).");
         foreach (var r in recs)
         {
             md.AppendLine($"- **{r.Level}** — {(r.Winner.Length > 0 ? $"{Md(LoadOrderSetup.Display(r.Winner))} over {Md(LoadOrderSetup.Display(r.Loser))}" : "All patchable conflicts")}: {Md(r.Text)}");
@@ -55,6 +61,8 @@ public static class Report
         }
         foreach (var g in TypeChangesByPlugin(a))
             md.AppendLine($"- **Medium** — {Md(g.Key)}: {g.Count()} override{(g.Count() == 1 ? "" : "s")} change{(g.Count() == 1 ? "s" : "")} a record's type, so the game drops one of the two records (\"Overrides that change a record's type\" below).");
+        foreach (var r in assetActions.Where(r => !IsArchiveLimit(r)))
+            md.AppendLine($"- **{r.Level}** — {(r.Winner.Length > 0 ? Md(r.Winner) + ": " : "")}{Md(r.Text)} (\"Missing assets\" below).");
         if (a.Itms.Count > 0) md.AppendLine($"- **Low** — Optional: {a.Itms.Count} ITM override(s) in {Md(string.Join(", ", a.Itms.Select(i => i.Plugin).Distinct()))}. Harmless here; xEdit's Quick Auto Clean can remove them.");
         md.AppendLine();
 
@@ -77,6 +85,38 @@ public static class Report
             foreach (var t in a.TypeChanges)
                 md.AppendLine($"| {Code(t.FormKey.ToString())} {Md(t.EditorID)} | {Md(t.Plugin)} | {Md(t.Text)} |");
             md.AppendLine();
+        }
+
+        md.AppendLine("## Missing assets");
+        md.AppendLine();
+        md.AppendLine(Md(AssetsIntro(a)));
+        md.AppendLine();
+        if (a.ArchivesCounted)
+        {
+            md.AppendLine(Md(ArchiveCountIntro(a)));
+            md.AppendLine();
+            foreach (var w in Assets.ArchiveLimitWarnings(a)) md.AppendLine($"- **WARNING** {Md(w)}.");
+            if (Assets.ArchiveLimitWarnings(a).Count > 0) md.AppendLine();
+        }
+        if (a.AssetsChecked)
+        {
+            md.AppendLine(Md(Hints.For("assets")));
+            md.AppendLine();
+            foreach (var (archive, why) in a.UnreadableArchives)
+                md.AppendLine($"- **WARNING** archive {Md(archive)} can't be read ({Md(Impact.OneLine(why))}), so its files count as missing.");
+            if (a.UnreadableArchives.Count > 0) md.AppendLine();
+            if (a.MissingAssets.Count == 0) { md.AppendLine("None found."); md.AppendLine(); }
+            foreach (var g in AssetsByPlugin(a))
+            {
+                md.AppendLine($"### {Md(g.Key)}");
+                md.AppendLine();
+                md.AppendLine("| Severity | Kind | File | Used by |");
+                md.AppendLine("|---|---|---|---|");
+                foreach (var f in g.Take(RowsPerGroup))
+                    md.AppendLine($"| {f.Severity} | {f.Kind} | {(f.Script is null ? "" : Md(f.Script) + " ")}{Code(f.Path)} | {Md(Assets.Users(f.Users))} |");
+                if (g.Count() > RowsPerGroup) md.AppendLine($"\n… {g.Count() - RowsPerGroup} more in conflicts.json");
+                md.AppendLine();
+            }
         }
 
         md.AppendLine("## Official changes lost to mods");
@@ -111,7 +151,7 @@ public static class Report
         md.AppendLine();
         md.AppendLine($"- Fields ignored as bookkeeping or engine-generated: {string.Join(", ", FieldCompare.IgnoredFields.Order())}; also the 3 unused bytes after a cell grid's land flags (XCLC), which hold junk in the official files.");
         md.AppendLine("- Child records (cell references, quest dialogue, navmeshes) are checked as records of their own, not as part of their parent.");
-        md.AppendLine("- Scripts, assets (meshes, textures, sounds) and loose files are not checked; only plugin records.");
+        md.AppendLine($"- {Md(AssetsNotChecked(a))}");
         md.AppendLine();
 
         if (a.UnreadableFields.Count > 0 || a.Errors.Count > 0)
@@ -140,6 +180,17 @@ public static class Report
             a.UnreadableFields,
             a.Errors,
             typeChanges = a.TypeChanges.Select(t => new { formKey = t.FormKey.ToString(), t.EditorID, t.Plugin, t.PluginType, t.First, t.FirstType, finding = t.Text }),
+            // 0.6.0: assetsChecked is false with --no-assets (then the lists are empty because nothing was checked)
+            assetsChecked = a.AssetsChecked,
+            archivesRead = a.ArchivesRead,
+            inheritedAssetUses = a.AssetsInherited,
+            // why the assets step or the archive count stopped part way, else null (also in errors)
+            assetsFailed = a.AssetsFailed,
+            missingAssets = AssetsByPlugin(a).SelectMany(g => g).Select(f => new { plugin = f.Plugin, severity = f.Severity, kind = f.Kind, path = f.Path, script = f.Script, users = f.Users, finding = f.Text }),
+            unreadableArchives = a.UnreadableArchives.Select(u => new { archive = u.Archive, why = u.Why }),
+            // 0.6.0: the archives the game would load per registry (null when not counted); slots is the game's limit
+            archiveCounts = a.ArchivesCounted ? new { gnrl = a.GnrlArchives, dx10 = a.Dx10Archives, slots = AssetIndex.ArchiveSlots } : null,
+            archiveLimitWarnings = Assets.ArchiveLimitWarnings(a),
         };
         File.WriteAllText(Path.Combine(outDir, "conflicts.json"), JsonSerializer.Serialize(json, new JsonSerializerOptions { WriteIndented = true }));
     }
@@ -148,6 +199,85 @@ public static class Report
 
     /// <summary>Type-changing overrides by plugin, in load order (one recommendation per plugin, in both reports).</summary>
     public static List<IGrouping<string, TypeChange>> TypeChangesByPlugin(Analysis a) => a.TypeChanges.GroupBy(t => t.Plugin).ToList();
+
+    // The assets check (0.6.0 part 2), shared by report.md, report.html and conflicts.json.
+
+    /// <summary>One missing script or model with its plugin, flattened for the reports.</summary>
+    public record AssetRow(string Plugin, string Severity, string Kind, string Path, string? Script, IReadOnlyList<string> Users, string Text);
+
+    /// <summary>Missing assets by plugin in load order; in each plugin the scripts (ERROR) before the models (WARNING),
+    /// each kind in path order.</summary>
+    public static List<IGrouping<string, AssetRow>> AssetsByPlugin(Analysis a) =>
+        a.MissingAssets.GroupBy(f => f.Plugin)
+            .SelectMany(g => g.OrderBy(f => f.Asset.Kind == "script" ? 0 : 1).ThenBy(f => f.Asset.Path, StringComparer.Ordinal))
+            .Select(f => new AssetRow(f.Plugin, f.Asset.Severity, f.Asset.Kind, f.Asset.Path, f.Asset.Script, f.Asset.Users, f.Asset.Text))
+            .GroupBy(r => r.Plugin).ToList();
+
+    /// <summary>The summary count: "3 (1 script, 2 models)", "0" or "not checked (--no-assets)".</summary>
+    public static string AssetsCount(Analysis a)
+    {
+        if (!a.AssetsChecked) return a.AssetsFailed != null ? "not checked (the step stopped)" : "not checked (--no-assets)";
+        if (a.MissingAssets.Count == 0) return "0";
+        var s = a.MissingAssets.Count(f => f.Asset.Kind == "script");
+        var m = a.MissingAssets.Count - s;
+        return $"{a.MissingAssets.Count} ({s} script{(s == 1 ? "" : "s")}, {m} model{(m == 1 ? "" : "s")})";
+    }
+
+    /// <summary>The section's first paragraph: what was checked, or that the check was off.</summary>
+    public static string AssetsIntro(Analysis a) => !a.AssetsChecked
+        ? (a.AssetsFailed != null ? $"Not checked: the step stopped ({a.AssetsFailed}); \"Tool limits hit\" below has the details." : "Not checked: the run used --no-assets.")
+        : (a.AssetsFailed != null ? $"The check stopped part way ({a.AssetsFailed}), so this list may be incomplete. " : "") +
+          "Every script a mod plugin's records attach needs its .pex, and every model a record names needs its file, as a " +
+          "loose file under Data or inside an archive the game loads (the archives of every active plugin and those the " +
+          $"game's INI lists). Checked {a.AssetScriptUses} script use{(a.AssetScriptUses == 1 ? "" : "s")} and {a.AssetModelUses} " +
+          $"model use{(a.AssetModelUses == 1 ? "" : "s")} in the mod plugins against {a.ArchivesRead} archive{(a.ArchivesRead == 1 ? "" : "s")} " +
+          "and the loose files. A missing script is an ERROR (that record's script never runs); a missing model is a WARNING " +
+          "(an empty or error mesh in game). Official plugins are not checked, and neither is a missing path an override " +
+          "inherits: when the version it overrides names the same path, the mistake isn't the override's" +
+          (a.AssetsInherited > 0 ? $" ({a.AssetsInherited} such use{(a.AssetsInherited == 1 ? "" : "s")} left out; --verbose lists them)." : ".");
+
+    /// <summary>The summary cell: "102 / 151", with "(over the limit)" when either is over 256.</summary>
+    public static string ArchiveCountText(Analysis a) =>
+        $"{a.GnrlArchives} / {a.Dx10Archives}{(Assets.ArchiveLimitWarnings(a).Count > 0 ? " (over the limit)" : "")}";
+
+    /// <summary>The archive-count paragraph of the "Missing assets" section (shown with --no-assets too).</summary>
+    public static string ArchiveCountIntro(Analysis a) =>
+        $"Archives the game loads for this load order: {a.GnrlArchives} general (GNRL) and {a.Dx10Archives} texture (DX10). " +
+        $"The game has {AssetIndex.ArchiveSlots} slots for each kind; more than that leads to memory damage, wrong textures or crashes. " +
+        "Counted: the archives named after each active plugin and those the game's INI lists (other languages' voice archives don't load and aren't counted). " +
+        "Each archive is counted by its header type (GNRL general, DX10 texture), as the game does, so a GNRL archive named \"- Textures.ba2\" counts as general.";
+
+    /// <summary>The "What this report does not check" line about assets.</summary>
+    public static string AssetsNotChecked(Analysis a) => a.AssetsChecked
+        ? "Assets other than scripts and models (textures, materials, .mesh geometry, sounds, voice and animation files) and script parents are not checked, and neither are official plugins' scripts and models."
+        : a.AssetsFailed != null
+            ? $"Scripts, models and other assets are not checked: the step stopped ({a.AssetsFailed})."
+            : "Scripts, models and other assets are not checked (--no-assets); only plugin records.";
+
+    /// <summary>Recommended actions for the assets check: one per plugin (Medium when a script is missing, Low for
+    /// models only), one per archive that can't be read (Medium), and first one per archive registry over the game's
+    /// 256 slots (High, Winner "Archive limit"). Winner holds the plugin or archive name.</summary>
+    public static bool IsArchiveLimit(Recommendation r) => r.Winner == "Archive limit" && r.Loser.Length == 0;
+
+    public static List<Recommendation> AssetActions(Analysis a)
+    {
+        var list = new List<Recommendation>();
+        foreach (var w in Assets.ArchiveLimitWarnings(a))
+            list.Add(new Recommendation(1, "Archive limit", "", w));
+        foreach (var g in AssetsByPlugin(a))
+        {
+            var s = g.Count(f => f.Kind == "script");
+            var m = g.Count() - s;
+            var parts = new List<string>();
+            if (s > 0) parts.Add($"{s} missing script{(s == 1 ? "" : "s")}");
+            if (m > 0) parts.Add($"{m} missing model{(m == 1 ? "" : "s")}");
+            list.Add(new Recommendation(s > 0 ? 2 : 3, g.Key, "",
+                $"{string.Join(" and ", parts)}; {(s > 0 ? "those records' scripts never run" : "those records show an empty or error mesh")}. Reinstall the mod or ask its author for the missing files"));
+        }
+        foreach (var (archive, _) in a.UnreadableArchives)
+            list.Add(new Recommendation(2, archive, "", "this archive can't be read, so its files count as missing. Check the file (reinstall the mod that brings it)"));
+        return list;
+    }
 
     // Plugin text in report.md, in table cells, list items and headings (0.5.1: everywhere): "|" would end a cell early,
     // < > could start HTML, [ ] a link, and ` * _ a code span or emphasis (an EditorID with a backtick paired with the

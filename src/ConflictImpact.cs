@@ -20,11 +20,45 @@ record RawDiff(string Path, string Kind, string From, string To, bool Minor);
 
 public static class Impact
 {
-    /// <summary>"a CELL", "an ARMO", "an OTFT", "an NPC_": a record signature with its article (0.5.3: check said
-    /// "a ACHR"; conflict already picked a/an). Signatures are read as words, so the first letter decides, except NPC_,
-    /// which everyone reads as letters ("an N-P-C").</summary>
+    /// <summary>"a CELL", "an ARMO", "an OTFT", "an NPC_", "an FLST": a record signature with its article (0.5.3: check
+    /// said "a ACHR"; conflict already picked a/an). Most signatures are read as words ("a CELL", "a MISC"), so their
+    /// first letter decides; the ones in ReadAsLetters are spelled out, so "an" goes with them (0.5.4).</summary>
     public static string WithArticle(string sig) =>
-        ("AEIOU".Contains(char.ToUpperInvariant(sig.FirstOrDefault())) || sig.StartsWith("NPC", StringComparison.OrdinalIgnoreCase) ? "an " : "a ") + sig;
+        ("AEIOU".Contains(char.ToUpperInvariant(sig.FirstOrDefault())) || ReadAsLetters.Contains(sig) ? "an " : "a ") + sig;
+
+    // Starfield signatures that modders spell out letter by letter rather than say as a word (0.5.4, review of 0.5.3).
+    // Only those starting with a letter whose name begins with a vowel sound matter (F "eff", H "aitch", L "ell",
+    // M "em", N "en", R "ar", S "ess", X "ex"): they take "an" although their first letter is a consonant. Spelled-out
+    // signatures starting with other consonants (KYWD, GMST, CSTY, DFOB ...) take "a" either way, and A, E, I, O take
+    // "an" either way, so they aren't listed. No Starfield signature starts with U. Signatures said as words stay with
+    // the first-letter rule: a MISC, a NAVM, a SCEN, a FURN, a HAZD, a LIGH, a LCTN ("location"), a MRPH ("morph").
+    // Both lists together cover every Starfield signature starting with F, H, L, M, N, R, S or X (a test checks it
+    // against Mutagen's record types, so a new one fails the test until it is sorted). Said as words:
+    public static readonly IReadOnlySet<string> SaidAsWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "FACT", "FLOR", "FOGV", "FORC", "FURN",
+        "HAZD",
+        "LAYR", "LCTN", "LENS", "LIGH",
+        "MATT", "MESG", "MISC", "MOVT", "MRPH", "MUSC", "MUST",
+        "NAVI", "NAVM", "NOTE",
+        "RACE", "REFR", "REGN", "REVB",
+        "SCEN", "SCOL", "SECH", "SOUN", "SPCH", "SPEL", "STAG", "STAT", "STMP", "SUNP",
+    };
+
+    // Spelled out:
+
+    public static readonly IReadOnlySet<string> ReadAsLetters = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "FFKW", "FLST", "FSTP", "FSTS", "FXPD",          // form folder keyword list, form list, footsteps, effect presets
+        "HDPT",                                          // head part
+        "LCRT", "LGDI", "LGTM", "LMSW", "LSCR", "LTEX",  // location ref type, ..., lighting template, layered swap, load screen, land texture
+        "LVLB", "LVLI", "LVLN", "LVLP", "LVSC",          // leveled lists
+        "MAAM", "MGEF", "MSTT", "MSWP", "MTPT",          // ..., magic effect, moveable static, material swap
+        "NOCM", "NPC_",
+        "RFGP", "RSGD", "RSPJ",                          // reference group, research
+        "SCCO", "SDLT", "SFBK", "SFPC", "SFPT", "SFTR",  // ..., surface blocks, pattern configs, patterns, trees
+        "SMBN", "SMEN", "SMQN", "SNDR", "SPGD", "STBH", "STDT", "STND",   // story manager nodes, sound descriptor, ...
+    };
 
     /// <summary>An exception as one short line, "IOException: first line of its message" (0.5.3: one helper for every
     /// read-problem note in conflict).</summary>

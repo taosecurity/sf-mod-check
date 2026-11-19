@@ -19,7 +19,8 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.5.3 (fixes from the 0.5.2 reviews: a report that fails part way never leaves old and new files mixed, and
+Version 0.6.0 (adds the `assets` check: scripts and models a plugin names but that aren't loose or in an archive
+the game loads, in `check` and `conflict`; 0.5.3 fixed issues from the 0.5.2 reviews: a report that fails part way never leaves old and new files mixed, and
 `check` gives an armor record on an armor addon's FormID a WARNING; 0.5.2 reports overrides that change a record's type,
 and running out of memory always stops a run instead of leaving a report that looks whole; 0.5.1 carried on past records it can't read; 0.5.0 added the `conflict`
 command for whole load orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
@@ -87,7 +88,7 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sfmodcheck/rel
 ## Run it
 
     sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]
-                              [--verbose] [--log <file>]
+                              [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]
     sfmodcheck --version
 
 - `--data`: the game's Data folder (default: Steam's usual one, see above).
@@ -96,6 +97,13 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sfmodcheck/rel
 - `--max`: the most lines printed per check (default 100). The counts in the RESULT line are always complete.
 - `--quiet`: leave out the first summary line.
 - `--no-hints`: leave out the HINT lines.
+- `--no-assets`: skip the assets check (missing scripts and models), for example when the plugin's archive isn't
+  built yet.
+- `--ini <file>`: also read this INI's `[Archive]` lists for the archives the game loads, after `Starfield.ini` in the
+  game folder and `StarfieldCustom.ini` in `Documents\My Games\Starfield`; can be given more than once. Use it for an
+  install whose INIs are elsewhere.
+- `--language <code>`: the voice language whose archives count (`<plugin> - Voices_<code>.ba2`; default `en`;
+  the game's codes are en, de, fr, es, it, ja, pl, ptbr and zhhans).
 - `--verbose`: print the troubleshooting log on stderr (lines start with `log: `). See below.
 - `--log <file>`: write the troubleshooting log to that file. See below.
 
@@ -128,7 +136,7 @@ plugin's full path.
 
 ### What the output looks like
 
-    sfmodcheck 0.5.3 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
+    sfmodcheck 0.6.0 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
     ERROR [links] MyMod_Misc [MISC:000801:MyMod.esm] links to 000FF0:MyMod.esm, which doesn't exist (expects Keyword)
     HINT [links] A field points at a record that doesn't exist, ...
     WARNING [itm] SomeKeyword [KYWD:0A1B2C:Starfield.esm] is identical to the master version it overrides (ITM)
@@ -185,7 +193,8 @@ follow by hand in xEdit. It only reads plugins: it never changes one, and it nev
 Then open `sfmodcheck-conflict\report.html` in a browser.
 
     sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
-                        [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
+                        [--max-memory <GB>] [--no-assets] [--ini <file>]... [--language <code>]
+                        [--quiet] [--verbose] [--log <file>]
 
 - `--plugins`: the load order to check (default: the game's own, `%LOCALAPPDATA%\Starfield\Plugins.txt`, which
   Vortex and the game's Creations menu keep up to date). Only the lines marked active (`*`) count. Bethesda's own files
@@ -200,6 +209,31 @@ Then open `sfmodcheck-conflict\report.html` in a browser.
   (the same as Markdown) and `conflicts.json` (everything, for scripts).
 - `--max-memory`: stop cleanly when memory passes this many GB (exit code 3, no report), instead of slowing the PC.
   It takes a number of GB from 0.000001 to 1000000, for example 8.
+- `--no-assets`, `--ini <file>`, `--language <code>`: the assets check, as for `check` (0.6.0). In `conflict` it
+  looks up every mod plugin's scripts and models in the archives of every active plugin (`<plugin> - *.ba2`), the
+  archives the INIs list, and loose files (the `--extra-data` folder, then Data). Bethesda's own plugins aren't
+  checked, and an override isn't blamed for a missing file the version it overrides already names (the record in
+  the last of the plugin's masters, in load order, that has it, as in `check`): that one is reported once, against
+  the plugin that added the path, or not at all when it's Bethesda's (conflicts.json `inheritedAssetUses` counts the
+  uses left out). Those lookups obey `--max-memory`: past the limit they stop, every missing path is reported, and
+  "Tool limits hit" says so. The RESULT line adds ", N missing assets (S scripts, M models)" when there are any. The report's
+  "Missing assets" section lists them by plugin (scripts, an ERROR, before models, a WARNING), with the number of
+  archives read and any archive that can't be read; each plugin with missing files gets a recommended action, and
+  conflicts.json has them as `missingAssets` and `unreadableArchives`. With `--no-assets` the section says the check
+  was off. If the assets step itself stops (a folder that can't be listed, a disk error), the report is still
+  written: the section and "Tool limits hit" say why, and conflicts.json has the reason as `assetsFailed` (else
+  null).
+- **The archive limit (0.6.0):** `conflict` also counts the archives the game would load for the load order (the
+  same list: every active plugin's `<plugin> - *.ba2` and the INIs' lists, other languages' voice archives left out),
+  separately for general archives (GNRL: scripts, meshes, materials, sounds) and texture archives (DX10). The game
+  has 256 slots for each kind: a 257th general archive damages the game's memory and a 257th texture archive wraps
+  around to slot 0 (wrong textures or crashes). When either count is over 256, the RESULT line adds
+  ", WARNING N general archives (over 256)" or ", WARNING N texture archives (over 256)", and the report gets a
+  WARNING and a High recommended action, listed first (remove or merge mods that bring archives, or use a BA2 limit fix). The
+  counts are always in the report's Summary and "Missing assets" section and in conflicts.json (`archiveCounts`:
+  `gnrl`, `dx10`, `slots`; `archiveLimitWarnings`). `--no-assets` still counts them (it reads only each archive's
+  header). An archive whose header can't be read isn't counted. Each archive is counted by its header type (GNRL
+  general, DX10 texture), as the game does, not by its name: a GNRL archive named `- Textures.ba2` counts as general.
 - `--quiet`: leave out the byline, the progress lines and the summary line.
 - `--verbose` and `--log <file>`: the troubleshooting log, as for `check`. It records the Data folder and load order
   used and why, the plugins loaded, each load-order problem, one line per record type (records, versions and memory),
@@ -229,7 +263,8 @@ limits hit" section lists the plugin, the record type and, where Mutagen names i
 line then adds "read problems (records not compared ...)". Run `sfmodcheck check` on that plugin to see the record.
 Running out of memory is never skipped that way: the run stops with `CANNOT CHECK` and writes no report.
 
-**What it doesn't check:** scripts, assets (meshes, textures, sounds) and loose files; only plugin records. Fields
+**What it doesn't check:** the scripts' code and assets other than attached scripts and model paths (textures,
+materials, sounds; see the `assets` entry under `check`). Fields
 that are bookkeeping or that the Creation Kit regenerates are skipped (the report lists them). A patch it suggests is
 for your own game: it holds other authors' data, so don't publish it. To see its working for one record, set the
 environment variable `SFMODCHECK_DEBUG_RECORD` to that record's FormKey (for example `064F3C:Starfield.esm`).
@@ -269,6 +304,17 @@ Each finding names its check in brackets.
   isn't reported, the same as xEdit's "Remove ITM". Bethesda's own plugins get the count only.
 - **records**: deleted records, one WARNING per record type with the count and a few IDs. Bethesda's masters delete
   records too, so it's a WARNING, not an ERROR; the risk is another mod or the game still using a deleted record.
+- **assets** (0.6.0): every script a record attaches (its scripts, and the fragment and alias scripts of quests,
+  scenes, perks, topic infos and packages) must have its `.pex` under `scripts\` (ERROR: the script never runs), and
+  every model path a record names must have its file under `meshes\` (WARNING). A file counts when it is loose in the
+  Data folder (or a `--masters-dir` folder) or inside an archive the game loads: `<plugin> - *.ba2` for the plugin and
+  each of its masters (other languages' voice archives left out), plus the archives `Starfield.ini` and
+  `StarfieldCustom.ini` list. Each missing file is listed once, with up to 3 records that use it. An override isn't
+  blamed for a missing file the master's version of the record already names (some vanilla records attach scripts
+  the game doesn't ship; `--verbose` lists each one left out). **Not checked yet:**
+  textures and materials (a mesh's `.mat` and `.dds` files), `.mesh` geometry, files the game finds by name (voice,
+  lip and face animation, `.af`/`.hkx` animations, LOD, Wwise sounds), a script's parent and imports, whether an SFSE
+  plugin a native script needs is installed, and which copy of a file wins. Tested on Steam installs only.
 
 ## For Creation Kit and xEdit authors
 
@@ -288,6 +334,7 @@ What each check's findings mean and how to fix them. These are the same lines sf
 - **scenes**: A scene uses a quest alias its quest doesn't have, or has no quest. CK: open the scene's quest, check the Quest Aliases tab, then fix each scene actor, action and condition that names the alias (or set the scene's quest). xEdit: compare the scene's alias IDs with the quest's alias list.
 - **editorids**: Give each new record its own Editor ID that no master uses either. CK: open the form and change its ID. xEdit: edit the EDID field. This usually comes from duplicating a record or Copy as New Record.
 - **itm**: Identical to Master (ITM) records change nothing but can undo other mods' edits to the same record. xEdit: right-click the plugin > Remove "Identical to Master" records (or run QuickAutoClean). In the CK they come from opening a form and pressing OK without changes.
+- **assets**: A missing script means the record's script never runs; a missing model shows as an empty or error mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file comes from another mod, make that mod a master or a requirement. Run with --verbose to see which archives were read.
 - **records**: Deleted records can crash the game when the game or another mod still uses them. xEdit: on placed references (REFR, ACHR) use right-click > Undelete and Disable References. For other types, remove the deleting override in xEdit (right-click > Remove) unless you really mean it. In the CK, disable instead of deleting vanilla objects.
 
 Each finding names the record by its EditorID (where it has one) and `[TYPE:FormID:Plugin]`, where FormID is the

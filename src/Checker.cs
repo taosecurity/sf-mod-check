@@ -29,12 +29,19 @@ public sealed class Options
     /// <summary>Let the private build's built-in scene-quirk list fill in when Data lacks an official master (SelfTest
     /// turns it off to act like the public build).</summary>
     public bool UseBuiltInSceneQuirks = true;
+    /// <summary>Skip the assets check (0.6.0; package-check passes it: it checks staged scripts itself, and its
+    /// masters folder holds plugins only, not their archives).</summary>
+    public bool NoAssets;
+    /// <summary>INI files read after Starfield.ini and StarfieldCustom.ini for the archive lists (--ini).</summary>
+    public List<string> Inis = new();
+    /// <summary>Voice archives of other languages are skipped (--language, default en).</summary>
+    public string Language = "en";
 }
 
 public sealed class Result
 {
     public readonly List<Finding> Findings = new();
-    public int Records, Groups, Links, Overrides, Itms;
+    public int Records, Groups, Links, Overrides, Itms, Scripts, Models;
     public TimeSpan Elapsed;
     public bool CannotCheckLinks;
     /// <summary>Official scenes in the plugin the scenes rule skipped because no quirk list covers their master
@@ -463,6 +470,16 @@ public static class Checker
         if (notCompared > 0) add("WARNING", "itm", $"{notCompared} override(s) couldn't be compared with their master version");
         Stage($"itm: {itms.Count} of {overrides.Count} overrides identical to master{(IsOfficial(self) ? " (official plugin: count only)" : "")}");
         if (Environment.GetEnvironmentVariable("SFMODCHECK_TIMING") == "1") Console.Error.WriteLine($"itm: {overrides.Count} overrides, {itms.Count} ITM, {itmSw.Elapsed.TotalSeconds:F2} s");
+
+        // 6. assets (0.6.0): attached scripts and model paths must be a loose file or in an archive that loads (the
+        // plugin's and its masters' "<name> - *.ba2", and the INIs' archive lists)
+        if (o.NoAssets) { Log.Write("assets: skipped (--no-assets)"); return; }
+        var assetDirs = MasterDirs(o).Append(o.DataDir).ToList();
+        var assetPlugins = game.LoadOrder.Select(m => m.ModKey.FileName.String).Append(self).ToList();
+        var index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language);
+        var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache);
+        r.Scripts = scriptCount; r.Models = modelCount;
+        Stage($"assets: {scriptCount} script uses, {modelCount} model uses, {index.Loaded.Count} archives read");
     }
 
     static string Short(HashSet<string> s) => s.Count <= 8 ? string.Join("/", s.Order()) : string.Join("/", s.Order().Take(8)) + $"/... {s.Count} types";
@@ -580,7 +597,7 @@ public static class Checker
         Console.WriteLine($"{counts.Count} type pairs -> {outPath} ({sw.Elapsed.TotalSeconds:F0} s)");
     }
 
-    static string Name(IMajorRecordGetter r) => $"{r.EditorID ?? "(no EditorID)"} [{SigOf(r) ?? r.GetType().Name}:{r.FormKey}]";
+    internal static string Name(IMajorRecordGetter r) => $"{r.EditorID ?? "(no EditorID)"} [{SigOf(r) ?? r.GetType().Name}:{r.FormKey}]";
 
     static string? SigOf(IMajorRecordGetter r) => SigsOf(r.GetType())?.FirstOrDefault();
 
