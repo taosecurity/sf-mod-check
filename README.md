@@ -378,8 +378,9 @@ filter.
 - When a condition's parameter is a quest alias rather than a form, the alias number isn't checked.
 - In NAVI, only the traversal entries are read directly; edge, preferred and door links come through Mutagen and are
   checked as links.
-- Not checked: "missing required field" checks, face data, and anything in loose files or BA2 archives.
-- It checks one plugin against its masters. It doesn't check conflicts between mods.
+- Not checked: "missing required field" checks, face data, and what is inside loose files or BA2 archives (the
+  `assets` check only looks up the names of attached scripts and models).
+- `check` checks one plugin against its masters. Conflicts between mods are `sfmodcheck conflict`'s job.
 
 ## Build from source
 

@@ -186,8 +186,10 @@ Its first line is `sfmodcheck 0.6.0 by Richard Bejtlich - GPL-3.0 - https://gith
 1. It never changes, moves or deletes a plugin, the load order or anything in the game folder. It writes only its
    caches, the `--log` file and (conflict) the `--out` report folder.
 2. It makes no network connections and uploads nothing.
-3. `check` checks one plugin against its masters; `conflict` compares plugin records across a load order. Neither
-   checks loose files, BA2 archives or scripts.
+3. `check` checks one plugin against its masters; `conflict` compares plugin records across a load order. The
+   `assets` check in both only looks up the names of attached scripts and model files in loose files and BA2
+   archives; neither reads what is inside a script, model or archive, and textures, materials and sounds aren't
+   looked up.
 4. A patch `conflict` suggests holds other authors' data: it is for the player's own game, never for publishing.
    Mod Organizer 2 keeps mods out of the Data folder, so run `conflict` from MO2 (as an executable) or it won't see
    them (not yet tried).
