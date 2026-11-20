@@ -224,6 +224,15 @@ public static class ReleaseCommand
                         $"couldn't unpack {full}: {e.Message} Close any program that has the zip open, check that you can read it, and free " +
                         $"space in the temp folder ({Path.GetTempPath()}), then run again.");
                 }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // any other file error (a path too long, a share that dropped): the PC or the zip (seventeenth review)
+                    Log.Write($"unpacking {full} stopped: {e}");
+                    return CantRun($"{Path.GetFileName(full)} couldn't be unpacked",
+                        $"couldn't unpack {full}: {e.Message} Either the PC stopped it (the file moved, a network drive dropped, the temp folder " +
+                        $"{Path.GetTempPath()} is full) or the zip holds a path this system can't make (too long). Run again; if it fails the same way, " +
+                        "shorten the folder names in the zip.");
+                }
                 Log.Write($"unpacked {packages[^1].Name}: {packages[^1].Files.Count} files, {packages[^1].Plugins.Count} plugins, {packages[^1].Archives.Count} archives");
             }
             var ctx = new ReleaseContext { Options = o, Packages = packages, Work = work };
@@ -314,7 +323,33 @@ public static class ReleaseCommand
     /// a space ("a.esm." is written as a.esm). Two entries could then land on one file, or a plugin be missed by its
     /// extension (fifteenth review). Only the parts before a final "/" count.</summary>
     public static bool ChangedByWindows(string name) =>
-        name.TrimEnd('/').Split('/').Any(p => p.Length == 0 || p == "." || p.EndsWith('.') || p.EndsWith(' '));   // also an empty part ("Data//a.esm")
+        name.TrimEnd('/').Split('/').Any(p => p.Length == 0 || p == "." || p.EndsWith('.') || p.EndsWith(' ')   // also an empty part ("Data//a.esm")
+                                             || DeviceNames.Contains(p.Split('.')[0]));   // CON, NUL, COM1 ...: a device, not a file (seventeenth review)
+
+    static readonly HashSet<string> DeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "CONIN$", "CONOUT$",
+    };
+
+    /// <summary>A file and a folder of the same name across an archive's entries, compared by normalized name (lower
+    /// case), so it is found on every system, not only where the file system ignores case (seventeenth review). Adds
+    /// norm (a Ba2Names.Normalize path) to the sets; returns why it clashes, or null.</summary>
+    public static string? NameClash(string norm, HashSet<string> files, HashSet<string> dirs)
+    {
+        if (dirs.Contains(norm)) return "has the same name as a folder in the archive";
+        var parts = norm.Split('\\');
+        var prefix = "";
+        for (int i = 0; i < parts.Length - 1; i++)
+        {
+            prefix = i == 0 ? parts[0] : prefix + "\\" + parts[i];
+            if (files.Contains(prefix)) return "sits in a folder that the archive also holds as a file";
+        }
+        prefix = "";
+        for (int i = 0; i < parts.Length - 1; i++) { prefix = i == 0 ? parts[0] : prefix + "\\" + parts[i]; dirs.Add(prefix); }
+        files.Add(norm);
+        return null;
+    }
 
     /// <summary>True when the entry's stream gives at least one byte (its declared length can be wrong).</summary>
     static bool ReadsAByte(ZipArchiveEntry e)
@@ -336,6 +371,7 @@ public static class ReleaseCommand
         var plugins = new List<string>();
         var archives = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        HashSet<string> clashFiles = new(StringComparer.Ordinal), clashDirs = new(StringComparer.Ordinal);
         using (var z = ZipFile.OpenRead(zip))
         {
             long total = z.Entries.Sum(e => e.Length), written = 0;
@@ -360,6 +396,8 @@ public static class ReleaseCommand
                 }
                 var norm = Ba2Names.Normalize(name);
                 if (!seen.Add(norm)) throw new InvalidDataException($"the zip holds \"{e.FullName}\" twice (names differ only in case or slashes)");
+                if (NameClash(norm, clashFiles, clashDirs) is { } clash)
+                    throw new InvalidDataException($"the entry \"{e.FullName}\" {clash}; rename one of them in the zip");
                 var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));
                 if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException($"the entry \"{e.FullName}\" points outside the zip's own folders");
@@ -393,7 +431,7 @@ public static class ReleaseCommand
             }
             // a problem of the PC (disk full, a lock, no permission) goes on as itself, so the user isn't told the zip
             // is broken (fifteenth review); anything else about an entry becomes a refusal that says what to do
-            catch (Exception x) when ((x is IOException or NotSupportedException or ArgumentException) && !TriageCommand.IsPcProblem(x))
+            catch (Exception x) when ((x is IOException or NotSupportedException or ArgumentException) && !TriageCommand.IsFileSystem(x))   // as UnpackOther: a path too long or a missing folder goes on as itself
             {
                 throw new InvalidDataException($"the entry \"{e.FullName}\" can't be unpacked ({x.GetType().Name}: {x.Message}). The zip holds a " +
                                                "name this system can't make (a file and a folder of the same name, a reserved name) or an entry " +

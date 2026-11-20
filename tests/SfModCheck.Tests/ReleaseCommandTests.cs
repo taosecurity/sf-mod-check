@@ -65,6 +65,14 @@ public class ReleaseCommandTests
         // a folder entry first, then a file of that name: the zip's fault, said so (sixteenth review)
         var dirThenFile = MakeZip(s, "DirThenFile.zip", ("Data/b.esm", "x"), ("Data", "y"));
         Assert.Contains("same name as a folder", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(dirThenFile, Path.Combine(s.Dir, "dtf"))).Message);
+        // the clash by name, whatever the case and on every system (seventeenth review)
+        var caseClash = MakeZip(s, "CaseClash.zip", ("Data", "y"), ("data/Foo.esm", "x"));
+        Assert.Contains("also holds as a file", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(caseClash, Path.Combine(s.Dir, "cc"))).Message);
+        // device names are refused
+        foreach (var dev in new[] { "Data/NUL", "nul.esm", "Data/COM1.txt", "AUX/a.esm" })
+            Assert.True(ReleaseCommand.ChangedByWindows(dev), dev);
+        Assert.False(ReleaseCommand.ChangedByWindows("Data/Console.esm"));
+        Assert.Null(ReleaseCommand.NameClash("data\\a.esm", new(), new()));
         Assert.False(ReleaseCommand.ChangedByWindows("Data/Foo.esm"));
         Assert.False(ReleaseCommand.ChangedByWindows("Data/"));
     }

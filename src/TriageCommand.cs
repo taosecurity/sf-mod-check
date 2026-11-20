@@ -479,7 +479,7 @@ public static class TriageCommand
         || (e is IOException and not (FileNotFoundException or DirectoryNotFoundException or PathTooLongException or EndOfStreamException) &&
             (OperatingSystem.IsWindows()
                 ? (e.HResult & 0xFFFF) is 32 or 33 or 39 or 112   // sharing, lock violation; disk full
-                : e.HResult is 28 or 122 or 69));
+                : e.HResult is 28 or 11 or 30 || e.HResult == (OperatingSystem.IsMacOS() ? 69 : 122)));   // ENOSPC, EAGAIN (a lock), EROFS; EDQUOT per OS
 
     const string GuardMark = "sf-mod-check unpack guard";
 
@@ -501,6 +501,7 @@ public static class TriageCommand
         var root = Path.GetFullPath(dest).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var files = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        HashSet<string> clashFiles = new(StringComparer.Ordinal), clashDirs = new(StringComparer.Ordinal);
         long max = ReleaseCommand.MaxUnpackedBytes;
         using var a = ArchiveFactory.OpenArchive(archive, new SharpCompress.Readers.ReaderOptions());
         var entries = a.Entries.Where(e => !e.IsDirectory).ToList();
@@ -572,6 +573,7 @@ public static class TriageCommand
             }
             var norm = Ba2Names.Normalize(name);
             if (!seen.Add(norm)) throw Refused($"the archive holds \"{key}\" twice (names differ only in case or slashes)");
+            if (ReleaseCommand.NameClash(norm, clashFiles, clashDirs) is { } clash) throw Refused($"the entry \"{key}\" {clash}");
             var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));
             if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 throw Refused($"the entry \"{key}\" points outside the archive's own folders");
