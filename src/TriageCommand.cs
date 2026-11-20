@@ -222,9 +222,15 @@ public static class TriageCommand
                 $"Give --out a folder of your own, for example --out \"{example}\".");
         var outDir = Path.GetFullPath(outChoice);
         // never in the game, --out included (a relative --out run from the game folder lands there)
-        if (InGameInstall(outDir, o.DataDir))
-            return CantRun("--out is inside the game",
-                $"won't write the report to {outDir}: it is inside the game's install. Give --out a folder of your own, for example --out \"{example}\".");
+        switch (InstallCheck(outDir, o.DataDir))
+        {
+            case true:
+                return CantRun("--out is inside the game",
+                    $"won't write the report to {outDir}: it is inside the game's install. Give --out a folder of your own, for example --out \"{example}\".");
+            case null:
+                return CantRun("the report folder's path can't be checked",
+                    $"won't write the report to {outDir}: its path couldn't be checked against the game's install. Give --out a plain folder, for example --out \"{example}\".");
+        }
         try { Directory.CreateDirectory(outDir); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -360,9 +366,10 @@ public static class TriageCommand
             if (Path.GetFileName(data).Equals("Data", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(data) is { } up)
             {
                 install = up;
-                if (Path.GetFileName(up).Equals("Content", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(up) is { } up2) install = up2;
+                if (Path.GetFileName(up).Equals("Content", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(up) is { } up2 && !IsRoot(up2)) install = up2;
             }
-            if (Path.GetPathRoot(install) is { } root && install.TrimEnd('\\', '/').Equals(root.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)) install = data;
+            if (IsRoot(install)) install = data;   // D:\Data: the drive is not the game (D:\Content\Data keeps D:\Content)
+            static bool IsRoot(string p) => Path.GetPathRoot(p) is { } r && p.TrimEnd('\\', '/').Equals(r.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
             return (Path.GetFullPath(folder).TrimEnd('\\', '/') + Path.DirectorySeparatorChar).StartsWith(install.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException) { return null; }
@@ -418,21 +425,30 @@ public static class TriageCommand
         // SharpCompressException; its CryptographicException means headers encrypted with a password (fourth code
         // review: not .NET's type of that name). An InvalidOperationException counts only when it comes from
         // SharpCompress or a .NET method it calls on a damaged file (third review); one from our own code stays an error.
+        // Fifth review: decided by where the error was raised, not by its type. Anything raised while SharpCompress code
+        // was running (its own exceptions, and .NET ones it hits on a damaged file: InvalidOperationException,
+        // ObjectDisposedException, .NET's CryptographicException from AES) means the archive can't be read; an
+        // encryption error means a password. Our own guards' InvalidDataException passes through unchanged.
         try { return UnpackOtherCore(archive, dest); }
-        catch (SharpCompress.Common.CryptographicException e) { throw new InvalidDataException($"it is password-protected; triage doesn't open encrypted archives ({e.Message})", e); }
-        catch (SharpCompressException e) { Log.Write($"triage: {archive}: {e}"); throw new InvalidDataException($"it can't be read as an archive ({e.Message})", e); }
-        catch (InvalidOperationException e) when (e is not ObjectDisposedException && FromLibrary(e))
+        catch (Exception e) when (e is not InvalidDataException && Fatal.Recoverable(e) && (e is SharpCompressException || RaisedIn(e, "SharpCompress")))
         {
             Log.Write($"triage: {archive}: {e}");
+            if (e is SharpCompress.Common.CryptographicException or System.Security.Cryptography.CryptographicException)
+                throw new InvalidDataException($"it is password-protected or its encrypted data is damaged; triage doesn't open encrypted archives ({e.Message})", e);
             throw new InvalidDataException($"it can't be read as an archive ({e.Message})", e);
         }
     }
 
-    /// <summary>True when the exception was thrown inside SharpCompress or .NET itself, not in sf-mod-check's own code.</summary>
-    static bool FromLibrary(Exception e)
+    /// <summary>True when a frame of the exception's stack belongs to the named assembly (the error came from inside it,
+    /// even when a .NET method it called raised it).</summary>
+    static bool RaisedIn(Exception e, string assembly)
     {
-        var asm = e.TargetSite?.DeclaringType?.Assembly.GetName().Name ?? "";
-        return asm == "SharpCompress" || asm.StartsWith("System.", StringComparison.Ordinal) || asm == "System";
+        try
+        {
+            return new System.Diagnostics.StackTrace(e, false).GetFrames()
+                .Any(f => f.GetMethod()?.DeclaringType?.Assembly.GetName().Name == assembly);
+        }
+        catch (Exception) { return false; }
     }
 
     static List<string> UnpackOtherCore(string archive, string dest)

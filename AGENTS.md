@@ -206,7 +206,7 @@ Its first line is `sf-mod-check 0.8.0 by Richard Bejtlich - GPL-3.0 - https://gi
 - **`triage`:** input is one .zip, .7z or .rar (unpacked into a temp folder that is removed at the end;
   password-protected archives are refused), a mod folder (read where it is; the game's install, its Data or Content folder, or a folder inside them is refused) or
   one plugin (with the archives beside it that share its name). Output: `<out>\<name>-triage.html`, `.txt` and
-  `.json` (default `<out>` = the input's folder, or the current folder when the input is inside a game install; when both are, nothing is written and exit 2 asks for `--out`; an `--out` inside a game install is refused the same way).
+  `.json` (default `<out>` = the input's folder, or the current folder when the input is inside a game install; when both are, nothing is written and exit 2 asks for `--out`; an `--out` inside a game install is refused the same way; a folder or `--out` path that can't be checked against the game is refused too, with a message saying so).
   The JSON has `triage_not_a_verdict: true`, `input` (name, path, kind, size, sha256), `game_data`, `game_found`,
   `incomplete` (sections that stopped early), `findings` (each `level` NOTE or LOOK, `section`, `file`, `text`) and
   `tables` (`section`, `title`, `columns`, `rows`). On stdout: a summary line, one `LOOK [section] ...` line per LOOK,
