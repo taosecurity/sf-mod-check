@@ -467,7 +467,7 @@ public static class TriageCommand
     /// <summary>A file-system error, not a damaged archive: a file or folder not found, a path too long, no permission,
     /// the archive locked by another program, or the disk full. It can be about the archive file, the temp folder it
     /// is unpacked into, or an entry's path there; the caller names it as it is.</summary>
-    static bool IsFileSystem(Exception e) =>
+    public static bool IsFileSystem(Exception e) =>
         e is FileNotFoundException or DirectoryNotFoundException or PathTooLongException or UnauthorizedAccessException or DriveNotFoundException
         || (e is IOException && (e.HResult & 0xFFFF) is 32 or 33 or 39 or 112);   // sharing, lock violation; disk full (39, 112)
 
@@ -550,6 +550,8 @@ public static class TriageCommand
             // the path checks first, for every entry (twelfth review: a "../../x/" folder record was skipped, not refused)
             if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(x => x == ".."))
                 throw Refused($"the entry \"{key}\" points outside the archive's own folders");
+            if (ReleaseCommand.ChangedByWindows(name))
+                throw Refused($"the entry \"{key}\" has a name Windows changes (a \".\" part, or one ending in a dot or space)");
             // A folder record some tools write as a plain entry ("Data/"): nothing to write (tenth review: it was
             // refused as a clash with the folder its own files made). Only an empty one: its stream is read, not its
             // declared size (twelfth review), so an entry named like a folder can't hide data.

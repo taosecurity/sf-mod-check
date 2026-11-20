@@ -302,6 +302,12 @@ public static class ReleaseCommand
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
     }
 
+    /// <summary>True for an entry path Windows would write under another name: a "." part, or a part ending in a dot or
+    /// a space ("a.esm." is written as a.esm). Two entries could then land on one file, or a plugin be missed by its
+    /// extension (fifteenth review). Only the parts before a final "/" count.</summary>
+    public static bool ChangedByWindows(string name) =>
+        name.TrimEnd('/').Split('/').Any(p => p == "." || p.EndsWith('.') || p.EndsWith(' '));
+
     /// <summary>True when the entry's stream gives at least one byte (its declared length can be wrong).</summary>
     static bool ReadsAByte(ZipArchiveEntry e)
     {
@@ -333,6 +339,8 @@ public static class ReleaseCommand
                 // the path check first, folder entries included (0.8.0 review: "../../x/" was skipped, not refused)
                 if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(p => p == ".."))
                     throw new InvalidDataException($"the entry \"{e.FullName}\" points outside the zip's own folders");
+                if (ChangedByWindows(name))
+                    throw new InvalidDataException($"the entry \"{e.FullName}\" has a name Windows changes (a \".\" part, or one ending in a dot or space); rename it in the zip");
                 if (name.EndsWith('/'))
                 {
                     // a folder entry: nothing to write, unless it holds data (then something would hide behind a
@@ -369,11 +377,13 @@ public static class ReleaseCommand
                 if (PluginExts.Contains(Path.GetExtension(norm))) plugins.Add(target);
                 else if (norm.EndsWith(".ba2", StringComparison.Ordinal)) archives.Add(target);
             }
-            catch (Exception x) when (x is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            // a problem of the PC (disk full, a lock, no permission) goes on as itself, so the user isn't told the zip
+            // is broken (fifteenth review); anything else about an entry becomes a refusal that says what to do
+            catch (Exception x) when (x is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException && !TriageCommand.IsFileSystem(x))
             {
-                throw new InvalidDataException($"the entry \"{e.FullName}\" can't be unpacked ({x.GetType().Name}: {x.Message}): the zip holds a name " +
-                                               "Windows can't make (a file and a folder of the same name, a reserved name), an entry it can't decode, " +
-                                               "or the temp folder is full", x);
+                throw new InvalidDataException($"the entry \"{e.FullName}\" can't be unpacked ({x.GetType().Name}: {x.Message}). The zip holds a " +
+                                               "name this system can't make (a file and a folder of the same name, a reserved name) or an entry " +
+                                               "it can't decode; rename or remove that entry in the zip and pack it again", x);
             }
         }
         files.Sort(StringComparer.Ordinal);

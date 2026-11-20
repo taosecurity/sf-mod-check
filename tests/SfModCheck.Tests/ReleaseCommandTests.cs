@@ -55,6 +55,14 @@ public class ReleaseCommandTests
         // and folder entries: data behind a folder name, or a path outside, are refused (also in TriageCommandTests)
         var hidden = MakeZip(s, "Hidden.zip", ("Scripts/", "secret"));
         Assert.Contains("named like a folder", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(hidden, Path.Combine(s.Dir, "out2"))).Message);
+        // names Windows writes under another name (fifteenth review): a trailing dot or space, a "." part
+        foreach (var odd in new[] { "Foo.esm.", "Foo.esm ", "Data/./a.esm", "Data./a.esm" })
+        {
+            var z = MakeZip(s, $"Odd{odd.GetHashCode():X}.zip", (odd, "x"));
+            Assert.Contains("Windows changes", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(z, Path.Combine(s.Dir, "o" + odd.GetHashCode()))).Message);
+        }
+        Assert.False(ReleaseCommand.ChangedByWindows("Data/Foo.esm"));
+        Assert.False(ReleaseCommand.ChangedByWindows("Data/"));
     }
 
     [Fact]
