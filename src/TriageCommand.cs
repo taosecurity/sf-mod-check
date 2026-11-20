@@ -105,7 +105,7 @@ public sealed class TriageContext
     public string Full(string rel)
     {
         var direct = Path.Combine(Root, rel.Replace('\\', Path.DirectorySeparatorChar));
-        if (OperatingSystem.IsWindows() || (File.Exists(direct) && !IsLink(direct))) return direct;   // a folder of that exact name goes through Find, where a file wins
+        if (OperatingSystem.IsWindows()) return direct;   // elsewhere always the full lookup: a link at any level is refused (security review: a linked parent folder)
         lock (resolved)
         {
             if (resolved.TryGetValue(rel, out var hit)) return hit;

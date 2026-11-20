@@ -264,6 +264,19 @@ public class TriageCommandTests
             Assert.Equal("c", File.ReadAllText(c2.Full("scripts\\c.pex")));
             Assert.Equal("real", File.ReadAllText(c2.Full("mod.esm")));
             Assert.False(File.Exists(c2.Full("only.esm")));
+
+            // a linked parent folder is refused too: the real Textures\T.dds is read, not the one behind the link
+            Directory.CreateDirectory(Path.Combine(root, "Textures"));
+            File.WriteAllText(Path.Combine(root, "Textures", "T.dds"), "real");
+            var decoyDir = s.Sub("decoydir");
+            File.WriteAllText(Path.Combine(decoyDir, "t.dds"), "decoy");
+            Directory.CreateSymbolicLink(Path.Combine(root, "textures"), decoyDir);
+            var c3 = new TriageContext
+            {
+                Options = new TriageOptions(), Kind = TriageInputKind.Folder, InputPath = root, Root = root,
+                Files = files, DataPrefix = "", DataDir = "d", Work = "w", Report = new TriageReport(),
+            };
+            Assert.Equal("real", File.ReadAllText(c3.Full("textures\\t.dds")));
         }
         Assert.Equal("data\\mod.esm", RelPath.DirectoryName("data\\mod.esm\\x")?.Replace('/', '\\'));
         Assert.Equal("mod.esm", RelPath.FileName("data\\mod.esm"));
