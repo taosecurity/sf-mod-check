@@ -54,8 +54,9 @@ Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (
        mkdir C:\Tools\sf-mod-check
        tar -xf sf-mod-check-0.8.0-win-x64.zip -C C:\Tools\sf-mod-check
 
-   Compare the printed hash with the one in `sf-mod-check-0.8.0-win-x64.zip.sha256`. The program is then
-   `C:\Tools\sf-mod-check\sf-mod-check.exe`.
+   Compare the printed hash with the one in `sf-mod-check-0.8.0-win-x64.zip.sha256` (it sits next to the zip on the
+   Releases page). If the user has only the zip, print the hash, tell them it couldn't be compared, and ask them to
+   download the `.sha256` file too. The program is then `C:\Tools\sf-mod-check\sf-mod-check.exe`.
 
 2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.8.0.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
@@ -182,7 +183,10 @@ Its first line is `sf-mod-check 0.8.0 by Richard Bejtlich - GPL-3.0 - https://gi
     `--game` takes the game's folder, its `Data` folder, or (Game Pass) its `Content` folder; without it Steam's usual
     folder is used, and with no game found nothing is compared with the game (the report says so). For DLLs,
     `--manalyze C:\Tools\manalyze\manalyze.exe` also runs Manalyze with offline plugins only (never VirusTotal). Read
-    the LOOK lines first; summarise them for the user as "worth a look", never as faults or as proof of harm.
+    the LOOK lines first; summarise them for the user as "worth a look", never as faults or as proof of harm. A mod
+    with no plugin (only sounds, textures or meshes, say) has nothing for `check`: the Plugins section says so, and
+    the Files and Replaces vanilla sections are the ones to read. When the input and the current folder are both inside
+    the game's install, triage writes nothing there and asks for `--out` (exit 2).
 
 ## 6. Inputs and outputs
 
@@ -202,7 +206,7 @@ Its first line is `sf-mod-check 0.8.0 by Richard Bejtlich - GPL-3.0 - https://gi
 - **`triage`:** input is one .zip, .7z or .rar (unpacked into a temp folder that is removed at the end;
   password-protected archives are refused), a mod folder (read where it is; the game's own Data folder is refused) or
   one plugin (with the archives beside it that share its name). Output: `<out>\<name>-triage.html`, `.txt` and
-  `.json` (default `<out>` = the input's folder, or the current folder when the input is inside the game's install).
+  `.json` (default `<out>` = the input's folder, or the current folder when the input is inside a game install; when both are, nothing is written and exit 2 asks for `--out`).
   The JSON has `triage_not_a_verdict: true`, `input` (name, path, kind, size, sha256), `game_data`, `game_found`,
   `incomplete` (sections that stopped early), `findings` (each `level` NOTE or LOOK, `section`, `file`, `text`) and
   `tables` (`section`, `title`, `columns`, `rows`). On stdout: a summary line, one `LOOK [section] ...` line per LOOK,

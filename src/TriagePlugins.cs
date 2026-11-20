@@ -125,8 +125,7 @@ public static class TriagePlugins
             catch (Exception e) when (Fatal.Recoverable(e)) { p.Unreadable ??= $"{e.GetType().Name}: {e.Message}"; }
             Log.Write($"triage plugins: {p.Rel}: {(p.Header == null ? "no TES4 header" : $"{Kind(p)}, {p.Records} records, {p.Own} new, {p.Overrides} overrides")}");
             foreach (var (m, why) in p.UnreadableMasters)
-                Look(p.Rel, $"its master {m} is there but can't be read ({why}), so its records weren't decoded against that master; " +
-                            "check that file's permissions (a game or mod-manager update can drop them) and run again");
+                Look(p.Rel, $"its master {m} is there but can't be read, so the records weren't decoded against it: {why}, then run again");
             if (p.Header == null)
             {
                 Look(p.Rel, $"isn't a plugin the game can read: {p.Unreadable ?? "the file doesn't start with a TES4 header"}");
@@ -207,7 +206,15 @@ public static class TriagePlugins
             if (path != null)
                 try { mh = RawHeader.Read(path); }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
-                { p.UnreadableMasters.Add((m, $"{e.GetType().Name}: {e.Message}")); continue; }
+                {
+                    // permissions or a lock, against a damaged file: the fix differs (0.8.0 code review)
+                    var damaged = e is InvalidDataException or EndOfStreamException;
+                    p.UnreadableMasters.Add((m, damaged
+                        ? $"the file looks damaged or cut short ({e.Message}); install it again"
+                        : $"it can't be opened ({e.GetType().Name}: {e.Message}); check that file's permissions (a game or mod-manager update can drop them) and close any program that has it open"));
+                    if (!inMod(m) && !IsOfficial(m)) p.FromData.Add(m);
+                    continue;
+                }
             if (mh == null) { p.MissingMasters.Add(m); continue; }
             p.MasterStyles[m] = mh.Style;
             if (!inMod(m) && !IsOfficial(m)) p.FromData.Add(m);

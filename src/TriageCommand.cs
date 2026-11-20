@@ -209,7 +209,11 @@ public static class TriageCommand
                 $"can't triage {input}: give a .zip, .7z or .rar download, a mod folder, or a plugin (.esm .esp .esl).");
         Log.Write($"input: {kind} {Log.Describe(input)}");
 
-        var outDir = Path.GetFullPath(o.Out ?? DefaultOut(input, o.DataDir));
+        if ((o.Out ?? DefaultOut(input, o.DataDir)) is not { } outChoice)
+            return CantRun("give --out: the input and the current folder are both inside the game",
+                $"won't write the report into the game's install: {input} and the current folder ({Environment.CurrentDirectory}) are both inside it. " +
+                "Give --out a folder of your own, for example --out \"%USERPROFILE%\\Documents\\Triage\".");
+        var outDir = Path.GetFullPath(outChoice);
         try { Directory.CreateDirectory(outDir); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -225,7 +229,7 @@ public static class TriageCommand
             string root;
             List<string> files;
             try { (root, files) = Gather(kind, input, Path.Combine(work, "mod")); }
-            catch (Exception e) when (e is InvalidDataException or InvalidFormatException or ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            catch (Exception e) when (e is InvalidDataException or InvalidFormatException or ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException)
             {
                 return CantRun($"{Path.GetFileName(input)} can't be read", $"can't read {input}: {e.Message}");
             }
@@ -311,25 +315,30 @@ public static class TriageCommand
         return stem + "-triage";
     }
 
-    /// <summary>Next to the input, unless that is inside the game's install (a plugin in Data): then the current folder,
-    /// so the report never lands in the game.</summary>
-    public static string DefaultOut(string input, string dataDir)
+    /// <summary>Next to the input, unless that is inside a game install (a plugin in Data): then the current folder, unless
+    /// that is inside one too: then null (the caller asks for --out), so the report never lands in the game.</summary>
+    public static string? DefaultOut(string input, string dataDir, string? currentDir = null)
     {
-        var parent = Path.GetDirectoryName(input.TrimEnd('\\', '/')) ?? Environment.CurrentDirectory;
-        // Any game install, not only the one --game or Steam's usual folder names (0.8.0 code review: a plugin in a Game
-        // Pass Data folder got its report beside it): the input's folder or one above it holds Starfield.esm.
-        for (var d = new DirectoryInfo(parent); d != null; d = d.Parent)
-            try { if (File.Exists(Path.Combine(d.FullName, "Starfield.esm")) || File.Exists(Path.Combine(d.FullName, "Data", "Starfield.esm"))) return Environment.CurrentDirectory; }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { }
+        var cwd = currentDir ?? Environment.CurrentDirectory;
+        var parent = Path.GetDirectoryName(input.TrimEnd('\\', '/')) ?? cwd;
+        if (!InGameInstall(parent, dataDir)) return parent;
+        return InGameInstall(cwd, dataDir) ? null : cwd;   // 0.8.0 code review: run from the game's folder
+    }
+
+    /// <summary>True when the folder is inside a game install: it, or a folder above it, holds Starfield.esm (directly or
+    /// in Data), or it is under the install of dataDir. Any install counts, not only the one --game names (0.8.0 code
+    /// review: a plugin in a Game Pass Data folder got its report beside it).</summary>
+    public static bool InGameInstall(string folder, string dataDir)
+    {
         try
         {
+            for (var d = new DirectoryInfo(Path.GetFullPath(folder)); d != null; d = d.Parent)
+                if (File.Exists(Path.Combine(d.FullName, "Starfield.esm")) || File.Exists(Path.Combine(d.FullName, "Data", "Starfield.esm"))) return true;
             var data = Path.GetFullPath(dataDir).TrimEnd('\\', '/');
-            if (File.Exists(Path.Combine(data, "Starfield.esm")) && Path.GetDirectoryName(data) is { } install &&
-                (parent + Path.DirectorySeparatorChar).StartsWith(install + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                return Environment.CurrentDirectory;
+            return File.Exists(Path.Combine(data, "Starfield.esm")) && Path.GetDirectoryName(data) is { } install &&
+                   (Path.GetFullPath(folder).TrimEnd('\\', '/') + Path.DirectorySeparatorChar).StartsWith(install + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
-        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { }
-        return parent;
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException) { return false; }
     }
 
     /// <summary>The mod's root folder and its files. Archives are unpacked into dest; a folder is read where it is; a
@@ -375,6 +384,14 @@ public static class TriageCommand
     /// name twice, the same size cap, and a running count so an entry can't unpack past what it declares. Encrypted
     /// archives are refused (triage never asks for a password).</summary>
     public static List<string> UnpackOther(string archive, string dest)
+    {
+        // SharpCompress's own refusals become "can't be read"; the same exception from our code stays a real error
+        // (0.8.0 code review)
+        try { return UnpackOtherCore(archive, dest); }
+        catch (InvalidOperationException e) when (e.Source == "SharpCompress") { throw new InvalidDataException(e.Message, e); }
+    }
+
+    static List<string> UnpackOtherCore(string archive, string dest)
     {
         Directory.CreateDirectory(dest);
         var root = Path.GetFullPath(dest).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;

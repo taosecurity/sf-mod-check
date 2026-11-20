@@ -107,9 +107,13 @@ public class TriageCommandTests
         File.WriteAllText(Path.Combine(gp, "Starfield.esm"), "x");
         var plugin = Path.Combine(gp, "Foo.esm");
         File.WriteAllText(plugin, "x");
-        Assert.Equal(Environment.CurrentDirectory, TriageCommand.DefaultOut(plugin, Path.Combine(s.Dir, "no-steam")));
         var other = s.Sub("Downloads");
-        Assert.Equal(other, TriageCommand.DefaultOut(Path.Combine(other, "Mod.zip"), Path.Combine(s.Dir, "no-steam")));
+        var noSteam = Path.Combine(s.Dir, "no-steam");
+        Assert.Equal(other, TriageCommand.DefaultOut(plugin, noSteam, currentDir: other));
+        Assert.Equal(other, TriageCommand.DefaultOut(Path.Combine(other, "Mod.zip"), noSteam, currentDir: gp));
+        // run from inside the game too: no safe default, so the command asks for --out (second code review)
+        Assert.Null(TriageCommand.DefaultOut(plugin, noSteam, currentDir: gp));
+        Assert.Null(TriageCommand.DefaultOut(plugin, noSteam, currentDir: Path.GetDirectoryName(gp)!));
     }
 
     [Fact]

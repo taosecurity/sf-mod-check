@@ -199,9 +199,20 @@ public class TriagePluginsTests
         List<TriageFinding> f;
         using (new FileStream(Path.Combine(game.Data, "TrDep.esm"), FileMode.Open, FileAccess.Read, FileShare.None))   // locked: can't be opened
             f = Run(c);
-        One(f, TriageLevel.Look, "trneeds.esm", "its master TrDep.esm is there but can't be read");
+        Assert.Contains("check that file's permissions", One(f, TriageLevel.Look, "trneeds.esm", "its master TrDep.esm is there but can't be read").Text);
         None(f, TriageLevel.Look, "can't be read to the end");
         None(f, TriageLevel.Look, "isn't a plugin the game can read");
+
+        // a damaged master gets the other fix (second code review)
+        var dep = Path.Combine(game.Data, "TrDep.esm");
+        var bytes = File.ReadAllBytes(dep);
+        File.WriteAllBytes(dep, bytes[..30]);   // the TES4 header cut short
+        var c2 = game.Context();
+        var f2 = Run(c2);
+        // its header still reads, so the plugin check and the comparison name it; the mod's own plugin isn't blamed
+        Assert.True(f2.Any(x => x.File == "trneeds.esm" && x.Text.Contains("TrDep.esm is unloadable")), List(f2));
+        None(f2, TriageLevel.Look, "can't be read to the end");
+        None(f2, TriageLevel.Look, "isn't a plugin the game can read");
     }
 
     [Fact]

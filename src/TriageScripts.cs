@@ -71,7 +71,7 @@ public static class TriageScripts
         {
             if (s.Data == null)
             {
-                findings.Add(new(TriageLevel.Look, S, s.File, $"{(s.File.Contains(".ba2:", StringComparison.Ordinal) ? "couldn't be taken out of its archive" : "couldn't be opened")}, so it wasn't read: {s.Error}"));
+                findings.Add(new(TriageLevel.Look, S, s.File, $"{(s.File.Contains(".ba2:", StringComparison.Ordinal) ? "couldn't be taken out of its archive, so it" : "")} wasn't read: {s.Error}".TrimStart()));
                 scriptTable.Add(s.File, "", "", "(not read)", "", "");
                 continue;
             }
@@ -318,7 +318,7 @@ public static class TriageScripts
                         ? new Source(rel, null, $"it is {len:N0} bytes, larger than any compiled script")
                         : new Source(rel, File.ReadAllBytes(full), null));
                 }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { list.Add(new Source(rel, null, e.Message)); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { list.Add(new Source(rel, null, $"it couldn't be opened ({e.Message})")); }
             }
             else if (ext == ".ba2")
             {
@@ -327,7 +327,7 @@ public static class TriageScripts
                     foreach (var (entry, data, error) in ArchiveScripts(c.Full(rel)))
                         list.Add(new Source($"{rel}:{entry}", data, error));
                 }
-                catch (Exception e) when (e is InvalidDataException or EndOfStreamException)
+                catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)   // EndOfStream is an IOException; a locked archive costs only itself (0.8.0 code review)
                 {
                     findings.Add(new(TriageLevel.Look, S, rel, $"its scripts couldn't be listed, so none were read from it: {e.Message}"));
                 }
