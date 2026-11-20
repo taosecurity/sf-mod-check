@@ -71,7 +71,7 @@ public static class TriageScripts
         {
             if (s.Data == null)
             {
-                findings.Add(new(TriageLevel.Look, S, s.File, $"couldn't be taken out of its archive, so it wasn't read: {s.Error}"));
+                findings.Add(new(TriageLevel.Look, S, s.File, $"{(s.File.Contains(".ba2:", StringComparison.Ordinal) ? "couldn't be taken out of its archive" : "couldn't be opened")}, so it wasn't read: {s.Error}"));
                 scriptTable.Add(s.File, "", "", "(not read)", "", "");
                 continue;
             }
@@ -310,10 +310,15 @@ public static class TriageScripts
             if (ext == ".pex")
             {
                 var full = c.Full(rel);
-                var len = new FileInfo(full).Length;
-                list.Add(len > Pex.MaxBytes
-                    ? new Source(rel, null, $"it is {len:N0} bytes, larger than any compiled script")
-                    : new Source(rel, File.ReadAllBytes(full), null));
+                // one script that can't be read is named and skipped, as in an archive (0.8.0 code review)
+                try
+                {
+                    var len = new FileInfo(full).Length;
+                    list.Add(len > Pex.MaxBytes
+                        ? new Source(rel, null, $"it is {len:N0} bytes, larger than any compiled script")
+                        : new Source(rel, File.ReadAllBytes(full), null));
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { list.Add(new Source(rel, null, e.Message)); }
             }
             else if (ext == ".ba2")
             {

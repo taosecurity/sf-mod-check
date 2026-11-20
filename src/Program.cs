@@ -1,20 +1,20 @@
-// sfmodcheck: read-only checks of Starfield mods. Command "check" covers the part of xEdit's "Check for Errors" our
+// sf-mod-check (sfmodcheck until 0.8.0): read-only checks of Starfield mods. Command "check" covers the part of xEdit's "Check for Errors" our
 // build gates use: it prints ERROR / WARNING lines, a HINT line per check that found something, and one RESULT line.
 // Exit 0 = no errors, 1 = errors, 2 = could not run.
-//   sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]
+//   sf-mod-check check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]
 //                    [--no-assets] [--ini <file>]... [--language <code>]
 //                             [--verbose] [--log <file>]        (troubleshooting log: Log.cs)
-//   sfmodcheck conflict [--plugins <Plugins.txt>] [--data D] [--extra-data F] [--out F] [--max-memory GB] [--quiet]
+//   sf-mod-check conflict [--plugins <Plugins.txt>] [--data D] [--extra-data F] [--out F] [--max-memory GB] [--quiet]
 //                       [--verbose] [--log <file>]        (whole load order: ConflictCommand.cs; exit 0, 2 or 3)
-//   sfmodcheck release <zip>... [...]          (release zips: ReleaseCommand.cs; exit 0, 1 or 2)
-//   sfmodcheck triage <mod> [...]              (first-pass report on someone else's mod: TriageCommand.cs; exit 0 or 2)
-//   sfmodcheck <plugin> [...]                  (same as check: older callers, and a plugin dropped on the exe)
-//   sfmodcheck --version
+//   sf-mod-check release <zip>... [...]          (release zips: ReleaseCommand.cs; exit 0, 1 or 2)
+//   sf-mod-check triage <mod> [...]              (first-pass report on someone else's mod: TriageCommand.cs; exit 0 or 2)
+//   sf-mod-check <plugin> [...]                  (same as check: older callers, and a plugin dropped on the exe)
+//   sf-mod-check --version
 // Hidden maintenance modes (run on the official masters after a game update):
-//   sfmodcheck --census <plugin>...      (raw layout counts; used to set the structure rules)
-//   sfmodcheck --learn-link-types <out> [Data]     (record types each Mutagen link type points to)
-//   sfmodcheck --learn-conditions <out> [Data]     (condition form parameters in the official masters)
-//   sfmodcheck --learn-scene-quirks <out> [Data]   (official scenes the scenes rule must skip)
+//   sf-mod-check --census <plugin>...      (raw layout counts; used to set the structure rules)
+//   sf-mod-check --learn-link-types <out> [Data]     (record types each Mutagen link type points to)
+//   sf-mod-check --learn-conditions <out> [Data]     (condition form parameters in the official masters)
+//   sf-mod-check --learn-scene-quirks <out> [Data]   (official scenes the scenes rule must skip)
 // Until 2026-11-09 (0.3.0) this program was called StarfieldPluginCheck.
 using System.Diagnostics;
 using SfModCheck;

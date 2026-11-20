@@ -77,16 +77,19 @@ public static class Overrides
                 tResolve.Start();
                 IMajorRecordGetter? orig;
                 bool viaCell = parentCell.TryGetValue(rec.FormKey, out var ck);
-                orig = viaCell ? InCells(ck, rec.FormKey) : null;
-                // Not in its cell's master versions: ask the link cache directly (slow, but never a silent miss). With
-                // the .NET heap capped at 1 GB, ResolveAll on NAPGR 0.1.6's cells came back empty for 269 children, which
-                // all then counted as "not identical" with no warning (found in 0.8.0 triage work, 2026-11-19).
-                if (orig == null) orig = masters.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
-                // Still nothing, and the cell itself came back with no master version at all although the plugin's cell
-                // is an override of one: the lookup failed, so this record couldn't be compared (a WARNING, not a silent
-                // "different"). A child missing from a cell that was found is an injected record: the links rule's job.
-                if (orig == null && viaCell && cellChildren.TryGetValue(ck, out var vs) && vs.Count == 0 && ck.ModKey != modKey)
-                { tResolve.Stop(); failed++; continue; }
+                if (viaCell)
+                {
+                    orig = InCells(ck, rec.FormKey);
+                    // The cell came back with no master version at all although the plugin's cell overrides one: the
+                    // lookup failed, so this record couldn't be compared (a WARNING, not a silent "different"). With
+                    // the .NET heap capped at 1 GB, ResolveAll on NAPGR 0.1.6's cells came back empty for 269 children
+                    // (found in the 0.8.0 triage work, 2026-11-19). A direct TryResolve isn't tried: it makes Mutagen index
+                    // every placed reference in Starfield.esm (see above), and under that cap it came back empty too.
+                    // A child missing from a cell that was found (moved or injected) stays "not identical", as before.
+                    if (orig == null && cellChildren.TryGetValue(ck, out var vs) && vs.Count == 0 && ck.ModKey != modKey)
+                    { tResolve.Stop(); failed++; continue; }
+                }
+                else orig = masters.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
                 tResolve.Stop();
                 var resolveSecs = (tResolve.Elapsed - started).TotalSeconds;
                 bool same = false;

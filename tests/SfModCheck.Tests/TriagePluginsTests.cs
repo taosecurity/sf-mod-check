@@ -189,6 +189,22 @@ public class TriagePluginsTests
     }
 
     [Fact]
+    public void A_master_that_cant_be_read_is_named_not_blamed_on_the_mod()
+    {
+        // 0.8.0 code review: a master in Data that can't be read (a lost read grant) made the mod's own plugin look damaged
+        using var game = new Game(dlc: false);
+        game.Mod("TrDep.esm", (m, open) => m.Keywords.AddNew("Dep_Kw"), dir: game.Data, style: PluginStyle.Full);
+        game.Mod("TrNeeds.esm", (m, open) => m.Keywords.GetOrAddAsOverride(open("TrDep.esm").Keywords.First()));
+        var c = game.Context();
+        List<TriageFinding> f;
+        using (new FileStream(Path.Combine(game.Data, "TrDep.esm"), FileMode.Open, FileAccess.Read, FileShare.None))   // locked: can't be opened
+            f = Run(c);
+        One(f, TriageLevel.Look, "trneeds.esm", "its master TrDep.esm is there but can't be read");
+        None(f, TriageLevel.Look, "can't be read to the end");
+        None(f, TriageLevel.Look, "isn't a plugin the game can read");
+    }
+
+    [Fact]
     public void A_requirement_installed_in_data_is_named_and_compared()
     {
         using var game = new Game(dlc: false);

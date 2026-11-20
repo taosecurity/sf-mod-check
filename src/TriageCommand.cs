@@ -1,5 +1,5 @@
 // Command "triage" (0.8.0): a first-pass, offline report on someone else's mod, before you use or rebuild it.
-//   sfmodcheck triage <mod.zip | .7z | .rar | folder | plugin> [--game <folder>] [--out <folder>] [--manalyze <exe>]
+//   sf-mod-check triage <mod.zip | .7z | .rar | folder | plugin> [--game <folder>] [--out <folder>] [--manalyze <exe>]
 //                     [--quiet] [--verbose] [--log <file>]
 // It is triage, not a verdict: each finding is a NOTE (information) or a LOOK (worth a person's look), with the file and
 // the reason. It writes <out>\<mod>-triage.html, .txt and .json and nothing else (an archive is unpacked into a temp
@@ -73,8 +73,8 @@ public sealed class TriageContext
     public List<string> Archives => WithExt(".ba2").ToList();
     /// <summary>Full paths of the loose compiled scripts (.pex); scripts inside archives are the Scripts section's job.</summary>
     public List<string> Scripts => WithExt(".pex").ToList();
-    /// <summary>Full paths of the binaries (.dll .exe).</summary>
-    public List<string> Binaries => WithExt(".dll", ".exe").ToList();
+    /// <summary>Full paths of the binaries (.dll .exe .asi: an ASI plugin is a DLL an ASI loader puts into the game).</summary>
+    public List<string> Binaries => WithExt(".dll", ".exe", ".asi").ToList();
 }
 
 public static class TriageCommand
@@ -225,7 +225,7 @@ public static class TriageCommand
             string root;
             List<string> files;
             try { (root, files) = Gather(kind, input, Path.Combine(work, "mod")); }
-            catch (Exception e) when (e is InvalidDataException or InvalidFormatException or ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException)
+            catch (Exception e) when (e is InvalidDataException or InvalidFormatException or ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException or InvalidOperationException)
             {
                 return CantRun($"{Path.GetFileName(input)} can't be read", $"can't read {input}: {e.Message}");
             }
@@ -313,9 +313,14 @@ public static class TriageCommand
 
     /// <summary>Next to the input, unless that is inside the game's install (a plugin in Data): then the current folder,
     /// so the report never lands in the game.</summary>
-    static string DefaultOut(string input, string dataDir)
+    public static string DefaultOut(string input, string dataDir)
     {
         var parent = Path.GetDirectoryName(input.TrimEnd('\\', '/')) ?? Environment.CurrentDirectory;
+        // Any game install, not only the one --game or Steam's usual folder names (0.8.0 code review: a plugin in a Game
+        // Pass Data folder got its report beside it): the input's folder or one above it holds Starfield.esm.
+        for (var d = new DirectoryInfo(parent); d != null; d = d.Parent)
+            try { if (File.Exists(Path.Combine(d.FullName, "Starfield.esm")) || File.Exists(Path.Combine(d.FullName, "Data", "Starfield.esm"))) return Environment.CurrentDirectory; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { }
         try
         {
             var data = Path.GetFullPath(dataDir).TrimEnd('\\', '/');
@@ -383,13 +388,31 @@ public static class TriageCommand
         long total = entries.Sum(e => Math.Max(0, e.Size)), written = 0;
         if (total > max)
             throw new InvalidDataException($"it unpacks to {total / (1024 * 1024 * 1024.0):F1} GB, more than the {max / (1024 * 1024 * 1024)} GB this check allows");
-        // one pass over the archive: a solid .7z read entry by entry would decompress it again for every file
-        using var reader = a.ExtractAllEntries();
         var buffer = new byte[81920];
-        while (reader.MoveToNextEntry())
+        // A solid archive or a .7z is read in one pass (entry by entry would decompress it again for every file);
+        // SharpCompress allows that pass only for those, so any other archive (a normal .rar) is read entry by entry
+        // (0.8.0 code review). Both write through Write, with the same guards.
+        if (a.IsSolid || a.Type == ArchiveType.SevenZip)
         {
-            var e = reader.Entry;
-            if (e.IsDirectory) continue;
+            using var reader = a.ExtractAllEntries();
+            while (reader.MoveToNextEntry())
+            {
+                if (reader.Entry.IsDirectory) continue;
+                using var input = reader.OpenEntryStream();
+                Write(reader.Entry, input);
+            }
+        }
+        else
+            foreach (var e in entries)
+            {
+                using var input = e.OpenEntryStream();
+                Write(e, input);
+            }
+        files.Sort(StringComparer.Ordinal);
+        return files;
+
+        void Write(IEntry e, Stream input)
+        {
             var key = e.Key ?? "";
             var name = key.Replace('\\', '/');
             if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(x => x == ".."))
@@ -400,7 +423,6 @@ public static class TriageCommand
             if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException($"the entry \"{key}\" points outside the archive's own folders");
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            using (var input = reader.OpenEntryStream())
             using (var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write))
             {
                 long wrote = 0;
@@ -417,7 +439,5 @@ public static class TriageCommand
             }
             files.Add(norm);
         }
-        files.Sort(StringComparer.Ordinal);
-        return files;
     }
 }

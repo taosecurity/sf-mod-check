@@ -37,7 +37,7 @@ public static class TriagePlugins
     static readonly HashSet<string> PluginExts = new(StringComparer.Ordinal) { ".esm", ".esp", ".esl" };
     static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
-    static bool IsOfficial(string name) => Checker.IsOfficial(name) || LoadOrderSetup.IsOfficial(name);
+    static bool IsOfficial(string name) => Checker.IsOfficial(name);   // exact names (0.8.0 code review)
 
     /// <summary>What one plugin shows on its own (raw read).</summary>
     public sealed class Facts
@@ -46,6 +46,8 @@ public static class TriagePlugins
         public RawHeader? Header;
         public string? Unreadable;
         public readonly List<string> MissingMasters = new();
+        /// <summary>Masters found on disk that couldn't be read, with why.</summary>
+        public readonly List<(string Name, string Why)> UnreadableMasters = new();
         /// <summary>Masters that are another mod's plugin, found in the game's Data folder (not in this mod).</summary>
         public readonly List<string> FromData = new();
         public readonly Dictionary<string, Style> MasterStyles = new(StringComparer.OrdinalIgnoreCase);
@@ -122,6 +124,9 @@ public static class TriagePlugins
             try { ReadFacts(p, Locate, InMod); }
             catch (Exception e) when (Fatal.Recoverable(e)) { p.Unreadable ??= $"{e.GetType().Name}: {e.Message}"; }
             Log.Write($"triage plugins: {p.Rel}: {(p.Header == null ? "no TES4 header" : $"{Kind(p)}, {p.Records} records, {p.Own} new, {p.Overrides} overrides")}");
+            foreach (var (m, why) in p.UnreadableMasters)
+                Look(p.Rel, $"its master {m} is there but can't be read ({why}), so its records weren't decoded against that master; " +
+                            "check that file's permissions (a game or mod-manager update can drop them) and run again");
             if (p.Header == null)
             {
                 Look(p.Rel, $"isn't a plugin the game can read: {p.Unreadable ?? "the file doesn't start with a TES4 header"}");
@@ -159,7 +164,19 @@ public static class TriagePlugins
         var checkT = c.Report.Table(S, "sf-mod-check check findings", "Plugin", "Severity", "Check", "Text");
         var itmT = c.Report.Table(S, "Identical to master (ITM)", "Plugin", "Record");
         var dirs = readable.Select(p => Path.GetDirectoryName(Path.GetFullPath(p.Full))!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        foreach (var p in readable) CheckLines(c, p, dirs, checkT, itmT, Note, Look);
+        // Each later step has its own guard, so one that stops keeps every line found before it (0.8.0 code review:
+        // the section's lines were returned only at its end, so an error lost them all).
+        bool Step(string what, Action run)
+        {
+            try { run(); return true; }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                c.Report.Incomplete.Add($"Plugins: {what} stopped early ({e.GetType().Name}: {Impact.OneLine(e.Message)})");
+                Log.Write($"triage plugins: {what} stopped: {e}");
+                return false;
+            }
+        }
+        foreach (var p in readable) Step($"the plugin check of {p.Name}", () => CheckLines(c, p, dirs, checkT, itmT, Note, Look));
         // the check's masters and link caches are gone now; their memory is given back before the game is read again
         GC.Collect();
         GC.WaitForPendingFinalizers();
@@ -167,7 +184,7 @@ public static class TriagePlugins
         if (!c.HasGame) return f;
 
         // ---- one load order (the official masters and the mod): links, scripts, the comparison ----
-        Compare(c, readable, Locate, Note, Look);
+        Step("the comparison with the game", () => Compare(c, readable, Locate, Note, Look));
         return f;
     }
 
@@ -184,7 +201,13 @@ public static class TriagePlugins
         foreach (var m in h.Masters)
         {
             var path = locate(m);
-            var mh = path == null ? null : RawHeader.Read(path);
+            RawHeader? mh = null;
+            // a master that is there but can't be read (a Data file whose read grant was lost) is that master's
+            // problem, not damage in this plugin (0.8.0 code review)
+            if (path != null)
+                try { mh = RawHeader.Read(path); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+                { p.UnreadableMasters.Add((m, $"{e.GetType().Name}: {e.Message}")); continue; }
             if (mh == null) { p.MissingMasters.Add(m); continue; }
             p.MasterStyles[m] = mh.Style;
             if (!inMod(m) && !IsOfficial(m)) p.FromData.Add(m);
@@ -497,8 +520,19 @@ public static class TriagePlugins
             var ours = lo.Plugins.Where(p => modNames.Contains(p.FileName)).ToList();
             if (ours.Count == 0 || !lo.Plugins.Any(p => p.FileName.Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase))) return;
 
-            UnusedMasters(plugins, ours, lo, note);
-            Scripts(c, plugins, ours, lo, note, look);
+            // each its own guard: one that stops doesn't skip the comparison below (0.8.0 code review)
+            try { UnusedMasters(plugins, ours, lo, note); }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                c.Report.Incomplete.Add($"Plugins: the unused-masters step stopped early ({e.GetType().Name}: {Impact.OneLine(e.Message)})");
+                Log.Write($"triage plugins: unused masters stopped: {e}");
+            }
+            try { Scripts(c, plugins, ours, lo, note, look); }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                c.Report.Incomplete.Add($"Plugins: the attached-scripts step stopped early ({e.GetType().Name}: {Impact.OneLine(e.Message)})");
+                Log.Write($"triage plugins: scripts stopped: {e}");
+            }
             GC.Collect();
 
             var changes = new List<Change>();

@@ -15,13 +15,16 @@
   that replace the game's own, from a cached index of the game's archive names), Plugins (header, records added,
   overridden and deleted, ITMs, official changes undone, changed fields, ONAM, missing scripts, `check`'s findings),
   Scripts (each `.pex` read from its bytecode: calls, logging, calls worth a look; nothing is decompiled) and Binaries
-  (each DLL and EXE read from its bytes: imports by group, URLs, SFSE plugin version data, PDB path, signature checked
+  (each DLL, EXE and ASI plugin read from its bytes: imports by group, URLs, SFSE plugin version data, PDB path, signature checked
   offline, and optionally Manalyze with offline plugins only). It never runs the mod's code and never uploads
   anything. Exit 0 = report written, 2 = bad input. Reading `.7z` and `.rar` uses SharpCompress 0.50.7 (MIT).
 - `check` (and `release`, `conflict`'s ITM count): when a lookup of an overridden cell's master version comes back
   empty, its placed references and navmeshes are now counted in the "couldn't be compared" WARNING. Before, they
   counted as "not identical" with no warning. Seen only with the .NET heap capped at 1 GB (NAPGR 0.1.6: 1 warning
   instead of 95); a normal run is unchanged.
+- `check`: Bethesda's own plugins are recognized by their exact names (as `conflict` has done since 0.5.0). Before, any
+  name starting with `SFBGS` or `BlueprintShips-` counted as official, so a mod named like `SFBGS003Fixes.esm` had its
+  ITMs counted but not listed.
 
 ## 0.7.0 (2026-11-19)
 

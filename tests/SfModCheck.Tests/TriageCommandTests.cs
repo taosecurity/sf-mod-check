@@ -72,6 +72,58 @@ public class TriageCommandTests
         Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(dup, Path.Combine(s.Dir, "c")));
     }
 
+    [Fact]
+    public void A_non_solid_archive_is_read_entry_by_entry_with_the_same_guards()
+    {
+        // 0.8.0 code review: SharpCompress reads only solid archives and .7z in one pass; a normal .rar is not solid.
+        // No free tool writes .rar, so a zip (never solid) takes the same entry-by-entry path here.
+        using var s = new Sandbox();
+        var ok = MakeZip(s, "Mod.zip", ("Mod.esm", "x"), ("Scripts/Bar.pex", "yy"));
+        Assert.Equal(["mod.esm", "scripts\\bar.pex"], TriageCommand.UnpackOther(ok, Path.Combine(s.Dir, "a")));
+        Assert.Equal("yy", File.ReadAllText(Path.Combine(s.Dir, "a", "Scripts", "Bar.pex")));
+        var evil = MakeZip(s, "Evil.zip", ("../evil.txt", "x"));
+        Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(evil, Path.Combine(s.Dir, "b")));
+        Assert.False(File.Exists(Path.Combine(s.Dir, "evil.txt")));
+    }
+
+    [Theory]
+    [InlineData("SFBGS003.esm", true)]
+    [InlineData("SFBGS00A.esm", true)]
+    [InlineData("BlueprintShips-SFBGS050.esm", true)]
+    [InlineData("sfta01.esm", true)]
+    [InlineData("ShatteredSpace.esm", true)]
+    [InlineData("SFBGS003Fixes.esm", false)]   // a mod: the old prefix rule took it for Bethesda's (0.8.0 code review)
+    [InlineData("BlueprintShips-MyShips.esm", false)]
+    [InlineData("sfta01Patch.esm", false)]
+    public void Official_names_are_matched_exactly(string name, bool official) => Assert.Equal(official, Checker.IsOfficial(name));
+
+    [Fact]
+    public void The_report_never_lands_in_any_game_install_by_default()
+    {
+        // 0.8.0 code review: only the --game (or Steam) install was kept out; a Game Pass Data folder got the report
+        using var s = new Sandbox();
+        var gp = Path.Combine(s.Sub("XboxGames"), "Starfield", "Content", "Data");
+        Directory.CreateDirectory(gp);
+        File.WriteAllText(Path.Combine(gp, "Starfield.esm"), "x");
+        var plugin = Path.Combine(gp, "Foo.esm");
+        File.WriteAllText(plugin, "x");
+        Assert.Equal(Environment.CurrentDirectory, TriageCommand.DefaultOut(plugin, Path.Combine(s.Dir, "no-steam")));
+        var other = s.Sub("Downloads");
+        Assert.Equal(other, TriageCommand.DefaultOut(Path.Combine(other, "Mod.zip"), Path.Combine(s.Dir, "no-steam")));
+    }
+
+    [Fact]
+    public void Asi_plugins_count_as_binaries()
+    {
+        var c = new TriageContext
+        {
+            Options = new TriageOptions(), Kind = TriageInputKind.Folder, InputPath = "x", Root = "r",
+            Files = ["hook.asi", "sfse\\plugins\\a.dll", "tool.exe", "readme.txt"], DataPrefix = "", DataDir = "d", Work = "w", Report = new TriageReport(),
+        };
+        Assert.Equal(3, c.Binaries.Count);
+        Assert.Contains(c.Binaries, b => b.EndsWith("hook.asi"));
+    }
+
     [Theory]
     [InlineData("Some Mod-1.2.zip", "Some Mod-1.2-triage")]
     [InlineData("Foo.7z", "Foo-triage")]

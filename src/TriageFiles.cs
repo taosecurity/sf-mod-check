@@ -561,7 +561,7 @@ public sealed class VanillaIndex
                 }
                 Log.Write($"vanilla index: {file} is for other archives (a game update?), so it is built again");
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or EndOfStreamException or ArgumentException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or EndOfStreamException or ArgumentException or FormatException or OverflowException)
             {
                 Log.Write($"vanilla index: {file} couldn't be read ({e.Message}), so it is built again");
             }
