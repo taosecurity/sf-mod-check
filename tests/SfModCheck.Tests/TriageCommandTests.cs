@@ -69,7 +69,17 @@ public class TriageCommandTests
         Assert.False(File.Exists(Path.Combine(s.Dir, "evil.txt")));
 
         var dup = Make7z(s, "Dup.7z", ("A.txt", "x"), ("a.txt", "y"));
-        Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(dup, Path.Combine(s.Dir, "c")));
+        var d = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(dup, Path.Combine(s.Dir, "c")));
+        Assert.True(TriageCommand.IsRefusal(d));   // the guard's own message, not "can't be read" (ninth code review)
+        Assert.Contains("twice", d.Message);
+
+        // a file and a folder of the same name: a refusal naming the clash, not "access denied"
+        var clash = Make7z(s, "Clash.7z", ("Data/b.txt", "x"), ("Data", "y"));
+        var c = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(clash, Path.Combine(s.Dir, "d")));
+        Assert.True(TriageCommand.IsRefusal(c));
+        Assert.Contains("same name as a folder", c.Message);
+        var clash2 = Make7z(s, "Clash2.7z", ("Data", "y"), ("Data/b.txt", "x"));
+        Assert.True(TriageCommand.IsRefusal(Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(clash2, Path.Combine(s.Dir, "e")))));
     }
 
     [Fact]

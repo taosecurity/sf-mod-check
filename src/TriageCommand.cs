@@ -246,6 +246,13 @@ public static class TriageCommand
             string root;
             List<string> files;
             try { (root, files) = Gather(kind, input, Path.Combine(work, "mod")); }
+            catch (Exception e) when (IsFileSystem(e))
+            {
+                // a disk or folder problem, not a bad download (ninth code review)
+                return CantRun($"{Path.GetFileName(input)} couldn't be unpacked (a file or disk problem)",
+                    $"couldn't unpack {input}: {e.Message} Check that the file isn't open in another program, that you can read it, and that " +
+                    $"the temp folder ({Path.GetTempPath()}) has free space.");
+            }
             catch (Exception e) when (e is InvalidDataException or InvalidFormatException or ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException)
             {
                 return CantRun($"{Path.GetFileName(input)} can't be read", $"can't read {input}: {e.Message}");
@@ -427,13 +434,18 @@ public static class TriageCommand
         //    bug of ours can then read as "can't be read", but every case is logged once in full, and every one ends
         //    the run with exit 2 and no report.
         try { return UnpackOtherCore(archive, dest); }
-        catch (Exception e) when (IsRefusal(e) || IsFileSystem(e)) { throw; }
+        catch (Exception e) when (IsRefusal(e) || IsFileSystem(e))
+        {
+            Log.Write($"triage: unpacking {archive} stopped: {e}");
+            throw;
+        }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
             Log.Write($"triage: unpacking {archive} stopped: {e}");
             if (e is SharpCompress.Common.CryptographicException or System.Security.Cryptography.CryptographicException)
                 throw new InvalidDataException($"it is password-protected or its encrypted data is damaged; triage doesn't open encrypted archives ({e.Message})", e);
-            throw new InvalidDataException($"it can't be read as an archive ({e.Message})", e);
+            // the type is in the message, so a bug of ours (a NullReferenceException) isn't read as plain damage
+            throw new InvalidDataException($"it can't be read as an archive ({e.GetType().Name}: {e.Message})", e);
         }
     }
 
@@ -493,21 +505,22 @@ public static class TriageCommand
 
         // One entry: a guard's refusal is what the user sees, even when closing the entry's stream afterwards fails
         // (SharpCompress reads the rest of the entry when its stream closes; seventh code review).
+        // The first error in an entry (a guard's refusal, a full disk, a decoder error) is what the user sees, even when
+        // closing the entry's stream afterwards fails too (SharpCompress reads the rest of the entry on close).
         void WriteOne(IEntry e, Func<Stream> open)
         {
-            Exception? refused = null;
+            Exception? first = null;
             try
             {
                 using var input = open();
                 try { Write(e, input); }
-                catch (Exception x) when (IsRefusal(x)) { refused = x; }
+                catch (Exception x) when (Fatal.Recoverable(x)) { first = x; }
             }
-            catch (Exception x) when (refused != null && Fatal.Recoverable(x))
+            catch (Exception x) when (first != null && Fatal.Recoverable(x))
             {
-                // the stream failed to close after a refusal: the refusal is what counts, the close error is logged
-                Log.Write($"triage: after refusing {e.Key}, closing its stream failed too: {x}");
+                Log.Write($"triage: after an error in {e.Key}, closing its stream failed too: {x}");
             }
-            if (refused != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(refused);
+            if (first != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(first);
         }
 
         void Write(IEntry e, Stream input)
@@ -521,6 +534,11 @@ public static class TriageCommand
             var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));
             if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 throw Refused($"the entry \"{key}\" points outside the archive's own folders");
+            // a file and a folder of the same name ("Data" and "Data/b.txt") is a broken archive, not a permission problem
+            if (Directory.Exists(target))
+                throw Refused($"the entry \"{key}\" has the same name as a folder in the archive");
+            for (var d = Path.GetDirectoryName(target); d != null && d.Length >= root.Length; d = Path.GetDirectoryName(d))
+                if (File.Exists(d)) throw Refused($"the entry \"{key}\" sits in a folder that the archive also holds as a file");
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             using (var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write))
             {
