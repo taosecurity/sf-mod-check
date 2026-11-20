@@ -105,7 +105,7 @@ public sealed class TriageContext
     public string Full(string rel)
     {
         var direct = Path.Combine(Root, rel.Replace('\\', Path.DirectorySeparatorChar));
-        if (OperatingSystem.IsWindows() || File.Exists(direct) || Directory.Exists(direct)) return direct;
+        if (OperatingSystem.IsWindows() || File.Exists(direct)) return direct;   // a folder of that exact name goes through Find, where a file wins
         lock (resolved)
         {
             if (resolved.TryGetValue(rel, out var hit)) return hit;
@@ -121,7 +121,7 @@ public sealed class TriageContext
         if (i == parts.Length) return dir;
         // the last part: a file that matches wins over a folder of that name (review), a folder only when no file does
         if (i == parts.Length - 1)
-            return Matches(dir, parts[i]).FirstOrDefault(File.Exists) ?? Matches(dir, parts[i]).FirstOrDefault(Directory.Exists);
+            return Matches(dir, parts[i]).FirstOrDefault(File.Exists) ?? Matches(dir, parts[i]).FirstOrDefault(e => Directory.Exists(e) && !IsLink(e));
         foreach (var entry in Matches(dir, parts[i]))
         {
             bool folder;
@@ -130,6 +130,13 @@ public sealed class TriageContext
             if (folder && Find(entry, parts, i + 1) is { } f) return f;
         }
         return null;
+    }
+
+    /// <summary>True for a link (symlink, junction); also when its attributes can't be read (then it isn't followed).</summary>
+    static bool IsLink(string path)
+    {
+        try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return true; }
     }
 
     /// <summary>The entries of a folder whose name matches ignoring case, the exact spelling first (one listing per folder).</summary>
