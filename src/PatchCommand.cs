@@ -923,7 +923,11 @@ public static class PatchCommand
 
     // ---------- the report ----------
 
-    static string Md(string? s) => Impact.OneLine(s ?? "").Replace("|", "/").Replace("`", "'").Replace("<", "&lt;");
+    // Plugin text (EditorIDs, field values, plugin file names) in patch-report.md: one line, then the same escaping as
+    // conflict's report.md (Report.Md in ConflictReport.cs: \ | < > [ ] ` * _), so a mod's text can't make a link, an image or HTML
+    // when the report is opened in a Markdown viewer (/security-review 0.9.0).
+    static string Md(string? s) => SfModCheck.Conflict.Report.Md(Impact.OneLine(s ?? ""));
+    static string Md(FormKey k) => Md(k.ToString());
 
     static void WriteReport(string path, Plan plan, LoadOrderSetup lo, string name, List<string>? masters, List<string>? mismatches, string version)
     {
@@ -955,13 +959,13 @@ public static class PatchCommand
             sb.AppendLine("   Before installing, `sf-mod-check conflict --plugins Plugins-with-patch.txt --extra-data <this folder>` does the same check.");
             sb.AppendLine("3. Try the affected places in game. Build the patch again whenever you add, remove or update a mod it lists as a master.");
             sb.AppendLine();
-            sb.AppendLine($"Masters ({masters?.Count ?? 0}, in load order): {string.Join(", ", (masters ?? new()).Select(Md))}");
+            sb.AppendLine($"Masters ({masters?.Count ?? 0}, in load order): {string.Join(", ", (masters ?? new()).Select(m => Md(m)))}");
             sb.AppendLine();
             sb.AppendLine($"## Records in the patch ({plan.Records.Count})");
             sb.AppendLine();
             foreach (var r in plan.Records)
             {
-                sb.AppendLine($"- {Md(r.RecordType)} {Md(r.EditorID)} [{r.FormKey}]");
+                sb.AppendLine($"- {Md(r.RecordType)} {Md(r.EditorID)} [{Md(r.FormKey)}]");
                 foreach (var f in r.Fields) sb.AppendLine($"  - {Md(f.Field)} from {Md(f.From)}{(f.Text.Length > 0 ? $": {Md(f.Text)}" : "")}");
             }
             sb.AppendLine();
@@ -976,8 +980,9 @@ public static class PatchCommand
             sb.AppendLine();
             foreach (var c in plan.Choices)
             {
-                sb.AppendLine($"- {Md(c.RecordType)} {Md(c.EditorID)} [{c.FormKey}], {Md(c.Field)}: {Md(c.Text)}");
-                if (!c.Picked) sb.AppendLine($"  - to use {Md(c.Other)}'s: `--pick {c.FormKey}:{Md(c.Field)}={Md(c.Other)}`");
+                sb.AppendLine($"- {Md(c.RecordType)} {Md(c.EditorID)} [{Md(c.FormKey)}], {Md(c.Field)}: {Md(c.Text)}");
+                // the ready-to-copy option sits in a code span, which shows its text as is (no escapes to strip)
+                if (!c.Picked) sb.AppendLine($"  - to use {Md(c.Other)}'s: {SfModCheck.Conflict.Report.Code(Impact.OneLine($"--pick {c.FormKey}:{c.Field}={c.Other}"))}");
             }
             sb.AppendLine();
         }
@@ -986,7 +991,7 @@ public static class PatchCommand
             sb.AppendLine($"## Not built ({plan.NotBuilt.Count}): do these by hand in xEdit");
             sb.AppendLine();
             foreach (var n in plan.NotBuilt)
-                sb.AppendLine($"- {Md(n.RecordType)} {Md(n.EditorID)} [{n.FormKey}]{(n.Fields.Count > 0 ? $" ({string.Join(", ", n.Fields.Select(Md))})" : "")}: {Md(n.Why)}");
+                sb.AppendLine($"- {Md(n.RecordType)} {Md(n.EditorID)} [{Md(n.FormKey)}]{(n.Fields.Count > 0 ? $" ({string.Join(", ", n.Fields.Select(f => Md(f)))})" : "")}: {Md(n.Why)}");
             sb.AppendLine();
         }
         if (plan.Notes.Count > 0)

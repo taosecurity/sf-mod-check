@@ -20,7 +20,9 @@
   difference was found and the patch must not be used. It writes the patch, `patch-report.md` and
   `Plugins-with-patch.txt` (your load order with the patch at the end, for a `conflict` run before installing) to
   its own folder (default `sf-mod-check-patch`), never to the Data folder or Plugins.txt. An older copy of the patch
-  in the load order is left out while the new one is built.
+  in the load order is left out while the new one is built. Text from plugins in `patch-report.md` (EditorIDs,
+  values, file names) is escaped the same way as in `conflict`'s report, so a mod's text can't turn into a link,
+  an image or HTML in a Markdown viewer.
 - `conflict`: a forwardable conflict's recommendation now names `sf-mod-check patch` first, before xEdit and the AI
   prompt.
 

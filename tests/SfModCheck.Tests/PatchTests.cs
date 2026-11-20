@@ -143,7 +143,24 @@ public class PatchTests
         var c = report.Where(l => l.Contains("ModC.esm") && l.Contains("eyword")).ToList();
         Assert.True(a.Any(l => l.Contains("nothing new over ModD.esm's list")), string.Join("\n", report));
         Assert.DoesNotContain(a, l => l.Contains("adds"));
-        Assert.True(c.Any(l => l.Contains("adds 1 entry") && l.Contains("C_K")), string.Join("\n", report));
+        Assert.True(c.Any(l => l.Contains("adds 1 entry") && l.Contains("C\\_K")), string.Join("\n", report));
+    }
+
+    [Fact]
+    public void Plugin_text_in_the_report_cannot_make_links_images_or_html()
+    {
+        // /security-review 0.9.0: a downloaded mod's EditorID like ![x](url) must not become an image or link when
+        // patch-report.md is opened in a Markdown viewer; same escaping as conflict's report.md.
+        using var game = new Game();
+        const string evil = "![x](https://e.example/p.png)<b>[y](https://e.example/)";
+        game.Mod("ModC.esm", (m, b) => Misc(m, b).Keywords!.Add(m.Keywords.AddNew(evil).ToLink<IKeywordGetter>()));
+        game.Mod("ModD.esm", (m, b) => Misc(m, b).Keywords!.Add(BaseKeyword(b, "B_K1")));
+        var (code, stdout, stderr) = game.Patch(new[] { "Base.esm", "ModC.esm", "ModD.esm" });
+        Assert.True(code == 0, stdout + stderr);
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("!\\[x\\](https://e.example/p.png)\\<b\\>\\[y\\](https://e.example/)", report);
+        Assert.DoesNotContain("[x](", report);
+        Assert.DoesNotContain("<b>", report);
     }
 
     [Fact]
