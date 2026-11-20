@@ -72,8 +72,9 @@ public sealed class TriageContext
     public required string DataDir { get; init; }
     /// <summary>The game install folder (the one above Data), or null when the Data folder has no parent.</summary>
     public string? GameDir => Path.GetDirectoryName(Path.GetFullPath(DataDir).TrimEnd('\\', '/'));
-    public bool HasGame => hasGame ??= TriageCommand.HasStarfield(DataDir);   // worked out once (it is read per file)
-    bool? hasGame;
+    public bool HasGame => hasGame.Value;   // worked out once, thread-safe (it is read per file)
+    readonly Lazy<bool> hasGame;
+    public TriageContext() => hasGame = new Lazy<bool>(() => TriageCommand.HasStarfield(DataDir));
 
     /// <summary>The full path of a file in the game's Data folder, its name matched ignoring case; null when none.</summary>
     public string? DataFind(string fileName)
@@ -118,9 +119,11 @@ public sealed class TriageContext
     string? Find(string dir, string[] parts, int i)
     {
         if (i == parts.Length) return dir;
+        // the last part: a file that matches wins over a folder of that name (review), a folder only when no file does
+        if (i == parts.Length - 1)
+            return Matches(dir, parts[i]).FirstOrDefault(File.Exists) ?? Matches(dir, parts[i]).FirstOrDefault(Directory.Exists);
         foreach (var entry in Matches(dir, parts[i]))
         {
-            if (i == parts.Length - 1) { if (File.Exists(entry) || Directory.Exists(entry)) return entry; continue; }
             bool folder;
             try { folder = Directory.Exists(entry) && (File.GetAttributes(entry) & FileAttributes.ReparsePoint) == 0; }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { folder = false; }   // gone or denied: no match
