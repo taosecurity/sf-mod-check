@@ -58,7 +58,7 @@ public static class TriageFiles
     static Dictionary<string, ArchiveListing> ReadArchives(TriageContext c)
     {
         var map = new Dictionary<string, ArchiveListing>(StringComparer.Ordinal);
-        foreach (var rel in c.Files.Where(f => Path.GetExtension(f) == ".ba2"))
+        foreach (var rel in c.Files.Where(f => RelPath.Extension(f) == ".ba2"))
         {
             var full = c.Full(rel);
             try
@@ -90,7 +90,7 @@ public static class TriageFiles
     public static List<ArchiveEntry> ReadEntries(string path)
     {
         var names = Ba2Names.Read(path);   // checks the header and the name table
-        var name = Path.GetFileName(path);
+        var name = RelPath.FileName(path);
         using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
         var head = new byte[24];
         f.ReadExactly(head);
@@ -155,7 +155,7 @@ public static class TriageFiles
             if (top == "data") { p = rest; continue; }
             var s2 = rest.IndexOf('\\');
             var next = s2 < 0 ? null : rest[..s2];
-            var restIsPluginOrArchive = s2 < 0 && (PluginExts.Contains(Path.GetExtension(rest)) || Path.GetExtension(rest) == ".ba2");
+            var restIsPluginOrArchive = s2 < 0 && (PluginExts.Contains(RelPath.Extension(rest)) || RelPath.Extension(rest) == ".ba2");
             if (next != null && (DataFolders.Contains(next) || next == "data") || restIsPluginOrArchive) { p = rest; continue; }
             return p;
         }
@@ -170,7 +170,7 @@ public static class TriageFiles
     /// <summary>The version number in a file name's stem, or null.</summary>
     public static string? VersionIn(string fileName)
     {
-        var m = VersionRx.Match(Path.GetFileNameWithoutExtension(fileName));
+        var m = VersionRx.Match(RelPath.FileNameWithoutExtension(fileName));
         return m.Success ? m.Value : null;
     }
 
@@ -219,9 +219,9 @@ public static class TriageFiles
         // version numbers in names (plugins, archives, programs and archives inside the mod)
         foreach (var rel in c.Files)
         {
-            var ext = Path.GetExtension(rel);
+            var ext = RelPath.Extension(rel);
             if (!PluginExts.Contains(ext) && ext != ".ba2" && !BinaryExts.Contains(ext) && !NestedExts.Contains(ext)) continue;
-            if (VersionIn(Path.GetFileName(rel)) is not { } v) continue;
+            if (VersionIn(RelPath.FileName(rel)) is not { } v) continue;
             if (PluginExts.Contains(ext))
                 Note(rel, $"the plugin's name carries a version number ({v}). The game knows a plugin by its file name, so a later " +
                           "version under another name counts as a different plugin: saves and patches made for this one won't find it");
@@ -232,21 +232,21 @@ public static class TriageFiles
         }
 
         // plugins and their archives
-        var plugins = c.Files.Where(f => PluginExts.Contains(Path.GetExtension(f))).ToList();
+        var plugins = c.Files.Where(f => PluginExts.Contains(RelPath.Extension(f))).ToList();
         var iniText = IniTexts(c);
         var paired = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         // a plugin's name may hold " - " itself ("Foo - Patch.esm" loads "Foo - Patch - Main.ba2"), so an archive belongs to
         // the plugin with the longest stem that its name starts with, followed by " - "
         string? OwnerIn(IEnumerable<string> pluginNames, string archiveStem) =>
-            pluginNames.Where(p => archiveStem.StartsWith(Path.GetFileNameWithoutExtension(p) + " - ", StringComparison.OrdinalIgnoreCase))
+            pluginNames.Where(p => archiveStem.StartsWith(RelPath.FileNameWithoutExtension(p) + " - ", StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(p => p.Length).FirstOrDefault();
         List<string>? gamePlugins = null;
         foreach (var rel in archives.Keys)
         {
-            var dir = Path.GetDirectoryName(rel) ?? "";
-            var fileName = Path.GetFileName(rel);
-            var stem = Path.GetFileNameWithoutExtension(rel);
-            var plugin = OwnerIn(plugins.Where(p => (Path.GetDirectoryName(p) ?? "") == dir), stem);
+            var dir = RelPath.DirectoryName(rel) ?? "";
+            var fileName = RelPath.FileName(rel);
+            var stem = RelPath.FileNameWithoutExtension(rel);
+            var plugin = OwnerIn(plugins.Where(p => (RelPath.DirectoryName(p) ?? "") == dir), stem);
             if (plugin != null)
             {
                 if (!paired.TryGetValue(plugin, out var list)) paired[plugin] = list = new();
@@ -270,10 +270,10 @@ public static class TriageFiles
             }
             var elsewhere = OwnerIn(plugins, stem);
             gamePlugins ??= c.HasGame
-                ? Directory.EnumerateFiles(c.DataDir).Select(Path.GetFileName).OfType<string>().Where(n => PluginExts.Contains(Path.GetExtension(n).ToLowerInvariant())).ToList()
+                ? Directory.EnumerateFiles(c.DataDir).Select(RelPath.FileName).OfType<string>().Where(n => PluginExts.Contains(RelPath.Extension(n).ToLowerInvariant())).ToList()
                 : new();
             var inGame = OwnerIn(gamePlugins, stem);
-            var ownerName = elsewhere != null ? Path.GetFileNameWithoutExtension(elsewhere) : inGame != null ? Path.GetFileNameWithoutExtension(inGame) : stem[..dash];
+            var ownerName = elsewhere != null ? RelPath.FileNameWithoutExtension(elsewhere) : inGame != null ? RelPath.FileNameWithoutExtension(inGame) : stem[..dash];
             Look(rel, $"no plugin named {ownerName}.esm (or .esp, .esl) sits beside it in this mod, so the game won't load it" +
                       (elsewhere != null ? $" from here ({elsewhere} is in another folder of the mod)"
                        : inGame != null ? $" unless that plugin is installed ({inGame} is in the game's Data folder: this archive may be meant for another mod)"
@@ -283,7 +283,7 @@ public static class TriageFiles
             Note(plugin, $"comes with {list.Count} archive{(list.Count == 1 ? "" : "s")} the game loads with it: {string.Join(", ", list.Order(StringComparer.Ordinal))}");
 
         // archives inside the mod
-        foreach (var rel in c.Files.Where(f => NestedExts.Contains(Path.GetExtension(f))))
+        foreach (var rel in c.Files.Where(f => NestedExts.Contains(RelPath.Extension(f))))
             Note(rel, "an archive inside the mod: triage didn't open it, so what it holds isn't in this report");
 
         // layout
@@ -295,7 +295,7 @@ public static class TriageFiles
         foreach (var rel in c.Files)
         {
             var gp = GamePath(c, rel);
-            var ext = Path.GetExtension(rel);
+            var ext = RelPath.Extension(rel);
             var slash = gp.IndexOf('\\');
             var top = slash < 0 ? null : gp[..slash];
             if (top == "fomod" || rel.StartsWith("fomod\\", StringComparison.Ordinal)) continue;
@@ -319,7 +319,7 @@ public static class TriageFiles
             }
             if (top == null)
             {
-                if ((PluginExts.Contains(ext) || ext == ".ba2") && gp != c.DataPath(rel) && Path.GetDirectoryName(c.DataPath(rel)) is { Length: > 0 } wrapper)
+                if ((PluginExts.Contains(ext) || ext == ".ba2") && gp != c.DataPath(rel) && RelPath.DirectoryName(c.DataPath(rel)) is { Length: > 0 } wrapper)
                 {
                     Note(rel, $"sits in the folder {wrapper}\\, not at the top of the mod: a mod manager installs it only if told to use that folder " +
                               "(often an installer option, or a choice between versions)");
@@ -344,7 +344,7 @@ public static class TriageFiles
     static List<(string Rel, string Text)> IniTexts(TriageContext c)
     {
         var list = new List<(string, string)>();
-        foreach (var rel in c.Files.Where(f => Path.GetExtension(f) == ".ini"))
+        foreach (var rel in c.Files.Where(f => RelPath.Extension(f) == ".ini"))
         {
             try
             {
@@ -371,12 +371,12 @@ public static class TriageFiles
         // plugins and archives with the game's own names (no index needed)
         foreach (var rel in c.Files)
         {
-            var ext = Path.GetExtension(rel);
-            var name = Path.GetFileName(rel);
+            var ext = RelPath.Extension(rel);
+            var name = RelPath.FileName(rel);
             if (PluginExts.Contains(ext) && Checker.IsOfficial(name))
-                Look(rel, $"has the same name as the game's own plugin {Path.GetFileName(rel)}: installed, it takes the place of the game's file");
+                Look(rel, $"has the same name as the game's own plugin {RelPath.FileName(rel)}: installed, it takes the place of the game's file");
             else if (ext == ".ba2" && VanillaIndex.IsOfficialArchive(name))
-                Look(rel, c.HasGame && File.Exists(Path.Combine(c.DataDir, name))
+                Look(rel, c.HasGame && c.DataHas(name!)
                     ? "has the same name as one of the game's own archives: installed, it overwrites the game's file"
                     : $"is named after the game's own plugin {name[..name.IndexOf(" - ", StringComparison.Ordinal)]}.esm, so the game loads it with that plugin");
         }
@@ -399,14 +399,14 @@ public static class TriageFiles
         var hits = new List<Replaced>();
         foreach (var rel in c.Files)
         {
-            var ext = Path.GetExtension(rel);
+            var ext = RelPath.Extension(rel);
             if (ext == ".ba2" || PluginExts.Contains(ext)) continue;
             var gp = GamePath(c, rel);
             if (index.ArchiveOf(gp) is { } ga) hits.Add(new Replaced(rel, true, gp, ga));
         }
         foreach (var (rel, a) in archives)
         {
-            if (VanillaIndex.IsOfficialArchive(Path.GetFileName(rel))) continue;   // already a LOOK above; its contents are the game's own names
+            if (VanillaIndex.IsOfficialArchive(RelPath.FileName(rel))) continue;   // already a LOOK above; its contents are the game's own names
             foreach (var e in a.Entries)
                 if (index.ArchiveOf(e.Name) is { } ga) hits.Add(new Replaced(rel, false, e.Name, ga));
         }
@@ -434,7 +434,7 @@ public static class TriageFiles
                      "every mod and quest that uses them gets these copies");
 
         // other files: one NOTE per (mod file or folder, top folder, type)
-        foreach (var g in hits.Except(scripts).GroupBy(h => (Source: h.Loose ? "" : h.ModFile, Top: TopFolder(h.Path), Ext: Path.GetExtension(h.Path)))
+        foreach (var g in hits.Except(scripts).GroupBy(h => (Source: h.Loose ? "" : h.ModFile, Top: TopFolder(h.Path), Ext: RelPath.Extension(h.Path)))
                      .OrderBy(g => g.Key.Source, StringComparer.Ordinal).ThenBy(g => g.Key.Top, StringComparer.Ordinal).ThenBy(g => g.Key.Ext, StringComparer.Ordinal))
         {
             var n = g.Count();
@@ -505,7 +505,7 @@ public sealed class VanillaIndex
     /// <summary>The official archives in a Data folder, in a fixed order (Starfield's first, then by name).</summary>
     public static List<string> OfficialArchives(string dataDir) =>
         Directory.Exists(dataDir)
-            ? Directory.EnumerateFiles(dataDir, "*.ba2").Select(Path.GetFileName).OfType<string>().Where(IsOfficialArchive)
+            ? Directory.EnumerateFiles(dataDir, "*.ba2").Select(RelPath.FileName).OfType<string>().Where(IsOfficialArchive)
                 .OrderBy(n => n.StartsWith("Starfield - ", StringComparison.OrdinalIgnoreCase) ? 0 : 1).ThenBy(n => n, StringComparer.OrdinalIgnoreCase).ToList()
             : new();
 

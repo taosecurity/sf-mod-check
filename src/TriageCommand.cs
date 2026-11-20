@@ -14,6 +14,19 @@ namespace SfModCheck;
 
 public enum TriageLevel { Note, Look }
 
+/// <summary>Path's name helpers for triage's paths, which use backslashes (Ba2Names.Normalize) on every system. On
+/// Linux and macOS a backslash isn't a separator, so Path.GetFileName("data\mod.esm") gave the whole string (found by
+/// CI on ubuntu, 2026-11-20). These treat both slashes as separators; on Windows they give what Path gives.</summary>
+public static class RelPath
+{
+    static string? Unix(string? s) => s?.Replace('\\', '/');
+    static string? Back(string? s, string? original) => s != null && original != null && original.Contains('\\') && !OperatingSystem.IsWindows() ? s.Replace('/', '\\') : s;
+    public static string? FileName(string? s) => Path.GetFileName(Unix(s));
+    public static string FileNameWithoutExtension(string? s) => Path.GetFileNameWithoutExtension(Unix(s)) ?? "";
+    public static string Extension(string? s) => Path.GetExtension(Unix(s)) ?? "";
+    public static string? DirectoryName(string? s) => Back(Path.GetDirectoryName(Unix(s)), s);
+}
+
 /// <summary>One line of the report. Section is one of the TriageSections names; File is the mod-relative path
 /// (Ba2Names.Normalize form; "" when the finding is about the whole mod).</summary>
 public sealed record TriageFinding(TriageLevel Level, string Section, string File, string Text);
@@ -58,11 +71,48 @@ public sealed class TriageContext
     /// <summary>The game install folder (the one above Data), or null when the Data folder has no parent.</summary>
     public string? GameDir => Path.GetDirectoryName(Path.GetFullPath(DataDir).TrimEnd('\\', '/'));
     public bool HasGame => File.Exists(Path.Combine(DataDir, "Starfield.esm"));
+
+    /// <summary>True when the game's Data folder holds a file of this name, ignoring case on every system (names in
+    /// Files are lower case; on Linux "starfield - misc.ba2" isn't "Starfield - Misc.ba2").</summary>
+    public bool DataHas(string fileName)
+    {
+        if (File.Exists(Path.Combine(DataDir, fileName))) return true;
+        if (OperatingSystem.IsWindows()) return false;
+        try { return Directory.EnumerateFiles(DataDir).Any(f => string.Equals(Path.GetFileName(f), fileName, StringComparison.OrdinalIgnoreCase)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+    }
     /// <summary>A temp folder sections may write scratch files into (removed at the end).</summary>
     public required string Work { get; init; }
     public required TriageReport Report { get; init; }
 
-    public string Full(string rel) => Path.Combine(Root, rel.Replace('\\', Path.DirectorySeparatorChar));
+    /// <summary>The full path of a file of the mod. Files holds lower-case names, so where file names are case-sensitive
+    /// (Linux, macOS) each part of the path is found by name ignoring case, an exact match first (found by CI on
+    /// ubuntu, 2026-11-20: every section missed "Scripts/Foo.pex" as "scripts/foo.pex").</summary>
+    public string Full(string rel)
+    {
+        var direct = Path.Combine(Root, rel.Replace('\\', Path.DirectorySeparatorChar));
+        if (OperatingSystem.IsWindows() || File.Exists(direct) || Directory.Exists(direct)) return direct;
+        lock (resolved)
+        {
+            if (resolved.TryGetValue(rel, out var hit)) return hit;
+            var cur = Root;
+            foreach (var part in rel.Split('\\'))
+            {
+                string? next = null;
+                try
+                {
+                    var exact = Path.Combine(cur, part);
+                    next = File.Exists(exact) || Directory.Exists(exact) ? exact
+                        : Directory.EnumerateFileSystemEntries(cur).FirstOrDefault(e => string.Equals(Path.GetFileName(e), part, StringComparison.OrdinalIgnoreCase));
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                if (next == null) return direct;   // not there: the caller reports the missing file
+                cur = next;
+            }
+            return resolved[rel] = cur;
+        }
+    }
+    readonly Dictionary<string, string> resolved = new(StringComparer.Ordinal);
     public string DataPath(string rel) => DataPrefix.Length > 0 && rel.StartsWith(DataPrefix, StringComparison.Ordinal) ? rel[DataPrefix.Length..] : rel;
 
     IEnumerable<string> WithExt(params string[] exts) =>

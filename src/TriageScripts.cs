@@ -89,7 +89,7 @@ public static class TriageScripts
         }
 
         // the mod's own plugins and script types, and the game's script types (by name, from its archives)
-        var ownPlugins = new HashSet<string>(c.Files.Select(f => Path.GetFileName(f)).Where(f => PluginName.IsMatch(f)), StringComparer.OrdinalIgnoreCase);
+        var ownPlugins = new HashSet<string>(c.Files.Select(f => RelPath.FileName(f)).Where(f => PluginName.IsMatch(f)), StringComparer.OrdinalIgnoreCase);
         var ownTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in sources) ownTypes.Add(TypeOfPath(s.File));
         foreach (var (_, pex) in read) foreach (var o in pex.Objects) ownTypes.Add(o.Name);
@@ -294,7 +294,7 @@ public static class TriageScripts
         if (colon >= 0) p = p[(colon + 5)..];
         p = Ba2Names.Normalize(p);
         var i = p.StartsWith("scripts\\", StringComparison.Ordinal) ? 0 : p.IndexOf("\\scripts\\", StringComparison.Ordinal) is var j and >= 0 ? j + 1 : -1;
-        p = i >= 0 ? p[(i + 8)..] : Path.GetFileName(p);
+        p = i >= 0 ? p[(i + 8)..] : RelPath.FileName(p);
         if (p.EndsWith(".pex", StringComparison.Ordinal)) p = p[..^4];
         return p.Replace('\\', ':');
     }
@@ -306,7 +306,7 @@ public static class TriageScripts
         var list = new List<Source>();
         foreach (var rel in c.Files)
         {
-            var ext = Path.GetExtension(rel);
+            var ext = RelPath.Extension(rel);
             if (ext == ".pex")
             {
                 var full = c.Full(rel);
@@ -343,7 +343,7 @@ public static class TriageScripts
     /// are still read. Throws InvalidDataException when the header or records don't add up.</summary>
     public static List<(string Entry, byte[]? Data, string? Error)> ArchiveScripts(string path)
     {
-        var name = Path.GetFileName(path);
+        var name = RelPath.FileName(path);
         var names = Ba2Names.Read(path);  // checks the header and the name table
         var result = new List<(string, byte[]?, string?)>();
         if (!names.Any(n => n.EndsWith(".pex", StringComparison.Ordinal))) return result;
@@ -413,7 +413,7 @@ public static class TriageScripts
             int archives = 0;
             foreach (var ba2 in Directory.EnumerateFiles(dataDir, "*.ba2"))
             {
-                var n = Path.GetFileName(ba2);
+                var n = RelPath.FileName(ba2);
                 var dash = n.IndexOf(" - ", StringComparison.Ordinal);
                 var owner = dash > 0 ? n[..dash] + ".esm" : "";
                 if (!n.StartsWith("Starfield - ", StringComparison.OrdinalIgnoreCase) && !(owner != "" && Checker.IsOfficial(owner))) continue;

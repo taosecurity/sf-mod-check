@@ -81,9 +81,9 @@ public static class TriagePlugins
 
         // ---- the plugins (one per name: a second copy in another folder, such as a FOMOD option, is named and skipped) ----
         var plugins = new List<Facts>();
-        foreach (var rel in c.Files.Where(x => PluginExts.Contains(Path.GetExtension(x))))
+        foreach (var rel in c.Files.Where(x => PluginExts.Contains(RelPath.Extension(x))))
         {
-            var name = Path.GetFileName(rel);
+            var name = RelPath.FileName(rel);
             if (plugins.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } first)
             {
                 Note(rel, $"has the same name as {first.Rel}, so only that one is checked here (only one of them can be installed)");
@@ -162,7 +162,7 @@ public static class TriagePlugins
         // ---- sfmodcheck's own checks ----
         var checkT = c.Report.Table(S, "sf-mod-check check findings", "Plugin", "Severity", "Check", "Text");
         var itmT = c.Report.Table(S, "Identical to master (ITM)", "Plugin", "Record");
-        var dirs = readable.Select(p => Path.GetDirectoryName(Path.GetFullPath(p.Full))!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var dirs = readable.Select(p => RelPath.DirectoryName(Path.GetFullPath(p.Full))!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         // Each later step has its own guard, so one that stops keeps every line found before it (0.8.0 code review:
         // the section's lines were returned only at its end, so an error lost them all).
         bool Step(string what, Action run)
@@ -278,11 +278,11 @@ public static class TriagePlugins
     {
         try
         {
-            var dir = Path.GetDirectoryName(full);
-            var name = Path.GetFileName(full);
+            var dir = RelPath.DirectoryName(full);
+            var name = RelPath.FileName(full);
             if (dir == null || !Directory.Exists(dir)) return null;
-            return Directory.EnumerateFiles(dir).Select(Path.GetFileName).FirstOrDefault(n => string.Equals(n, name, StringComparison.Ordinal))
-                ?? Directory.EnumerateFiles(dir).Select(Path.GetFileName).FirstOrDefault(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+            return Directory.EnumerateFiles(dir).Select(RelPath.FileName).FirstOrDefault(n => string.Equals(n, name, StringComparison.Ordinal))
+                ?? Directory.EnumerateFiles(dir).Select(RelPath.FileName).FirstOrDefault(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
@@ -501,7 +501,7 @@ public static class TriagePlugins
         var txt = Path.Combine(c.Work, "triage-plugins.txt");
         File.WriteAllLines(txt, listed.Select(n => "*" + n));
         // the mod's plugins as the second folder (its files win over Data's); copied together when they sit apart
-        var dirs = plugins.Select(p => Path.GetDirectoryName(p.Full)!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var dirs = plugins.Select(p => RelPath.DirectoryName(p.Full)!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var extra = dirs[0];
         if (dirs.Count > 1)
         {
@@ -860,10 +860,10 @@ public static class TriagePlugins
             var gp = TriageFiles.GamePath(c, rel);
             if (gp.EndsWith(".pex", StringComparison.Ordinal)) have.Add(gp);
         }
-        var stems = facts.Select(p => Path.GetFileNameWithoutExtension(p.Name)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var stems = facts.Select(p => RelPath.FileNameWithoutExtension(p.Name)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var rel in c.Files.Where(x => x.EndsWith(".ba2", StringComparison.Ordinal)))
         {
-            var n = Path.GetFileNameWithoutExtension(rel);
+            var n = RelPath.FileNameWithoutExtension(rel);
             var dash = n.IndexOf(" - ", StringComparison.Ordinal);
             if (dash <= 0 || !stems.Contains(n[..dash])) continue;   // no plugin of the mod loads it (the Files section says so)
             try { foreach (var e in Ba2Names.Read(c.Full(rel))) if (e.EndsWith(".pex", StringComparison.Ordinal)) have.Add(e); }

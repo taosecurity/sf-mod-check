@@ -165,7 +165,7 @@ public static class TriageBinaries
             catch (InvalidDataException e)
             {
                 Log.Write($"binaries: {rel}: not readable as PE: {e.Message}");
-                findings.Add(new(TriageLevel.Look, S, rel, $"has a {Path.GetExtension(rel)} name but can't be read as a Windows program: {e.Message}"));
+                findings.Add(new(TriageLevel.Look, S, rel, $"has a {RelPath.Extension(rel)} name but can't be read as a Windows program: {e.Message}"));
                 table.Add(rel, "not a readable PE file", "", "", $"{new FileInfo(full).Length:N0}", "", "", "", "");
                 continue;
             }
@@ -191,8 +191,8 @@ public static class TriageBinaries
                 findings.Add(new(TriageLevel.Note, S, rel, "is a program (.exe); triage doesn't run it. The mod's description should say what it is for"));
             if (rel.EndsWith(".asi", StringComparison.Ordinal))
                 findings.Add(new(TriageLevel.Look, S, rel, "is an ASI plugin: an ASI loader puts it into the game's own process, where it can do anything the game can (not SFSE's plugin system, so none of SFSE's version checks apply)"));
-            if (pe.IsDll && !rel.Contains("sfse\\plugins\\", StringComparison.Ordinal) && ProxyNames.Contains(Path.GetFileName(rel)))
-                findings.Add(new(TriageLevel.Look, S, rel, $"has the name of a Windows DLL ({Path.GetFileName(rel)}): put in the game's folder, the game loads it in place of Windows' own copy (ReShade and ASI loaders work this way)"));
+            if (pe.IsDll && !rel.Contains("sfse\\plugins\\", StringComparison.Ordinal) && ProxyNames.Contains(RelPath.FileName(rel)))
+                findings.Add(new(TriageLevel.Look, S, rel, $"has the name of a Windows DLL ({RelPath.FileName(rel)}): put in the game's folder, the game loads it in place of Windows' own copy (ReShade and ASI loaders work this way)"));
 
             foreach (var g in pe.Imports.GroupBy(i => (Dll: i.Dll.ToLowerInvariant(), i.Delayed)).OrderBy(g => g.Key.Dll, StringComparer.Ordinal))
             {
@@ -480,7 +480,7 @@ public static class TriageBinaries
     {
         var findings = new List<TriageFinding>();
         var plugins = string.Join(",", ManalyzePlugins);
-        var dir = Path.GetDirectoryName(Path.GetFullPath(exe)) ?? "";
+        var dir = RelPath.DirectoryName(Path.GetFullPath(exe)) ?? "";
         bool vt = false;
         try { vt = Directory.Exists(dir) && Directory.EnumerateFiles(dir, "plugin_virustotal*.dll").Any(); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
