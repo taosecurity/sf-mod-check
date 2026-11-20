@@ -207,10 +207,10 @@ public static class TriageCommand
             kind = TriageInputKind.Folder;
         }
         else if (!File.Exists(input))
-            return CantRun($"{Path.GetFileName(input)}: no such file", $"can't triage {input}: no such file or folder. Check the path (a path with spaces needs quotes around it).");
+            return CantRun($"{Shown(input)}: no such file", $"can't triage {input}: no such file or folder. Check the path (a path with spaces needs quotes around it).");
         else if (KindOf(input) is { } k) kind = k;
         else
-            return CantRun($"{Path.GetFileName(input)}: not a mod download or plugin",
+            return CantRun($"{Shown(input)}: not a mod download or plugin",
                 $"can't triage {input}: give a .zip, .7z or .rar download, a mod folder, or a plugin (.esm .esp .esl).");
         Log.Write($"input: {kind} {Log.Describe(input)}");
 
@@ -250,7 +250,7 @@ public static class TriageCommand
             {
                 // A file-system error: it can be the PC (a lock, a permission, a full disk) or the archive (a path too long
                 // to make, a file and a folder of the same name), so the message names both (tenth code review).
-                var shown = Path.GetFileName(input.TrimEnd('\\', '/'));
+                var shown = Shown(input);
                 return kind switch
                 {
                     TriageInputKind.Folder => CantRun($"a file in {shown} can't be read",
@@ -265,14 +265,14 @@ public static class TriageCommand
             }
             catch (Exception e) when (e is InvalidDataException or InvalidFormatException or ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException)
             {
-                return CantRun($"{Path.GetFileName(input)} can't be read", $"can't read {input}: {e.Message}");
+                return CantRun($"{Shown(input)} can't be read", $"can't read {input}: {e.Message}");
             }
             Log.Write($"mod files: {files.Count} under {root}");
 
             var report = new TriageReport
             {
                 Tool = $"sf-mod-check {version}",
-                InputName = Path.GetFileName(input.TrimEnd('\\', '/')),
+                InputName = Shown(input),
                 InputPath = input,
                 InputKind = kind,
                 DataDir = Path.GetFullPath(o.DataDir),
@@ -330,6 +330,11 @@ public static class TriageCommand
             if (File.Exists(Path.Combine(d, "Starfield.esm"))) return Path.GetFullPath(d);
         return null;
     }
+
+    /// <summary>The input's name for messages: its last part, without a trailing slash; the whole path for a drive root
+    /// ("D:\", whose name is empty).</summary>
+    public static string Shown(string input) =>
+        Path.GetFileName(input.TrimEnd('\\', '/')) is { Length: > 0 } n ? n : input;
 
     public static TriageInputKind? KindOf(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
@@ -526,9 +531,14 @@ public static class TriageCommand
             }
             catch (Exception x) when (first != null)
             {
-                // the first error wins, unless the close error is fatal and the first one wasn't; both are logged
-                Log.Write($"triage: after an error in {e.Key} ({first.GetType().Name}: {first.Message}), closing its stream failed too: {x}");
-                if (!Fatal.Recoverable(x) && Fatal.Recoverable(first)) throw;
+                // the first error wins, unless the close error is fatal and the first one wasn't. After a fatal first
+                // error nothing is built here (a log line could itself run out of memory and replace it).
+                if (!Fatal.Recoverable(first)) { }
+                else
+                {
+                    Log.Write($"triage: after an error in {e.Key} ({first.GetType().Name}: {first.Message}), closing its stream failed too: {x}");
+                    if (!Fatal.Recoverable(x)) throw;
+                }
             }
             if (first != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(first);
         }
@@ -537,16 +547,17 @@ public static class TriageCommand
         {
             var key = e.Key ?? "";
             var name = key.Replace('\\', '/');
-            // a folder record some tools write as a plain entry ("Data/"): nothing to write (tenth code review: it was
-            // refused as a clash with the folder its own files made), as ReleaseCommand.Unpack skips them
-            // only an empty one: an entry named like a folder that holds data is refused, so nothing hides that way
-            if (name.EndsWith('/') && name.Length > 1)
-            {
-                if (e.Size > 0) throw Refused($"the entry \"{key}\" is named like a folder but holds {e.Size:N0} bytes");
-                return;
-            }
+            // the path checks first, for every entry (twelfth review: a "../../x/" folder record was skipped, not refused)
             if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(x => x == ".."))
                 throw Refused($"the entry \"{key}\" points outside the archive's own folders");
+            // A folder record some tools write as a plain entry ("Data/"): nothing to write (tenth review: it was
+            // refused as a clash with the folder its own files made). Only an empty one: its stream is read, not its
+            // declared size (twelfth review), so an entry named like a folder can't hide data.
+            if (name.EndsWith('/'))
+            {
+                if (input.ReadByte() >= 0) throw Refused($"the entry \"{key}\" is named like a folder but holds data");
+                return;
+            }
             var norm = Ba2Names.Normalize(name);
             if (!seen.Add(norm)) throw Refused($"the archive holds \"{key}\" twice (names differ only in case or slashes)");
             var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));

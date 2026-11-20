@@ -91,6 +91,15 @@ public class TriageCommandTests
         var h = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(hidden, Path.Combine(s.Dir, "g")));
         Assert.True(TriageCommand.IsRefusal(h));
         Assert.Contains("named like a folder", h.Message);
+        // a folder record with a path outside the folder is refused, not skipped (twelfth review)
+        var up = Make7z(s, "Up.7z", ("Data/a.esm", "x"), ("../../evil/", ""));
+        Assert.Contains("points outside", Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(up, Path.Combine(s.Dir, "h"))).Message);
+        if (OperatingSystem.IsWindows())   // Windows paths: on Linux a backslash is part of a name
+        {
+            Assert.Equal("Foo", TriageCommand.Shown(@"C:\Mods\Foo\"));
+            Assert.Equal(@"D:\", TriageCommand.Shown(@"D:\"));
+        }
+        Assert.Equal("Foo", TriageCommand.Shown("/mods/Foo/"));
     }
 
     [Fact]
