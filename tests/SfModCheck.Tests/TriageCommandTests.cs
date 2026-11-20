@@ -118,6 +118,36 @@ public class TriageCommandTests
         Assert.Null(TriageCommand.DefaultOut(plugin, noSteam, currentDir: Path.GetDirectoryName(Path.GetDirectoryName(gp))!));
         Assert.True(TriageCommand.InGameInstall(Path.GetDirectoryName(Path.GetDirectoryName(gp))!, noSteam));
         Assert.False(TriageCommand.InGameInstall(other, noSteam));
+
+        // a game folder not named Data is the install itself; its neighbors aren't in the game (fourth code review)
+        var esms = s.Sub("GameEsms");
+        File.WriteAllText(Path.Combine(esms, "Starfield.esm"), "x");
+        Assert.False(TriageCommand.InGameInstall(s.Sub("MyMod"), esms));
+        Assert.True(TriageCommand.InGameInstall(Path.Combine(esms, "Sub"), esms));
+    }
+
+    [Fact]
+    public void A_seven_zip_with_encrypted_headers_is_refused_as_password_protected()
+    {
+        // fourth code review: SharpCompress's own CryptographicException. 7-Zip makes the fixture when it is installed.
+        var sevenZip = @"C:\Program Files\7-Zip\7z.exe";
+        if (!OperatingSystem.IsWindows() || !File.Exists(sevenZip)) return;
+        using var s = new Sandbox();
+        var src = s.Sub("src");
+        File.WriteAllText(Path.Combine(src, "Mod.esm"), "x");
+        var archive = Path.Combine(s.Dir, "Locked.7z");
+        var psi = new System.Diagnostics.ProcessStartInfo(sevenZip) { RedirectStandardOutput = true, UseShellExecute = false };
+        foreach (var a in new[] { "a", "-pSecret1", "-mhe=on", archive, Path.Combine(src, "Mod.esm") }) psi.ArgumentList.Add(a);
+        using (var p = System.Diagnostics.Process.Start(psi)!) { p.StandardOutput.ReadToEnd(); p.WaitForExit(); }
+        var e = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(archive, Path.Combine(s.Dir, "out")));
+        Assert.Contains("password-protected", e.Message);
+
+        // a damaged archive: "can't be read", never an unhandled error
+        var bad = Path.Combine(s.Dir, "Damaged.7z");
+        var bytes = File.ReadAllBytes(archive);
+        for (int i = 40; i < bytes.Length; i += 7) bytes[i] ^= 0x5A;
+        File.WriteAllBytes(bad, bytes);
+        Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(bad, Path.Combine(s.Dir, "out2")));
     }
 
     [Fact]

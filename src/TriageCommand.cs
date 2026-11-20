@@ -197,9 +197,13 @@ public static class TriageCommand
         if (Directory.Exists(input))
         {
             // the game's Data folder, its install folder or Game Pass's Content folder (third code review), or a folder in them
-            if (FindData(input) != null || InGameInstall(input, o.DataDir))
+            var inGame = FindData(input) != null ? true : InstallCheck(input, o.DataDir);
+            if (inGame == true)
                 return CantRun("that is the game's own folder",
                     $"won't triage {input}: it is the game's install or a folder inside it. Give the mod's own folder, its download, or one plugin.");
+            if (inGame == null)
+                return CantRun("the folder's path can't be checked",
+                    $"won't triage {input}: its path couldn't be checked against the game's install. Copy the mod to a plain folder such as C:\\Mods\\SomeMod and try again.");
             kind = TriageInputKind.Folder;
         }
         else if (!File.Exists(input))
@@ -335,7 +339,12 @@ public static class TriageCommand
     /// <summary>True when the folder is inside a game install: it, or a folder above it, holds Starfield.esm (directly or
     /// in Data), or it is under the install of dataDir. Any install counts, not only the one --game names (0.8.0 code
     /// review: a plugin in a Game Pass Data folder got its report beside it).</summary>
-    public static bool InGameInstall(string folder, string dataDir)
+    public static bool InGameInstall(string folder, string dataDir) =>
+        InstallCheck(folder, dataDir) ?? true;   // can't tell: count it as the game, so nothing is written there by mistake
+
+    /// <summary>InGameInstall, with null when the path can't be checked (for the message: "couldn't be checked" is not
+    /// "it is the game"; fourth code review).</summary>
+    public static bool? InstallCheck(string folder, string dataDir)
     {
         try
         {
@@ -344,14 +353,19 @@ public static class TriageCommand
                 if (FindData(d.FullName) != null) return true;
             var data = Path.GetFullPath(dataDir).TrimEnd('\\', '/');
             if (!File.Exists(Path.Combine(data, "Starfield.esm"))) return false;
-            // the install above Data (Steam), and above Content too (Game Pass)
-            var install = Path.GetDirectoryName(data);
-            if (install != null && Path.GetFileName(install).Equals("Content", StringComparison.OrdinalIgnoreCase)) install = Path.GetDirectoryName(install);
-            return install != null &&
-                   (Path.GetFullPath(folder).TrimEnd('\\', '/') + Path.DirectorySeparatorChar).StartsWith(install.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            // The install is above a folder named Data (Steam), and above Content too (Game Pass). A game folder by
+            // any other name is the install itself, and a drive root never is (fourth code review: --game D:\Data
+            // made all of D: "the game").
+            var install = data;
+            if (Path.GetFileName(data).Equals("Data", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(data) is { } up)
+            {
+                install = up;
+                if (Path.GetFileName(up).Equals("Content", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(up) is { } up2) install = up2;
+            }
+            if (Path.GetPathRoot(install) is { } root && install.TrimEnd('\\', '/').Equals(root.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)) install = data;
+            return (Path.GetFullPath(folder).TrimEnd('\\', '/') + Path.DirectorySeparatorChar).StartsWith(install.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
-        // can't tell: count it as the game, so the report is never written there by mistake (third code review)
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException) { return true; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException) { return null; }
     }
 
     /// <summary>The mod's root folder and its files. Archives are unpacked into dest; a folder is read where it is; a
@@ -400,12 +414,25 @@ public static class TriageCommand
     {
         // SharpCompress's own refusals become "can't be read"; the same exception from our code stays a real error
         // (0.8.0 code review)
-        // Our own code in there throws only InvalidDataException; an InvalidOperationException comes from reading the
-        // archive (SharpCompress, or a .NET method it calls on a damaged file: third code review), and a
-        // CryptographicException from headers encrypted with a password.
+        // Our own code in there throws only InvalidDataException (its guards). Everything SharpCompress throws derives from
+        // SharpCompressException; its CryptographicException means headers encrypted with a password (fourth code
+        // review: not .NET's type of that name). An InvalidOperationException counts only when it comes from
+        // SharpCompress or a .NET method it calls on a damaged file (third review); one from our own code stays an error.
         try { return UnpackOtherCore(archive, dest); }
-        catch (InvalidOperationException e) { throw new InvalidDataException($"it can't be read as an archive ({e.Message})", e); }
-        catch (System.Security.Cryptography.CryptographicException e) { throw new InvalidDataException($"it is password-protected; triage doesn't open encrypted archives ({e.Message})", e); }
+        catch (SharpCompress.Common.CryptographicException e) { throw new InvalidDataException($"it is password-protected; triage doesn't open encrypted archives ({e.Message})", e); }
+        catch (SharpCompressException e) { Log.Write($"triage: {archive}: {e}"); throw new InvalidDataException($"it can't be read as an archive ({e.Message})", e); }
+        catch (InvalidOperationException e) when (e is not ObjectDisposedException && FromLibrary(e))
+        {
+            Log.Write($"triage: {archive}: {e}");
+            throw new InvalidDataException($"it can't be read as an archive ({e.Message})", e);
+        }
+    }
+
+    /// <summary>True when the exception was thrown inside SharpCompress or .NET itself, not in sf-mod-check's own code.</summary>
+    static bool FromLibrary(Exception e)
+    {
+        var asm = e.TargetSite?.DeclaringType?.Assembly.GetName().Name ?? "";
+        return asm == "SharpCompress" || asm.StartsWith("System.", StringComparison.Ordinal) || asm == "System";
     }
 
     static List<string> UnpackOtherCore(string archive, string dest)

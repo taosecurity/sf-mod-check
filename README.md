@@ -356,12 +356,12 @@ purpose gets one, and so does a DLL that talks to the network. The report never 
 harmful; you decide that after reading.
 
 - `<mod>`: a `.zip`, `.7z` or `.rar` download (unpacked into a temp folder that is always removed; password-protected
-  archives are refused), a mod folder (for example `MO2\mods\SomeMod`, read where it is), or one plugin (with the
+  archives are refused), a mod folder (for example `MO2\mods\SomeMod`, read where it is; never the game's own folders), or one plugin (with the
   `<Plugin> - *.ba2` archives beside it).
 - `--game <folder>`: the game's folder, its `Data` folder, or for Game Pass its `Content` folder. Without it, Steam's
   usual folder is used. With no game found, nothing is compared with the game and the report says so.
 - `--out <folder>`: where the report goes (default: next to the input, or the current folder when the input is
-  inside a game install; when both are, triage writes nothing and asks for `--out`).
+  inside a game install; when both are, triage writes nothing and asks for `--out`, and an `--out` inside a game install is refused too).
 - `--manalyze <exe>`: also run [Manalyze](https://github.com/JusticeRage/Manalyze) on each DLL and EXE, with its
   offline plugins only (never VirusTotal, never anything that fetches from the network), for at most 2 minutes each.
   Where Manalyze's own text calls a file "malware", the report says "binary" and marks the line as reworded.
