@@ -302,8 +302,6 @@ public static class ReleaseCommand
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
     }
 
-    /// <summary>Unpacks a zip into dest. Refuses entries that would land outside dest (".." or a rooted path) and
-    /// duplicate names, rather than skipping them, so a damaged or crafted zip never gets an OK.</summary>
     /// <summary>True when the entry's stream gives at least one byte (its declared length can be wrong).</summary>
     static bool ReadsAByte(ZipArchiveEntry e)
     {
@@ -311,6 +309,10 @@ public static class ReleaseCommand
         return s.ReadByte() >= 0;
     }
 
+    /// <summary>Unpacks a zip into dest. Refuses entries that would land outside dest (".." or a rooted path), empty
+    /// names and duplicate names, rather than skipping them, so a damaged or crafted zip never gets an OK. Any error
+    /// while an entry is read or written (a name Windows can't make, a file and a folder of the same name, an encrypted
+    /// or unknown compression) is an InvalidDataException naming the entry (0.8.0 review), so callers stop cleanly.</summary>
     public static ReleasePackage Unpack(string zip, string dest)
     {
         Directory.CreateDirectory(dest);
@@ -325,10 +327,11 @@ public static class ReleaseCommand
             if (total > MaxUnpackedBytes)
                 throw new InvalidDataException($"it unpacks to {total / (1024 * 1024 * 1024.0):F1} GB, more than the {MaxUnpackedBytes / (1024 * 1024 * 1024)} GB this check allows; a release zip is far smaller than that");
             foreach (var e in z.Entries)
+            try
             {
                 var name = e.FullName.Replace('\\', '/');
                 // the path check first, folder entries included (0.8.0 review: "../../x/" was skipped, not refused)
-                if (name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(p => p == ".."))
+                if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(p => p == ".."))
                     throw new InvalidDataException($"the entry \"{e.FullName}\" points outside the zip's own folders");
                 if (name.EndsWith('/'))
                 {
@@ -365,6 +368,12 @@ public static class ReleaseCommand
                 // full paths keep the zip's own spelling (Linux file names are case-sensitive)
                 if (PluginExts.Contains(Path.GetExtension(norm))) plugins.Add(target);
                 else if (norm.EndsWith(".ba2", StringComparison.Ordinal)) archives.Add(target);
+            }
+            catch (Exception x) when (x is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            {
+                throw new InvalidDataException($"the entry \"{e.FullName}\" can't be unpacked ({x.GetType().Name}: {x.Message}): the zip holds a name " +
+                                               "Windows can't make (a file and a folder of the same name, a reserved name), an entry it can't decode, " +
+                                               "or the temp folder is full", x);
             }
         }
         files.Sort(StringComparer.Ordinal);

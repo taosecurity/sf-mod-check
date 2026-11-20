@@ -45,6 +45,19 @@ public class ReleaseCommandTests
     }
 
     [Fact]
+    public void Unpack_refuses_a_file_and_folder_of_the_same_name_cleanly()
+    {
+        // 0.8.0 review: this was an unhandled IOException; now an InvalidDataException naming the entry
+        using var s = new Sandbox();
+        var zip = MakeZip(s, "Clash.zip", ("Data", "x"), ("Data/a.esm", "y"));
+        var e = Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(zip, Path.Combine(s.Dir, "out")));
+        Assert.Contains("Data/a.esm", e.Message);
+        // and folder entries: data behind a folder name, or a path outside, are refused (also in TriageCommandTests)
+        var hidden = MakeZip(s, "Hidden.zip", ("Scripts/", "secret"));
+        Assert.Contains("named like a folder", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(hidden, Path.Combine(s.Dir, "out2"))).Message);
+    }
+
+    [Fact]
     public void Unpack_refuses_a_name_twice()
     {
         using var s = new Sandbox();
