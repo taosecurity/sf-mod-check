@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 (2026-11-19)
+## 0.8.0 (2026-11-20)
 
 - **Renamed: sfmodcheck is now sf-mod-check.** The exe is `sf-mod-check.exe`, the dotnet tool package and command are
   `sf-mod-check`, and the GitHub repo is taosecurity/sf-mod-check (the old address forwards). The exe zip also holds
