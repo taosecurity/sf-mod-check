@@ -1,28 +1,30 @@
 # sf-mod-check
 
-**Find out whether your Starfield mod's plugin is broken before you play it or release it.** sf-mod-check reads a
-plugin (`.esm`) and reports problems that would break it in the game: damaged files, bad headers, FormIDs outside the
-plugin's range, links to records that don't exist, broken conditions, scenes and navmesh links, repeated EditorIDs,
-deleted records and "identical to master" records. After each kind of problem it says how to fix it in xEdit or the
-Creation Kit. It only reads files: it never changes a plugin. A typical mod takes about 4 seconds. A second command,
-[`conflict`](#conflicts-between-mods-sf-mod-check-conflict), reads your whole load order and reports which changes it
-throws away (official changes undone by mods, one mod's changes lost to another) and what to do about each. A third,
-[`release`](#check-a-release-zip-sf-mod-check-release), checks the zip you are about to upload: plugin names the game
-drops, missing scripts and files, sounds packed so they play silent, and every plugin inside. A fourth,
-[`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage), looks over someone else's mod before you install or
-rebuild it: its files, what it replaces in the game, its plugins, scripts and DLLs, in one offline report. It is
-triage, not a verdict: it shows a person where to start reading. A fifth,
-[`patch`](#build-a-conflict-patch-sf-mod-check-patch), builds a local patch that brings back the changes `conflict`
-found lost, without xEdit or an AI assistant.
+sf-mod-check finds problems in a Starfield plugin before you play it or release it. It only reads files and never
+changes a plugin, and it checks a typical mod in about 4 seconds.
 
-**Renamed:** this tool was called **sfmodcheck** until 0.7.0. The command is now `sf-mod-check`; the exe zip still
-holds a `sfmodcheck.cmd` that runs it under the old name for one more release. Your caches and the `SFMODCHECK_*`
-environment variables keep working.
+Download the exe zip from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it. It has five
+commands:
 
-**First command:** download the exe zip from [Releases](https://github.com/taosecurity/sf-mod-check/releases), unzip it,
-and drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
+- [`check`](#run-it) reads one plugin (`.esm`) and reports problems that would break it in the game: damaged files,
+  bad headers, FormIDs outside the plugin's range, links to records that don't exist, broken conditions, scenes and
+  navmesh links, repeated EditorIDs, deleted records and ITM records. After each kind of problem it says how to fix
+  it in xEdit or the Creation Kit.
+- [`conflict`](#conflicts-between-mods-sf-mod-check-conflict) reads your whole load order and reports which changes
+  it throws away (official changes undone by mods, one mod's changes lost to another) and what to do about each.
+- [`patch`](#build-a-conflict-patch-sf-mod-check-patch) builds a local patch that brings back the changes `conflict`
+  found lost, without xEdit or an AI assistant.
+- [`release`](#check-a-release-zip-sf-mod-check-release) checks the zip you are about to upload: plugin names the
+  game drops, missing scripts and files, sounds packed so they play silent, and every plugin inside.
+- [`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage) looks over someone else's mod before you install or
+  rebuild it: its files, what it replaces in the game, its plugins, scripts and DLLs, in one offline report. It is
+  triage, not a verdict: it shows a person where to start reading.
+
+**First command:** drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
 
     sf-mod-check check MyMod.esm
+
+For AI assistants: step-by-step instructions are in [AGENTS.md](AGENTS.md).
 
 ## Example
 
@@ -44,20 +46,17 @@ Check a whole load order for lost changes, then build a patch for the two mods y
 Each command also writes a report that says what it found and what to do about it. The sections below show each
 command in full.
 
-For AI assistants: step-by-step install and use instructions are in [AGENTS.md](AGENTS.md).
+**Renamed:** this tool was called **sfmodcheck** until 0.7.0. The command is now `sf-mod-check`; the exe zip still
+holds a `sfmodcheck.cmd` that runs it under the old name for one more release. Your caches and the `SFMODCHECK_*`
+environment variables keep working.
 
 It does the same kind of job as part of xEdit's "Check for Errors", but from the command line, so it fits a build
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.9.0 (adds the [`patch`](#build-a-conflict-patch-sf-mod-check-patch) command; 0.8.0 added the
-[`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage) command and the new name sf-mod-check; 0.7.0 added the [`release`](#check-a-release-zip-sf-mod-check-release) command: one OK or FAIL for the zip you
-are about to upload; 0.6.0 added the `assets` check: scripts and models a plugin names but that aren't loose or in an archive
-the game loads, in `check` and `conflict`; 0.5.3 fixed issues from the 0.5.2 reviews: a report that fails part way never leaves old and new files mixed, and
-`check` gives an armor record on an armor addon's FormID a WARNING; 0.5.2 reports overrides that change a record's type,
-and running out of memory always stops a run instead of leaving a report that looks whole; 0.5.1 carried on past records it can't read; 0.5.0 added the `conflict`
-command for whole load orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
-mods are welcome (see [Issues](https://github.com/taosecurity/sf-mod-check/issues)).
+What each version added is in [CHANGELOG.md](CHANGELOG.md); 0.9.0 added the `patch` command. sf-mod-check has been
+used on its author's own mods since 2026-11-07, and reports from other mods are welcome (see
+[Issues](https://github.com/taosecurity/sf-mod-check/issues)).
 
 ## Quick start (Creation Kit and xEdit authors)
 
@@ -118,6 +117,31 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sf-mod-check/r
   After that, `sf-mod-check` works from any prompt. `dotnet tool update --global sf-mod-check --add-source <folder>`
   installs a newer one, and `dotnet tool uninstall --global sf-mod-check` removes it. Coming from sfmodcheck 0.7.0 or
   older: the package has a new name, so remove the old one first with `dotnet tool uninstall --global sfmodcheck`.
+
+## Words used here
+
+- **Plugin:** a mod's data file (`.esm`, `.esp` or `.esl`). It adds or changes records in the game.
+- **Master:** a plugin that another plugin needs loaded before it. Starfield.esm is the master of nearly every mod.
+- **Light plugin (light master):** a plugin flagged to use a small slot, so it doesn't count toward the limit of
+  about 250 full plugins.
+- **Load order:** the order the game loads plugins in. When two plugins change the same record, the one loaded later
+  wins.
+- **Record:** one thing in a plugin, such as a weapon, a quest, a location or a setting.
+- **FormID:** a record's number, such as `0002B560`. The first two digits depend on the load order.
+- **EditorID:** a record's readable name, such as `Ammo_556`, used by the Creation Kit and xEdit.
+- **Override:** a later plugin's copy of a record from an earlier one, which replaces it in the game.
+- **ITM ("identical to master"):** a record a plugin copies without changing anything. It can undo other mods'
+  changes, so it is best removed.
+- **Partial form:** a Starfield override that carries only the fields it changes. The game takes the other fields
+  from earlier plugins.
+- **Navmesh:** the invisible map of a cell's floor that tells characters where they can walk.
+- **Papyrus:** Starfield's scripting language. Scripts are written as `.psc` source files and compiled into `.pex`
+  files that the game runs.
+- **BA2:** Bethesda's archive format. Mods pack their scripts, models and textures into `.ba2` files.
+- **SFSE:** the Starfield Script Extender, which loads `.dll` plugins that add features the game lacks.
+- **Creation Kit (CK):** Bethesda's official editor for making Starfield mods.
+- **xEdit (SF1Edit):** a community tool for viewing and editing plugins record by record.
+- **Mutagen:** a .NET library for reading and writing Bethesda plugins, which sf-mod-check is built on.
 
 ## Run it
 
@@ -215,7 +239,7 @@ Scripts should read the exit code and the lines that start with `ERROR `, `WARNI
   temporary groups, the object may vanish when its cell loads. The report lists each one as "record type differs
   between plugins: <first plugin> has a CELL, <mod> an ARMO".
 
-Each lost field is labelled **Forwardable** (the winner didn't mean to change it, so a patch can copy the lost value
+Each lost field is labeled **Forwardable** (the winner didn't mean to change it, so a patch can copy the lost value
 forward safely), **Choice** (both changed it, so you pick) or **No effect** (they differ only in list order, letter
 case or undocumented fields). Each conflict gets a recommendation: load-order moves when one is safe, an update to
 look for, or a small local patch. [`sf-mod-check patch`](#build-a-conflict-patch-sf-mod-check-patch) builds that
@@ -646,7 +670,7 @@ the real Starfield.esm (engine-made records and the official scene list) and are
 The last two hold counts and record type names only. They are relearned from the official masters after a game update
 with the hidden commands `--learn-link-types <out> [Data]` and `--learn-conditions <out> [Data]`, then built in again.
 
-## Credits and licence
+## Credits and license
 
 sf-mod-check is © 2026 Richard Bejtlich, under the GNU General Public License version 3 ([LICENSE](LICENSE)).
 `data\engine-forms.txt` is derived from xEdit's hardcoded Starfield list (TES5Edit, by ElminsterAU and the xEdit team)
