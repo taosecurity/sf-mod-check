@@ -103,6 +103,19 @@ public class TriageCommandTests
     }
 
     [Fact]
+    public void A_zip_folder_entry_with_data_or_an_outside_path_is_refused()
+    {
+        // thirteenth review: the zip unpacker (release and triage) got the same folder-entry checks as .7z and .rar
+        using var s = new Sandbox();
+        var hidden = MakeZip(s, "Hidden.zip", ("Data/a.esm", "x"), ("Scripts/", "secret bytes"));
+        Assert.Contains("named like a folder", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(hidden, Path.Combine(s.Dir, "a"))).Message);
+        var up = MakeZip(s, "Up.zip", ("Data/a.esm", "x"), ("../../evil/", ""));
+        Assert.Contains("points outside", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(up, Path.Combine(s.Dir, "b"))).Message);
+        var fine = MakeZip(s, "Fine.zip", ("Data/", ""), ("Data/a.esm", "x"));
+        Assert.Equal(["data\\a.esm"], ReleaseCommand.Unpack(fine, Path.Combine(s.Dir, "c")).Files);
+    }
+
+    [Fact]
     public void A_non_solid_archive_is_read_entry_by_entry_with_the_same_guards()
     {
         // 0.8.0 code review: SharpCompress reads only solid archives and .7z in one pass; a normal .rar is not solid.

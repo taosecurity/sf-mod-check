@@ -304,6 +304,13 @@ public static class ReleaseCommand
 
     /// <summary>Unpacks a zip into dest. Refuses entries that would land outside dest (".." or a rooted path) and
     /// duplicate names, rather than skipping them, so a damaged or crafted zip never gets an OK.</summary>
+    /// <summary>True when the entry's stream gives at least one byte (its declared length can be wrong).</summary>
+    static bool ReadsAByte(ZipArchiveEntry e)
+    {
+        using var s = e.Open();
+        return s.ReadByte() >= 0;
+    }
+
     public static ReleasePackage Unpack(string zip, string dest)
     {
         Directory.CreateDirectory(dest);
@@ -320,9 +327,17 @@ public static class ReleaseCommand
             foreach (var e in z.Entries)
             {
                 var name = e.FullName.Replace('\\', '/');
-                if (name.EndsWith('/')) continue;   // a folder entry
+                // the path check first, folder entries included (0.8.0 review: "../../x/" was skipped, not refused)
                 if (name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(p => p == ".."))
                     throw new InvalidDataException($"the entry \"{e.FullName}\" points outside the zip's own folders");
+                if (name.EndsWith('/'))
+                {
+                    // a folder entry: nothing to write, unless it holds data (then something would hide behind a
+                    // folder name; 0.8.0 review)
+                    if (e.Length > 0 || ReadsAByte(e))
+                        throw new InvalidDataException($"the entry \"{e.FullName}\" is named like a folder but holds data");
+                    continue;
+                }
                 var norm = Ba2Names.Normalize(name);
                 if (!seen.Add(norm)) throw new InvalidDataException($"the zip holds \"{e.FullName}\" twice (names differ only in case or slashes)");
                 var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));

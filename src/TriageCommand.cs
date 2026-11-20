@@ -533,8 +533,8 @@ public static class TriageCommand
             {
                 // the first error wins, unless the close error is fatal and the first one wasn't. After a fatal first
                 // error nothing is built here (a log line could itself run out of memory and replace it).
-                if (!Fatal.Recoverable(first)) { }
-                else
+                // (after a fatal first error the close error is dropped unlogged, on purpose)
+                if (Fatal.Recoverable(first))
                 {
                     Log.Write($"triage: after an error in {e.Key} ({first.GetType().Name}: {first.Message}), closing its stream failed too: {x}");
                     if (!Fatal.Recoverable(x)) throw;
