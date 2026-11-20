@@ -72,7 +72,8 @@ public sealed class TriageContext
     public required string DataDir { get; init; }
     /// <summary>The game install folder (the one above Data), or null when the Data folder has no parent.</summary>
     public string? GameDir => Path.GetDirectoryName(Path.GetFullPath(DataDir).TrimEnd('\\', '/'));
-    public bool HasGame => DataHas("Starfield.esm");
+    public bool HasGame => hasGame ??= TriageCommand.HasStarfield(DataDir);   // worked out once (it is read per file)
+    bool? hasGame;
 
     /// <summary>The full path of a file in the game's Data folder, its name matched ignoring case; null when none.</summary>
     public string? DataFind(string fileName)
@@ -119,8 +120,11 @@ public sealed class TriageContext
         if (i == parts.Length) return dir;
         foreach (var entry in Matches(dir, parts[i]))
         {
-            if (i == parts.Length - 1) { if (File.Exists(entry)) return entry; continue; }
-            if (Directory.Exists(entry) && (File.GetAttributes(entry) & FileAttributes.ReparsePoint) == 0 && Find(entry, parts, i + 1) is { } f) return f;
+            if (i == parts.Length - 1) { if (File.Exists(entry) || Directory.Exists(entry)) return entry; continue; }
+            bool folder;
+            try { folder = Directory.Exists(entry) && (File.GetAttributes(entry) & FileAttributes.ReparsePoint) == 0; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { folder = false; }   // gone or denied: no match
+            if (folder && Find(entry, parts, i + 1) is { } f) return f;
         }
         return null;
     }
@@ -267,7 +271,7 @@ public static class TriageCommand
                     "(Steam: ...\\steamapps\\common\\Starfield; Game Pass: ...\\XboxGames\\Starfield\\Content).");
             o.DataDir = d; o.GameGiven = true;
         }
-        var hasGame = File.Exists(Path.Combine(o.DataDir, "Starfield.esm"));
+        var hasGame = HasStarfield(o.DataDir);
         Log.Write($"game Data folder: {Path.GetFullPath(o.DataDir)} ({(o.GameGiven ? "from --game" : "Steam's usual folder")}; Starfield.esm {(hasGame ? "found" : "NOT found")})");
         if (!hasGame)
             Console.Error.WriteLine($"note: no game found in Steam's usual folder ({o.DataDir}), so nothing is compared with the game's own files. " +
@@ -411,8 +415,21 @@ public static class TriageCommand
     public static string? FindData(string game)
     {
         foreach (var d in new[] { game, Path.Combine(game, "Data"), Path.Combine(game, "Content", "Data") })
-            if (File.Exists(Path.Combine(d, "Starfield.esm"))) return Path.GetFullPath(d);
+            if (HasStarfield(d)) return Path.GetFullPath(d);
         return null;
+    }
+
+    /// <summary>True when the folder holds Starfield.esm, its name matched ignoring case (Linux and macOS too; review of
+    /// the Linux fix). Never throws.</summary>
+    public static bool HasStarfield(string dir)
+    {
+        try
+        {
+            if (File.Exists(Path.Combine(dir, "Starfield.esm"))) return true;
+            return !OperatingSystem.IsWindows() && Directory.Exists(dir) &&
+                   Directory.EnumerateFiles(dir, "starfield.esm", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0 }).Any();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
     }
 
     /// <summary>The input's name for messages: its last part, without a trailing slash; the whole path for a drive root
@@ -464,7 +481,7 @@ public static class TriageCommand
             for (var d = new DirectoryInfo(Path.GetFullPath(folder)); d != null; d = d.Parent)
                 if (FindData(d.FullName) != null) return true;
             var data = Path.GetFullPath(dataDir).TrimEnd('\\', '/');
-            if (!File.Exists(Path.Combine(data, "Starfield.esm"))) return false;
+            if (!HasStarfield(data)) return false;
             // The install is above a folder named Data (Steam), and above Content too (Game Pass). A game folder by
             // any other name is the install itself, and a drive root never is (fourth code review: --game D:\Data
             // made all of D: "the game").
@@ -509,7 +526,7 @@ public static class TriageCommand
                 var name = Path.GetFileName(input);
                 var stem = Path.GetFileNameWithoutExtension(input);
                 var files = new List<string> { Ba2Names.Normalize(name) };
-                foreach (var b in Directory.EnumerateFiles(dir, "*.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive }))
+                foreach (var b in Directory.EnumerateFiles(dir, "*.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0 }))
                 {
                     var bn = Path.GetFileName(b);
                     if (bn.StartsWith(stem + " - ", StringComparison.OrdinalIgnoreCase)) files.Add(Ba2Names.Normalize(bn));
