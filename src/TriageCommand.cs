@@ -419,24 +419,36 @@ public static class TriageCommand
     /// archives are refused (triage never asks for a password).</summary>
     public static List<string> UnpackOther(string archive, string dest)
     {
-        // Sorted by type, not by where it was raised (six review rounds, 2026-11-19; the stack is unreliable once the JIT
-        // inlines). UnpackOtherCore's own code is only the guards, and their marked InvalidDataException (Refused) passes through. A
-        // file-system error (a locked file, a missing permission) passes through to the caller's own message. An
-        // encryption error means a password (SharpCompress's own CryptographicException, or .NET's from AES). Anything
-        // else raised while the archive is read (SharpCompress's exceptions, a decoder's InvalidDataException,
-        // InvalidOperationException, ObjectDisposedException ...) means it can't be read as an archive. Each is logged in
-        // full, so a bug of ours wrongly sorted here is still in the --log file.
+        // Sorted by type (seven review rounds, 2026-11-19; where it was raised is unreliable once the JIT inlines). Every
+        // error is logged in full first. UnpackOtherCore's guards throw a marked InvalidDataException (Refused), which
+        // passes through. Real file-system errors (not found, too long, no permission, locked by another program) pass
+        // through to the caller's own message. An encryption error means a password. The kinds a damaged archive
+        // gives (SharpCompress's exceptions, an unmarked InvalidDataException or other IOException from a decoder,
+        // InvalidOperationException, ObjectDisposedException, NotSupportedException, an ArgumentException from an odd
+        // entry name) mean it can't be read. Anything else (a NullReferenceException ...) is a bug of ours: it goes on
+        // to the top handler as itself.
         try { return UnpackOtherCore(archive, dest); }
-        catch (Exception e) when (IsRefusal(e)) { throw; }
-        catch (Exception e) when (e is (IOException and not EndOfStreamException) or UnauthorizedAccessException) { throw; }
-        catch (Exception e) when (Fatal.Recoverable(e))
+        catch (Exception e) when (LogOnly($"triage: unpacking {archive} stopped: {e}")) { throw; }   // logs, never catches
+        catch (Exception e) when (IsRefusal(e) || IsFileSystem(e)) { throw; }
+        catch (Exception e) when (e is SharpCompress.Common.CryptographicException or System.Security.Cryptography.CryptographicException)
         {
-            Log.Write($"triage: {archive}: {e}");
-            if (e is SharpCompress.Common.CryptographicException or System.Security.Cryptography.CryptographicException)
-                throw new InvalidDataException($"it is password-protected or its encrypted data is damaged; triage doesn't open encrypted archives ({e.Message})", e);
+            throw new InvalidDataException($"it is password-protected or its encrypted data is damaged; triage doesn't open encrypted archives ({e.Message})", e);
+        }
+        catch (Exception e) when (e is SharpCompressException or InvalidDataException or IOException or InvalidOperationException
+                                      or NotSupportedException or ArgumentException or FormatException or OverflowException)
+        {
             throw new InvalidDataException($"it can't be read as an archive ({e.Message})", e);
         }
     }
+
+    /// <summary>Writes the log line and returns false: an exception filter that logs every error without catching it.</summary>
+    static bool LogOnly(string line) { Log.Write(line); return false; }
+
+    /// <summary>A file-system error about the archive file itself, not its contents: not found, path too long, no
+    /// permission, or a sharing violation (another program has it open).</summary>
+    static bool IsFileSystem(Exception e) =>
+        e is FileNotFoundException or DirectoryNotFoundException or PathTooLongException or UnauthorizedAccessException or DriveNotFoundException
+        || (e is IOException && (e.HResult & 0xFFFF) is 32 or 33);   // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
 
     const string GuardMark = "sf-mod-check unpack guard";
 
@@ -476,18 +488,29 @@ public static class TriageCommand
             while (reader.MoveToNextEntry())
             {
                 if (reader.Entry.IsDirectory) continue;
-                using var input = reader.OpenEntryStream();
-                Write(reader.Entry, input);
+                WriteOne(reader.Entry, reader.OpenEntryStream);
             }
         }
         else
             foreach (var e in entries)
-            {
-                using var input = e.OpenEntryStream();
-                Write(e, input);
-            }
+                WriteOne(e, e.OpenEntryStream);
         files.Sort(StringComparer.Ordinal);
         return files;
+
+        // One entry: a guard's refusal is what the user sees, even when closing the entry's stream afterwards fails
+        // (SharpCompress reads the rest of the entry when its stream closes; seventh code review).
+        void WriteOne(IEntry e, Func<Stream> open)
+        {
+            Exception? refused = null;
+            try
+            {
+                using var input = open();
+                try { Write(e, input); }
+                catch (Exception x) when (IsRefusal(x)) { refused = x; }
+            }
+            catch (Exception) when (refused != null) { /* the stream failed to close after a refusal: the refusal counts */ }
+            if (refused != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(refused);
+        }
 
         void Write(IEntry e, Stream input)
         {
