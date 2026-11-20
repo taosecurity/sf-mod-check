@@ -186,6 +186,79 @@ public class PatchTests
     }
 
     [Fact]
+    public void Two_losers_on_one_field_use_the_later_one_and_the_pick_line_works()
+    {
+        // /code-review 0.9.0: the report printed a --pick for this case that was never applied
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b) => Misc(m, b).Value = 10);
+        game.Mod("ModB.esm", (m, b) => Misc(m, b).Value = 20);
+        game.Mod("ModC.esm", (m, b) => Misc(m, b).Weight = 2);   // the winner leaves Value alone
+        var active = new[] { "Base.esm", "ModA.esm", "ModB.esm", "ModC.esm" };
+        var (code, stdout, stderr) = game.Patch(active);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("0 picks used", ExeTests.ResultLine(stdout));
+        Assert.Contains("0 choices kept the winner's value", ExeTests.ResultLine(stdout));
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("Value from ModB.esm", report);   // (the patch file stays closed: the second run rewrites it)
+        Assert.Contains("0 kept the winner's value, 1 used the later of two losing plugins' values", report);
+        var fk = "000800:Base.esm";
+        Assert.Contains($"--pick {fk}:Value=ModA.esm", report);
+
+        (code, stdout, stderr) = game.Patch(active, "--pick", $"{fk}:Value=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stderr);
+        Assert.Contains("1 records, 0 fields forwarded, 1 picks used", ExeTests.ResultLine(stdout));
+        var misc = Assert.Single(game.Open(Path.Combine(game.Out, "ConflictPatch.esm")).MiscItems);
+        Assert.Equal(10, misc.Value);
+        Assert.Equal(2f, misc.Weight);   // the winner's own Weight, nothing else changed
+    }
+
+    [Fact]
+    public void Two_losers_with_one_value_count_as_one_forwarded_field()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b) => Misc(m, b).Weight = 2);
+        game.Mod("ModB.esm", (m, b) => Misc(m, b).Weight = 2);
+        game.Mod("ModC.esm", (m, b) => Misc(m, b).Value = 99);
+        var (code, stdout, stderr) = game.Patch(new[] { "Base.esm", "ModA.esm", "ModB.esm", "ModC.esm" });
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("1 records, 1 fields forwarded", ExeTests.ResultLine(stdout));
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Single(report.Split('\n'), l => l.Contains("Weight from "));
+    }
+
+    [Fact]
+    public void A_pick_of_the_last_of_three_is_credited_to_it()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b) => Misc(m, b).Value = 10);
+        game.Mod("ModB.esm", (m, b) => Misc(m, b).Value = 20);
+        game.Mod("ModC.esm", (m, b) => Misc(m, b).Value = 30);
+        var (code, stdout, stderr) = game.Patch(new[] { "Base.esm", "ModA.esm", "ModB.esm", "ModC.esm" }, "--pick", "000800:Base.esm:Value=modb.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Equal(20, Assert.Single(game.Open(Path.Combine(game.Out, "ConflictPatch.esm")).MiscItems).Value);
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("## Choices (1; 0 kept the winner's value)", report);
+        Assert.DoesNotContain("--pick 000800:Base.esm:Value=ModA.esm", report);
+    }
+
+    [Fact]
+    public void Nothing_to_patch_also_removes_the_old_load_order_with_the_patch()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b) => Misc(m, b).Value = 10);
+        game.Mod("ModB.esm", (m, b) => Misc(m, b).Weight = 2);
+        var (code, stdout, stderr) = game.Patch(new[] { "Base.esm", "ModA.esm", "ModB.esm" });
+        Assert.True(code == 0, stdout + stderr);
+        Assert.True(File.Exists(Path.Combine(game.Out, "Plugins-with-patch.txt")));
+        (code, stdout, _) = game.Patch(new[] { "Base.esm", "ModA.esm" });
+        Assert.Equal(0, code);
+        Assert.StartsWith("RESULT: OK, nothing to patch", ExeTests.ResultLine(stdout));
+        Assert.False(File.Exists(Path.Combine(game.Out, "ConflictPatch.esm")));
+        Assert.False(File.Exists(Path.Combine(game.Out, "Plugins-with-patch.txt")));
+    }
+
+    [Fact]
     public void Only_limits_the_patch_to_the_named_mods()
     {
         using var game = new Game();

@@ -343,6 +343,8 @@ public static class PatchCommand
             {
                 // nothing to build: remove an old patch file from an earlier run, so nobody installs it by mistake
                 if (File.Exists(patchPath)) File.Delete(patchPath);
+                // and its load order with the patch line, which would name a plugin that is gone
+                if (File.Exists(withPatchTxt)) File.Delete(withPatchTxt);
                 WriteReport(reportPath, plan, lo, name, null, null, version);
                 resultPrinted = true;
                 Console.WriteLine($"RESULT: OK, nothing to patch: {plan.Forwarded} forwardable fields, {plan.NotBuilt.Count} records not built " +
@@ -358,7 +360,7 @@ public static class PatchCommand
             WriteReport(reportPath, plan, lo, name, masters, mismatches, version);
             foreach (var m in mismatches.Take(10)) Console.WriteLine($"ERROR [patch] {m}");
             resultPrinted = true;
-            var choiceKept = plan.Choices.Count(c => !c.Picked);
+            var choiceKept = plan.Choices.Count(c => !c.Picked && !c.Forward);
             var listsMerged = plan.Choices.Count(c => c.Merged);
             var head = mismatches.Count == 0 ? "RESULT: OK" : $"RESULT: FAILED, {mismatches.Count} read-back differences (don't use this patch)";
             Console.WriteLine($"{head}, patch {patchPath}: {plan.Records.Count} records, {plan.Forwarded} fields forwarded, {plan.Choices.Count(c => c.Picked && !c.Merged)} picks used, {listsMerged} shared lists merged, " +
@@ -372,8 +374,11 @@ public static class PatchCommand
 
     // ---------- the plan ----------
 
-    public sealed record ForwardedField(string Field, string From, string Text);
-    public sealed record ChoiceField(FormKey FormKey, string RecordType, string? EditorID, string Field, string Winner, string Other, bool Picked, string Text, bool Merged = false);
+    /// <param name="Picked">set by a --pick (counted as a pick, not as a forwarded field)</param>
+    public sealed record ForwardedField(string Field, string From, string Text, bool Picked = false);
+    /// <param name="Forward">two losing plugins changed a field the winner left alone: the later one's value is used
+    /// (not the winner's), unless a --pick names the other</param>
+    public sealed record ChoiceField(FormKey FormKey, string RecordType, string? EditorID, string Field, string Winner, string Other, bool Picked, string Text, bool Merged = false, bool Forward = false);
     public sealed record NotBuiltRecord(FormKey FormKey, string RecordType, string? EditorID, string Why, List<string> Fields);
     /// <param name="Sources">for each field copied whole, the plugin's version of the record its value came from</param>
     /// <param name="Merged">for each list field merged entry by entry, its entries as the plugins hold them</param>
@@ -386,7 +391,7 @@ public static class PatchCommand
         public List<ChoiceField> Choices { get; } = new();
         public List<NotBuiltRecord> NotBuilt { get; } = new();
         public List<string> Notes { get; } = new();
-        public int Forwarded => Records.Sum(r => r.Fields.Count);
+        public int Forwarded => Records.Sum(r => r.Fields.Count(f => !f.Picked));
     }
 
     /// <summary>Works out every patch record from the analysis. Reads only the records it needs, one record type at a
@@ -398,7 +403,7 @@ public static class PatchCommand
             .Where(l => only.Count == 0 || only.Contains(l.Loser) || only.Contains(l.Winner))
             .Where(l => l.Fields.Any(f => !Impact.IsMinor(f)))
             .ToList();
-        // records the picks name count too, even when only a Choice field is lost
+        // only records with a lost change are patched: a --pick on any other record is reported as unused
         var byRecord = relevant.GroupBy(l => l.FormKey).ToList();
         var targets = new Dictionary<FormKey, (Type Getter, string ClassName)>();
         foreach (var g in byRecord)
@@ -559,6 +564,11 @@ public static class PatchCommand
         bool Merge(string field, int li)
         {
             did = default;
+            // Every way to fail is checked before anything is changed, so a false leaves merged and seeded as they were
+            // (the caller then replaces the list whole, or keeps the winner's).
+            var lHeld = Items(Held(field, li));
+            var lMut = MutItems(li, field);
+            if (lHeld.Count != lMut.Count) return false;
             var twin = MasterTwin(field);
             var inTwin = BagOf(twin is null ? new List<object?>() : Items(FieldCompare.Get(twin, vs[source[twin.Name]].Rec)));
             if (!merged.TryGetValue(field, out var state))
@@ -568,7 +578,7 @@ public static class PatchCommand
                 var mut = MutItems(s, field);
                 if (held.Count != mut.Count) return false;   // can't line the two up: replace the list whole instead
                 state = held.Zip(mut, (h, m) => (h, m, s)).ToList();
-                seeded.RemoveAll(x => x.Field == field);   // a list replaced whole and merged again starts over
+                var newSeeds = new List<(string Field, int Origin, object? Held)>();
                 // A location's Added* lists: the official files store them as partial copies, and the last one doesn't
                 // repeat the others' entries, so start from every official version's own entries.
                 if (twin is not null)
@@ -581,9 +591,11 @@ public static class PatchCommand
                         var om = MutItems(j, field);
                         if (oh.Count != om.Count) return false;
                         for (int k = 0; k < oh.Count; k++)
-                            if (!have.Contains(oh[k]) && !inTwin.Contains(oh[k])) { state.Add((oh[k], om[k], j)); have.Add(oh[k]); seeded.Add((field, j, oh[k])); }
+                            if (!have.Contains(oh[k]) && !inTwin.Contains(oh[k])) { state.Add((oh[k], om[k], j)); have.Add(oh[k]); newSeeds.Add((field, j, oh[k])); }
                     }
                 }
+                seeded.RemoveAll(x => x.Field == field);   // a list replaced whole and merged again starts over
+                seeded.AddRange(newSeeds);
                 merged[field] = state;
             }
             // entries the seeding above took from this plugin count as its own additions (worded once, in its line)
@@ -593,9 +605,6 @@ public static class PatchCommand
                 seeded.RemoveAll(x => x.Field == field && x.Origin == li);
                 did = (mine.Count, 0, 0, mine[0].Held);
             }
-            var lHeld = Items(Held(field, li));
-            var lMut = MutItems(li, field);
-            if (lHeld.Count != lMut.Count) return false;
             var mv = MasterVersions(li, byName[field]);
             var mvBags = mv.Select(j => BagOf(Items(Held(field, j)))).ToList();
             var baseHeld = mv.Count > 0 ? Items(Held(field, mv[^1])) : new();
@@ -663,13 +672,13 @@ public static class PatchCommand
                     forwarded.Add(new(f.Field, l.Loser, MergedText(f.Field, l.Winner)));
                     continue;
                 }
-                merged.Remove(f.Field);
-                if (setBy.TryGetValue(f.Field, out var prev) && !FieldCompare.DeepEq(Held(f.Field, source[f.Field]), Held(f.Field, li), 0))
-                {
+                // an earlier loser's merge is thrown away here, so its additions are gone even when the lists held look alike
+                var hadMerge = merged.Remove(f.Field);
+                if (setBy.TryGetValue(f.Field, out var prev) && (hadMerge || !FieldCompare.DeepEq(Held(f.Field, source[f.Field]), Held(f.Field, li), 0)))
                     plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Loser, prev, false,
-                        $"{prev} and {l.Loser} both changed {f.Field} and the winner {l.Winner} kept neither; the patch uses {l.Loser}'s (it loads later)"));
-                    forwarded.RemoveAll(x => x.Field == f.Field);
-                }
+                        $"{prev} and {l.Loser} both changed {f.Field} and the winner {l.Winner} kept neither; the patch uses {l.Loser}'s (it loads later)", Forward: true));
+                // the whole value is replaced: only this plugin's line stays (two losers with one value count once)
+                forwarded.RemoveAll(x => x.Field == f.Field);
                 if (!SetField(rec, f.Field, copies.Of(li))) throw new InvalidOperationException($"field {f.Field} can't be set");
                 source[f.Field] = li;
                 setBy[f.Field] = l.Loser;
@@ -677,12 +686,34 @@ public static class PatchCommand
                 forwarded.Add(new(f.Field, l.Loser, Impact.OneLine(change)));
             }
         }
+        // A --pick on a field two losers both changed: the named plugin's whole value is used instead of the later one's.
+        foreach (var field in plan.Choices.Where(c => c.FormKey == fk && c.Forward && !c.Picked).Select(c => c.Field).Distinct().ToList())
+        {
+            var fp = byName[field];
+            var pick = picks.Where(pk => pk.FormKey == fk && (pk.Field is null || pk.Field == field))
+                .Where(pk => IndexOf(pk.Plugin) is var pi && pi >= 0 && FieldCompare.Provides(vs[pi].Rec, fp, out _))
+                .OrderBy(pk => pk.Field is null ? 0 : 1).LastOrDefault();
+            if (pick is null) continue;
+            pick.Used = true;
+            var pIdx = IndexOf(pick.Plugin);
+            merged.Remove(field);
+            if (!SetField(rec, field, copies.Of(pIdx))) throw new InvalidOperationException($"field {field} can't be set");
+            source[field] = pIdx;
+            setBy[field] = pick.Plugin;
+            forwarded.RemoveAll(x => x.Field == field);
+            forwarded.Add(new(field, pick.Plugin, "picked with --pick", Picked: true));
+            var rows = plan.Choices.Where(c => c.FormKey == fk && c.Field == field && c.Forward).ToList();
+            plan.Choices.RemoveAll(rows.Contains);
+            var r0 = rows[0];
+            plan.Choices.Add(new(fk, r0.RecordType, r0.EditorID, field, rows[^1].Winner, pick.Plugin, true, $"--pick: {pick.Plugin}'s value is used", Forward: true));
+        }
         // Choice fields: the winner's value stays unless a --pick names another plugin. A list both changed is merged
         // entry by entry instead (each one's additions and removals), unless a --pick takes one plugin's whole list.
         foreach (var l in lost.OrderBy(l => IndexOf(l.Loser)))
             foreach (var f in l.Fields.Where(f => f.WinnerChangedToo && !Impact.IsMinor(f)))
             {
-                if (plan.Choices.Any(c => c.FormKey == fk && c.Field == f.Field && ((c.Picked && !c.Merged) || c.Other == l.Loser))) continue;
+                if (plan.Choices.Any(c => c.FormKey == fk && c.Field == f.Field && !c.Forward
+                    && ((c.Picked && !c.Merged) || c.Other.Equals(l.Loser, StringComparison.OrdinalIgnoreCase)))) continue;
                 // a field pick wins over a whole-record pick; the last one given wins among equals
                 if (!byName.TryGetValue(f.Field, out var field)) { Log.Write($"patch: {fk} field {f.Field} is not stored in the record; not copied"); continue; }
                 var pick = picks.Where(pk => pk.FormKey == fk && (pk.Field is null || pk.Field == f.Field))
@@ -697,8 +728,10 @@ public static class PatchCommand
                     source[f.Field] = IndexOf(pick.Plugin);
                     setBy[f.Field] = pick.Plugin;
                     forwarded.RemoveAll(x => x.Field == f.Field);
-                    if (!pick.Plugin.Equals(l.Winner, StringComparison.OrdinalIgnoreCase)) forwarded.Add(new(f.Field, pick.Plugin, "picked with --pick"));
-                    plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Winner, l.Loser, true, $"--pick: {pick.Plugin}'s value is used"));
+                    var pickedWinner = pick.Plugin.Equals(l.Winner, StringComparison.OrdinalIgnoreCase);
+                    if (!pickedWinner) forwarded.Add(new(f.Field, pick.Plugin, "picked with --pick", Picked: true));
+                    // the row names the plugin picked (with three versions, a pick of the last loser is credited to it)
+                    plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Winner, pickedWinner ? l.Loser : pick.Plugin, true, $"--pick: {pick.Plugin}'s value is used"));
                     continue;
                 }
                 var li = IndexOf(l.Loser);
@@ -732,8 +765,14 @@ public static class PatchCommand
         bool ListSame(List<object?> a, List<object?> b)
         {
             if (a.Count != b.Count) return false;
-            var ba = BagOf(a); var bb = BagOf(b);
-            return a.All(bb.Contains) && b.All(ba.Contains);
+            // as multisets: each entry of a takes one matching entry of b ([x,x,y] is not [x,y,y])
+            var bb = BagOf(b);
+            foreach (var x in a)
+            {
+                if (!bb.Contains(x)) return false;
+                bb.Remove(x);
+            }
+            return true;
         }
         // Nothing differs from today's record: leave it out (an ITM would only add risk).
         var changed = getterFields.Any(p => merged.TryGetValue(p.Name, out var st)
@@ -927,10 +966,11 @@ public static class PatchCommand
             }
             sb.AppendLine();
         }
-        var open = plan.Choices.Where(c => !c.Picked).ToList();
+        var kept = plan.Choices.Count(c => !c.Picked && !c.Forward);
+        var later = plan.Choices.Count(c => !c.Picked && c.Forward);
         if (plan.Choices.Count > 0)
         {
-            sb.AppendLine($"## Choices ({plan.Choices.Count}; {open.Count} kept the winner's value)");
+            sb.AppendLine($"## Choices ({plan.Choices.Count}; {kept} kept the winner's value{(later > 0 ? $", {later} used the later of two losing plugins' values" : "")})");
             sb.AppendLine();
             sb.AppendLine("Both plugins changed these fields, so there is no safe automatic answer. To use the other plugin's value, run the same command again with the --pick line shown.");
             sb.AppendLine();
