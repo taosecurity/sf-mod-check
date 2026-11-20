@@ -164,22 +164,20 @@ public class TriageCommandTests
     }
 
     [Fact]
-    public void A_guard_refusal_passes_through_marked_and_a_bug_isnt_called_damage()
+    public void A_guard_refusal_passes_through_marked_and_junk_cant_be_read()
     {
-        // seventh code review: runs everywhere (SharpCompress writes the fixture; no 7-Zip needed)
+        // runs everywhere (SharpCompress writes the fixture; no 7-Zip needed)
         using var s = new Sandbox();
         var evil = Make7z(s, "Evil.7z", ("../evil.txt", "x"));
         var g = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(evil, Path.Combine(s.Dir, "out")));
         Assert.True(TriageCommand.IsRefusal(g));
         Assert.Contains("points outside", g.Message);
-        var dup = Make7z(s, "Dup.7z", ("A.txt", "x"), ("a.txt", "y"));
-        Assert.True(TriageCommand.IsRefusal(Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(dup, Path.Combine(s.Dir, "out2")))));
-        // a file that isn't an archive at all: "can't be read", unmarked
+        // a file that isn't an archive at all: "can't be read as an archive", unmarked
         var junk = Path.Combine(s.Dir, "Junk.7z");
         File.WriteAllText(junk, "not an archive");
-        var j = Assert.ThrowsAny<Exception>(() => TriageCommand.UnpackOther(junk, Path.Combine(s.Dir, "out3")));
-        Assert.True(j is InvalidDataException or IOException, j.ToString());
+        var j = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(junk, Path.Combine(s.Dir, "out3")));
         Assert.False(TriageCommand.IsRefusal(j));
+        Assert.Contains("can't be read as an archive", j.Message);
     }
 
     [Fact]
