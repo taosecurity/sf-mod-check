@@ -81,11 +81,16 @@ public class TriageCommandTests
         var clash2 = Make7z(s, "Clash2.7z", ("Data", "y"), ("Data/b.txt", "x"));
         var c2 = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(clash2, Path.Combine(s.Dir, "e")));
         Assert.True(TriageCommand.IsRefusal(c2));
-        Assert.True(c2.Message.Contains("sits in a folder that the archive also holds as a file") || c2.Message.Contains("same name as a folder"), c2.Message);
+        Assert.Contains("sits in a folder that the archive also holds as a file", c2.Message);
 
         // a folder record written as a plain entry ("Data/") is skipped, not a clash (tenth code review)
         var withDirRecord = Make7z(s, "DirRecord.7z", ("Data/a.esm", "x"), ("Data/", ""));
         Assert.Equal(["data\\a.esm"], TriageCommand.UnpackOther(withDirRecord, Path.Combine(s.Dir, "f")));
+        // one named like a folder that holds data is refused (eleventh review: nothing hides that way)
+        var hidden = Make7z(s, "Hidden.7z", ("Data/a.esm", "x"), ("Scripts/", "secret bytes"));
+        var h = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(hidden, Path.Combine(s.Dir, "g")));
+        Assert.True(TriageCommand.IsRefusal(h));
+        Assert.Contains("named like a folder", h.Message);
     }
 
     [Fact]

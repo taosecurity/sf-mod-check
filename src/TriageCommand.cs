@@ -250,13 +250,18 @@ public static class TriageCommand
             {
                 // A file-system error: it can be the PC (a lock, a permission, a full disk) or the archive (a path too long
                 // to make, a file and a folder of the same name), so the message names both (tenth code review).
-                return kind is TriageInputKind.Folder or TriageInputKind.Plugin
-                    ? CantRun($"a file of {Path.GetFileName(input)} can't be read",
-                        $"can't read a file of {input}: {e.Message} Check that you can open the files there and that no other program has them locked.")
-                    : CantRun($"{Path.GetFileName(input)} couldn't be unpacked",
+                var shown = Path.GetFileName(input.TrimEnd('\\', '/'));
+                return kind switch
+                {
+                    TriageInputKind.Folder => CantRun($"a file in {shown} can't be read",
+                        $"can't read a file in {input}: {e.Message} Check that you can open the files there and that no other program has them locked."),
+                    TriageInputKind.Plugin => CantRun($"the folder of {shown} can't be read",
+                        $"can't list the folder of {input} (to find its archives): {e.Message} Check that you can open that folder."),
+                    _ => CantRun($"{shown} couldn't be unpacked",
                         $"couldn't unpack {input}: {e.Message} Either the PC stopped it (the file is open in another program, can't be read, or the " +
                         $"temp folder {Path.GetTempPath()} is full) or the archive holds a path Windows can't make (too long, or a file and a folder " +
-                        "with the same name). Try again with the file closed elsewhere and free space in the temp folder; if it still fails, the archive is the cause.");
+                        "with the same name). Try again with the file closed elsewhere and free space in the temp folder; if it still fails, the archive is the cause."),
+                };
             }
             catch (Exception e) when (e is InvalidDataException or InvalidFormatException or ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException)
             {
@@ -517,13 +522,13 @@ public static class TriageCommand
             {
                 using var input = open();
                 try { Write(e, input); }
-                catch (Exception x) when (Fatal.Recoverable(x)) { first = x; }
+                catch (Exception x) { first = x; }   // fatal ones too: kept over a later close error (eleventh review)
             }
             catch (Exception x) when (first != null)
             {
-                // a fatal close error (out of memory) goes on, but the first error is in the log first
-                if (!Fatal.Recoverable(x)) { Log.Write($"triage: {e.Key}: {first}"); throw; }
-                Log.Write($"triage: after an error in {e.Key}, closing its stream failed too: {x}");
+                // the first error wins, unless the close error is fatal and the first one wasn't; both are logged
+                Log.Write($"triage: after an error in {e.Key} ({first.GetType().Name}: {first.Message}), closing its stream failed too: {x}");
+                if (!Fatal.Recoverable(x) && Fatal.Recoverable(first)) throw;
             }
             if (first != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(first);
         }
@@ -534,7 +539,12 @@ public static class TriageCommand
             var name = key.Replace('\\', '/');
             // a folder record some tools write as a plain entry ("Data/"): nothing to write (tenth code review: it was
             // refused as a clash with the folder its own files made), as ReleaseCommand.Unpack skips them
-            if (name.EndsWith('/') && name.Length > 1 && !name.Split('/').Any(x => x == "..")) return;
+            // only an empty one: an entry named like a folder that holds data is refused, so nothing hides that way
+            if (name.EndsWith('/') && name.Length > 1)
+            {
+                if (e.Size > 0) throw Refused($"the entry \"{key}\" is named like a folder but holds {e.Size:N0} bytes");
+                return;
+            }
             if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(x => x == ".."))
                 throw Refused($"the entry \"{key}\" points outside the archive's own folders");
             var norm = Ba2Names.Normalize(name);
