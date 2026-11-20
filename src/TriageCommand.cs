@@ -19,8 +19,10 @@ public enum TriageLevel { Note, Look }
 /// CI on ubuntu, 2026-11-20). These treat both slashes as separators; on Windows they give what Path gives.</summary>
 public static class RelPath
 {
-    static string? Unix(string? s) => s?.Replace('\\', '/');
-    static string? Back(string? s, string? original) => s != null && original != null && original.Contains('\\') && !OperatingSystem.IsWindows() ? s.Replace('/', '\\') : s;
+    // only a relative path (triage's own "data\mod.esm" form) is read with backslashes as separators; a full path of
+    // the file system is passed to Path as it is (a backslash is a legal name character on Linux; review)
+    static string? Unix(string? s) => s == null || Path.IsPathRooted(s) ? s : s.Replace('\\', '/');
+    static string? Back(string? s, string? original) => s != null && original != null && !Path.IsPathRooted(original) && original.Contains('\\') && !OperatingSystem.IsWindows() ? s.Replace('/', '\\') : s;
     public static string? FileName(string? s) => Path.GetFileName(Unix(s));
     public static string FileNameWithoutExtension(string? s) => Path.GetFileNameWithoutExtension(Unix(s)) ?? "";
     public static string Extension(string? s) => Path.GetExtension(Unix(s)) ?? "";
@@ -70,7 +72,17 @@ public sealed class TriageContext
     public required string DataDir { get; init; }
     /// <summary>The game install folder (the one above Data), or null when the Data folder has no parent.</summary>
     public string? GameDir => Path.GetDirectoryName(Path.GetFullPath(DataDir).TrimEnd('\\', '/'));
-    public bool HasGame => File.Exists(Path.Combine(DataDir, "Starfield.esm"));
+    public bool HasGame => DataHas("Starfield.esm");
+
+    /// <summary>The full path of a file in the game's Data folder, its name matched ignoring case; null when none.</summary>
+    public string? DataFind(string fileName)
+    {
+        var direct = Path.Combine(DataDir, fileName);
+        if (File.Exists(direct)) return direct;
+        if (OperatingSystem.IsWindows()) return null;
+        try { return Directory.EnumerateFiles(DataDir).FirstOrDefault(f => string.Equals(Path.GetFileName(f), fileName, StringComparison.OrdinalIgnoreCase)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
 
     /// <summary>True when the game's Data folder holds a file of this name, ignoring case on every system (names in
     /// Files are lower case; on Linux "starfield - misc.ba2" isn't "Starfield - Misc.ba2").</summary>
@@ -95,24 +107,46 @@ public sealed class TriageContext
         lock (resolved)
         {
             if (resolved.TryGetValue(rel, out var hit)) return hit;
-            var cur = Root;
-            foreach (var part in rel.Split('\\'))
-            {
-                string? next = null;
-                try
-                {
-                    var exact = Path.Combine(cur, part);
-                    next = File.Exists(exact) || Directory.Exists(exact) ? exact
-                        : Directory.EnumerateFileSystemEntries(cur).FirstOrDefault(e => string.Equals(Path.GetFileName(e), part, StringComparison.OrdinalIgnoreCase));
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-                if (next == null) return direct;   // not there: the caller reports the missing file
-                cur = next;
-            }
-            return resolved[rel] = cur;
+            // every folder whose name matches ignoring case is tried in turn ("Scripts" and "scripts" can both exist),
+            // the exact spelling first; each folder is listed once (review of the Linux fix)
+            var found = Find(Root, rel.Split('\\'), 0);
+            return found == null ? direct : resolved[rel] = found;   // not there: the caller reports the missing file
         }
     }
+
+    string? Find(string dir, string[] parts, int i)
+    {
+        if (i == parts.Length) return dir;
+        foreach (var entry in Matches(dir, parts[i]))
+        {
+            if (i == parts.Length - 1) { if (File.Exists(entry)) return entry; continue; }
+            if (Directory.Exists(entry) && (File.GetAttributes(entry) & FileAttributes.ReparsePoint) == 0 && Find(entry, parts, i + 1) is { } f) return f;
+        }
+        return null;
+    }
+
+    /// <summary>The entries of a folder whose name matches ignoring case, the exact spelling first (one listing per folder).</summary>
+    IEnumerable<string> Matches(string dir, string name)
+    {
+        if (!listings.TryGetValue(dir, out var map))
+        {
+            map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var e in Directory.EnumerateFileSystemEntries(dir))
+                {
+                    var n = Path.GetFileName(e);
+                    if (!map.TryGetValue(n, out var l)) map[n] = l = new List<string>();
+                    l.Add(e);
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            listings[dir] = map;
+        }
+        return map.TryGetValue(name, out var list) ? list.OrderBy(e => Path.GetFileName(e) == name ? 0 : 1) : [];
+    }
     readonly Dictionary<string, string> resolved = new(StringComparer.Ordinal);
+    readonly Dictionary<string, Dictionary<string, List<string>>> listings = new(StringComparer.Ordinal);
     public string DataPath(string rel) => DataPrefix.Length > 0 && rel.StartsWith(DataPrefix, StringComparison.Ordinal) ? rel[DataPrefix.Length..] : rel;
 
     IEnumerable<string> WithExt(params string[] exts) =>
@@ -475,7 +509,7 @@ public static class TriageCommand
                 var name = Path.GetFileName(input);
                 var stem = Path.GetFileNameWithoutExtension(input);
                 var files = new List<string> { Ba2Names.Normalize(name) };
-                foreach (var b in Directory.EnumerateFiles(dir, "*.ba2"))
+                foreach (var b in Directory.EnumerateFiles(dir, "*.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive }))
                 {
                     var bn = Path.GetFileName(b);
                     if (bn.StartsWith(stem + " - ", StringComparison.OrdinalIgnoreCase)) files.Add(Ba2Names.Normalize(bn));

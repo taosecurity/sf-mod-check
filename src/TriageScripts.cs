@@ -411,7 +411,7 @@ public static class TriageScripts
             if (gameCache.TryGetValue(key, out var hit)) return hit;
             var types = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int archives = 0;
-            foreach (var ba2 in Directory.EnumerateFiles(dataDir, "*.ba2"))
+            foreach (var ba2 in Directory.EnumerateFiles(dataDir, "*.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive }))
             {
                 var n = RelPath.FileName(ba2);
                 var dash = n.IndexOf(" - ", StringComparison.Ordinal);

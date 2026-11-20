@@ -103,8 +103,7 @@ public static class TriagePlugins
         {
             if (byName.TryGetValue(name, out var p)) return p.Full;
             if (!GameData.IsPlainPluginName(name)) return null;   // a name from the file: never a path (BuildKit's rule)
-            var d = Path.Combine(c.DataDir, name);
-            return File.Exists(d) ? d : null;
+            return c.DataFind(name);   // ignoring case on Linux too (review of the Linux fix)
         }
         if (!c.HasGame)
             Note("", $"no game found ({c.DataDir} has no Starfield.esm), so the plugins weren't compared with the game: ITMs, official " +

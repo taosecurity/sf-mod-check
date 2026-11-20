@@ -505,7 +505,7 @@ public sealed class VanillaIndex
     /// <summary>The official archives in a Data folder, in a fixed order (Starfield's first, then by name).</summary>
     public static List<string> OfficialArchives(string dataDir) =>
         Directory.Exists(dataDir)
-            ? Directory.EnumerateFiles(dataDir, "*.ba2").Select(RelPath.FileName).OfType<string>().Where(IsOfficialArchive)
+            ? Directory.EnumerateFiles(dataDir, "*.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive }).Select(RelPath.FileName).OfType<string>().Where(IsOfficialArchive)
                 .OrderBy(n => n.StartsWith("Starfield - ", StringComparison.OrdinalIgnoreCase) ? 0 : 1).ThenBy(n => n, StringComparer.OrdinalIgnoreCase).ToList()
             : new();
 

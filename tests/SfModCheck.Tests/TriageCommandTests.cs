@@ -224,6 +224,32 @@ public class TriageCommandTests
     }
 
     [Fact]
+    public void Mod_files_are_found_whatever_their_case()
+    {
+        // Files holds lower-case names; on Linux and macOS the real ones must still be found, also in two folders
+        // whose names differ only in case (review of the Linux fix). On Windows names ignore case anyway.
+        using var s = new Sandbox();
+        var root = s.Sub("mod");
+        Directory.CreateDirectory(Path.Combine(root, "Scripts"));
+        File.WriteAllText(Path.Combine(root, "Scripts", "A.pex"), "a");
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(Path.Combine(root, "scripts"));
+            File.WriteAllText(Path.Combine(root, "scripts", "B.pex"), "b");
+        }
+        var (_, files) = TriageCommand.Gather(TriageInputKind.Folder, root, "unused");
+        var c = new TriageContext
+        {
+            Options = new TriageOptions(), Kind = TriageInputKind.Folder, InputPath = root, Root = root,
+            Files = files, DataPrefix = "", DataDir = "d", Work = "w", Report = new TriageReport(),
+        };
+        Assert.Equal("a", File.ReadAllText(c.Full("scripts\\a.pex")));
+        if (!OperatingSystem.IsWindows()) Assert.Equal("b", File.ReadAllText(c.Full("scripts\\b.pex")));
+        Assert.Equal("data\\mod.esm", RelPath.DirectoryName("data\\mod.esm\\x")?.Replace('/', '\\'));
+        Assert.Equal("mod.esm", RelPath.FileName("data\\mod.esm"));
+    }
+
+    [Fact]
     public void Asi_plugins_count_as_binaries()
     {
         var c = new TriageContext
