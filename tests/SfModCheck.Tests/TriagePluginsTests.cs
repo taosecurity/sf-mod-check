@@ -209,10 +209,19 @@ public class TriagePluginsTests
         File.WriteAllBytes(dep, bytes[..30]);   // the TES4 header cut short
         var c2 = game.Context();
         var f2 = Run(c2);
-        // its header still reads, so the plugin check and the comparison name it; the mod's own plugin isn't blamed
+        // 30 bytes: its header still reads, so the plugin check and the comparison name it as unloadable
         Assert.True(f2.Any(x => x.File == "trneeds.esm" && x.Text.Contains("TrDep.esm is unloadable")), List(f2));
         None(f2, TriageLevel.Look, "can't be read to the end");
         None(f2, TriageLevel.Look, "isn't a plugin the game can read");
+
+        // shorter than a plugin header: damaged too, never "missing" (third code review)
+        File.WriteAllBytes(dep, bytes[..10]);
+        var f3 = Run(game.Context());
+        var damaged = One(f3, TriageLevel.Look, "trneeds.esm", "its master TrDep.esm is there but can't be read").Text;
+        Assert.Contains("looks damaged or cut short", damaged);
+        Assert.Contains("install it again", damaged);
+        Assert.DoesNotContain("permissions", damaged);
+        None(f3, TriageLevel.Look, "neither in the mod nor");
     }
 
     [Fact]

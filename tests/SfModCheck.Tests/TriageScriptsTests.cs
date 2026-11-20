@@ -43,7 +43,7 @@ public class TriageScriptsTests
     sealed class Mod : Sandbox
     {
         public string Root => Sub("mod");
-        public string Game => Sub("game");
+        public string Game => Sub(Path.Combine("game", "Data"));   // a Data folder inside a game folder, as a real install
         public void Put(string rel, byte[] data)
         {
             var p = Path.Combine(Root, rel);

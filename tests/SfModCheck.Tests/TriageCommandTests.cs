@@ -114,6 +114,10 @@ public class TriageCommandTests
         // run from inside the game too: no safe default, so the command asks for --out (second code review)
         Assert.Null(TriageCommand.DefaultOut(plugin, noSteam, currentDir: gp));
         Assert.Null(TriageCommand.DefaultOut(plugin, noSteam, currentDir: Path.GetDirectoryName(gp)!));
+        // the Game Pass install's top folder (XboxGames\Starfield, above Content): third code review
+        Assert.Null(TriageCommand.DefaultOut(plugin, noSteam, currentDir: Path.GetDirectoryName(Path.GetDirectoryName(gp))!));
+        Assert.True(TriageCommand.InGameInstall(Path.GetDirectoryName(Path.GetDirectoryName(gp))!, noSteam));
+        Assert.False(TriageCommand.InGameInstall(other, noSteam));
     }
 
     [Fact]
@@ -215,7 +219,15 @@ public class TriageCommandTests
         Assert.Equal(2, ExeTests.RunSplit("triage", zip, "--bogus").Code);
         var (code, stdout, _) = ExeTests.RunSplit("triage", Path.Combine(game, "Data"), "--game", game);
         Assert.Equal(2, code);
-        Assert.Contains("the game's Data folder", ExeTests.ResultLine(stdout));
+        Assert.Contains("the game's own folder", ExeTests.ResultLine(stdout));
+        // the install folder itself, and a folder inside it, are refused too (third code review)
+        Assert.Equal(2, ExeTests.RunSplit("triage", game, "--game", game).Code);
+        Assert.Equal(2, ExeTests.RunSplit("triage", s.Sub("Game/Data/Somewhere"), "--game", game).Code);
+        // --out inside the game is refused
+        var (oc, ostdout, _) = ExeTests.RunSplit("triage", zip, "--game", game, "--out", Path.Combine(game, "Data", "Reports"));
+        Assert.Equal(2, oc);
+        Assert.Contains("--out is inside the game", ExeTests.ResultLine(ostdout));
+        Assert.False(Directory.Exists(Path.Combine(game, "Data", "Reports")));
     }
 
     [Fact]

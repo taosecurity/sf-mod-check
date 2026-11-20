@@ -215,6 +215,13 @@ public static class TriagePlugins
                     if (!inMod(m) && !IsOfficial(m)) p.FromData.Add(m);
                     continue;
                 }
+            if (mh == null && path != null)
+            {
+                // there, but too short or not a plugin at all: damaged, not missing (third code review)
+                p.UnreadableMasters.Add((m, "the file looks damaged or cut short (it doesn't start with a plugin header); install it again"));
+                if (!inMod(m) && !IsOfficial(m)) p.FromData.Add(m);
+                continue;
+            }
             if (mh == null) { p.MissingMasters.Add(m); continue; }
             p.MasterStyles[m] = mh.Style;
             if (!inMod(m) && !IsOfficial(m)) p.FromData.Add(m);

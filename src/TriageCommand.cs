@@ -196,9 +196,10 @@ public static class TriageCommand
         TriageInputKind kind;
         if (Directory.Exists(input))
         {
-            if (File.Exists(Path.Combine(input, "Starfield.esm")))
-                return CantRun("that is the game's Data folder",
-                    $"won't triage {input}: it is the game's Data folder (it holds Starfield.esm). Give the mod's own folder, its download, or one plugin.");
+            // the game's Data folder, its install folder or Game Pass's Content folder (third code review), or a folder in them
+            if (FindData(input) != null || InGameInstall(input, o.DataDir))
+                return CantRun("that is the game's own folder",
+                    $"won't triage {input}: it is the game's install or a folder inside it. Give the mod's own folder, its download, or one plugin.");
             kind = TriageInputKind.Folder;
         }
         else if (!File.Exists(input))
@@ -209,11 +210,17 @@ public static class TriageCommand
                 $"can't triage {input}: give a .zip, .7z or .rar download, a mod folder, or a plugin (.esm .esp .esl).");
         Log.Write($"input: {kind} {Log.Describe(input)}");
 
+        // an example that works in any shell: a full path, not %USERPROFILE% (only cmd.exe expands it; third code review)
+        var example = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) is { Length: > 0 } docs ? docs : Path.GetTempPath(), "Triage");
         if ((o.Out ?? DefaultOut(input, o.DataDir)) is not { } outChoice)
             return CantRun("give --out: the input and the current folder are both inside the game",
                 $"won't write the report into the game's install: {input} and the current folder ({Environment.CurrentDirectory}) are both inside it. " +
-                "Give --out a folder of your own, for example --out \"%USERPROFILE%\\Documents\\Triage\".");
+                $"Give --out a folder of your own, for example --out \"{example}\".");
         var outDir = Path.GetFullPath(outChoice);
+        // never in the game, --out included (a relative --out run from the game folder lands there)
+        if (InGameInstall(outDir, o.DataDir))
+            return CantRun("--out is inside the game",
+                $"won't write the report to {outDir}: it is inside the game's install. Give --out a folder of your own, for example --out \"{example}\".");
         try { Directory.CreateDirectory(outDir); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -332,13 +339,19 @@ public static class TriageCommand
     {
         try
         {
+            // the three layouts FindData accepts: Data itself, the install (Data\), Game Pass (Content\Data\)
             for (var d = new DirectoryInfo(Path.GetFullPath(folder)); d != null; d = d.Parent)
-                if (File.Exists(Path.Combine(d.FullName, "Starfield.esm")) || File.Exists(Path.Combine(d.FullName, "Data", "Starfield.esm"))) return true;
+                if (FindData(d.FullName) != null) return true;
             var data = Path.GetFullPath(dataDir).TrimEnd('\\', '/');
-            return File.Exists(Path.Combine(data, "Starfield.esm")) && Path.GetDirectoryName(data) is { } install &&
-                   (Path.GetFullPath(folder).TrimEnd('\\', '/') + Path.DirectorySeparatorChar).StartsWith(install + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            if (!File.Exists(Path.Combine(data, "Starfield.esm"))) return false;
+            // the install above Data (Steam), and above Content too (Game Pass)
+            var install = Path.GetDirectoryName(data);
+            if (install != null && Path.GetFileName(install).Equals("Content", StringComparison.OrdinalIgnoreCase)) install = Path.GetDirectoryName(install);
+            return install != null &&
+                   (Path.GetFullPath(folder).TrimEnd('\\', '/') + Path.DirectorySeparatorChar).StartsWith(install.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException) { return false; }
+        // can't tell: count it as the game, so the report is never written there by mistake (third code review)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException) { return true; }
     }
 
     /// <summary>The mod's root folder and its files. Archives are unpacked into dest; a folder is read where it is; a
@@ -387,8 +400,12 @@ public static class TriageCommand
     {
         // SharpCompress's own refusals become "can't be read"; the same exception from our code stays a real error
         // (0.8.0 code review)
+        // Our own code in there throws only InvalidDataException; an InvalidOperationException comes from reading the
+        // archive (SharpCompress, or a .NET method it calls on a damaged file: third code review), and a
+        // CryptographicException from headers encrypted with a password.
         try { return UnpackOtherCore(archive, dest); }
-        catch (InvalidOperationException e) when (e.Source == "SharpCompress") { throw new InvalidDataException(e.Message, e); }
+        catch (InvalidOperationException e) { throw new InvalidDataException($"it can't be read as an archive ({e.Message})", e); }
+        catch (System.Security.Cryptography.CryptographicException e) { throw new InvalidDataException($"it is password-protected; triage doesn't open encrypted archives ({e.Message})", e); }
     }
 
     static List<string> UnpackOtherCore(string archive, string dest)
