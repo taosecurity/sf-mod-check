@@ -2,32 +2,78 @@
 
 ## 0.9.0 (2026-11-20)
 
-- New command `sf-mod-check patch`: builds a local conflict patch for your load order, with no AI assistant and no
-  xEdit. It runs the same analysis as `conflict`, then writes one light plugin to load last. For each record with a
-  lost change, the patch starts from the record as the game uses it today (partial forms filled in) and copies every
-  Forwardable field forward from the plugin that lost it. Lists are merged entry by entry (each plugin's own additions
-  and removals against the version it was built on), also when both plugins changed one; a location's base-game
-  lists stay as the base game and DLCs have them. The report says what each plugin's merge really added, changed or
-  removed ("adds 2 entries (first: ...)", or "nothing new" when the entries were already there). Other Choice fields (both plugins changed them) keep the winner's
-  value unless `--pick <FormKey>:<Field>=<plugin>` (or `--pick <FormKey>=<plugin>` for the whole record) says
-  otherwise; the report prints each ready-made `--pick` line. `--only a.esm,b.esm` limits the patch to conflicts
-  that involve those plugins, for example two mods you just added. Records that would equal today's winner are left
-  out (no ITMs). Records that live inside cells, worldspaces, quests or dialogue topics (cells, worldspaces, placed
-  objects, navmeshes, dialogue, scenes) aren't built in this version: the report lists them for xEdit. The navmesh
-  info map (NAVI) is never patched (each plugin's copy lists only its own navmeshes). Lost changes that `conflict`
-  already calls harmless (only a reorder, letter case or undocumented fields) are left alone. The command
-  reads the written patch back and compares every field with the plugin it was copied from; exit 1 means a
-  difference was found and the patch must not be used. It writes the patch, `patch-report.md` and
-  `Plugins-with-patch.txt` (your load order with the patch at the end, for a `conflict` run before installing) to
-  its own folder (default `sf-mod-check-patch`), never to the Data folder or Plugins.txt. An older copy of the patch
-  in the load order is left out while the new one is built. Text from plugins in `patch-report.md` (EditorIDs,
-  values, file names) is escaped the same way as in `conflict`'s report, so a mod's text can't turn into a link,
-  an image or HTML in a Markdown viewer. A patched quest whose winning version has dialogue reads back clean (its
-  `Unknown` value lives in the header of the dialogue group, which the patch doesn't copy). The report's Choices
-  heading counts the lists merged entry by entry, and says that `--pick <FormKey>:<Field>=<plugin>` takes one
-  plugin's whole list instead.
-- `conflict`: a forwardable conflict's recommendation now names `sf-mod-check patch` first, before xEdit and the AI
-  prompt.
+### What's new
+
+**New command: `sf-mod-check patch`.** It builds a local conflict patch for your load order, with no AI assistant and
+no xEdit. You add two new mods, `conflict` says one undoes part of the other, and `patch` writes one small light
+plugin that loads last and brings the lost changes back.
+
+`conflict` now names `sf-mod-check patch` first in a forwardable conflict's recommendation, before xEdit and the AI
+prompt.
+
+### Example
+
+Patch only the conflicts that involve the two mods you just added:
+
+    sf-mod-check patch --only NewModA.esm,NewModB.esm
+
+What it prints (a real run on a 158-plugin load order; mod names changed):
+
+    sf-mod-check 0.9.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
+    Loaded 158 plugins (0 load-order problems) in 0 s
+    25 records overridden by mods
+    RESULT: OK, patch sf-mod-check-patch\ConflictPatch.esm: 13 records, 25 fields forwarded, 0 picks used,
+    18 shared lists merged, 0 choices kept the winner's value, 0 records not built, 11 masters
+    (report: sf-mod-check-patch\patch-report.md; 38 s)
+
+A line from `patch-report.md`:
+
+    - AffinityEvent COM_Event_Action_Steal [00E39C:Starfield.esm]
+      - RequiredFaction from NewModA.esm: changes required faction from CurrentFollowerFaction (faction)
+        to NewModA_CommentsFaction (faction)
+
+Check the patch before you install it, then install `ConflictPatch.esm` with your mod manager at the end of the
+load order:
+
+    sf-mod-check check sf-mod-check-patch\ConflictPatch.esm
+    sf-mod-check conflict --plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch
+
+### How it builds each record
+
+- It starts from the record as the game uses it today (Starfield's partial forms filled in from earlier plugins).
+- It copies every **Forwardable** field forward from the plugin that lost it.
+- It merges lists entry by entry: each plugin's own additions and removals count, also when both plugins changed the
+  list. A location's base-game lists stay as the base game and its DLCs have them.
+- Each other **Choice** field (both plugins changed it) keeps the winner's value. The report prints a ready-made
+  `--pick <FormKey>:<Field>=<plugin>` line for each one, and `--pick <FormKey>=<plugin>` takes a whole record.
+- A record that would equal today's winner is left out (no ITMs).
+- It reads the written patch back and compares every field with its source. Exit 1 means a difference was found:
+  don't use that patch.
+
+### Options and output
+
+- `--only a.esm,b.esm` limits the patch to conflicts that involve those plugins (and is faster).
+- `--out` (default `sf-mod-check-patch`) gets the patch, `patch-report.md` and `Plugins-with-patch.txt` (your load
+  order with the patch at the end). It never writes to the Data folder or Plugins.txt.
+- `--name` (default `ConflictPatch.esm`) refuses names the game would drop from Plugins.txt. An older copy of the patch
+  in the load order is left out while the new one is built.
+- Text from plugins in `patch-report.md` is escaped the same way as in `conflict`'s report, so a mod's text can't
+  become a link, an image or HTML in a Markdown viewer.
+
+### Not built yet
+
+- Records that live inside other records: cells, worldspaces, placed objects, navmeshes, dialogue and scenes. The
+  report lists them for xEdit.
+- The navmesh info map (NAVI) is never patched, because each plugin's copy lists only its own navmeshes.
+- Lost changes that `conflict` already calls harmless (only a reorder, letter case or undocumented fields) are left
+  alone.
+
+### Fixes found before release
+
+- A patched quest whose winning version has dialogue now reads back clean. Its `Unknown` value lives in the dialogue
+  group's header, which the patch doesn't copy.
+- The report's Choices heading counts the lists merged entry by entry, and says a `--pick` takes one plugin's whole
+  list.
 
 ## 0.8.0 (2026-11-20)
 

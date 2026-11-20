@@ -24,6 +24,26 @@ and drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
 
     sf-mod-check check MyMod.esm
 
+## Example
+
+Check one plugin:
+
+    > sf-mod-check check ConflictPatch.esm
+    sf-mod-check 0.9.0 check: ConflictPatch.esm (light master, 11 masters, 13 records, 13 overrides (0 ITM), 5038 links)
+    RESULT: OK, 0 errors, 0 warnings (ConflictPatch.esm: 13 records, 5038 links; 4.0 s)
+
+Check a whole load order for lost changes, then build a patch for the two mods you just added:
+
+    > sf-mod-check conflict
+    sf-mod-check 0.9.0 conflict: 159 plugins (18 official, 141 mods), 2558 records overridden by mods
+    RESULT: OK, 37 lost-change entries (24 official, 13 mod vs mod), 11 ITMs, 0 load-order problems, ...
+
+    > sf-mod-check patch --only NewModA.esm,NewModB.esm
+    RESULT: OK, patch sf-mod-check-patch\ConflictPatch.esm: 13 records, 25 fields forwarded, ... 11 masters
+
+Each command also writes a report that says what it found and what to do about it. The sections below show each
+command in full.
+
 For AI assistants: step-by-step install and use instructions are in [AGENTS.md](AGENTS.md).
 
 It does the same kind of job as part of xEdit's "Check for Errors", but from the command line, so it fits a build
@@ -305,6 +325,24 @@ plugin that loads last and brings the lost changes back. You don't need xEdit or
 Then read `sf-mod-check-patch\patch-report.md`, install `sf-mod-check-patch\ConflictPatch.esm` with your mod manager
 like any other mod, and put it at the end of the load order. Leave out `--only` to patch every conflict in the load
 order at once.
+
+**Example** (a real run on a 158-plugin load order; mod names changed):
+
+    > sf-mod-check patch --only NewModA.esm,NewModB.esm
+    sf-mod-check 0.9.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
+    Loaded 158 plugins (0 load-order problems) in 0 s
+    25 records overridden by mods
+    RESULT: OK, patch sf-mod-check-patch\ConflictPatch.esm: 13 records, 25 fields forwarded, 0 picks used,
+    18 shared lists merged, 0 choices kept the winner's value, 0 records not built, 11 masters
+    (report: sf-mod-check-patch\patch-report.md; 38 s)
+
+The report lists each patched record and what came from where, for example:
+
+    - AffinityEvent COM_Event_Action_Steal [00E39C:Starfield.esm]
+      - RequiredFaction from NewModA.esm: changes required faction from CurrentFollowerFaction (faction)
+        to NewModA_CommentsFaction (faction)
+      - ActorReactions from NewModB.esm: merged entry by entry with NewModA.esm's list (both changed it):
+        adds 1 entry (first: an entry (actor NewModB_Companion) to companion reactions)
 
 How it builds each record:
 
