@@ -232,7 +232,7 @@ public class TriageCommandTests
         var root = s.Sub("mod");
         Directory.CreateDirectory(Path.Combine(root, "Scripts"));
         File.WriteAllText(Path.Combine(root, "Scripts", "A.pex"), "a");
-        if (!OperatingSystem.IsWindows())
+        if (OperatingSystem.IsLinux())   // case-sensitive disks only (a Mac disk ignores case by default)
         {
             Directory.CreateDirectory(Path.Combine(root, "scripts"));
             File.WriteAllText(Path.Combine(root, "scripts", "B.pex"), "b");
@@ -244,8 +244,8 @@ public class TriageCommandTests
             Files = files, DataPrefix = "", DataDir = "d", Work = "w", Report = new TriageReport(),
         };
         Assert.Equal("a", File.ReadAllText(c.Full("scripts\\a.pex")));
-        if (!OperatingSystem.IsWindows()) Assert.Equal("b", File.ReadAllText(c.Full("scripts\\b.pex")));
-        if (!OperatingSystem.IsWindows())
+        if (OperatingSystem.IsLinux()) Assert.Equal("b", File.ReadAllText(c.Full("scripts\\b.pex")));
+        if (OperatingSystem.IsLinux())
         {
             // a file wins over a folder of the exact name, and links are never followed (reviews of the Linux fix)
             Directory.CreateDirectory(Path.Combine(root, "scripts", "c.pex"));
