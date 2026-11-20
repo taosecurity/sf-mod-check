@@ -77,7 +77,7 @@ public static class Recommend
         var moved = recs.Any(r => r.Text.StartsWith("Move "));
         if (fwd.Count > 0 && !moved)
             Add(g.First().LoserOfficial ? 1 : 2,
-                $"A small local patch can restore the {fwd.Count} forwardable field{S(fwd.Count)} ({Fields(fwd)}) without changing anything else in {winner}. Build it in xEdit by copying those values forward, or give the prompt below to an AI coding assistant.",
+                $"A small local patch can restore the {fwd.Count} forwardable field{S(fwd.Count)} ({Fields(fwd)}) without changing anything else in {winner}. Build it with sf-mod-check patch (no AI or xEdit needed), in xEdit by copying those values forward, or give the prompt below to an AI coding assistant.",
                 PatchPrompt(fwd, PatchName(winner, loser)));
         if (choice.Count > 0)
             Add(3, $"For the {choice.Count} field{S(choice.Count)} both plugins changed ({Fields(choice)}), decide which version you want{Example(choice)}. " +

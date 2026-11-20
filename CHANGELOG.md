@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.0 (2026-11-20)
+
+- New command `sf-mod-check patch`: builds a local conflict patch for your load order, with no AI assistant and no
+  xEdit. It runs the same analysis as `conflict`, then writes one light plugin to load last. For each record with a
+  lost change, the patch starts from the record as the game uses it today (partial forms filled in) and copies every
+  Forwardable field forward from the plugin that lost it. Lists are merged entry by entry (each plugin's own additions
+  and removals against the version it was built on), also when both plugins changed one; a location's base-game
+  lists stay as the base game and DLCs have them. The report says what each plugin's merge really added, changed or
+  removed ("adds 2 entries (first: ...)", or "nothing new" when the entries were already there). Other Choice fields (both plugins changed them) keep the winner's
+  value unless `--pick <FormKey>:<Field>=<plugin>` (or `--pick <FormKey>=<plugin>` for the whole record) says
+  otherwise; the report prints each ready-made `--pick` line. `--only a.esm,b.esm` limits the patch to conflicts
+  that involve those plugins, for example two mods you just added. Records that would equal today's winner are left
+  out (no ITMs). Records that live inside cells, worldspaces, quests or dialogue topics (cells, worldspaces, placed
+  objects, navmeshes, dialogue, scenes) aren't built in this version: the report lists them for xEdit. The navmesh
+  info map (NAVI) is never patched (each plugin's copy lists only its own navmeshes). Lost changes that `conflict`
+  already calls harmless (only a reorder, letter case or undocumented fields) are left alone. The command
+  reads the written patch back and compares every field with the plugin it was copied from; exit 1 means a
+  difference was found and the patch must not be used. It writes the patch, `patch-report.md` and
+  `Plugins-with-patch.txt` (your load order with the patch at the end, for a `conflict` run before installing) to
+  its own folder (default `sf-mod-check-patch`), never to the Data folder or Plugins.txt. An older copy of the patch
+  in the load order is left out while the new one is built.
+- `conflict`: a forwardable conflict's recommendation now names `sf-mod-check patch` first, before xEdit and the AI
+  prompt.
+
 ## 0.8.0 (2026-11-20)
 
 - **Renamed: sfmodcheck is now sf-mod-check.** The exe is `sf-mod-check.exe`, the dotnet tool package and command are

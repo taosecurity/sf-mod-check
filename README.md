@@ -11,7 +11,9 @@ throws away (official changes undone by mods, one mod's changes lost to another)
 drops, missing scripts and files, sounds packed so they play silent, and every plugin inside. A fourth,
 [`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage), looks over someone else's mod before you install or
 rebuild it: its files, what it replaces in the game, its plugins, scripts and DLLs, in one offline report. It is
-triage, not a verdict: it shows a person where to start reading.
+triage, not a verdict: it shows a person where to start reading. A fifth,
+[`patch`](#build-a-conflict-patch-sf-mod-check-patch), builds a local patch that brings back the changes `conflict`
+found lost, without xEdit or an AI assistant.
 
 **Renamed:** this tool was called **sfmodcheck** until 0.7.0. The command is now `sf-mod-check`; the exe zip still
 holds a `sfmodcheck.cmd` that runs it under the old name for one more release. Your caches and the `SFMODCHECK_*`
@@ -28,8 +30,8 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.8.0 (adds the [`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage) command and the new name
-sf-mod-check; 0.7.0 added the [`release`](#check-a-release-zip-sf-mod-check-release) command: one OK or FAIL for the zip you
+Version 0.9.0 (adds the [`patch`](#build-a-conflict-patch-sf-mod-check-patch) command; 0.8.0 added the
+[`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage) command and the new name sf-mod-check; 0.7.0 added the [`release`](#check-a-release-zip-sf-mod-check-release) command: one OK or FAIL for the zip you
 are about to upload; 0.6.0 added the `assets` check: scripts and models a plugin names but that aren't loose or in an archive
 the game loads, in `check` and `conflict`; 0.5.3 fixed issues from the 0.5.2 reviews: a report that fails part way never leaves old and new files mixed, and
 `check` gives an armor record on an armor addon's FormID a WARNING; 0.5.2 reports overrides that change a record's type,
@@ -196,8 +198,9 @@ Scripts should read the exit code and the lines that start with `ERROR `, `WARNI
 Each lost field is labelled **Forwardable** (the winner didn't mean to change it, so a patch can copy the lost value
 forward safely), **Choice** (both changed it, so you pick) or **No effect** (they differ only in list order, letter
 case or undocumented fields). Each conflict gets a recommendation: load-order moves when one is safe, an update to
-look for, or a small local patch. For a patch it also writes a prompt you can give to an AI coding assistant, or
-follow by hand in xEdit. It only reads plugins: it never changes one, and it never changes your load order.
+look for, or a small local patch. [`sf-mod-check patch`](#build-a-conflict-patch-sf-mod-check-patch) builds that
+patch for you (0.9.0); the report also gives the steps for xEdit and a prompt you can give to an AI coding assistant.
+`conflict` only reads plugins: it never changes one, and it never changes your load order.
 
 **First command** (Steam, with the game's own load order):
 
@@ -289,6 +292,81 @@ materials, sounds; see the `assets` entry under `check`). Fields
 that are bookkeeping or that the Creation Kit regenerates are skipped (the report lists them). A patch it suggests is
 for your own game: it holds other authors' data, so don't publish it. To see its working for one record, set the
 environment variable `SFMODCHECK_DEBUG_RECORD` to that record's FormKey (for example `064F3C:Starfield.esm`).
+
+## Build a conflict patch: `sf-mod-check patch`
+
+You added two new mods and `conflict` says one undoes part of the other. `patch` builds the fix: one small light
+plugin that loads last and brings the lost changes back. You don't need xEdit or an AI assistant.
+
+**First command** (Steam, with the game's own load order; the two mods are the ones you just added):
+
+    sf-mod-check patch --only NewModA.esm,NewModB.esm
+
+Then read `sf-mod-check-patch\patch-report.md`, install `sf-mod-check-patch\ConflictPatch.esm` with your mod manager
+like any other mod, and put it at the end of the load order. Leave out `--only` to patch every conflict in the load
+order at once.
+
+How it builds each record:
+
+1. It starts from the record as the game uses it today: each field from the last plugin that has it (a Starfield
+   partial form only carries the fields it changes, so the others come from the plugins before it).
+2. It copies each **Forwardable** field forward from the plugin that lost it. The winner didn't change that field, so
+   nothing the winner meant is undone. A list (keywords, a location's references, a companion's reactions) is
+   merged entry by entry instead: each plugin's own additions are added and its own removals removed, measured
+   against the version that plugin was built on, so two mods that both add entries keep both. A list both plugins
+   changed is merged the same way rather than treated as a choice; where both changed one entry (one companion's
+   reaction), the later plugin's version stays. A location's base-game lists are kept as the base game and its DLCs
+   have them.
+3. For each other **Choice** field (both plugins changed it) it keeps the winner's value, as the game does now. The report
+   prints a ready-made `--pick` line for each one. Run the command again with the lines you want, for example
+   `--pick 0012AB:Starfield.esm:Value=NewModB.esm` (one field) or `--pick 0012AB:Starfield.esm=NewModB.esm` (every Choice
+   field of that record).
+4. A record that would end up the same as today's is left out (no "identical to master" records).
+5. It writes the patch, then reads it back and compares every field with the plugin it was copied from.
+
+    sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
+                       [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]] [--pick <FormKey>[:<Field>]=<plugin>]...
+                       [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
+
+- `--plugins`, `--data`, `--extra-data`, `--max-memory`, `--quiet`, `--verbose`, `--log`: as for `conflict`.
+- `--out`: the folder for the patch and its report (default `sf-mod-check-patch` in the current folder). It can't be
+  the Data folder or the `--extra-data` folder: install the patch with your mod manager.
+- `--name`: the patch's file name (default `ConflictPatch.esm`). A name that ends in an official plugin's name (such
+  as `-ShatteredSpace.esm`) or starts with `BlueprintShips-` is refused, because the game drops such names from
+  Plugins.txt. If your load order already has a plugin of that name (last time's patch), it is left out while the new
+  one is built, and the new one replaces it.
+- `--only`: patch only the conflicts that involve these plugins (file names, separated by commas; give it more than
+  once if you like). It is also faster: only the records those plugins change are compared.
+- `--pick`: see step 3. A pick that matches nothing gets a WARNING.
+
+**What it writes** (all in the `--out` folder): the patch; `patch-report.md` (each record and field it forwarded and
+from which plugin, the Choice fields with their `--pick` lines, the records it didn't build, and the next steps); and
+`Plugins-with-patch.txt`, your load order with the patch at the end. To check the patch before installing it:
+
+    sf-mod-check conflict --plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch
+    sf-mod-check check sf-mod-check-patch\ConflictPatch.esm
+
+That `conflict` run still lists the records the patch didn't build, any Choice that kept the winner's value, and
+lost changes that `conflict` already calls harmless ("probably has no visible effect": a change that only reorders a
+list, changes letter case or touches undocumented fields), which the patch leaves alone.
+
+**What it doesn't build yet:** records that live inside other records: cells, worldspaces, placed objects, navmeshes,
+dialogue topics, dialogue lines and scenes. Patching those means copying the parent record too (a cell's or a
+worldspace's header), which can undo other mods' changes to it, so the report lists them for xEdit instead. A quest's
+own fields are patched; its dialogue and scenes are not copied into the patch. The navmesh info map (NAVI) is never
+patched: each plugin's copy lists only its own navmeshes, so a merged copy would hide entries.
+
+**Rebuild it when your mods change.** The patch lists every plugin it took values from as a master. After you add,
+remove or update one of them, run the same command again (the old patch is replaced).
+
+**For your own game only:** the patch holds other authors' data, so don't publish it.
+
+**Exit codes:** 0 = patch written (or nothing to patch: the RESULT line says so and no plugin is written); 1 = the
+patch was written but reading it back found a difference: don't use it, and report it with a `--log` file; 2 =
+couldn't run (`RESULT: CANNOT BUILD`); 3 = stopped at `--max-memory` (`RESULT: STOPPED`). The last line on stdout is
+always the RESULT line, for example:
+
+    RESULT: OK, patch C:\Mods\sf-mod-check-patch\ConflictPatch.esm: 3 records, 5 fields forwarded, 0 picks used, 1 shared lists merged, 1 choice kept the winner's value, 2 records not built, 6 masters (report: ...\patch-report.md; 9 s)
 
 ## Check a release zip: `sf-mod-check release`
 

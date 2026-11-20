@@ -28,7 +28,11 @@ public static class ReleaseRules
         new(@"^blueprintships-", RegexOptions.IgnoreCase),
     ];
 
-    static readonly Regex ForbiddenMaster = new(@"^blueprintships", RegexOptions.IgnoreCase);
+    /// <summary>True when Starfield would drop this plugin name from Plugins.txt (it ends in an official plugin's name,
+    /// or starts with BlueprintShips-), so the plugin never loads. Also used by `patch` for its --name (0.9.0).</summary>
+    public static bool IsDroppedPluginName(string fileName) => DroppedPluginNames.Any(r => r.IsMatch(fileName));
+
+    static readonly Regex ForbiddenMaster =new(@"^blueprintships", RegexOptions.IgnoreCase);
 
     static readonly (Regex Rx, string Why)[] PrivateFiles =
     [

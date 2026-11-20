@@ -1,7 +1,7 @@
 # sf-mod-check: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sf-mod-check. Every command
-here was run once on sf-mod-check 0.8.0 before release. The [README](README.md) has the full description.
+here was run once on sf-mod-check 0.9.0 before release. The [README](README.md) has the full description.
 Until 0.7.0 the tool was called **sfmodcheck**: the command is now `sf-mod-check` (the exe zip also holds a
 `sfmodcheck.cmd` that runs it under the old name, for one release). Old caches and `SFMODCHECK_*` variables still work.
 
@@ -33,8 +33,13 @@ calls, whether it logs, calls worth a look) and its DLLs and EXEs (imports, SFSE
 finding is a NOTE (information) or a LOOK (worth a person's look). It is triage, not a verdict: never tell the user a
 mod is safe or unsafe from it. A LOOK is where a person starts reading.
 
-Don't use any of them to fix a plugin or a load order (they never change files), or `check` on Bethesda's own masters
-(Starfield.esm needs over 30 GB of memory).
+Its fifth command, `sf-mod-check patch` (0.9.0), builds a local conflict patch from the same analysis as `conflict`:
+one light plugin, loaded last, that copies each lost Forwardable change forward and keeps the winner's value for
+Choice fields unless the user picks the other. Use it when `conflict` recommends a small local patch, for example
+after adding two mods that touch the same records (`--only` limits it to those mods).
+
+Don't use any of them to fix a plugin or change a load order (they never change existing files; `patch` only writes a
+new plugin to its own folder), or `check` on Bethesda's own masters (Starfield.esm needs over 30 GB of memory).
 
 ## 2. Prerequisites
 
@@ -45,35 +50,35 @@ Don't use any of them to fix a plugin or a load order (they never change files),
 
 ## 3. Install
 
-Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.8.0 shown here).
+Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.9.0 shown here).
 
-1. **Stand-alone exe (Windows):** download `sf-mod-check-0.8.0-win-x64.zip` and its `.sha256` file, check the
+1. **Stand-alone exe (Windows):** download `sf-mod-check-0.9.0-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 
-       certutil -hashfile sf-mod-check-0.8.0-win-x64.zip SHA256
+       certutil -hashfile sf-mod-check-0.9.0-win-x64.zip SHA256
        mkdir C:\Tools\sf-mod-check
-       tar -xf sf-mod-check-0.8.0-win-x64.zip -C C:\Tools\sf-mod-check
+       tar -xf sf-mod-check-0.9.0-win-x64.zip -C C:\Tools\sf-mod-check
 
-   Compare the printed hash with the one in `sf-mod-check-0.8.0-win-x64.zip.sha256` (it sits next to the zip on the
+   Compare the printed hash with the one in `sf-mod-check-0.9.0-win-x64.zip.sha256` (it sits next to the zip on the
    Releases page). If the user has only the zip, print the hash, tell them it couldn't be compared, and ask them to
    download the `.sha256` file too. The program is then `C:\Tools\sf-mod-check\sf-mod-check.exe`.
 
-2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.8.0.nupkg` into a folder (here `C:\Downloads`), then
+2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.9.0.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
 
-       dotnet tool install --global sf-mod-check --add-source C:\Downloads --version 0.8.0
+       dotnet tool install --global sf-mod-check --add-source C:\Downloads --version 0.9.0
 
    or into a folder of its own (nothing global changes):
 
-       dotnet tool install sf-mod-check --tool-path C:\Tools\sf-mod-check-tool --add-source C:\Downloads --version 0.8.0
+       dotnet tool install sf-mod-check --tool-path C:\Tools\sf-mod-check-tool --add-source C:\Downloads --version 0.9.0
 
-   On Linux, `sha256sum -c sf-mod-check.0.8.0.nupkg.sha256` checks the download.
+   On Linux, `sha256sum -c sf-mod-check.0.9.0.nupkg.sha256` checks the download.
 
 ## 4. Prove the install works
 
     sf-mod-check --version
 
-Its first line is `sf-mod-check 0.8.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
+Its first line is `sf-mod-check 0.9.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
 `--quiet` is given. (Use the full path, such as `C:\Tools\sf-mod-check\sf-mod-check.exe
 --version`, when the folder isn't on PATH.)
@@ -188,6 +193,27 @@ Its first line is `sf-mod-check 0.8.0 by Richard Bejtlich - GPL-3.0 - https://gi
     the Files and Replaces vanilla sections are the ones to read. When the input and the current folder are both inside
     the game's install, triage writes nothing there and asks for `--out` (exit 2).
 
+15. Build a conflict patch (0.9.0). The user added two mods and `conflict` says one undoes part of the other: build a
+    patch for the conflicts that involve them, read the report, check the patch, then have the user install it with
+    their mod manager at the end of the load order:
+
+        sf-mod-check patch --only NewModA.esm,NewModB.esm
+        sf-mod-check conflict --plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch
+        sf-mod-check check sf-mod-check-patch\ConflictPatch.esm
+
+    Without `--only` it patches every conflict in the load order. Read `sf-mod-check-patch\patch-report.md` with the
+    user: "Choices" are fields both mods changed; the winner's value is kept unless the user wants the other one,
+    then run `patch` again with the `--pick` line the report prints for it, for example
+    `--pick 0012AB:Starfield.esm:Value=NewModA.esm`. "Not built" records (cells, worldspaces, placed objects,
+    navmeshes, dialogue, scenes) must be done in xEdit; give the user the report's list. The navmesh info map (NAVI)
+    is listed there too but must not be copied by hand. The `conflict` run on `Plugins-with-patch.txt` still lists
+    those records, Choices that kept the winner's value, and harmless lost changes (only a reorder, letter case or
+    undocumented fields), which `patch` leaves alone by design. Exit 1 means the read-back
+    found a difference: tell the user not to install that patch. Other options: `--plugins`, `--data`,
+    `--extra-data`, `--max-memory`, `--log` as for `conflict`; `--out <folder>` (never the Data folder); `--name
+    <Patch.esm>` (default `ConflictPatch.esm`). Run it again after any of the patch's masters is added, removed or
+    updated.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -241,6 +267,16 @@ Its first line is `sf-mod-check 0.8.0 by Richard Bejtlich - GPL-3.0 - https://gi
   exit code and the `RESULT: ` line (in `check`, also the `ERROR ` and `WARNING ` lines).
 - **conflict exit codes:** 0 = report written (whatever it found); 2 = couldn't run (running out of memory included:
   no report); 3 = stopped at `--max-memory` (no report).
+- **patch input:** the same as `conflict`, plus `--only` (plugin file names) and `--pick` lines. **patch output:** in
+  `--out` (default `sf-mod-check-patch`): the patch plugin (light, loads last; `--name`, default
+  `ConflictPatch.esm`), `patch-report.md` and `Plugins-with-patch.txt` (the load order with the patch line at the end);
+  when the load order already holds a plugin of the patch's name, also `Plugins-without-patch.txt` (the order it was
+  built from). With nothing to patch, no plugin is written and an old one there is removed. On stdout: `ERROR [patch]`
+  lines for read-back differences, then always one last line `RESULT: OK, patch <path>: <n> records, <n> fields
+  forwarded, <n> picks used, <n> shared lists merged, <n> choices kept the winner's value, <n> records not built, <n> masters (report: <path>;
+  <s> s)`, or `RESULT: OK, nothing to patch: ...`, `RESULT: FAILED, <n> read-back differences (don't use this patch),
+  ...`, `RESULT: CANNOT BUILD (...)` or `RESULT: STOPPED (...)`. Exit codes: 0 = written (or nothing to patch); 1 =
+  written, but the read-back found a difference (don't use it); 2 = couldn't run; 3 = stopped at `--max-memory`.
 - **Caches:** `%LOCALAPPDATA%\sfmodcheck\` on Windows, `~/.local/share/sfmodcheck/` on Linux (the folder kept its old
   name; the masters' EditorIDs, the learned list of official scenes and triage's index of the game's archive file
   names; rebuilt by themselves after a game update). The environment variable
@@ -249,8 +285,9 @@ Its first line is `sf-mod-check 0.8.0 by Richard Bejtlich - GPL-3.0 - https://gi
 ## 7. Limits
 
 1. It never changes, moves or deletes a plugin, the load order or anything in the game folder. It writes only its
-   caches, the `--log` file, (conflict) the `--out` report folder, (triage) its three report files, and (release,
-   triage) a temp folder holding the unpacked archive, which it removes at the end. It never changes the zip.
+   caches, the `--log` file, (conflict) the `--out` report folder, (patch) its `--out` folder, which may not be the
+   Data folder, (triage) its three report files, and (release, triage) a temp folder holding the unpacked archive,
+   which it removes at the end. It never changes the zip. Installing a patch is the user's job, with their mod manager.
 2. It makes no network connections and uploads nothing. With `--dmmdeps` or `--papyrus` it starts that program, and
    only the exact builds named in the README (checked by SHA-256). With `--manalyze` it starts that program with
    offline plugins only. `triage` never loads or runs a mod's DLLs, EXEs or scripts: it reads their bytes; the
@@ -259,7 +296,9 @@ Its first line is `sf-mod-check 0.8.0 by Richard Bejtlich - GPL-3.0 - https://gi
    `assets` check in both only looks up the names of attached scripts and model files in loose files and BA2
    archives; neither reads what is inside a script, model or archive, and textures, materials and sounds aren't
    looked up.
-4. A patch `conflict` suggests holds other authors' data: it is for the player's own game, never for publishing.
+4. A patch `conflict` suggests or `patch` builds holds other authors' data: it is for the player's own game, never
+   for publishing. `patch` doesn't build records inside cells, worldspaces, quests or dialogue topics (the report
+   lists them for xEdit).
    Mod Organizer 2 keeps mods out of the Data folder, so run `conflict` from MO2 (as an executable) or it won't see
    them (not yet tried).
 5. A missing master stops the link checks (the RESULT line says "links not checked"): install the master or point
