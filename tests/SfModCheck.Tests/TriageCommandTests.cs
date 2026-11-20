@@ -245,6 +245,26 @@ public class TriageCommandTests
         };
         Assert.Equal("a", File.ReadAllText(c.Full("scripts\\a.pex")));
         if (!OperatingSystem.IsWindows()) Assert.Equal("b", File.ReadAllText(c.Full("scripts\\b.pex")));
+        if (!OperatingSystem.IsWindows())
+        {
+            // a file wins over a folder of the exact name, and links are never followed (reviews of the Linux fix)
+            Directory.CreateDirectory(Path.Combine(root, "scripts", "c.pex"));
+            File.WriteAllText(Path.Combine(root, "Scripts", "C.pex"), "c");
+            File.WriteAllText(Path.Combine(root, "Mod.esm"), "real");
+            var outside = Path.Combine(s.Sub("elsewhere"), "decoy.esm");
+            File.WriteAllText(outside, "decoy");
+            File.CreateSymbolicLink(Path.Combine(root, "mod.esm"), outside);
+            File.CreateSymbolicLink(Path.Combine(root, "only.esm"), outside);   // nothing but a link: reported missing
+            // a fresh context: a context lists each folder once, and these files came after the first lookups
+            var c2 = new TriageContext
+            {
+                Options = new TriageOptions(), Kind = TriageInputKind.Folder, InputPath = root, Root = root,
+                Files = files, DataPrefix = "", DataDir = "d", Work = "w", Report = new TriageReport(),
+            };
+            Assert.Equal("c", File.ReadAllText(c2.Full("scripts\\c.pex")));
+            Assert.Equal("real", File.ReadAllText(c2.Full("mod.esm")));
+            Assert.False(File.Exists(c2.Full("only.esm")));
+        }
         Assert.Equal("data\\mod.esm", RelPath.DirectoryName("data\\mod.esm\\x")?.Replace('/', '\\'));
         Assert.Equal("mod.esm", RelPath.FileName("data\\mod.esm"));
     }

@@ -105,29 +105,35 @@ public sealed class TriageContext
     public string Full(string rel)
     {
         var direct = Path.Combine(Root, rel.Replace('\\', Path.DirectorySeparatorChar));
-        if (OperatingSystem.IsWindows() || File.Exists(direct)) return direct;   // a folder of that exact name goes through Find, where a file wins
+        if (OperatingSystem.IsWindows() || (File.Exists(direct) && !IsLink(direct))) return direct;   // a folder of that exact name goes through Find, where a file wins
         lock (resolved)
         {
             if (resolved.TryGetValue(rel, out var hit)) return hit;
             // every folder whose name matches ignoring case is tried in turn ("Scripts" and "scripts" can both exist),
             // the exact spelling first; each folder is listed once (review of the Linux fix)
             var found = Find(Root, rel.Split('\\'), 0);
-            return found == null ? direct : resolved[rel] = found;   // not there: the caller reports the missing file
+            // not there (or only behind a link, which is never followed): a path that doesn't exist, so the caller
+            // reports the file as missing (review: the exact-name fallback could be the link itself)
+            if (found == null) return File.Exists(direct) || Directory.Exists(direct) ? Path.Combine(Root, ".sf-mod-check-link-not-followed", rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
+            return resolved[rel] = found;
         }
     }
 
-    string? Find(string dir, string[] parts, int i)
+    // Two passes over every folder whose name matches: a file anywhere first, a folder at the last part only when no
+    // file matches in any of them (reviews of the Linux fix). Links are never followed.
+    string? Find(string dir, string[] parts, int i) => Find(dir, parts, i, folderOk: false) ?? Find(dir, parts, i, folderOk: true);
+
+    string? Find(string dir, string[] parts, int i, bool folderOk)
     {
         if (i == parts.Length) return dir;
-        // the last part: a file that matches wins over a folder of that name (review), a folder only when no file does
         if (i == parts.Length - 1)
-            return Matches(dir, parts[i]).FirstOrDefault(File.Exists) ?? Matches(dir, parts[i]).FirstOrDefault(e => Directory.Exists(e) && !IsLink(e));
+            return Matches(dir, parts[i]).FirstOrDefault(e => !IsLink(e) && (File.Exists(e) || folderOk && Directory.Exists(e)));
         foreach (var entry in Matches(dir, parts[i]))
         {
             bool folder;
-            try { folder = Directory.Exists(entry) && (File.GetAttributes(entry) & FileAttributes.ReparsePoint) == 0; }
+            try { folder = Directory.Exists(entry) && !IsLink(entry); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { folder = false; }   // gone or denied: no match
-            if (folder && Find(entry, parts, i + 1) is { } f) return f;
+            if (folder && Find(entry, parts, i + 1, folderOk) is { } f) return f;
         }
         return null;
     }
