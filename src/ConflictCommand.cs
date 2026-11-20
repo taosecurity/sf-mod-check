@@ -14,7 +14,7 @@ namespace SfModCheck;
 public static class ConflictCommand
 {
     public const string Usage =
-        "usage: sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
+        "usage: sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
         "                           [--max-memory <GB>] [--no-assets] [--ini <file>]... [--language <code>]\n" +
         "                           [--quiet] [--verbose] [--log <file>]";
 
@@ -43,7 +43,7 @@ public static class ConflictCommand
             }));
             Fatal.AfterResult(() =>
             {
-                Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
+                Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");
                 Log.Write($"stopped: {e}");
             });
             return 2;
@@ -185,7 +185,7 @@ public static class ConflictCommand
         if (!quiet) Console.Error.WriteLine(byline);
         if (verbose) Log.ToStderr();
         if (logFile != null && Log.ToFile(logFile) is { } logError) { Console.Error.WriteLine(logError); cantWhy = "the log file can't be written"; return 2; }
-        Log.Write($"sfmodcheck {version} conflict on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
+        Log.Write($"sf-mod-check {version} conflict on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
         Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");
         Log.Write($"working folder: {Environment.CurrentDirectory}");
 
@@ -240,7 +240,7 @@ public static class ConflictCommand
             extraDir = Path.GetFullPath(extraDir);
             Log.Write($"extra plugin folder (its files win over Data's): {extraDir}");
         }
-        outDir = Path.GetFullPath(outDir ?? "sfmodcheck-conflict");
+        outDir = Path.GetFullPath(outDir ?? "sf-mod-check-conflict");
         Log.Write($"report folder: {outDir}");
         if (maxGb > 0) { Analyzer.MaxManagedBytes = (long)(maxGb * 1e9); Log.Write($"memory limit: {maxGb.ToString(CultureInfo.InvariantCulture)} GB"); }
 
@@ -342,7 +342,7 @@ public static class ConflictCommand
             }
 
             var official = analysis.Lost.Count(l => l.LoserOfficial);
-            if (!quiet) Console.WriteLine($"sfmodcheck {version} conflict: {lo.Plugins.Count} plugins ({lo.Plugins.Count - mods} official, {mods} mods), {analysis.RecordsOverriddenByMods} records overridden by mods");
+            if (!quiet) Console.WriteLine($"sf-mod-check {version} conflict: {lo.Plugins.Count} plugins ({lo.Plugins.Count - mods} official, {mods} mods), {analysis.RecordsOverriddenByMods} records overridden by mods");
             foreach (var err in analysis.Errors.Take(5)) Console.Error.WriteLine($"note: {err}");
             if (analysis.Errors.Count > 5) Console.Error.WriteLine($"note: ... and {analysis.Errors.Count - 5} more (the report's \"Tool limits hit\" section)");
             Console.WriteLine($"RESULT: OK, {analysis.Lost.Count} lost-change entries ({official} official, {analysis.Lost.Count - official} mod vs mod), " +

@@ -250,7 +250,7 @@ public static class Rules
         }
         using var w = new StreamWriter(outPath, false, new UTF8Encoding(false)) { NewLine = "\n" };
         w.WriteLine("# Condition form parameters in the official masters: <function number> <parameter 1|2> <uses> <empty uses>  # Mutagen function name.");
-        w.WriteLine($"# Made by sfmodcheck --learn-conditions (Mutagen 0.54.4) from {string.Join(", ", game.LoadOrder.Select(m => m.ModKey.FileName.String))}.");
+        w.WriteLine($"# Made by sf-mod-check --learn-conditions (Mutagen 0.54.4) from {string.Join(", ", game.LoadOrder.Select(m => m.ModKey.FileName.String))}.");
         w.WriteLine($"# {conds} conditions, {failed} records Mutagen couldn't read. Uses include alias and package-data parameters; 'empty' = a null form link.");
         foreach (var ((fn, slot), (uses, empty)) in counts.OrderBy(k => k.Key.Item1).ThenBy(k => k.Key.Item2))
             w.WriteLine($"{fn} {slot} {uses} {empty}  # {names[fn]}");
@@ -311,7 +311,7 @@ public static class Rules
 
     public static readonly string[] SceneQuirkHeader =
     [
-        "# Official scenes whose alias numbers don't match their parent quest (sfmodcheck --learn-scene-quirks, Mutagen 0.54.4).",
+        "# Official scenes whose alias numbers don't match their parent quest (sf-mod-check --learn-scene-quirks, Mutagen 0.54.4).",
         "# The scenes rule skips exactly these records. <FormKey> <EditorID>: <first finding>",
     ];
 

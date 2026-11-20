@@ -20,8 +20,8 @@ public class ExeTests
     internal static (int Code, string Stdout, string Stderr) RunSplit(params string[] args)
     {
         var dir = AppContext.BaseDirectory;
-        var exe = Path.Combine(dir, OperatingSystem.IsWindows() ? "sfmodcheck.exe" : "sfmodcheck");
-        var psi = File.Exists(exe) ? new ProcessStartInfo(exe) : new ProcessStartInfo("dotnet") { ArgumentList = { Path.Combine(dir, "sfmodcheck.dll") } };
+        var exe = Path.Combine(dir, OperatingSystem.IsWindows() ? "sf-mod-check.exe" : "sf-mod-check");
+        var psi = File.Exists(exe) ? new ProcessStartInfo(exe) : new ProcessStartInfo("dotnet") { ArgumentList = { Path.Combine(dir, "sf-mod-check.dll") } };
         foreach (var a in args) psi.ArgumentList.Add(a);
         psi.Environment["SFMODCHECK_CACHE_DIR"] = Path.Combine(TestSetup.RunDir, "exe-cache");   // never the user's real caches
         psi.RedirectStandardOutput = psi.RedirectStandardError = true;
@@ -29,7 +29,7 @@ public class ExeTests
         using var p = Process.Start(psi)!;
         var stdout = p.StandardOutput.ReadToEndAsync();
         var stderr = p.StandardError.ReadToEndAsync();
-        Assert.True(p.WaitForExit(120_000), "sfmodcheck didn't finish in 2 minutes");
+        Assert.True(p.WaitForExit(120_000), "sf-mod-check didn't finish in 2 minutes");
         return (p.ExitCode, stdout.Result, stderr.Result);
     }
 
@@ -72,7 +72,7 @@ public class ExeTests
         Assert.True(m.Success, "no <Version> in sfmodcheck.csproj");
         var (code, output) = Run("--version");
         Assert.Equal(0, code);
-        Assert.StartsWith($"sfmodcheck {m.Groups[1].Value} by ", output);
+        Assert.StartsWith($"sf-mod-check {m.Groups[1].Value} by ", output);
         Assert.DoesNotContain("+", Lines(output)[0]);
     }
 
@@ -116,7 +116,7 @@ public class ExeTests
         var (code, output) = Run("check", Solo(s), "--bogus");
         Assert.Equal(2, code);
         Assert.Contains("unknown option --bogus", output);
-        Assert.Contains("usage: sfmodcheck check <plugin>", output);
+        Assert.Contains("usage: sf-mod-check check <plugin>", output);
     }
 
     // ---- 0.4.0 step 6: the troubleshooting log (--verbose, --log) and errors that name the fix ----
@@ -167,7 +167,7 @@ public class ExeTests
         static List<string> NoTiming(string o) => Lines(o).Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"; [0-9.]+ s\)$", ")")).ToList();
         Assert.Equal(NoTiming(plain), NoTiming(stdout));
         Assert.DoesNotContain("log: ", plainErr);
-        Assert.Contains("log: sfmodcheck ", stderr);
+        Assert.Contains("log: sf-mod-check ", stderr);
         Assert.Contains("log: findings: 2 ERROR [links]", stderr);
         Assert.Contains("log: result: FAILED, 2 errors, 0 warnings, exit code 1", stderr);
     }

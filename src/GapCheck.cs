@@ -94,7 +94,7 @@ public static class GapCheck
     {
         if (a.Length == 0 || a[0].StartsWith('-'))
         {
-            Console.Error.WriteLine("usage: sfmodcheck --gap-check <plugin> [--data <Data folder>] [--masters-dir <dir>] [--quiet]");
+            Console.Error.WriteLine("usage: sf-mod-check --gap-check <plugin> [--data <Data folder>] [--masters-dir <dir>] [--quiet]");
             return 2;
         }
         string data = SfModCheck.Cli.SteamData;

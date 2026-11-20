@@ -50,7 +50,7 @@ public static class ReleaseNeeds
         }
         var scripts = Scripts(c, plugins, findings);
         if (c.Options.DmmDeps is { } exe) DmmDeps(c, exe, scripts, findings);
-        else findings.Add(new(Level.Note, "dmmdeps", "DMMDeps wasn't given (--dmmdeps), so only sfmodcheck's own check of the files the " +
+        else findings.Add(new(Level.Note, "dmmdeps", "DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the " +
                                                      "plugins need ran: attached scripts and model paths. Textures, materials and voice files were not checked."));
         PluginCheck(c, plugins, findings);
         return findings;
@@ -596,14 +596,14 @@ public static class ReleaseNeeds
             {
                 Log.Write($"plugin-check: {name}: stopped: {e}");
                 findings.Add(new(Level.Problem, "plugin-check", $"{name}: could not check it ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)}); " +
-                                                               $"run sfmodcheck check on it with --log for details"));
+                                                               $"run sf-mod-check check on it with --log for details"));
                 continue;
             }
             foreach (var g in r.Findings.GroupBy(f => (f.Severity, f.Check)).OrderBy(g => g.Key.Severity == "ERROR" ? 0 : 1))
             {
                 var level = g.Key.Severity == "ERROR" ? Level.Problem : Level.Warning;
                 foreach (var f in g.Take(MaxPerCheck)) findings.Add(new(level, "plugin-check", $"{name}: [{f.Check}] {f.Text}"));
-                if (g.Count() > MaxPerCheck) findings.Add(new(level, "plugin-check", $"{name}: [{g.Key.Check}] ... and {g.Count() - MaxPerCheck} more (sfmodcheck check {name} lists them all)"));
+                if (g.Count() > MaxPerCheck) findings.Add(new(level, "plugin-check", $"{name}: [{g.Key.Check}] ... and {g.Count() - MaxPerCheck} more (sf-mod-check check {name} lists them all)"));
             }
             var note = r.CannotCheckLinks ? "; links not checked" : "";
             if (r.ScenesNotChecked > 0) note += $"; {r.ScenesNotChecked} official scene{(r.ScenesNotChecked == 1 ? "" : "s")} not checked ({r.ScenesNotCheckedWhy})";

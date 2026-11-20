@@ -54,7 +54,7 @@ public static class LearnedCache
         }
         else Log.Write($"scene-quirks: no cache for these masters ({file}), so the list is learned now");
 
-        Console.Error.WriteLine($"sfmodcheck: learning the official scene quirks from {masters.Count} masters in {full} (once; cached in {SceneDir})");
+        Console.Error.WriteLine($"sf-mod-check: learning the official scene quirks from {masters.Count} masters in {full} (once; cached in {SceneDir})");
         var learned = Rules.LearnSceneQuirkLines(full);
         var text = new List<string>(Rules.SceneQuirkHeader) { $"# Learned from {full} on {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC." };
         text.AddRange(key);

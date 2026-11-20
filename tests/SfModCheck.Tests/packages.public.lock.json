@@ -268,6 +268,11 @@
         "resolved": "9.4.2",
         "contentHash": "yrjimngdXs7evlk/ZFbzP0uppTf0Og+LFFonITgpzZ94HmVOi8b+29YFfYdWTbf68qUzGP0D4s0VsMhaGerg5g=="
       },
+      "SharpCompress": {
+        "type": "Transitive",
+        "resolved": "0.50.7",
+        "contentHash": "amxjOlPKUFb33ohAVahPCCBHLtToYOOb6JGyM40q8DnT6KYoBLW1TtW6uLEXbv40S7ej6ikf6VmAXGBaFL6Klg=="
+      },
       "SharpZipLib": {
         "type": "Transitive",
         "resolved": "1.4.2",
@@ -427,9 +432,10 @@
           "xunit.extensibility.core": "[2.9.2]"
         }
       },
-      "sfmodcheck": {
+      "sf-mod-check": {
         "type": "Project",
         "dependencies": {
+          "SharpCompress": "[0.50.7, 0.50.7]",
           "Taosecurity.Starfield.BuildKit": "[0.3.1, 0.3.1]"
         }
       }

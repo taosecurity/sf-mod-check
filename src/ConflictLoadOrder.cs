@@ -144,7 +144,7 @@ public class LoadOrderSetup
             try { masters = ModHeaderMasters(path); }
             catch (Exception e) when (Fatal.Recoverable(e))   // unreadable, or a damaged header (sizes past the end): skip it, not the run (0.5.0)
             {
-                setup.AddProblem($"{name}: cannot be read ({e.GetType().Name}), plugin skipped; run sfmodcheck check on it for details");
+                setup.AddProblem($"{name}: cannot be read ({e.GetType().Name}), plugin skipped; run sf-mod-check check on it for details");
                 skipped.Add(name);
                 return false;
             }
@@ -171,7 +171,7 @@ public class LoadOrderSetup
             }
             catch (Exception e) when (Fatal.Recoverable(e))   // a damaged plugin is skipped, not the whole run (0.5.0)
             {
-                setup.AddProblem($"{name}: cannot be opened ({e.GetType().Name}: {e.Message.Split('\n')[0]}), plugin skipped; run sfmodcheck check on it for details");
+                setup.AddProblem($"{name}: cannot be opened ({e.GetType().Name}: {e.Message.Split('\n')[0]}), plugin skipped; run sf-mod-check check on it for details");
                 skipped.Add(name);
                 return false;
             }

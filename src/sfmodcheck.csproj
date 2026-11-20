@@ -11,8 +11,8 @@
          packages.public.win-x64.lock.json     nuget.org package, stand-alone exe (dotnet publish -r win-x64)
        Builds:
          dotnet build src -c Release                                         the exe in bin\Release\net9.0
-         dotnet pack src -c Release -p:SfModCheckPack=true -o out            the dotnet tool package (sfmodcheck.<v>.nupkg)
-         dotnet publish src -c Release -r win-x64 -p:SfModCheckStandalone=true -o out\exe   one sfmodcheck.exe, no .NET needed -->
+         dotnet pack src -c Release -p:SfModCheckPack=true -o out            the dotnet tool package (sf-mod-check.<v>.nupkg)
+         dotnet publish src -c Release -r win-x64 -p:SfModCheckStandalone=true -o out\exe   one sf-mod-check.exe, no .NET needed -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
@@ -20,11 +20,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SfModCheck</RootNamespace>
-    <AssemblyName>sfmodcheck</AssemblyName>
-    <Version>0.7.0</Version>
+    <AssemblyName>sf-mod-check</AssemblyName>
+    <Version>0.8.0</Version>
     <!-- Shown in the exe's file properties (Details tab); attribution added 2026-11-11. -->
-    <Product>sfmodcheck</Product>
-    <AssemblyTitle>sfmodcheck: read-only checks of Starfield plugins</AssemblyTitle>
+    <Product>sf-mod-check</Product>
+    <AssemblyTitle>sf-mod-check: read-only checks of Starfield mods</AssemblyTitle>
     <Company>Richard Bejtlich</Company>
     <Copyright>Copyright (C) 2026 Richard Bejtlich. GPL-3.0.</Copyright>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
@@ -41,19 +41,19 @@
     <NuGetLockFilePath Condition="'$(RuntimeIdentifier)' != ''">packages.public.$(RuntimeIdentifier).lock.json</NuGetLockFilePath>
   </PropertyGroup>
 
-  <!-- The dotnet tool package (dotnet tool install -g sfmodcheck - -add-source <folder>), only when packing. -->
+  <!-- The dotnet tool package (dotnet tool install -g sf-mod-check - -add-source <folder>), only when packing. -->
   <PropertyGroup Condition="'$(SfModCheckPack)' == 'true'">
     <PackAsTool>true</PackAsTool>
-    <ToolCommandName>sfmodcheck</ToolCommandName>
+    <ToolCommandName>sf-mod-check</ToolCommandName>
     <!-- run on .NET 10 and later too, when .NET 9 isn't installed -->
     <RollForward>Major</RollForward>
-    <PackageId>sfmodcheck</PackageId>
+    <PackageId>sf-mod-check</PackageId>
     <Authors>Richard Bejtlich</Authors>
-    <Description>Read-only checks of Starfield plugins (.esm): structure, header, FormIDs, links, conditions, dialogue, scenes, navmesh links, EditorIDs, deleted and identical-to-master records.</Description>
+    <Description>Read-only, offline checks of Starfield mods: plugin checks (structure, FormIDs, links, conditions, scenes, deleted and identical-to-master records), whole load-order conflicts, release-zip checks, and triage: a first-pass report on a downloaded mod. Formerly sfmodcheck.</Description>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/taosecurity/sfmodcheck</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/taosecurity/sfmodcheck</RepositoryUrl>
-    <PackageTags>starfield;mods;plugins;esm;mutagen;xedit;creation-kit</PackageTags>
+    <PackageProjectUrl>https://github.com/taosecurity/sf-mod-check</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/taosecurity/sf-mod-check</RepositoryUrl>
+    <PackageTags>starfield;mods;plugins;esm;mutagen;xedit;creation-kit;triage;sfse</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup Condition="'$(SfModCheckPack)' == 'true'">
@@ -82,6 +82,11 @@
   <!-- Tests only: lets the test project reach internal test hooks such as Assets.AfterIndex. -->
   <ItemGroup>
     <InternalsVisibleTo Include="SfModCheck.Tests" />
+  </ItemGroup>
+
+  <!-- triage reads .7z and .rar downloads (0.8.0). SharpCompress is MIT; exact pin, 0.50.7 released 2026-10-20. -->
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="[0.50.7]" />
   </ItemGroup>
 
   <!-- Mutagen.Bethesda.Starfield 0.54.4 comes through BuildKit (exact pin, never the local taosecurity package). -->

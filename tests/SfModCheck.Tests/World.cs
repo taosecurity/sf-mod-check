@@ -64,7 +64,7 @@ public sealed class World : Sandbox
     /// <summary>Builds the clean test plugin, applies one fault, writes it as &lt;file&gt;.esm in the test folder.</summary>
     public string Build(string file, Action<StarfieldMod>? breakIt = null)
     {
-        var mod = Plugin.New(PluginName, PluginStyle.Light, "test", "sfmodcheck test plugin");
+        var mod = Plugin.New(PluginName, PluginStyle.Light, "test", "sf-mod-check test plugin");
         var kw = mod.Keywords.AddNew("SFM_Keyword");
         var misc = mod.MiscItems.AddNew("SFM_Misc");
         misc.Keywords = [kw.ToLink<IKeywordGetter>(), FullKw.ToLink<IKeywordGetter>()];

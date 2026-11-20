@@ -594,7 +594,7 @@ public static class Checker
         }
         using var w = new StreamWriter(outPath, false, new System.Text.UTF8Encoding(false)) { NewLine = "\n" };
         w.WriteLine("# For each Mutagen link type (getter interface name): a record type its links point to in the official masters, and how often.");
-        w.WriteLine($"# Made by sfmodcheck --learn-link-types (Mutagen 0.54.4) from {string.Join(", ", files)}.");
+        w.WriteLine($"# Made by sf-mod-check --learn-link-types (Mutagen 0.54.4) from {string.Join(", ", files)}.");
         w.WriteLine($"# {links} links, {unresolved} pointing nowhere, {failed} records Mutagen couldn't read.");
         foreach (var ((type, sig), n) in counts.OrderBy(k => k.Key.Item1).ThenBy(k => k.Key.Item2))
             w.WriteLine($"{type} {sig} {n}");

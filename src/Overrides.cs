@@ -36,7 +36,8 @@ public static class Overrides
         IEnumerable<IMajorRecordGetter> overrides, ILinkCache masters)
     {
         var itms = new List<IMajorRecordGetter>();
-        int failed = 0;
+        int failed = 0, noMaster = 0, otherType = 0, flagsDiffer = 0, compared = 0, parents = 0;
+        ModKey? modKey = (plugin as IModGetter)?.ModKey;   // a cell of the plugin's own is new: no master version expected
         bool timing = Environment.GetEnvironmentVariable("SFMODCHECK_TIMING") == "1";
         var tResolve = new System.Diagnostics.Stopwatch();
         var perType = new Dictionary<string, (double Resolve, double Compare)>();
@@ -71,20 +72,30 @@ public static class Overrides
                 // cells, a quest or topic with dialogue) has to be there for its children, even when it changed nothing
                 // itself; xEdit's "Remove ITM" keeps those too. (Sweep 2026-11-09: TrackersAllianceFixes, ZeeOgre,
                 // the Paradiso conflict patch.)
-                if (rec is IMajorRecordGetterEnumerable holder && holder.EnumerateMajorRecords().Any(c => c.FormKey != rec.FormKey)) continue;
+                if (rec is IMajorRecordGetterEnumerable holder && holder.EnumerateMajorRecords().Any(c => c.FormKey != rec.FormKey)) { parents++; continue; }
                 var started = tResolve.Elapsed;
                 tResolve.Start();
                 IMajorRecordGetter? orig;
-                if (parentCell.TryGetValue(rec.FormKey, out var ck)) orig = InCells(ck, rec.FormKey);
-                else orig = masters.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
+                bool viaCell = parentCell.TryGetValue(rec.FormKey, out var ck);
+                orig = viaCell ? InCells(ck, rec.FormKey) : null;
+                // Not in its cell's master versions: ask the link cache directly (slow, but never a silent miss). With
+                // the .NET heap capped at 1 GB, ResolveAll on NAPGR 0.1.6's cells came back empty for 269 children, which
+                // all then counted as "not identical" with no warning (found in 0.8.0 triage work, 2026-11-19).
+                if (orig == null) orig = masters.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
+                // Still nothing, and the cell itself came back with no master version at all although the plugin's cell
+                // is an override of one: the lookup failed, so this record couldn't be compared (a WARNING, not a silent
+                // "different"). A child missing from a cell that was found is an injected record: the links rule's job.
+                if (orig == null && viaCell && cellChildren.TryGetValue(ck, out var vs) && vs.Count == 0 && ck.ModKey != modKey)
+                { tResolve.Stop(); failed++; continue; }
                 tResolve.Stop();
                 var resolveSecs = (tResolve.Elapsed - started).TotalSeconds;
                 bool same = false;
                 var cmp = System.Diagnostics.Stopwatch.StartNew();
                 // not found, or another type: the links rule reports injected and type-changing overrides
-                if (orig != null && orig.GetType() == rec.GetType()
-                    && (rec.MajorRecordFlagsRaw & ~CompressedFlag) == (orig.MajorRecordFlagsRaw & ~CompressedFlag))
-                    same = SameFields(rec, orig, 0);
+                if (orig == null) noMaster++;
+                else if (orig.GetType() != rec.GetType()) otherType++;
+                else if ((rec.MajorRecordFlagsRaw & ~CompressedFlag) != (orig.MajorRecordFlagsRaw & ~CompressedFlag)) flagsDiffer++;
+                else { compared++; same = SameFields(rec, orig, 0); }
                 if (same) itms.Add(rec);
                 if (timing)
                 {
@@ -95,6 +106,8 @@ public static class Overrides
             }
             catch (Exception e) when (Fatal.Recoverable(e)) { tResolve.Stop(); failed++; }
         }
+        Log.Write($"itm: {parents} parents kept, {noMaster} with no master version found, {otherType} of another type, " +
+                  $"{flagsDiffer} with other flags, {compared} compared field by field, {itms.Count} identical, {failed} couldn't be compared");
         if (timing)
             Console.Error.WriteLine("itm: " + string.Join(", ", perType.OrderByDescending(k => k.Value.Resolve + k.Value.Compare)
                 .Select(k => $"{k.Key} {k.Value.Resolve:F2}+{k.Value.Compare:F2} s")));

@@ -34,7 +34,7 @@ public static class Log
             var ext = Path.GetExtension(full).ToLowerInvariant();
             if (ext is ".esm" or ".esp" or ".esl" or ".ba2" || LooksLikePlugin(full))
                 return $"won't write the log to {full}: that is a plugin or archive, and the log would overwrite it. " +
-                       "Give --log a .txt file, for example --log sfmodcheck-log.txt";
+                       "Give --log a .txt file, for example --log sf-mod-check-log.txt";
             file = new StreamWriter(full, append: false, new UTF8Encoding(false)) { AutoFlush = true };
             filePath = full;
             return null;

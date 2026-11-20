@@ -1,19 +1,26 @@
-# sfmodcheck
+# sf-mod-check
 
-**Find out whether your Starfield mod's plugin is broken before you play it or release it.** sfmodcheck reads a
+**Find out whether your Starfield mod's plugin is broken before you play it or release it.** sf-mod-check reads a
 plugin (`.esm`) and reports problems that would break it in the game: damaged files, bad headers, FormIDs outside the
 plugin's range, links to records that don't exist, broken conditions, scenes and navmesh links, repeated EditorIDs,
 deleted records and "identical to master" records. After each kind of problem it says how to fix it in xEdit or the
 Creation Kit. It only reads files: it never changes a plugin. A typical mod takes about 4 seconds. A second command,
-[`conflict`](#conflicts-between-mods-sfmodcheck-conflict), reads your whole load order and reports which changes it
+[`conflict`](#conflicts-between-mods-sf-mod-check-conflict), reads your whole load order and reports which changes it
 throws away (official changes undone by mods, one mod's changes lost to another) and what to do about each. A third,
-[`release`](#check-a-release-zip-sfmodcheck-release), checks the zip you are about to upload: plugin names the game
-drops, missing scripts and files, sounds packed so they play silent, and every plugin inside.
+[`release`](#check-a-release-zip-sf-mod-check-release), checks the zip you are about to upload: plugin names the game
+drops, missing scripts and files, sounds packed so they play silent, and every plugin inside. A fourth,
+[`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage), looks over someone else's mod before you install or
+rebuild it: its files, what it replaces in the game, its plugins, scripts and DLLs, in one offline report. It is
+triage, not a verdict: it shows a person where to start reading.
 
-**First command:** download the exe zip from [Releases](https://github.com/taosecurity/sfmodcheck/releases), unzip it,
-and drag `MyMod.esm` onto `sfmodcheck.exe`. Or, from a prompt:
+**Renamed:** this tool was called **sfmodcheck** until 0.7.0. The command is now `sf-mod-check`; the exe zip still
+holds a `sfmodcheck.cmd` that runs it under the old name for one more release. Your caches and the `SFMODCHECK_*`
+environment variables keep working.
 
-    sfmodcheck check MyMod.esm
+**First command:** download the exe zip from [Releases](https://github.com/taosecurity/sf-mod-check/releases), unzip it,
+and drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
+
+    sf-mod-check check MyMod.esm
 
 For AI assistants: step-by-step install and use instructions are in [AGENTS.md](AGENTS.md).
 
@@ -21,36 +28,37 @@ It does the same kind of job as part of xEdit's "Check for Errors", but from the
 script or a release checklist, and it gives each problem one line that says what is wrong and where. It is built on
 [Mutagen](https://github.com/Mutagen-Modding/Mutagen) 0.54.4.
 
-Version 0.7.0 (adds the [`release`](#check-a-release-zip-sfmodcheck-release) command: one OK or FAIL for the zip you
+Version 0.8.0 (adds the [`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage) command and the new name
+sf-mod-check; 0.7.0 added the [`release`](#check-a-release-zip-sf-mod-check-release) command: one OK or FAIL for the zip you
 are about to upload; 0.6.0 added the `assets` check: scripts and models a plugin names but that aren't loose or in an archive
 the game loads, in `check` and `conflict`; 0.5.3 fixed issues from the 0.5.2 reviews: a report that fails part way never leaves old and new files mixed, and
 `check` gives an armor record on an armor addon's FormID a WARNING; 0.5.2 reports overrides that change a record's type,
 and running out of memory always stops a run instead of leaving a report that looks whole; 0.5.1 carried on past records it can't read; 0.5.0 added the `conflict`
 command for whole load orders; 0.4.0 was the first public release). It has been used on its author's own mods since 2026-11-07; reports from other
-mods are welcome (see [Issues](https://github.com/taosecurity/sfmodcheck/issues)).
+mods are welcome (see [Issues](https://github.com/taosecurity/sf-mod-check/issues)).
 
 ## Quick start (Creation Kit and xEdit authors)
 
-1. Download `sfmodcheck-<version>-win-x64.zip` from the [Releases](https://github.com/taosecurity/sfmodcheck/releases)
-   page and unzip it anywhere. It holds one `sfmodcheck.exe` with .NET built in, so nothing else needs installing.
-2. Drag your plugin (`MyMod.esm`) onto `sfmodcheck.exe`. A window opens, prints the result and stays open until you
+1. Download `sf-mod-check-<version>-win-x64.zip` from the [Releases](https://github.com/taosecurity/sf-mod-check/releases)
+   page and unzip it anywhere. It holds one `sf-mod-check.exe` with .NET built in, so nothing else needs installing.
+2. Drag your plugin (`MyMod.esm`) onto `sf-mod-check.exe`. A window opens, prints the result and stays open until you
    press Enter.
 3. Read the lines that start with ERROR (the mod is broken) and WARNING (probably a mistake). After each kind of
    problem, a HINT line says how to fix it in xEdit or the Creation Kit. The last line says OK or FAILED.
 
-sfmodcheck looks for the game's masters (Starfield.esm and the others) in Steam's usual Data folder,
+sf-mod-check looks for the game's masters (Starfield.esm and the others) in Steam's usual Data folder,
 `C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data`. If your game is somewhere else (Game Pass, a Steam
-library on another drive), either drop a plugin that sits in the game's own Data folder (sfmodcheck then uses that
+library on another drive), either drop a plugin that sits in the game's own Data folder (sf-mod-check then uses that
 folder and says so), or run it from a command prompt with `--data`:
 
-    sfmodcheck.exe check MyMod.esm --data "D:\XboxGames\Starfield\Content\Data"
+    sf-mod-check.exe check MyMod.esm --data "D:\XboxGames\Starfield\Content\Data"
 
 Masters that aren't in the Data folder are also looked for in the plugin's own folder. See
 [Where your game's Data folder is](#where-your-games-data-folder-is) for Game Pass, Vortex and Mod Organizer 2.
 
 ## Where your game's Data folder is
 
-sfmodcheck needs the game's masters (Starfield.esm, the DLC and Creations masters your plugin lists). It reads them
+sf-mod-check needs the game's masters (Starfield.esm, the DLC and Creations masters your plugin lists). It reads them
 from the game's Data folder and from the folders given with `--masters-dir`, and never changes them.
 
 - **Steam:** `C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data` is the default, so nothing is needed. A
@@ -64,9 +72,9 @@ from the game's Data folder and from the folders given with `--masters-dir`, and
   alone. Give the plugin's path inside `mods\`, `--data` the game's real Data folder, and `--masters-dir` the folder of
   any mod whose plugin is one of your masters (once per folder):
 
-      sfmodcheck check "C:\Modding\MO2\mods\MyMod\MyMod.esm" --data "C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data" --masters-dir "C:\Modding\MO2\mods\MainMod"
+      sf-mod-check check "C:\Modding\MO2\mods\MyMod\MyMod.esm" --data "C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data" --masters-dir "C:\Modding\MO2\mods\MainMod"
 
-  (Programs started from MO2's own Run menu see the mods through its virtual Data folder, so adding sfmodcheck there
+  (Programs started from MO2's own Run menu see the mods through its virtual Data folder, so adding sf-mod-check there
   as an executable with the arguments `check <plugin>` should also work; we haven't tried it.)
 
 Without `--data`, when Steam's folder has no Starfield.esm, a plugin that sits in a folder holding Starfield.esm uses
@@ -75,24 +83,25 @@ that folder (the output says so). When a plugin needs Starfield.esm and none is 
 
 ## Install
 
-Two ways, both from the [Releases](https://github.com/taosecurity/sfmodcheck/releases) page. Each file there has a
+Two ways, both from the [Releases](https://github.com/taosecurity/sf-mod-check/releases) page. Each file there has a
 `.sha256` file next to it with its SHA-256 checksum.
 
-- **Stand-alone exe** (Windows, no .NET needed): `sfmodcheck-<version>-win-x64.zip`. Unzip it and run `sfmodcheck.exe`,
+- **Stand-alone exe** (Windows, no .NET needed): `sf-mod-check-<version>-win-x64.zip`. Unzip it and run `sf-mod-check.exe`,
   or drop plugins on it.
 - **dotnet tool** (Windows or Linux, needs the [.NET SDK](https://dotnet.microsoft.com/download) 9 or later):
-  download `sfmodcheck.<version>.nupkg` into a folder, then
+  download `sf-mod-check.<version>.nupkg` into a folder, then
 
-      dotnet tool install --global sfmodcheck --add-source <that folder> --version <version>
+      dotnet tool install --global sf-mod-check --add-source <that folder> --version <version>
 
-  After that, `sfmodcheck` works from any prompt. `dotnet tool update --global sfmodcheck --add-source <folder>`
-  installs a newer one, and `dotnet tool uninstall --global sfmodcheck` removes it.
+  After that, `sf-mod-check` works from any prompt. `dotnet tool update --global sf-mod-check --add-source <folder>`
+  installs a newer one, and `dotnet tool uninstall --global sf-mod-check` removes it. Coming from sfmodcheck 0.7.0 or
+  older: the package has a new name, so remove the old one first with `dotnet tool uninstall --global sfmodcheck`.
 
 ## Run it
 
-    sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]
+    sf-mod-check check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]
                               [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]
-    sfmodcheck --version
+    sf-mod-check --version
 
 - `--data`: the game's Data folder (default: Steam's usual one, see above).
 - `--masters-dir`: a folder searched for masters before the Data folder; can be given more than once. Use it so an
@@ -111,7 +120,7 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sfmodcheck/rel
 - `--verbose`: print the troubleshooting log on stderr (lines start with `log: `). See below.
 - `--log <file>`: write the troubleshooting log to that file. See below.
 
-`sfmodcheck <plugin>` without the word `check` does the same.
+`sf-mod-check <plugin>` without the word `check` does the same.
 
 A wrong argument (a missing value, `--max` with something that isn't a number, a plugin or Data folder that doesn't
 exist, a log file it can't write) stops with exit code 2 and a message that names the file or option and what to do.
@@ -120,27 +129,27 @@ exist, a log file it can't write) stops with exit code 2 and a message that name
 
 When something goes wrong, or a result looks odd, run the same check again with a log:
 
-    sfmodcheck check MyMod.esm --log sfmodcheck-log.txt
+    sf-mod-check check MyMod.esm --log sf-mod-check-log.txt
 
 The log goes only where you ask: `--log <file>` writes it to that file (a new file each run, in the current folder
 unless you give a full path), and `--verbose` prints the same lines on stderr instead. Nothing is logged without one
 of them. The findings and the RESULT line are the same with or without the log.
 
-What it records, with the time of each line: the sfmodcheck, Windows (or Linux) and .NET versions; the arguments; the
+What it records, with the time of each line: the sf-mod-check, Windows (or Linux) and .NET versions; the arguments; the
 plugin's path, size and date and its header (light, medium or full; its masters); which Data folder was used and why
 (`--data`, Steam's usual folder, or the plugin's own folder); for each master, where it was found (or every place
 looked when it wasn't); each cache read, rebuilt or not writable, with its path; how long each stage took; the number
-of findings per check; and, when sfmodcheck itself fails, the full error with its stack trace.
+of findings per check; and, when sf-mod-check itself fails, the full error with its stack trace.
 
 The log names folders on your PC (your user name may be in them). Read it before you attach it to an
-[issue](https://github.com/taosecurity/sfmodcheck/issues).
+[issue](https://github.com/taosecurity/sf-mod-check/issues).
 
 For a dropped plugin (drag and drop), open a command prompt in the exe's folder and run the command above with the
 plugin's full path.
 
 ### What the output looks like
 
-    sfmodcheck 0.6.0 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
+    sf-mod-check 0.6.0 check: MyMod.esm (light master, 1 masters, 18 records, 2 overrides (1 ITM), 44 links)
     ERROR [links] MyMod_Misc [MISC:000801:MyMod.esm] links to 000FF0:MyMod.esm, which doesn't exist (expects Keyword)
     HINT [links] A field points at a record that doesn't exist, ...
     WARNING [itm] SomeKeyword [KYWD:0A1B2C:Starfield.esm] is identical to the master version it overrides (ITM)
@@ -168,7 +177,7 @@ finish.
 Scripts should read the exit code and the lines that start with `ERROR `, `WARNING ` and `RESULT: `. Other lines
 (the summary, HINT lines, notes on stderr) may change between versions.
 
-## Conflicts between mods: `sfmodcheck conflict`
+## Conflicts between mods: `sf-mod-check conflict`
 
 `check` looks at one plugin. `conflict` reads your whole load order and tells you which changes it throws away:
 
@@ -192,11 +201,11 @@ follow by hand in xEdit. It only reads plugins: it never changes one, and it nev
 
 **First command** (Steam, with the game's own load order):
 
-    sfmodcheck conflict
+    sf-mod-check conflict
 
-Then open `sfmodcheck-conflict\report.html` in a browser.
+Then open `sf-mod-check-conflict\report.html` in a browser.
 
-    sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
+    sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
                         [--max-memory <GB>] [--no-assets] [--ini <file>]... [--language <code>]
                         [--quiet] [--verbose] [--log <file>]
 
@@ -208,7 +217,7 @@ Then open `sfmodcheck-conflict\report.html` in a browser.
   `--data "C:\XboxGames\Starfield\Content\Data"`).
 - `--extra-data`: a second folder of plugins, read before the Data folder (its files win), for example a patch you
   have built but not installed yet. The load order still comes from `--plugins`, so add the patch's line there too.
-- `--out`: the report folder (default `sfmodcheck-conflict` in the current folder). It gets `report.html` (the one to
+- `--out`: the report folder (default `sf-mod-check-conflict` in the current folder). It gets `report.html` (the one to
   read: summary, recommended actions, each conflict with its story, a filter box, light and dark themes), `report.md`
   (the same as Markdown) and `conflicts.json` (everything, for scripts).
 - `--max-memory`: stop cleanly when memory passes this many GB (exit code 3, no report), instead of slowing the PC.
@@ -248,7 +257,7 @@ Then open `sfmodcheck-conflict\report.html` in a browser.
   and the result.
 
 **Mod Organizer 2:** MO2 keeps each mod in its own folder, so the game's Data folder doesn't hold your mods' plugins.
-Add sfmodcheck to MO2 as an executable (arguments `conflict --plugins "<MO2>\profiles\<profile>\plugins.txt" --out
+Add sf-mod-check to MO2 as an executable (arguments `conflict --plugins "<MO2>\profiles\<profile>\plugins.txt" --out
 "<a folder outside MO2>"`) and start it from MO2, so it sees the mods through MO2's virtual Data folder. We haven't
 tried this yet.
 
@@ -262,17 +271,17 @@ reading or comparing, which plugin and record it was on; no report is written); 
 (`RESULT: STOPPED`). The last line on stdout is
 always the RESULT line, for example:
 
-    RESULT: OK, 29 lost-change entries (19 official, 10 mod vs mod), 103 ITMs, 0 load-order problems (report: ...\sfmodcheck-conflict\report.html; 122 s)
+    RESULT: OK, 29 lost-change entries (19 official, 10 mod vs mod), 103 ITMs, 0 load-order problems (report: ...\sf-mod-check-conflict\report.html; 122 s)
 
 Before the summary line, stdout can also hold stack traces such as `System.ArgumentException: Unexpected header
-type: PAQO`. Mutagen (the plugin library) prints these itself when it can't fully read a scene's actions; sfmodcheck
+type: PAQO`. Mutagen (the plugin library) prints these itself when it can't fully read a scene's actions; sf-mod-check
 doesn't count or report them yet. A script should read only the exit code and the RESULT line.
 
 **Plugins and records it can't read:** a plugin that can't be opened at all is skipped and listed as a load-order
 problem. A record that Mutagen 0.54.4 can't read (a field written by a newer Creation Kit, or a damaged one) skips only
 that plugin's group of records of that type: the rest of the load order is still checked, and the report's "Tool
 limits hit" section lists the plugin, the record type and, where Mutagen names it, the record, once each. The RESULT
-line then adds "read problems (records not compared ...)". Run `sfmodcheck check` on that plugin to see the record.
+line then adds "read problems (records not compared ...)". Run `sf-mod-check check` on that plugin to see the record.
 Running out of memory is never skipped that way: the run stops with `CANNOT CHECK` and writes no report.
 
 **What it doesn't check:** the scripts' code and assets other than attached scripts and model paths (textures,
@@ -281,16 +290,16 @@ that are bookkeeping or that the Creation Kit regenerates are skipped (the repor
 for your own game: it holds other authors' data, so don't publish it. To see its working for one record, set the
 environment variable `SFMODCHECK_DEBUG_RECORD` to that record's FormKey (for example `064F3C:Starfield.esm`).
 
-## Check a release zip: `sfmodcheck release`
+## Check a release zip: `sf-mod-check release`
 
 Run it on the zip you are about to upload to Nexus, Bethesda Creations or a friend. It unpacks the zip into a temp
 folder (always removed afterwards) and says OK or FAIL for what would break the mod for a player: a plugin name the
 game drops, a script or file the mod needs that isn't in the zip, sound files packed so the game plays them silent,
 and everything `check` finds in each plugin.
 
-    sfmodcheck release MyMod-1.0.0.zip
+    sf-mod-check release MyMod-1.0.0.zip
 
-    sfmodcheck release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]...
+    sf-mod-check release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]...
                                 [--dmmdeps <exe>] [--papyrus <exe> --ck-sources <ContentResources.zip>]
                                 [--profile basic|house] [--quiet] [--verbose] [--log <file>]
 
@@ -301,7 +310,7 @@ and everything `check` finds in each plugin.
 - `--master-archive <ba2>`: the archive of the mod your plugin patches. Scripts and models in it count as present
   (a patch that overrides another mod's records keeps that mod's fragment scripts there). Can be given more than once.
 - `--dmmdeps <exe>`: also run DMMDeps (`dmmdeps-fat.exe`, from ZeeOgre's DevModManager) to find files the plugin uses
-  that the zip lacks. sfmodcheck runs only the reviewed v0.4.1 build and refuses any other, by its SHA-256
+  that the zip lacks. sf-mod-check runs only the reviewed v0.4.1 build and refuses any other, by its SHA-256
   (`8a5367865ef21e29b17301a3341b2195fdacbf163c151678c0c420747ff9e6f8`). DMMDeps has gaps (its issues #175 to #177:
   base scripts, face files, some models), so what it can't see is a REVIEW line and never "not needed". Without it,
   one NOTE says that only the scripts and models were checked. DMMDeps runs on a copy in the temp folder and takes a
@@ -331,6 +340,49 @@ zip, the game folder or the Data folder.
 | `master`, `one-plugin`, `script-source`, `root-md`, `private-file` | house only | A `BlueprintShips` master; more than one plugin in a zip; `.psc` sources in the zip; a root `.md` such as `README.md` with no mod name in it (it overwrites another mod's copy in Data; use `README-<ModName>.md`); a file such as `PERMISSION.md` that should never ship. |
 | `papyrus-lint` | never | Lint findings (WARNING only). |
 
+## Look over a downloaded mod: `sf-mod-check triage`
+
+Run it on a mod you downloaded, before you install it or build on it. It writes one report that lists what the mod
+holds and what is worth a person's look, offline, without running anything from the mod.
+
+    sf-mod-check triage SomeMod-1.2.zip
+
+    sf-mod-check triage <mod.zip | mod.7z | mod.rar | mod folder | plugin> [--game <folder>] [--out <folder>]
+                        [--manalyze <manalyze.exe>] [--quiet] [--verbose] [--log <file>]
+
+**It is triage, not a verdict.** Every finding is a NOTE (information) or a LOOK (worth a person's look), and each
+names the file and says why. A LOOK is where to start reading, not a fault: a mod that replaces a game script on
+purpose gets one, and so does a DLL that talks to the network. The report never says a mod is safe, unsafe or
+harmful; you decide that after reading.
+
+- `<mod>`: a `.zip`, `.7z` or `.rar` download (unpacked into a temp folder that is always removed; password-protected
+  archives are refused), a mod folder (for example `MO2\mods\SomeMod`, read where it is), or one plugin (with the
+  `<Plugin> - *.ba2` archives beside it).
+- `--game <folder>`: the game's folder, its `Data` folder, or for Game Pass its `Content` folder. Without it, Steam's
+  usual folder is used. With no game found, nothing is compared with the game and the report says so.
+- `--out <folder>`: where the report goes (default: next to the input, or the current folder when the input is
+  inside the game's install).
+- `--manalyze <exe>`: also run [Manalyze](https://github.com/JusticeRage/Manalyze) on each DLL and EXE, with its
+  offline plugins only (never VirusTotal, never anything that fetches from the network), for at most 2 minutes each.
+  Where Manalyze's own text calls a file "malware", the report says "binary" and marks the line as reworded.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`.
+
+It writes `<name>-triage.html` (to read), `<name>-triage.txt` and `<name>-triage.json` (for scripts). On stdout it
+prints the LOOK lines and `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <path>`. Exit codes: 0 report written,
+2 bad input or setup. There is no "fail" exit.
+
+| Section | What it lists | LOOK when |
+|---|---|---|
+| Files | every file with its size and SHA-256; each `.ba2`'s contents; version numbers in names; which archives load with which plugin; archives inside the mod (not opened); FOMOD installers; files outside the usual Data layout | an archive no plugin loads; an archive that can't be read |
+| Replaces vanilla | loose files and archive entries whose path is also in the game's own archives | the mod replaces a game script (every quest and mod that uses it gets the mod's copy); a plugin or archive with the game's own name |
+| Plugins | masters (missing, unused), light/medium/full flag, FormID range, text that isn't valid UTF-8; records added, overridden and deleted by type and origin; changed fields in official records; ONAM; attached scripts; `check`'s own findings | a missing master; ITMs; deleted official records; official changes the mod undoes (it overrides a record a later official master changed, without that master); temporary references missing from ONAM; scripts that aren't there; `check` ERRORs |
+| Scripts | each `.pex` (loose or in an archive) read from its bytecode: name, parent, every function it calls, whether it logs with `Debug.Trace` | console commands; INI changes; calls to scripts in neither the mod nor the game; timers that restart themselves or start from frequent events; `GetFormFromFile` or text naming another mod's plugin; file paths that run or point outside Data |
+| Binaries | each `.dll`/`.exe` read from its bytes: machine, build time, PDB path, ASLR/DEP/CFG, imports grouped by what they allow, exports, SFSE plugin data (game versions, Address Library or signature scanning), signature | network, process-creation and memory-injection imports; URLs and IP addresses in its strings; an SFSE DLL without `SFSEPlugin_Version`; a DLL named like a Windows DLL the game would load instead |
+
+What it can't see: names a DLL looks up while it runs, what a script does with values it computes, records nothing
+uses, and archive entries packed with LZ4 (named in the report). It reads compiled scripts as bytecode only:
+nothing is decompiled. On a large mod it uses memory like `check` does (NAPG-sized mods: about 5 GB).
+
 ## What it checks
 
 Each finding names its check in brackets.
@@ -354,7 +406,7 @@ Each finding names its check in brackets.
 - **dialogue**: a response with Emotion 0, where the official masters use "none" or an emotion keyword (WARNING).
 - **scenes**: the quest aliases a scene uses must exist in its quest. Actors, actions and dialogue targets that name a
   missing alias are ERRORs; alias conditions that do are WARNINGs; a scene with no quest is a WARNING because it can't
-  run. A few dozen official scenes break this rule on purpose. sfmodcheck learns which ones from the official masters
+  run. A few dozen official scenes break this rule on purpose. sf-mod-check learns which ones from the official masters
   in your Data folder the first time it meets an official scene (about 3 seconds, once), and skips them.
 - **navi**: the navmesh traversal entries in the navmesh info map (NAVI) point to navmeshes that exist and aren't
   deleted.
@@ -380,15 +432,15 @@ Each finding names its check in brackets.
 
 ## For Creation Kit and xEdit authors
 
-You don't need a build script: drop a plugin on `sfmodcheck.exe` (see [Quick start](#quick-start-creation-kit-and-xedit-authors)),
-or run `sfmodcheck check MyMod.esm --data <your Data folder>` from a prompt for Game Pass and other installs.
+You don't need a build script: drop a plugin on `sf-mod-check.exe` (see [Quick start](#quick-start-creation-kit-and-xedit-authors)),
+or run `sf-mod-check check MyMod.esm --data <your Data folder>` from a prompt for Game Pass and other installs.
 
-What each check's findings mean and how to fix them. These are the same lines sfmodcheck prints as HINT lines:
+What each check's findings mean and how to fix them. These are the same lines sf-mod-check prints as HINT lines:
 
 - **structure**: The file itself is damaged (or a tool wrote it wrongly). Open it in xEdit: if it loads, save it again from xEdit or the Creation Kit; if it doesn't, rebuild it from your CK project, a backup or your builder.
 - **header**: xEdit: select the File Header record. Missing master: install it, or remove it with Clean Masters (only when nothing uses it). Master order: right-click > Sort Masters. Flags: an .esm needs the ESM (Master) flag, and only one of Light (ESL) or Medium. Next Object ID: edit HEDR > Next Object ID in the File Header so it is above the plugin's highest own FormID.
 - **ids**: Own FormIDs must fit the plugin type (light 000-FFF, medium 0000-FFFF). xEdit: Compact FormIDs for ESL / for Medium, or take the Light or Medium flag off. A master index past the master list is a broken FormID: add the missing master in xEdit, or rebuild the record.
-- **read**: Mutagen (the library sfmodcheck reads plugins with) can't read this record, so the game may not either. Look at the named record in xEdit for errors in red, fields from another game or a wrong field size, then fix the field or make the record again in the CK.
+- **read**: Mutagen (the library sf-mod-check reads plugins with) can't read this record, so the game may not either. Look at the named record in xEdit for errors in red, fields from another game or a wrong field size, then fix the field or make the record again in the CK.
 - **links**: A field points at a record that doesn't exist, is the wrong type or is deleted. xEdit: open the named record; the field shows the FormID, often in red. Point it at an existing record of the right type, or clear it. 'Doesn't exist' often means a master is missing or a master record was removed. CK: re-pick the item in that form's drop-down and save. 'Injected record' means the plugin adds a record in a master's FormID range: fine only if you meant it. 'Overrides ..., which is a <type>' means the plugin's record has the FormID of a master record of another type. The game keeps whichever record loads first and silently drops the other (armor and armor addon records are the exception: they may replace each other); for placed objects in temporary groups, the object may vanish when its cell loads. Usually the plugin meant to add a new record and has a wrong master index or FormID: give the record its own FormID (xEdit: right-click > Change FormID) or remove it.
 - **navi**: The navmesh info map (NAVI) points at a navmesh that doesn't exist, isn't a navmesh or is deleted. CK: load the cell, select its navmesh and Finalize it, then save. If the plugin deletes a navmesh that others link to, restore it instead. xEdit can't safely fix navmesh data by hand.
 - **conditions**: A condition leaves its form parameter empty, where the game's own uses of that function always fill it. CK: open the record's condition list, edit the condition and pick the form (or remove the condition). xEdit: fill in the condition's Parameter #1/#2 field.
@@ -408,10 +460,12 @@ filter.
 - A typical mod takes about 4 seconds and under 1 GB of memory: memory follows the size of the plugin being checked,
   not of its masters.
 - Checking Bethesda's own masters is possible but heavy: Starfield.esm itself (3.8 million records) takes about 4
-  minutes and over 30 GB of memory. sfmodcheck prints a note on stderr before it starts on an official master or any
+  minutes and over 30 GB of memory. sf-mod-check prints a note on stderr before it starts on an official master or any
   plugin with more than 500,000 records.
-- Caches live in `%LOCALAPPDATA%\sfmodcheck\` (on Linux `~/.local/share/sfmodcheck/`): `edid-cache\` (the masters'
-  EditorIDs, about 7 MB for Starfield.esm) and `scene-quirks\` (the learned official scene list, a few KB). Each is
+- Caches live in `%LOCALAPPDATA%\sfmodcheck\` (on Linux `~/.local/share/sfmodcheck/`; the folder kept its name from
+  before the rename, so caches built by older versions are used): `edid-cache\` (the masters'
+  EditorIDs, about 7 MB for Starfield.esm), `scene-quirks\` (the learned official scene list, a few KB) and
+  `vanilla-index\` (triage's list of the file names in the game's own archives, about 13 MB). Each is
   keyed by the master's name, size and modified time, so a game update rebuilds it on the next check. Delete the
   folder to clear them. Set the environment variable `SFMODCHECK_CACHE_DIR` to keep them somewhere else (for example
   next to the exe for a portable copy).
@@ -419,12 +473,12 @@ filter.
 ## Traps (wrong answers with no error)
 
 - **A master changed kind** (full, medium or light) after the plugin was built: its FormIDs then point at other
-  records. sfmodcheck sees this only when an ID lands past a master list or past the plugin's own range.
+  records. sf-mod-check sees this only when an ID lands past a master list or past the plugin's own range.
 - **Partial forms** (record flag 0x4000) hold only some fields on purpose; the scenes check uses the last full version
   of a quest for that reason.
 - **Mutagen 0.54.4's link-type lists are incomplete** for Starfield, so "wrong type" also accepts any type the
   official masters themselves link to (`data\link-types-seen.txt`). After a game update that list can be out of date
-  until a new sfmodcheck release relearns it.
+  until a new sf-mod-check release relearns it.
 - **An add-on's masters:** without `--masters-dir`, an add-on is checked against the main plugin installed in Data,
   which may be an older build than the one you just made.
 
@@ -437,7 +491,7 @@ filter.
   checked as links.
 - Not checked: "missing required field" checks, face data, and what is inside loose files or BA2 archives (the
   `assets` check only looks up the names of attached scripts and models).
-- `check` checks one plugin against its masters. Conflicts between mods are `sfmodcheck conflict`'s job.
+- `check` checks one plugin against its masters. Conflicts between mods are `sf-mod-check conflict`'s job.
 - A plugin's archives are every `<plugin> - *.ba2` (Mutagen's rule). That also takes archives with any suffix
   (`- Main_xbox.ba2`, `- Main01.ba2`) and a longer plugin's archives (`Foo - Patch - Main.ba2` counts for `Foo.esm`
   when `Foo - Patch.esm` isn't active), so the archive count and the archives searched for assets can be a little
@@ -476,7 +530,7 @@ with the hidden commands `--learn-link-types <out> [Data]` and `--learn-conditio
 
 ## Credits and licence
 
-sfmodcheck is © 2026 Richard Bejtlich, under the GNU General Public License version 3 ([LICENSE](LICENSE)).
+sf-mod-check is © 2026 Richard Bejtlich, under the GNU General Public License version 3 ([LICENSE](LICENSE)).
 `data\engine-forms.txt` is derived from xEdit's hardcoded Starfield list (TES5Edit, by ElminsterAU and the xEdit team)
 and stays under the Mozilla Public License 2.0; see [NOTICE](NOTICE). Mutagen is by Noggog and the Mutagen
 contributors (GPL-3.0). See [PRIVACY.md](PRIVACY.md) for what the tool reads and writes (it makes no network

@@ -26,6 +26,11 @@ public record LostChange(
 
 public record ItmRecord(string Plugin, FormKey FormKey, string RecordType, string? EditorID);
 
+// triage (0.8.0): a field one of the `only` plugins changed on purpose, against the version it was built on (Base: the
+// latest earlier version from one of its own masters, "" when none supplies the field). Values are short texts.
+public record FieldChange(string Plugin, FormKey FormKey, string RecordType, string? EditorID, string Origin, string Base,
+    string Field, string BaseValue, string NewValue);
+
 public class Analysis
 {
     public int RecordsOverriddenByMods;
@@ -35,6 +40,11 @@ public class Analysis
     public Dictionary<(string Earlier, string Later), List<string>> ReorderCost { get; } = new();
     public Dictionary<string, int> UnreadableFields { get; } = new();
     public List<string> Errors { get; } = new();
+    // triage (0.8.0): with Run's `only` set, the fields those plugins changed on purpose (at most MaxChanges; the rest
+    // are counted in ChangesNotListed). Empty without it.
+    public List<FieldChange> Changes { get; } = new();
+    public int ChangesNotListed;
+    public const int MaxChanges = 20000;
     // Overrides whose record type differs from the first record with that FormID (0.5.2), in load order.
     public List<TypeChange> TypeChanges { get; } = new();
     // The assets check (0.6.0 part 2): each mod plugin's missing scripts and models, in load order. AssetsChecked is
@@ -127,9 +137,15 @@ public static class Analyzer
             .ToArray();
     });
 
-    public static Analysis Run(List<PluginInfo> plugins)
+    /// <param name="only">triage (0.8.0): when given (plugin file names), only the records these plugins override are
+    /// compared, and the fields they changed on purpose are listed in Analysis.Changes. Null: every mod's overrides, as
+    /// before, and no Changes.</param>
+    /// <param name="onlyRecords">triage: when given, of those overrides only these records are compared (triage reads
+    /// records that live in cells and worldspaces raw instead: their Mutagen reads kept gigabytes, NAPGR 0.1.6).</param>
+    public static Analysis Run(List<PluginInfo> plugins, ISet<string>? only = null, ISet<FormKey>? onlyRecords = null)
     {
         var result = new Analysis();
+        var onlySet = only is null ? null : new HashSet<string>(only, StringComparer.OrdinalIgnoreCase);
         var byName = plugins.ToDictionary(p => p.FileName, StringComparer.OrdinalIgnoreCase);
 
         // Transitive masters per plugin.
@@ -159,6 +175,7 @@ public static class Analyzer
             foreach (var rec in recs)
             {
                 if (rec.FormKey.ModKey == p.Mod.ModKey) continue;
+                if (onlyRecords is not null && !onlyRecords.Contains(rec.FormKey)) continue;
                 var type = rec.Registration.GetterType;
                 if (!targets.TryAdd(rec.FormKey, type) && targets[rec.FormKey] != type)
                 {
@@ -183,7 +200,7 @@ public static class Analyzer
             if (!reportedTypes.Add((plugin, what)) | (at.Length > 0 && !reported.Add((plugin, at, why)))) return;
             result.Errors.Add($"{p.FileName}: could not read its {what} records{(at.Length > 0 ? $" (at {at})" : "")}, so its changes to them were not checked ({why})");
         }
-        foreach (var p in plugins.Where(p => !p.Official))
+        foreach (var p in plugins.Where(p => !p.Official && (onlySet is null || onlySet.Contains(p.FileName))))
         {
             // One unreadable record used to stop the whole run (2026-11-17, a 157-plugin load order: a generic base form
             // with a component type Mutagen 0.54.4 can't parse). Plugins that read cleanly take the single
@@ -347,7 +364,7 @@ public static class Analyzer
             // ConflictUnreadTests checks every Starfield record type), so the no-signature branch of 0.5.3 was dead code
             // and is gone; a Mutagen update that breaks this stops the run with a clear message instead of guessing.
             var groupSigs = Checker.SigsOf(type) ?? throw new InvalidOperationException(
-                $"sfmodcheck does not know the record signature of {TypeShort(type)} (a Mutagen change?), so it can't tell which of its versions the game drops");
+                $"sf-mod-check does not know the record signature of {TypeShort(type)} (a Mutagen change?), so it can't tell which of its versions the game drops");
             // A partly-read plugin that may override this record (the record's FormID names it or one of its direct
             // masters) and whose version wasn't read. Where its version would win, or be the base of a later version (a
             // master of it), the record's results would be wrong: skip and count it (Skip). The same when only partial
@@ -444,6 +461,7 @@ public static class Analyzer
             var recItms = new List<ItmRecord>();
             var recCost = new List<((string Earlier, string Later) Pair, string Text)>();
             var recUnreadable = new List<string>();
+            var recChanges = new List<FieldChange>();   // only with `only` (triage)
             // A record whose versions can't be compared is skipped and listed, not the whole run (0.5.1; reads are lazy,
             // so a damaged field can throw anywhere below).
             try
@@ -510,6 +528,13 @@ public static class Analyzer
                     try { same = FieldCompare.DeepEq(vals[i, f], baseVal, 0); }
                     catch (Exception err) when (Fatal.Recoverable(err)) { same = true; unsure[i] = true; Unreadable(versions[i].Rec, fields[f].Name); }
                     if (!same) intended[i].Add(f);
+                    if (!same && onlySet is not null && onlySet.Contains(versions[i].Plugin.FileName))
+                    {
+                        var r = versions[i].Rec;
+                        recChanges.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, Impact.OneLine(r.EditorID),
+                            versions[0].Plugin.FileName, b >= 0 ? versions[b].Plugin.FileName : "", fields[f].Name,
+                            b >= 0 ? FieldCompare.Show(versions[b].Rec, fields[f].Name, 160) : "(not set)", FieldCompare.Show(r, fields[f].Name, 160)));
+                    }
                 }
                 // Parents (cells, worldspaces, topics) must be copied unchanged to hold child records, so they are not ITMs.
                 // A quest is such a parent only when this plugin's copy holds child records (its topics and dialogue lines);
@@ -602,6 +627,8 @@ public static class Analyzer
 
             result.Lost.AddRange(recLost);
             result.Itms.AddRange(recItms);
+            foreach (var ch in recChanges)
+                if (result.Changes.Count < Analysis.MaxChanges) result.Changes.Add(ch); else result.ChangesNotListed++;
             if (middles is not null)
                 foreach (var m in middles) comparedWithout[m.FileName] = comparedWithout.GetValueOrDefault(m.FileName) + 1;
             foreach (var (pair, text) in recCost)
@@ -652,6 +679,11 @@ public static class Analyzer
         result.Lost.Clear(); result.Lost.AddRange(lostInOrder);
         var itms = result.Itms.OrderBy(t => order[t.FormKey]).ToList();
         result.Itms.Clear(); result.Itms.AddRange(itms);
+        if (result.Changes.Count > 0)
+        {
+            var changes = result.Changes.OrderBy(t => order[t.FormKey]).ToList();   // stable: a record's fields keep their order
+            result.Changes.Clear(); result.Changes.AddRange(changes);
+        }
         var costs = result.ReorderCost.Select(kv => (kv.Key, Entries: kv.Value.Zip(costAt[kv.Key]).OrderBy(z => z.Second).Select(z => z.First).ToList(), First: costAt[kv.Key].Min()))
             .OrderBy(c => c.First).ToList();
         result.ReorderCost.Clear();

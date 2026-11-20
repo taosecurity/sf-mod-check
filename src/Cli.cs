@@ -27,7 +27,7 @@ public static class Cli
         "--out" => "conflict-report",
         "--max" => "20",
         "--max-memory" => "8",
-        "--log" => "sfmodcheck-log.txt",
+        "--log" => "sf-mod-check-log.txt",
         _ => "<value>",
     };
 }

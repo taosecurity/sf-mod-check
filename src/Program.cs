@@ -6,6 +6,8 @@
 //                             [--verbose] [--log <file>]        (troubleshooting log: Log.cs)
 //   sfmodcheck conflict [--plugins <Plugins.txt>] [--data D] [--extra-data F] [--out F] [--max-memory GB] [--quiet]
 //                       [--verbose] [--log <file>]        (whole load order: ConflictCommand.cs; exit 0, 2 or 3)
+//   sfmodcheck release <zip>... [...]          (release zips: ReleaseCommand.cs; exit 0, 1 or 2)
+//   sfmodcheck triage <mod> [...]              (first-pass report on someone else's mod: TriageCommand.cs; exit 0 or 2)
 //   sfmodcheck <plugin> [...]                  (same as check: older callers, and a plugin dropped on the exe)
 //   sfmodcheck --version
 // Hidden maintenance modes (run on the official masters after a game update):
@@ -21,15 +23,16 @@ using SfModCheck;
 // until then, and 0.5.3's release candidate said 0.5.2).
 var Version = ProgramVersion.Current;
 // Attribution (the author's request, 2026-11-11): stderr at the start of a check (not with --quiet), and --version.
-var Byline = "sfmodcheck " + Version + " by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sfmodcheck";
+var Byline = "sf-mod-check " + Version + " by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check";
 const string DefaultData = Cli.SteamData;
 const string Usage =
-    "usage: sfmodcheck check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]\n" +
+    "usage: sf-mod-check check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]\n" +
     "                                 [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]\n" +
-    "       sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
+    "       sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
     "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]\n" +
-    "       sfmodcheck release <zip>... [--profile basic|house] [--dmmdeps <exe>] [...]   (sfmodcheck release --help)\n" +
-    "       sfmodcheck --version";
+    "       sf-mod-check release <zip>... [--profile basic|house] [--dmmdeps <exe>] [...]   (sf-mod-check release --help)\n" +
+    "       sf-mod-check triage <mod.zip | .7z | .rar | folder | plugin> [--game <folder>] [--out <folder>] [...]   (sf-mod-check triage --help)\n" +
+    "       sf-mod-check --version";
 // A plugin past this many records (the header's count) gets the memory note on stderr. Mods stay far below it; the
 // official Starfield.esm has about 3.8 million and needs over 30 GB of memory to check.
 const int LargeRecordCount = 500_000;
@@ -108,6 +111,7 @@ int Dispatch(string[] args)
     // callers written for StarfieldPluginCheck keep working.
     if (args.Length > 0 && args[0] == "conflict") return ConflictCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     if (args.Length > 0 && args[0] == "release") return ReleaseCommand.Run(args.Skip(1).ToArray(), Version, Byline);
+    if (args.Length > 0 && args[0] == "triage") return TriageCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     var rest = args.Length > 0 && args[0] == "check" ? args.Skip(1).ToArray() : args;
     return Check(rest);
 }
@@ -127,7 +131,7 @@ int Check(string[] a)
         Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK ({e.GetType().Name}: {e.Message})"));
         Fatal.AfterResult(() =>
         {
-            Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
+            Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");
             Log.Write($"stopped: {e}");
         });
         return 2;
@@ -192,12 +196,12 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
                 if (a[i].Trim().Length == 0)
                 {
                     Console.Error.WriteLine("the plugin name is empty: give the path of the .esm to check, for example: " +
-                                            "sfmodcheck check \"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Starfield\\Data\\MyMod.esm\"");
+                                            "sf-mod-check check \"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Starfield\\Data\\MyMod.esm\"");
                     return 2;
                 }
                 if (plugin != null)
                 {
-                    Console.Error.WriteLine($"only one plugin per run: got {plugin} and {a[i]}. Run sfmodcheck once for each plugin " +
+                    Console.Error.WriteLine($"only one plugin per run: got {plugin} and {a[i]}. Run sf-mod-check once for each plugin " +
                                             "(a path with spaces needs quotes around it).");
                     return 2;
                 }
@@ -208,13 +212,13 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     if (plugin == null)
     {
         Console.Error.WriteLine(Usage);
-        if (a.Length == 0) Console.Error.WriteLine("To check a plugin, drag its .esm file onto sfmodcheck.exe, or run: sfmodcheck check MyMod.esm");
+        if (a.Length == 0) Console.Error.WriteLine("To check a plugin, drag its .esm file onto sf-mod-check.exe, or run: sf-mod-check check MyMod.esm");
         return 2;
     }
     if (!quiet) Console.Error.WriteLine(Byline);
     if (verbose) Log.ToStderr();
     if (logFile != null && Log.ToFile(logFile) is { } logError) { Console.Error.WriteLine(logError); cantWhy = "the log file can't be written"; return 2; }
-    Log.Write($"sfmodcheck {Version} on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
+    Log.Write($"sf-mod-check {Version} on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
     Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");
     Log.Write($"working folder: {Environment.CurrentDirectory}");
 
@@ -286,7 +290,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
 
     if (Checker.IsOfficial(Path.GetFileName(plugin)) || header?.NumRecords > LargeRecordCount)
         Console.Error.WriteLine($"note: {Path.GetFileName(plugin)} is very large; checking it can take 30 GB of memory or more. " +
-                                "sfmodcheck is meant for mods, not Bethesda's own masters.");
+                                "sf-mod-check is meant for mods, not Bethesda's own masters.");
 
     Result r;
     try { r = Checker.Run(o); }
@@ -298,13 +302,13 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
         Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK {Path.GetFileName(plugin)} ({e.GetType().Name}: {e.Message})"));
         Fatal.AfterResult(() =>
         {
-            Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
+            Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");
             Log.Write($"stopped: {e}");
         });
         return 2;
     }
 
-    if (!quiet) Console.WriteLine($"sfmodcheck {Version} check: {Path.GetFileName(plugin)} ({r.Summary})");
+    if (!quiet) Console.WriteLine($"sf-mod-check {Version} check: {Path.GetFileName(plugin)} ({r.Summary})");
     if (dataNote != "") Console.WriteLine(dataNote);
     var groups = r.Findings.GroupBy(f => (f.Severity, f.Check)).OrderBy(g => g.Key.Severity == "ERROR" ? 0 : 1).ToList();
     for (int gi = 0; gi < groups.Count; gi++)

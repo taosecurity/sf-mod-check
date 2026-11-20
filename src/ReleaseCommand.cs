@@ -65,7 +65,7 @@ public sealed class ReleaseContext
 public static class ReleaseCommand
 {
     public const string Usage =
-        "usage: sfmodcheck release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]... [--dmmdeps <exe>]\n" +
+        "usage: sf-mod-check release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]... [--dmmdeps <exe>]\n" +
         "                          [--papyrus <exe> --ck-sources <ContentResources.zip>] [--profile basic|house]\n" +
         "                          [--quiet] [--verbose] [--log <file>]";
 
@@ -86,7 +86,7 @@ public static class ReleaseCommand
             Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK ({e.GetType().Name}: {e.Message})"));
             Fatal.AfterResult(() =>
             {
-                Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sfmodcheck-log.txt and look at that file.");
+                Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");
                 Log.Write($"stopped: {e}");
             });
             return 2;
@@ -153,7 +153,7 @@ public static class ReleaseCommand
                     }
                     if (a[i].Trim().Length == 0)
                     {
-                        Console.Error.WriteLine("a zip name is empty: give the path of the mod's release zip, for example: sfmodcheck release MyMod-1.0.0.zip");
+                        Console.Error.WriteLine("a zip name is empty: give the path of the mod's release zip, for example: sf-mod-check release MyMod-1.0.0.zip");
                         return 2;
                     }
                     o.Zips.Add(a[i]);
@@ -163,13 +163,13 @@ public static class ReleaseCommand
         if (o.Zips.Count == 0)
         {
             Console.Error.WriteLine(Usage);
-            Console.Error.WriteLine("To check a mod before you upload it, run: sfmodcheck release MyMod-1.0.0.zip");
+            Console.Error.WriteLine("To check a mod before you upload it, run: sf-mod-check release MyMod-1.0.0.zip");
             return 2;
         }
         if (!quiet) Console.Error.WriteLine(byline);
         if (verbose) Log.ToStderr();
         if (logFile != null && Log.ToFile(logFile) is { } logError) return CantRun("the log file can't be written", logError);
-        Log.Write($"sfmodcheck {version} release on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
+        Log.Write($"sf-mod-check {version} release on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
         Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");
         Log.Write($"profile: {o.Profile}");
 
@@ -203,7 +203,7 @@ public static class ReleaseCommand
             Console.Error.WriteLine("note: the Papyrus lint needs both --papyrus and --ck-sources; it is skipped.");
 
         // ---- unpack ----
-        var work = Directory.CreateTempSubdirectory("sfmodcheck-release-").FullName;
+        var work = Directory.CreateTempSubdirectory("sf-mod-check-release-").FullName;
         Log.Write($"work folder: {work}");
         try
         {
@@ -230,7 +230,7 @@ public static class ReleaseCommand
             int problems = shown.Count(f => f.Level == Level.Problem), review = shown.Count(f => f.Level == Level.Review),
                 warnings = shown.Count(f => f.Level == Level.Warning);
             if (!quiet)
-                Console.WriteLine($"sfmodcheck {version} release ({o.Profile} profile): {string.Join(", ", packages.Select(p => p.Name))} " +
+                Console.WriteLine($"sf-mod-check {version} release ({o.Profile} profile): {string.Join(", ", packages.Select(p => p.Name))} " +
                                   $"({packages.Sum(p => p.Files.Count)} files, {packages.Sum(p => p.Plugins.Count)} plugins, {packages.Sum(p => p.Archives.Count)} archives)");
             foreach (var lvl in new[] { Level.Problem, Level.Review, Level.Warning, Level.Note })
                 foreach (var f in shown.Where(f => f.Level == lvl))

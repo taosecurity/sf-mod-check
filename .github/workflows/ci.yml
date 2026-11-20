@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # SPDX-FileCopyrightText: 2026 Richard Bejtlich
 #
-# Builds and tests sfmodcheck on Windows and Linux, and checks that the dotnet tool package and the stand-alone
+# Builds and tests sf-mod-check (sfmodcheck until 0.8.0) on Windows and Linux, and checks that the dotnet tool package and the stand-alone
 # Windows exe build. On a version tag (v0.4.0), also makes a GitHub release with the tool package
-# (sfmodcheck.<version>.nupkg), the stand-alone exe zip (sfmodcheck-<version>-win-x64.zip) and their SHA-256 checksums.
+# (sf-mod-check.<version>.nupkg), the stand-alone exe zip (sf-mod-check-<version>-win-x64.zip, with the sfmodcheck.cmd
+# alias) and their SHA-256 checksums.
 # The runners have no game files, so the five tests that need Starfield.esm are skipped there.
 name: tests
 
@@ -43,7 +44,7 @@ jobs:
         run: dotnet publish src/sfmodcheck.csproj -c Release -r win-x64 -o out/exe -p:SfModCheckStandalone=true -p:RestoreLockedMode=true
       - name: Stand-alone exe runs
         if: runner.os == 'Windows'
-        run: out/exe/sfmodcheck.exe --version
+        run: out/exe/sf-mod-check.exe --version
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -69,8 +70,8 @@ jobs:
         run: |
           dotnet publish src/sfmodcheck.csproj -c Release -r win-x64 -o build/exe -p:SfModCheckStandalone=true -p:RestoreLockedMode=true
           mkdir -p build/zip
-          cp build/exe/sfmodcheck.exe README.md AGENTS.md LICENSE NOTICE PRIVACY.md CHANGELOG.md build/zip/
-          (cd build/zip && zip -9 -X "../../out/sfmodcheck-$VERSION-win-x64.zip" *)
+          cp build/exe/sf-mod-check.exe packaging/sfmodcheck.cmd README.md AGENTS.md LICENSE NOTICE PRIVACY.md CHANGELOG.md build/zip/
+          (cd build/zip && zip -9 -X "../../out/sf-mod-check-$VERSION-win-x64.zip" *)
       - name: Checksums
         working-directory: out
         run: |
@@ -81,6 +82,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >
           gh release create "$GITHUB_REF_NAME" out/*.nupkg out/*.zip out/*.sha256
-          --title "sfmodcheck ${GITHUB_REF_NAME#v}"
+          --title "sf-mod-check ${GITHUB_REF_NAME#v}"
           --notes-file release-notes.md
           --verify-tag

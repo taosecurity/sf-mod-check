@@ -20,7 +20,7 @@ public static class Hints
             "for Medium, or take the Light or Medium flag off. A master index past the master list is a broken " +
             "FormID: add the missing master in xEdit, or rebuild the record.",
         ["read"] =
-            "Mutagen (the library sfmodcheck reads plugins with) can't read this record, so the game may not either. " +
+            "Mutagen (the library sf-mod-check reads plugins with) can't read this record, so the game may not either. " +
             "Look at the named record in xEdit for errors in red, fields from another game or a wrong field size, " +
             "then fix the field or make the record again in the CK.",
         ["assets"] =

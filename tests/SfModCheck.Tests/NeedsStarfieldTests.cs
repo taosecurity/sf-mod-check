@@ -29,7 +29,7 @@ public class NeedsStarfieldTests
     /// <summary>A light test plugin on Starfield.esm, written to &lt;sandbox&gt;\&lt;file&gt;.esm.</summary>
     static string Build(Sandbox s, GameData game, string file, Action<StarfieldMod> fill)
     {
-        var mod = Plugin.New("SfmTest.esm", PluginStyle.Light, "test", "sfmodcheck test plugin");
+        var mod = Plugin.New("SfmTest.esm", PluginStyle.Light, "test", "sf-mod-check test plugin");
         fill(mod);
         var dir = s.Sub("build-" + file);
         PluginWriter.Write(mod, dir, game, NoGap);

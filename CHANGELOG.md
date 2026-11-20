@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.8.0 (2026-11-19)
+
+- **Renamed: sfmodcheck is now sf-mod-check.** The exe is `sf-mod-check.exe`, the dotnet tool package and command are
+  `sf-mod-check`, and the GitHub repo is taosecurity/sf-mod-check (the old address forwards). The exe zip also holds
+  `sfmodcheck.cmd`, which runs `sf-mod-check.exe` under the old name; it will be dropped in a later release. The cache
+  folder (`%LOCALAPPDATA%\sfmodcheck`) and the `SFMODCHECK_*` environment variables keep their names. dotnet tool
+  users: `dotnet tool uninstall --global sfmodcheck`, then install `sf-mod-check`. `conflict`'s default report folder
+  is now `sf-mod-check-conflict`, and the example log name is `sf-mod-check-log.txt`.
+- New command `sf-mod-check triage <mod>`: a first-pass, offline report on someone else's mod (a .zip, .7z or .rar
+  download, a folder, or one plugin), written as HTML, text and JSON. It is triage, not a verdict: each finding is a
+  NOTE or a LOOK (worth a person's look) with the file and the reason. Sections: Files (every file with its SHA-256,
+  archive contents, versions in names, archives no plugin loads), Replaces vanilla (loose files and archive entries
+  that replace the game's own, from a cached index of the game's archive names), Plugins (header, records added,
+  overridden and deleted, ITMs, official changes undone, changed fields, ONAM, missing scripts, `check`'s findings),
+  Scripts (each `.pex` read from its bytecode: calls, logging, calls worth a look; nothing is decompiled) and Binaries
+  (each DLL and EXE read from its bytes: imports by group, URLs, SFSE plugin version data, PDB path, signature checked
+  offline, and optionally Manalyze with offline plugins only). It never runs the mod's code and never uploads
+  anything. Exit 0 = report written, 2 = bad input. Reading `.7z` and `.rar` uses SharpCompress 0.50.7 (MIT).
+- `check` (and `release`, `conflict`'s ITM count): when a lookup of an overridden cell's master version comes back
+  empty, its placed references and navmeshes are now counted in the "couldn't be compared" WARNING. Before, they
+  counted as "not identical" with no warning. Seen only with the .NET heap capped at 1 GB (NAPGR 0.1.6: 1 warning
+  instead of 95); a normal run is unchanged.
+
 ## 0.7.0 (2026-11-19)
 
 - New command `sfmodcheck release <zip>...`: one OK or FAIL for the zip you are about to upload. It unpacks each zip

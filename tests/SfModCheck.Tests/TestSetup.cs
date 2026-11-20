@@ -11,7 +11,7 @@ namespace SfModCheck.Tests;
 static class TestSetup
 {
     /// <summary>A run-wide temp folder the caches use until a test points them at its own folder.</summary>
-    public static readonly string RunDir = Directory.CreateTempSubdirectory("sfmodcheck-run-").FullName;
+    public static readonly string RunDir = Directory.CreateTempSubdirectory("sf-mod-check-run-").FullName;
 
     [ModuleInitializer]
     internal static void Init()
@@ -29,7 +29,7 @@ static class TestSetup
 /// <summary>A test's own temp folder; the caches point into it while the test runs.</summary>
 public class Sandbox : IDisposable
 {
-    public string Dir { get; } = Directory.CreateTempSubdirectory("sfmodcheck-test-").FullName;
+    public string Dir { get; } = Directory.CreateTempSubdirectory("sf-mod-check-test-").FullName;
 
     public Sandbox() => TestSetup.PointCaches(Dir);
 

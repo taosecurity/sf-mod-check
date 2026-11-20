@@ -266,7 +266,7 @@ public static class ReleaseLint
             Log.Write($"papyrus lint: vanilla sources cached in {dest}");
             return dest;
         }
-        Console.Error.WriteLine($"sfmodcheck: extracting the vanilla Papyrus sources from {ckZip} (once; cached in {cacheDir})");
+        Console.Error.WriteLine($"sf-mod-check: extracting the vanilla Papyrus sources from {ckZip} (once; cached in {cacheDir})");
         // remove what runs that were stopped left behind (a day old or more, so a run in progress is never touched)
         try
         {
