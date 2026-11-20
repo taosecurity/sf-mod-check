@@ -269,35 +269,42 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
   (the same as Markdown) and `conflicts.json` (everything, for scripts).
 - `--max-memory`: stop cleanly when memory passes this many GB (exit code 3, no report), instead of slowing the PC.
   It takes a number of GB from 0.000001 to 1000000, for example 8.
-- `--no-assets`, `--ini <file>`, `--language <code>`: the assets check, as for `check` (0.6.0). In `conflict` it
-  looks up every mod plugin's scripts and models in the archives of every active plugin (`<plugin> - *.ba2`), the
-  archives the INIs list, and loose files (the `--extra-data` folder, then Data). Bethesda's own plugins aren't
-  checked, and an override isn't blamed for a missing file the version it overrides already names (the record in
-  the last of the plugin's masters, in load order, that has it, as in `check`): that one is reported once, against
-  the plugin that added the path, or not at all when it's Bethesda's (conflicts.json `inheritedAssetUses` counts the
-  uses left out). Those lookups obey `--max-memory`: past the limit they stop, every missing path is reported, and
-  "Tool limits hit" says so. The RESULT line adds ", N missing assets (S scripts, M models)" when there are any. The report's
-  "Missing assets" section lists them by plugin (scripts, an ERROR, before models, a WARNING), with the number of
-  archives read and any archive that can't be read; each plugin with missing files gets a recommended action, and
-  conflicts.json has them as `missingAssets` and `unreadableArchives`. With `--no-assets` the section says the check
-  was off. If the assets step itself stops (a folder that can't be listed, a disk error), the report is still
-  written: the section and "Tool limits hit" say why, and conflicts.json has the reason as `assetsFailed` (else
-  null). The RESULT line counts that note (and a `--max-memory` stop in the assets lookups) as ", N assets-check
-  notes", apart from the read problems, since every record was still compared. The warning on stderr shows with
-  `--quiet` too.
-- **The archive limit (0.6.0):** `conflict` also counts the archives the game would load for the load order (the
-  same list: every active plugin's `<plugin> - *.ba2` and the INIs' lists, other languages' voice archives left out),
-  separately for general archives (GNRL: scripts, meshes, materials, sounds) and texture archives (DX10). The game
-  has 256 slots for each kind: a 257th general archive damages the game's memory and a 257th texture archive wraps
-  around to slot 0 (wrong textures or crashes). When either count is over 256, the RESULT line adds
-  ", WARNING N general archives (over 256)" or ", WARNING N texture archives (over 256)", and the report gets a
-  WARNING and a High recommended action, listed first (remove or merge mods that bring archives, or use a BA2 limit fix). The
-  counts are always in the report's Summary and "Missing assets" section and in conflicts.json (`archiveCounts`:
-  `gnrl`, `dx10`, `slots`; `archiveLimitWarnings`). `--no-assets` still counts them (it reads only each archive's
-  header). An archive whose header can't be read isn't counted: the archive paragraph names it and says the true
-  counts may be higher, and with `--no-assets` the RESULT line adds ", N archives that can't be read (not counted)".
-  Each archive is counted by its header type (GNRL
-  general, DX10 texture), as the game does, not by its name: a GNRL archive named `- Textures.ba2` counts as general.
+- `--no-assets`, `--ini <file>`, `--language <code>`: the assets check, as for `check` (0.6.0).
+  - **Where it looks:** in `conflict` it looks up every mod plugin's scripts and models in the archives of every
+    active plugin (`<plugin> - *.ba2`), the archives the INIs list, and loose files (the `--extra-data` folder, then
+    Data).
+  - **What it skips:** Bethesda's own plugins aren't checked. An override isn't blamed for a missing file the version
+    it overrides already names (the record in the last of the plugin's masters, in load order, that has it, as in
+    `check`). That one is reported once, against the plugin that added the path, or not at all when it's Bethesda's
+    (conflicts.json `inheritedAssetUses` counts the uses left out).
+  - **Memory:** those lookups obey `--max-memory`. Past the limit they stop, every missing path is reported, and
+    "Tool limits hit" says so.
+  - **Results:** the RESULT line adds ", N missing assets (S scripts, M models)" when there are any. The report's
+    "Missing assets" section lists them by plugin (scripts, an ERROR, before models, a WARNING), with the number of
+    archives read and any archive that can't be read. Each plugin with missing files gets a recommended action, and
+    conflicts.json has them as `missingAssets` and `unreadableArchives`. With `--no-assets` the section says the
+    check was off.
+  - **If the step stops:** if the assets step itself stops (a folder that can't be listed, a disk error), the report
+    is still written. The section and "Tool limits hit" say why, and conflicts.json has the reason as `assetsFailed`
+    (else null). The RESULT line counts that note (and a `--max-memory` stop in the assets lookups) as ", N
+    assets-check notes", apart from the read problems, since every record was still compared. The warning on stderr
+    shows with `--quiet` too.
+- **The archive limit (0.6.0):** `conflict` also counts the archives the game would load for the load order.
+  - **What it counts:** the same list (every active plugin's `<plugin> - *.ba2` and the INIs' lists, other
+    languages' voice archives left out), separately for general archives (GNRL: scripts, meshes, materials, sounds)
+    and texture archives (DX10). Each archive is counted by its header type, as the game does, not by its name: a
+    GNRL archive named `- Textures.ba2` counts as general.
+  - **Why it matters:** the game has 256 slots for each kind. A 257th general archive damages the game's memory, and
+    a 257th texture archive wraps around to slot 0 (wrong textures or crashes).
+  - **Over the limit:** when either count is over 256, the RESULT line adds ", WARNING N general archives (over
+    256)" or ", WARNING N texture archives (over 256)". The report gets a WARNING and a High recommended action,
+    listed first (remove or merge mods that bring archives, or use a BA2 limit fix).
+  - **Where the counts are:** always in the report's Summary and "Missing assets" section and in conflicts.json
+    (`archiveCounts`: `gnrl`, `dx10`, `slots`; `archiveLimitWarnings`). `--no-assets` still counts them (it reads
+    only each archive's header).
+  - **Unreadable archives:** an archive whose header can't be read isn't counted. The archive paragraph names it and
+    says the true counts may be higher, and with `--no-assets` the RESULT line adds ", N archives that can't be read
+    (not counted)".
 - `--quiet`: leave out the byline, the progress lines and the summary line.
 - `--verbose` and `--log <file>`: the troubleshooting log, as for `check`. It records the Data folder and load order
   used and why, the plugins loaded, each load-order problem, one line per record type (records, versions and memory),
@@ -325,11 +332,12 @@ type: PAQO`. Mutagen (the plugin library) prints these itself when it can't full
 doesn't count or report them yet. A script should read only the exit code and the RESULT line.
 
 **Plugins and records it can't read:** a plugin that can't be opened at all is skipped and listed as a load-order
-problem. A record that Mutagen 0.54.4 can't read (a field written by a newer Creation Kit, or a damaged one) skips only
-that plugin's group of records of that type: the rest of the load order is still checked, and the report's "Tool
+problem. Running out of memory is never skipped that way: the run stops with `CANNOT CHECK` and writes no report.
+
+A record that Mutagen 0.54.4 can't read (a field written by a newer Creation Kit, or a damaged one) skips only
+that plugin's group of records of that type, and the rest of the load order is still checked. The report's "Tool
 limits hit" section lists the plugin, the record type and, where Mutagen names it, the record, once each. The RESULT
 line then adds "read problems (records not compared ...)". Run `sf-mod-check check` on that plugin to see the record.
-Running out of memory is never skipped that way: the run stops with `CANNOT CHECK` and writes no report.
 
 **What it doesn't check:** the scripts' code and assets other than attached scripts and model paths (textures,
 materials, sounds; see the `assets` entry under `check`). Fields
@@ -373,12 +381,13 @@ How it builds each record:
 1. It starts from the record as the game uses it today: each field from the last plugin that has it (a Starfield
    partial form only carries the fields it changes, so the others come from the plugins before it).
 2. It copies each **Forwardable** field forward from the plugin that lost it. The winner didn't change that field, so
-   nothing the winner meant is undone. A list (keywords, a location's references, a companion's reactions) is
-   merged entry by entry instead: each plugin's own additions are added and its own removals removed, measured
-   against the version that plugin was built on, so two mods that both add entries keep both. A list both plugins
-   changed is merged the same way rather than treated as a choice; where both changed one entry (one companion's
-   reaction), the later plugin's version stays. A location's base-game lists are kept as the base game and its DLCs
-   have them.
+   nothing the winner meant is undone.
+   - **Lists** (keywords, a location's references, a companion's reactions) are merged entry by entry instead. Each
+     plugin's own additions are added and its own removals removed, measured against the version that plugin was
+     built on, so two mods that both add entries keep both.
+   - **A list both plugins changed** is merged the same way rather than treated as a choice. Where both changed one
+     entry (one companion's reaction), the later plugin's version stays. A location's base-game lists are kept as
+     the base game and its DLCs have them.
 3. For each other **Choice** field (both plugins changed it) it keeps the winner's value, as the game does now. The report
    prints a ready-made `--pick` line for each one. Run the command again with the lines you want, for example
    `--pick 0012AB:Starfield.esm:Value=NewModB.esm` (one field) or `--pick 0012AB:Starfield.esm=NewModB.esm` (every Choice
@@ -562,13 +571,14 @@ Each finding names its check in brackets.
   records too, so it's a WARNING, not an ERROR; the risk is another mod or the game still using a deleted record.
 - **assets** (0.6.0): every script a record attaches (its scripts, and the fragment and alias scripts of quests,
   scenes, perks, topic infos and packages) must have its `.pex` under `scripts\` (ERROR: the script never runs), and
-  every model path a record names must have its file under `meshes\` (WARNING). A file counts when it is loose in the
-  Data folder (or a `--masters-dir` folder) or inside an archive the game loads: `<plugin> - *.ba2` for the plugin and
-  each of its masters (other languages' voice archives left out), plus the archives `Starfield.ini` and
-  `StarfieldCustom.ini` list. Each missing file is listed once, with up to 3 records that use it. An override isn't
-  blamed for a missing file the master's version of the record already names (some vanilla records attach scripts
-  the game doesn't ship; `--verbose` lists each one left out). **Not checked yet:**
-  textures and materials (a mesh's `.mat` and `.dds` files), `.mesh` geometry, files the game finds by name (voice,
+  every model path a record names must have its file under `meshes\` (WARNING).
+  - **Where a file can be:** a file counts when it is loose in the Data folder (or a `--masters-dir` folder) or inside
+    an archive the game loads: `<plugin> - *.ba2` for the plugin and each of its masters (other languages' voice
+    archives left out), plus the archives `Starfield.ini` and `StarfieldCustom.ini` list.
+  - **How it reports:** each missing file is listed once, with up to 3 records that use it. An override isn't blamed
+    for a missing file the master's version of the record already names (some vanilla records attach scripts the
+    game doesn't ship; `--verbose` lists each one left out).
+  - **Not checked yet:** textures and materials (a mesh's `.mat` and `.dds` files), `.mesh` geometry, files the game finds by name (voice,
   lip and face animation, `.af`/`.hkx` animations, LOD, Wwise sounds), a script's parent and imports, whether an SFSE
   plugin a native script needs is installed, and which copy of a file wins. Tested on Steam installs only.
 
