@@ -468,8 +468,18 @@ public static class TriageCommand
     /// the archive locked by another program, or the disk full. It can be about the archive file, the temp folder it
     /// is unpacked into, or an entry's path there; the caller names it as it is.</summary>
     public static bool IsFileSystem(Exception e) =>
-        e is FileNotFoundException or DirectoryNotFoundException or PathTooLongException or UnauthorizedAccessException or DriveNotFoundException
-        || (e is IOException && (e.HResult & 0xFFFF) is 32 or 33 or 39 or 112);   // sharing, lock violation; disk full (39, 112)
+        e is FileNotFoundException or DirectoryNotFoundException or PathTooLongException || IsPcProblem(e);
+
+    /// <summary>A problem of the PC, not of the archive's contents: no permission, a missing drive, the file locked by
+    /// another program, or the disk full (Windows codes, and on Linux and macOS the errno that .NET puts in HResult:
+    /// ENOSPC 28, EDQUOT 122 or 69). An unpacker lets these through as themselves; anything else about an entry (a
+    /// path too long, a missing folder) is the archive's (sixteenth review).</summary>
+    public static bool IsPcProblem(Exception e) =>
+        e is UnauthorizedAccessException or DriveNotFoundException
+        || (e is IOException and not (FileNotFoundException or DirectoryNotFoundException or PathTooLongException or EndOfStreamException) &&
+            (OperatingSystem.IsWindows()
+                ? (e.HResult & 0xFFFF) is 32 or 33 or 39 or 112   // sharing, lock violation; disk full
+                : e.HResult is 28 or 122 or 69));
 
     const string GuardMark = "sf-mod-check unpack guard";
 

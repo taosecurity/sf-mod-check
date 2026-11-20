@@ -216,6 +216,14 @@ public static class ReleaseCommand
                 {
                     return CantRun($"{Path.GetFileName(full)} can't be unpacked", $"can't unpack {full}: {e.Message}");
                 }
+                catch (Exception e) when (TriageCommand.IsPcProblem(e))
+                {
+                    // the PC stopped it, not the zip (sixteenth review): name the zip and the fix
+                    Log.Write($"unpacking {full} stopped: {e}");
+                    return CantRun($"{Path.GetFileName(full)} couldn't be unpacked (a problem of this PC)",
+                        $"couldn't unpack {full}: {e.Message} Close any program that has the zip open, check that you can read it, and free " +
+                        $"space in the temp folder ({Path.GetTempPath()}), then run again.");
+                }
                 Log.Write($"unpacked {packages[^1].Name}: {packages[^1].Files.Count} files, {packages[^1].Plugins.Count} plugins, {packages[^1].Archives.Count} archives");
             }
             var ctx = new ReleaseContext { Options = o, Packages = packages, Work = work };
@@ -306,7 +314,7 @@ public static class ReleaseCommand
     /// a space ("a.esm." is written as a.esm). Two entries could then land on one file, or a plugin be missed by its
     /// extension (fifteenth review). Only the parts before a final "/" count.</summary>
     public static bool ChangedByWindows(string name) =>
-        name.TrimEnd('/').Split('/').Any(p => p == "." || p.EndsWith('.') || p.EndsWith(' '));
+        name.TrimEnd('/').Split('/').Any(p => p.Length == 0 || p == "." || p.EndsWith('.') || p.EndsWith(' '));   // also an empty part ("Data//a.esm")
 
     /// <summary>True when the entry's stream gives at least one byte (its declared length can be wrong).</summary>
     static bool ReadsAByte(ZipArchiveEntry e)
@@ -316,9 +324,10 @@ public static class ReleaseCommand
     }
 
     /// <summary>Unpacks a zip into dest. Refuses entries that would land outside dest (".." or a rooted path), empty
-    /// names and duplicate names, rather than skipping them, so a damaged or crafted zip never gets an OK. Any error
-    /// while an entry is read or written (a name Windows can't make, a file and a folder of the same name, an encrypted
-    /// or unknown compression) is an InvalidDataException naming the entry (0.8.0 review), so callers stop cleanly.</summary>
+    /// names, duplicate names, names Windows changes and a file and a folder of the same name, rather than skipping them,
+    /// so a damaged or crafted zip never gets an OK. Throws InvalidDataException for anything about the zip's contents
+    /// (those refusals, and any other error reading or writing an entry, naming it), and lets a problem of the PC through
+    /// as itself (TriageCommand.IsPcProblem: no permission, a lock, the disk full). Callers catch both (0.8.0 review).</summary>
     public static ReleasePackage Unpack(string zip, string dest)
     {
         Directory.CreateDirectory(dest);
@@ -354,6 +363,11 @@ public static class ReleaseCommand
                 var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));
                 if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException($"the entry \"{e.FullName}\" points outside the zip's own folders");
+                // a file and a folder of the same name, as the 7z/rar unpacker refuses (sixteenth review)
+                if (Directory.Exists(target))
+                    throw new InvalidDataException($"the entry \"{e.FullName}\" has the same name as a folder in the zip; rename one of them in the zip");
+                for (var d = Path.GetDirectoryName(target); d != null && d.Length >= root.Length; d = Path.GetDirectoryName(d))
+                    if (File.Exists(d)) throw new InvalidDataException($"the entry \"{e.FullName}\" sits in a folder that the zip also holds as a file; rename one of them in the zip");
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 // copy with a running count, so an entry that inflates past what the zip declares (or past the cap in
                 // total) stops being written at once instead of filling the disk first
@@ -379,7 +393,7 @@ public static class ReleaseCommand
             }
             // a problem of the PC (disk full, a lock, no permission) goes on as itself, so the user isn't told the zip
             // is broken (fifteenth review); anything else about an entry becomes a refusal that says what to do
-            catch (Exception x) when (x is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException && !TriageCommand.IsFileSystem(x))
+            catch (Exception x) when ((x is IOException or NotSupportedException or ArgumentException) && !TriageCommand.IsPcProblem(x))
             {
                 throw new InvalidDataException($"the entry \"{e.FullName}\" can't be unpacked ({x.GetType().Name}: {x.Message}). The zip holds a " +
                                                "name this system can't make (a file and a folder of the same name, a reserved name) or an entry " +

@@ -56,11 +56,15 @@ public class ReleaseCommandTests
         var hidden = MakeZip(s, "Hidden.zip", ("Scripts/", "secret"));
         Assert.Contains("named like a folder", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(hidden, Path.Combine(s.Dir, "out2"))).Message);
         // names Windows writes under another name (fifteenth review): a trailing dot or space, a "." part
-        foreach (var odd in new[] { "Foo.esm.", "Foo.esm ", "Data/./a.esm", "Data./a.esm" })
+        var odds = new[] { "Foo.esm.", "Foo.esm ", "Data/./a.esm", "Data./a.esm", "Data//a.esm" };
+        for (int i = 0; i < odds.Length; i++)
         {
-            var z = MakeZip(s, $"Odd{odd.GetHashCode():X}.zip", (odd, "x"));
-            Assert.Contains("Windows changes", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(z, Path.Combine(s.Dir, "o" + odd.GetHashCode()))).Message);
+            var z = MakeZip(s, $"Odd{i}.zip", (odds[i], "x"));
+            Assert.Contains("Windows changes", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(z, Path.Combine(s.Dir, $"odd{i}"))).Message);
         }
+        // a folder entry first, then a file of that name: the zip's fault, said so (sixteenth review)
+        var dirThenFile = MakeZip(s, "DirThenFile.zip", ("Data/b.esm", "x"), ("Data", "y"));
+        Assert.Contains("same name as a folder", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(dirThenFile, Path.Combine(s.Dir, "dtf"))).Message);
         Assert.False(ReleaseCommand.ChangedByWindows("Data/Foo.esm"));
         Assert.False(ReleaseCommand.ChangedByWindows("Data/"));
     }
