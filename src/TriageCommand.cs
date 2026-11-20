@@ -248,10 +248,15 @@ public static class TriageCommand
             try { (root, files) = Gather(kind, input, Path.Combine(work, "mod")); }
             catch (Exception e) when (IsFileSystem(e))
             {
-                // a disk or folder problem, not a bad download (ninth code review)
-                return CantRun($"{Path.GetFileName(input)} couldn't be unpacked (a file or disk problem)",
-                    $"couldn't unpack {input}: {e.Message} Check that the file isn't open in another program, that you can read it, and that " +
-                    $"the temp folder ({Path.GetTempPath()}) has free space.");
+                // A file-system error: it can be the PC (a lock, a permission, a full disk) or the archive (a path too long
+                // to make, a file and a folder of the same name), so the message names both (tenth code review).
+                return kind is TriageInputKind.Folder or TriageInputKind.Plugin
+                    ? CantRun($"a file of {Path.GetFileName(input)} can't be read",
+                        $"can't read a file of {input}: {e.Message} Check that you can open the files there and that no other program has them locked.")
+                    : CantRun($"{Path.GetFileName(input)} couldn't be unpacked",
+                        $"couldn't unpack {input}: {e.Message} Either the PC stopped it (the file is open in another program, can't be read, or the " +
+                        $"temp folder {Path.GetTempPath()} is full) or the archive holds a path Windows can't make (too long, or a file and a folder " +
+                        "with the same name). Try again with the file closed elsewhere and free space in the temp folder; if it still fails, the archive is the cause.");
             }
             catch (Exception e) when (e is InvalidDataException or InvalidFormatException or ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException)
             {
@@ -503,8 +508,6 @@ public static class TriageCommand
         files.Sort(StringComparer.Ordinal);
         return files;
 
-        // One entry: a guard's refusal is what the user sees, even when closing the entry's stream afterwards fails
-        // (SharpCompress reads the rest of the entry when its stream closes; seventh code review).
         // The first error in an entry (a guard's refusal, a full disk, a decoder error) is what the user sees, even when
         // closing the entry's stream afterwards fails too (SharpCompress reads the rest of the entry on close).
         void WriteOne(IEntry e, Func<Stream> open)
@@ -516,8 +519,10 @@ public static class TriageCommand
                 try { Write(e, input); }
                 catch (Exception x) when (Fatal.Recoverable(x)) { first = x; }
             }
-            catch (Exception x) when (first != null && Fatal.Recoverable(x))
+            catch (Exception x) when (first != null)
             {
+                // a fatal close error (out of memory) goes on, but the first error is in the log first
+                if (!Fatal.Recoverable(x)) { Log.Write($"triage: {e.Key}: {first}"); throw; }
                 Log.Write($"triage: after an error in {e.Key}, closing its stream failed too: {x}");
             }
             if (first != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(first);
@@ -527,6 +532,9 @@ public static class TriageCommand
         {
             var key = e.Key ?? "";
             var name = key.Replace('\\', '/');
+            // a folder record some tools write as a plain entry ("Data/"): nothing to write (tenth code review: it was
+            // refused as a clash with the folder its own files made), as ReleaseCommand.Unpack skips them
+            if (name.EndsWith('/') && name.Length > 1 && !name.Split('/').Any(x => x == "..")) return;
             if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(x => x == ".."))
                 throw Refused($"the entry \"{key}\" points outside the archive's own folders");
             var norm = Ba2Names.Normalize(name);

@@ -79,7 +79,13 @@ public class TriageCommandTests
         Assert.True(TriageCommand.IsRefusal(c));
         Assert.Contains("same name as a folder", c.Message);
         var clash2 = Make7z(s, "Clash2.7z", ("Data", "y"), ("Data/b.txt", "x"));
-        Assert.True(TriageCommand.IsRefusal(Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(clash2, Path.Combine(s.Dir, "e")))));
+        var c2 = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(clash2, Path.Combine(s.Dir, "e")));
+        Assert.True(TriageCommand.IsRefusal(c2));
+        Assert.True(c2.Message.Contains("sits in a folder that the archive also holds as a file") || c2.Message.Contains("same name as a folder"), c2.Message);
+
+        // a folder record written as a plain entry ("Data/") is skipped, not a clash (tenth code review)
+        var withDirRecord = Make7z(s, "DirRecord.7z", ("Data/a.esm", "x"), ("Data/", ""));
+        Assert.Equal(["data\\a.esm"], TriageCommand.UnpackOther(withDirRecord, Path.Combine(s.Dir, "f")));
     }
 
     [Fact]
