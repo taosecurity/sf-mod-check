@@ -419,18 +419,17 @@ public static class TriageCommand
     /// archives are refused (triage never asks for a password).</summary>
     public static List<string> UnpackOther(string archive, string dest)
     {
-        // SharpCompress's own refusals become "can't be read"; the same exception from our code stays a real error
-        // (0.8.0 code review)
-        // Our own code in there throws only InvalidDataException (its guards). Everything SharpCompress throws derives from
-        // SharpCompressException; its CryptographicException means headers encrypted with a password (fourth code
-        // review: not .NET's type of that name). An InvalidOperationException counts only when it comes from
-        // SharpCompress or a .NET method it calls on a damaged file (third review); one from our own code stays an error.
-        // Fifth review: decided by where the error was raised, not by its type. Anything raised while SharpCompress code
-        // was running (its own exceptions, and .NET ones it hits on a damaged file: InvalidOperationException,
-        // ObjectDisposedException, .NET's CryptographicException from AES) means the archive can't be read; an
-        // encryption error means a password. Our own guards' InvalidDataException passes through unchanged.
+        // Sorted by type, not by where it was raised (six review rounds, 2026-11-19; the stack is unreliable once the JIT
+        // inlines). UnpackOtherCore's own code is only the guards, and their marked InvalidDataException (Refused) passes through. A
+        // file-system error (a locked file, a missing permission) passes through to the caller's own message. An
+        // encryption error means a password (SharpCompress's own CryptographicException, or .NET's from AES). Anything
+        // else raised while the archive is read (SharpCompress's exceptions, a decoder's InvalidDataException,
+        // InvalidOperationException, ObjectDisposedException ...) means it can't be read as an archive. Each is logged in
+        // full, so a bug of ours wrongly sorted here is still in the --log file.
         try { return UnpackOtherCore(archive, dest); }
-        catch (Exception e) when (e is not InvalidDataException && Fatal.Recoverable(e) && (e is SharpCompressException || RaisedIn(e, "SharpCompress")))
+        catch (Exception e) when (IsRefusal(e)) { throw; }
+        catch (Exception e) when (e is (IOException and not EndOfStreamException) or UnauthorizedAccessException) { throw; }
+        catch (Exception e) when (Fatal.Recoverable(e))
         {
             Log.Write($"triage: {archive}: {e}");
             if (e is SharpCompress.Common.CryptographicException or System.Security.Cryptography.CryptographicException)
@@ -439,17 +438,19 @@ public static class TriageCommand
         }
     }
 
-    /// <summary>True when a frame of the exception's stack belongs to the named assembly (the error came from inside it,
-    /// even when a .NET method it called raised it).</summary>
-    static bool RaisedIn(Exception e, string assembly)
+    const string GuardMark = "sf-mod-check unpack guard";
+
+    /// <summary>A guard of the unpack refusing the archive (an entry outside the folder, a name twice, the size cap):
+    /// an InvalidDataException (a sealed type) marked in its Data, so UnpackOther passes it through as it is.</summary>
+    static InvalidDataException Refused(string message)
     {
-        try
-        {
-            return new System.Diagnostics.StackTrace(e, false).GetFrames()
-                .Any(f => f.GetMethod()?.DeclaringType?.Assembly.GetName().Name == assembly);
-        }
-        catch (Exception) { return false; }
+        var e = new InvalidDataException(message);
+        e.Data[GuardMark] = true;
+        return e;
     }
+
+    /// <summary>True for an exception one of the unpack's own guards threw.</summary>
+    public static bool IsRefusal(Exception e) => e is InvalidDataException && e.Data.Contains(GuardMark);
 
     static List<string> UnpackOtherCore(string archive, string dest)
     {
@@ -461,10 +462,10 @@ public static class TriageCommand
         using var a = ArchiveFactory.OpenArchive(archive, new SharpCompress.Readers.ReaderOptions());
         var entries = a.Entries.Where(e => !e.IsDirectory).ToList();
         if (a.IsEncrypted || entries.Any(e => e.IsEncrypted))
-            throw new InvalidDataException("it is password-protected; triage doesn't open encrypted archives");
+            throw Refused("it is password-protected; triage doesn't open encrypted archives");
         long total = entries.Sum(e => Math.Max(0, e.Size)), written = 0;
         if (total > max)
-            throw new InvalidDataException($"it unpacks to {total / (1024 * 1024 * 1024.0):F1} GB, more than the {max / (1024 * 1024 * 1024)} GB this check allows");
+            throw Refused($"it unpacks to {total / (1024 * 1024 * 1024.0):F1} GB, more than the {max / (1024 * 1024 * 1024)} GB this check allows");
         var buffer = new byte[81920];
         // A solid archive or a .7z is read in one pass (entry by entry would decompress it again for every file);
         // SharpCompress allows that pass only for those, so any other archive (a normal .rar) is read entry by entry
@@ -493,12 +494,12 @@ public static class TriageCommand
             var key = e.Key ?? "";
             var name = key.Replace('\\', '/');
             if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(x => x == ".."))
-                throw new InvalidDataException($"the entry \"{key}\" points outside the archive's own folders");
+                throw Refused($"the entry \"{key}\" points outside the archive's own folders");
             var norm = Ba2Names.Normalize(name);
-            if (!seen.Add(norm)) throw new InvalidDataException($"the archive holds \"{key}\" twice (names differ only in case or slashes)");
+            if (!seen.Add(norm)) throw Refused($"the archive holds \"{key}\" twice (names differ only in case or slashes)");
             var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));
             if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException($"the entry \"{key}\" points outside the archive's own folders");
+                throw Refused($"the entry \"{key}\" points outside the archive's own folders");
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             using (var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write))
             {
@@ -508,11 +509,11 @@ public static class TriageCommand
                 {
                     wrote += n; written += n;
                     if ((e.Size >= 0 && wrote > e.Size) || written > max)
-                        throw new InvalidDataException($"the entry \"{key}\" unpacks to more than the archive says it holds");
+                        throw Refused($"the entry \"{key}\" unpacks to more than the archive says it holds");
                     output.Write(buffer, 0, n);
                 }
                 if (e.Size >= 0 && wrote != e.Size)
-                    throw new InvalidDataException($"the entry \"{key}\" unpacked to a different size than the archive says");
+                    throw Refused($"the entry \"{key}\" unpacked to a different size than the archive says");
             }
             files.Add(norm);
         }

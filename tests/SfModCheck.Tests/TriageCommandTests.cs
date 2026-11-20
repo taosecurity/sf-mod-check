@@ -136,7 +136,6 @@ public class TriageCommandTests
         var src = s.Sub("src");
         File.WriteAllText(Path.Combine(src, "Mod.esm"), "x");
         var archive = Path.Combine(s.Dir, "Locked.7z");
-        var psi = new System.Diagnostics.ProcessStartInfo(sevenZip) { RedirectStandardOutput = true, UseShellExecute = false };
         void SevenZip(params string[] args)
         {
             var psi = new System.Diagnostics.ProcessStartInfo(sevenZip) { RedirectStandardOutput = true, UseShellExecute = false };
@@ -151,16 +150,26 @@ public class TriageCommandTests
         Assert.Contains("password-protected", e.Message);
 
         // a damaged archive without a password (fifth review: the encrypted one fails on the password first):
-        // "can't be read", never an unhandled error. Its LZMA data is overwritten, the header kept.
+        // "can't be read as an archive", never an unhandled error and never one of our guards' messages. A .7z keeps
+        // its header at the end, so cutting it in half leaves only the library to fail (sixth review: deterministic).
         var plain = Path.Combine(s.Dir, "Plain.7z");
         File.WriteAllText(Path.Combine(src, "Big.txt"), string.Concat(Enumerable.Range(0, 20000).Select(i => $"line {i} ")));
         SevenZip("a", plain, Path.Combine(src, "Big.txt"));
         var bytes = File.ReadAllBytes(plain);
-        for (int i = 32; i < bytes.Length - 200; i += 3) bytes[i] ^= 0x5A;
         var bad = Path.Combine(s.Dir, "Damaged.7z");
-        File.WriteAllBytes(bad, bytes);
+        File.WriteAllBytes(bad, bytes[..(bytes.Length / 2)]);
         var d = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(bad, Path.Combine(s.Dir, "out2")));
-        Assert.True(d.Message.Contains("can't be read") || d.Message.Contains("unpack"), d.Message);
+        Assert.False(TriageCommand.IsRefusal(d));
+        Assert.Contains("can't be read as an archive", d.Message);
+
+        // a guard's own refusal passes through as it is (an entry outside the folder)
+        var evil = Path.Combine(s.Dir, "Evil.7z");
+        using (var f = File.Create(evil))
+        using (var w = new SevenZipWriter(f, new SevenZipWriterOptions()))
+            w.Write("../evil.txt", new MemoryStream([1, 2, 3]), null);
+        var g = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(evil, Path.Combine(s.Dir, "out3")));
+        Assert.True(TriageCommand.IsRefusal(g));
+        Assert.Contains("points outside", g.Message);
     }
 
     [Fact]
