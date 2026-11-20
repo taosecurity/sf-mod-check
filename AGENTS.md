@@ -202,7 +202,8 @@ Its first line is `sf-mod-check 0.9.0 by Richard Bejtlich - GPL-3.0 - https://gi
         sf-mod-check check sf-mod-check-patch\ConflictPatch.esm
 
     Without `--only` it patches every conflict in the load order. Read `sf-mod-check-patch\patch-report.md` with the
-    user: "Choices" are fields both mods changed; the winner's value is kept unless the user wants the other one,
+    user: "Choices" are fields both mods changed. A list there says "merged entry by entry" (both mods' entries are
+    kept; nothing to choose). For any other field the winner's value is kept unless the user wants the other one,
     then run `patch` again with the `--pick` line the report prints for it, for example
     `--pick 0012AB:Starfield.esm:Value=NewModA.esm`. "Not built" records (cells, worldspaces, placed objects,
     navmeshes, dialogue, scenes) must be done in xEdit; give the user the report's list. The navmesh info map (NAVI)

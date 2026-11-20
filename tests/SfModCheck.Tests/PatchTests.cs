@@ -32,6 +32,7 @@ public class PatchTests
             misc2.Value = 7;
             misc2.Weight = 3;
             var quest = b.Quests.AddNew("B_Quest");
+            quest.Unknown = 7;   // stored in the header of the quest's dialogue group, as in Starfield.esm's quests
 
             quest.DialogTopics.Add(new DialogTopic(b) { EditorID = "B_Topic", Quest = quest.ToLink<IQuestGetter>(), Priority = 50 });
             var cell = new Cell(b) { EditorID = "B_Cell" };
@@ -312,6 +313,47 @@ public class PatchTests
         var patch = game.Open(Path.Combine(game.Out, "ConflictPatch.esm"));
         var quest = Assert.Single(patch.Quests);
         Assert.Equal("A_Keyword", Assert.Single(quest.Keywords!).FormKey.ModKey.FileName == "ModA.esm" ? "A_Keyword" : "?");
+        Assert.Equal("Renamed", quest.Name?.String);
+        Assert.Empty(quest.DialogTopics);
+    }
+
+    // Found by the 0.9.0 clean-folder test (2026-11-20): a quest's Unknown sits in the header of its dialogue group,
+    // which the patch never writes, so the read-back must not compare it (a winner with dialogue made exit 1).
+    [Fact]
+    public void A_patched_quest_whose_winner_has_dialogue_reads_back_clean()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b) =>
+        {
+            var q = m.Quests.GetOrAddAsOverride(b.Quests.First());
+            q.Keywords = [m.Keywords.AddNew("A_Keyword").ToLink<IKeywordGetter>()];
+        });
+        game.Mod("ModB.esm", (m, b) =>
+        {
+            var q = m.Quests.GetOrAddAsOverride(b.Quests.First());
+            q.Name = "Renamed";
+            q.DialogTopics.Clear();
+            q.DialogTopics.Add(new DialogTopic(m) { EditorID = "B2_Topic", Quest = q.ToLink<IQuestGetter>(), Priority = 40 });
+        });
+        // Mutagen 0.54.4 writes 0 there whatever Unknown holds, so set the quest-children group header's last 4 bytes
+        // (GRUP, size, label, type 10, stamp, unknown) the way the game's own plugins hold them.
+        var modB = Path.Combine(game.Data, "ModB.esm");
+        var bytes = File.ReadAllBytes(modB);
+        int at = -1;
+        for (int i = 0; i + 24 <= bytes.Length; i++)
+            if (bytes[i] == 'G' && bytes[i + 1] == 'R' && bytes[i + 2] == 'U' && bytes[i + 3] == 'P' && BitConverter.ToInt32(bytes, i + 12) == 10) { at = i; break; }
+        Assert.True(at >= 0, "no quest-children group in ModB.esm");
+        BitConverter.GetBytes(9).CopyTo(bytes, at + 20);
+        File.WriteAllBytes(modB, bytes);
+        using (var g = new GameData(game.Data))
+        {
+            var bq = g.Open("ModB.esm").Quests.First();
+            Assert.Equal((1, 9), (bq.DialogTopics.Count, bq.Unknown));   // the source really holds it
+        }
+        var (code, stdout, stderr) = game.Patch(new[] { "Base.esm", "ModA.esm", "ModB.esm" });
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("reads back differently", stdout);
+        var quest = Assert.Single(game.Open(Path.Combine(game.Out, "ConflictPatch.esm")).Quests);
         Assert.Equal("Renamed", quest.Name?.String);
         Assert.Empty(quest.DialogTopics);
     }

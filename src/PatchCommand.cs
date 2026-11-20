@@ -912,6 +912,9 @@ public static class PatchCommand
                 }
                 // the written value against the plugin version it was copied from (both read from files)
                 if (!r.Sources.TryGetValue(p.Name, out var src)) continue;   // a reader's bookkeeping, not a stored field (see BuildRecord)
+                // A quest's Unknown is read from the header of its dialogue group, which the patch never writes (child
+                // records aren't built), so it always reads back 0 (0.9.0 clean-folder test, 2026-11-20).
+                if (w is IQuestGetter && p.Name == nameof(IQuestGetter.Unknown)) continue;
                 var sp = src.GetType() == w.GetType() ? p : src.GetType().GetProperty(p.Name);
                 if (sp is null || !FieldCompare.DeepEq(FieldCompare.Get(p, w), FieldCompare.Get(sp, src), 0))
                     diffs.Add($"{r.RecordType} {r.EditorID} [{r.FormKey}]: field {p.Name} reads back differently from the plugin it was copied from");

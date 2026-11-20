@@ -340,7 +340,8 @@ How it builds each record:
 - `--pick`: see step 3. A pick that matches nothing gets a WARNING.
 
 **What it writes** (all in the `--out` folder): the patch; `patch-report.md` (each record and field it forwarded and
-from which plugin, the Choice fields with their `--pick` lines, the records it didn't build, and the next steps); and
+from which plugin, the Choice fields with their `--pick` lines, the records it didn't build, and the next steps; a
+list both plugins changed is listed under Choices too, as "merged entry by entry", with no `--pick` line); and
 `Plugins-with-patch.txt`, your load order with the patch at the end. To check the patch before installing it:
 
     sf-mod-check conflict --plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch
