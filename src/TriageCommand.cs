@@ -478,8 +478,8 @@ public static class TriageCommand
         e is UnauthorizedAccessException or DriveNotFoundException
         || (e is IOException and not (FileNotFoundException or DirectoryNotFoundException or PathTooLongException or EndOfStreamException) &&
             (OperatingSystem.IsWindows()
-                ? (e.HResult & 0xFFFF) is 32 or 33 or 39 or 112   // sharing, lock violation; disk full
-                : e.HResult is 28 or 11 or 30 || e.HResult == (OperatingSystem.IsMacOS() ? 69 : 122)));   // ENOSPC, EAGAIN (a lock), EROFS; EDQUOT per OS
+                ? (e.HResult & 0xFFFF) is 32 or 33 or 39 or 112 or 59 or 64 or 19 or 21   // sharing, lock; disk full; network dropped; write-protected, not ready
+                : e.HResult is 28 or 30 or 5 || e.HResult == (OperatingSystem.IsMacOS() ? 69 : 122) || e.HResult == (OperatingSystem.IsMacOS() ? 35 : 11)));   // ENOSPC, EROFS, EIO; EDQUOT and EAGAIN (a lock) per OS
 
     const string GuardMark = "sf-mod-check unpack guard";
 

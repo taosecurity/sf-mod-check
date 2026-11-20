@@ -69,7 +69,7 @@ public class ReleaseCommandTests
         var caseClash = MakeZip(s, "CaseClash.zip", ("Data", "y"), ("data/Foo.esm", "x"));
         Assert.Contains("also holds as a file", Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(caseClash, Path.Combine(s.Dir, "cc"))).Message);
         // device names are refused
-        foreach (var dev in new[] { "Data/NUL", "nul.esm", "Data/COM1.txt", "AUX/a.esm" })
+        foreach (var dev in new[] { "Data/NUL", "nul.esm", "Data/COM1.txt", "AUX/a.esm", "Data/NUL .txt", "COM0", "Data/a?b.dds", "Data/a|b.esm", "Data/a\u0001.esm" })
             Assert.True(ReleaseCommand.ChangedByWindows(dev), dev);
         Assert.False(ReleaseCommand.ChangedByWindows("Data/Console.esm"));
         Assert.Null(ReleaseCommand.NameClash("data\\a.esm", new(), new()));

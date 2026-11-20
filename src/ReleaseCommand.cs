@@ -324,12 +324,14 @@ public static class ReleaseCommand
     /// extension (fifteenth review). Only the parts before a final "/" count.</summary>
     public static bool ChangedByWindows(string name) =>
         name.TrimEnd('/').Split('/').Any(p => p.Length == 0 || p == "." || p.EndsWith('.') || p.EndsWith(' ')   // also an empty part ("Data//a.esm")
-                                             || DeviceNames.Contains(p.Split('.')[0]));   // CON, NUL, COM1 ...: a device, not a file (seventeenth review)
+                                             || DeviceNames.Contains(p.Split('.')[0].TrimEnd(' '))   // "NUL .txt" too
+                                             || p.Any(c => c < 0x20 || "<>\"|?*".Contains(c)));   // characters Windows can't write in a name (eighteenth review)
 
     static readonly HashSet<string> DeviceNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "CONIN$", "CONOUT$",
+        "COM0", "LPT0", "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³",   // CON, NUL, COM1 ...: devices, not files
     };
 
     /// <summary>A file and a folder of the same name across an archive's entries, compared by normalized name (lower
@@ -362,7 +364,9 @@ public static class ReleaseCommand
     /// names, duplicate names, names Windows changes and a file and a folder of the same name, rather than skipping them,
     /// so a damaged or crafted zip never gets an OK. Throws InvalidDataException for anything about the zip's contents
     /// (those refusals, and any other error reading or writing an entry, naming it), and lets a problem of the PC through
-    /// as itself (TriageCommand.IsPcProblem: no permission, a lock, the disk full). Callers catch both (0.8.0 review).</summary>
+    /// as itself (TriageCommand.IsFileSystem: a file or folder not found, a path too long, and IsPcProblem's no
+    /// permission, a lock, the disk full, a network drive that dropped). Callers catch InvalidDataException and
+    /// IOException / UnauthorizedAccessException (0.8.0 review).</summary>
     public static ReleasePackage Unpack(string zip, string dest)
     {
         Directory.CreateDirectory(dest);
