@@ -32,7 +32,6 @@ public class PatchTests
             misc2.Value = 7;
             misc2.Weight = 3;
             var quest = b.Quests.AddNew("B_Quest");
-            quest.Unknown = 7;   // stored in the header of the quest's dialogue group, as in Starfield.esm's quests
 
             quest.DialogTopics.Add(new DialogTopic(b) { EditorID = "B_Topic", Quest = quest.ToLink<IQuestGetter>(), Priority = 50 });
             var cell = new Cell(b) { EditorID = "B_Cell" };
@@ -145,6 +144,31 @@ public class PatchTests
         Assert.True(a.Any(l => l.Contains("nothing new over ModD.esm's list")), string.Join("\n", report));
         Assert.DoesNotContain(a, l => l.Contains("adds"));
         Assert.True(c.Any(l => l.Contains("adds 1 entry") && l.Contains("C\\_K")), string.Join("\n", report));
+    }
+
+    // Relay step 8 /code-review (2026-11-20): the Choices heading counts merged lists and says how to take one
+    // plugin's whole list instead, and that --pick really does it.
+    [Fact]
+    public void Merged_lists_are_counted_in_the_Choices_heading_and_a_pick_takes_one_whole_list()
+    {
+        using var game = new Game();
+        game.Mod("ModC.esm", (m, b) => Misc(m, b).Keywords!.Add(m.Keywords.AddNew("C_K").ToLink<IKeywordGetter>()));
+        game.Mod("ModD.esm", (m, b) => Misc(m, b).Keywords!.Add(BaseKeyword(b, "B_K1")));
+        var order = new[] { "Base.esm", "ModC.esm", "ModD.esm" };
+        var (code, stdout, stderr) = game.Patch(order);
+        Assert.True(code == 0, stdout + stderr);
+        using (var g = new GameData(game.Data, [game.Out]))   // closed again before the second run rewrites the patch
+            Assert.Equal(3, Assert.Single(g.Open("ConflictPatch.esm").MiscItems).Keywords!.Count);
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("0 kept the winner's value, 1 lists merged entry by entry)", report);
+        Assert.Contains("to use one plugin's whole list instead, add `--pick <FormKey>:<Field>=<plugin>`", report);
+
+        (code, stdout, stderr) = game.Patch(order, "--pick", "000800:Base.esm:Keywords=ModC.esm");
+        Assert.True(code == 0, stdout + stderr);
+        var kw = Assert.Single(game.Open(Path.Combine(game.Out, "ConflictPatch.esm")).MiscItems).Keywords!;
+        Assert.Equal(2, kw.Count);   // B_K0 and C_K: ModC's whole list, not the merge
+        report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.DoesNotContain("lists merged entry by entry", report);
     }
 
     [Fact]

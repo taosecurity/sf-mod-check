@@ -341,7 +341,8 @@ How it builds each record:
 
 **What it writes** (all in the `--out` folder): the patch; `patch-report.md` (each record and field it forwarded and
 from which plugin, the Choice fields with their `--pick` lines, the records it didn't build, and the next steps; a
-list both plugins changed is listed under Choices too, as "merged entry by entry", with no `--pick` line); and
+list both plugins changed is listed under Choices too, as "merged entry by entry", with no `--pick` line, though
+`--pick <FormKey>:<Field>=<plugin>` still takes that plugin's whole list if you prefer it); and
 `Plugins-with-patch.txt`, your load order with the patch at the end. To check the patch before installing it:
 
     sf-mod-check conflict --plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch

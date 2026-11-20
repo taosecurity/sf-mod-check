@@ -23,7 +23,9 @@
   in the load order is left out while the new one is built. Text from plugins in `patch-report.md` (EditorIDs,
   values, file names) is escaped the same way as in `conflict`'s report, so a mod's text can't turn into a link,
   an image or HTML in a Markdown viewer. A patched quest whose winning version has dialogue reads back clean (its
-  `Unknown` value lives in the header of the dialogue group, which the patch doesn't copy).
+  `Unknown` value lives in the header of the dialogue group, which the patch doesn't copy). The report's Choices
+  heading counts the lists merged entry by entry, and says that `--pick <FormKey>:<Field>=<plugin>` takes one
+  plugin's whole list instead.
 - `conflict`: a forwardable conflict's recommendation now names `sf-mod-check patch` first, before xEdit and the AI
   prompt.
 

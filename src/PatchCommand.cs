@@ -913,8 +913,12 @@ public static class PatchCommand
                 // the written value against the plugin version it was copied from (both read from files)
                 if (!r.Sources.TryGetValue(p.Name, out var src)) continue;   // a reader's bookkeeping, not a stored field (see BuildRecord)
                 // A quest's Unknown is read from the header of its dialogue group, which the patch never writes (child
-                // records aren't built), so it always reads back 0 (0.9.0 clean-folder test, 2026-11-20).
-                if (w is IQuestGetter && p.Name == nameof(IQuestGetter.Unknown)) continue;
+                // records aren't built), so it always reads back 0 (0.9.0 clean-folder test, 2026-11-20). Nothing is lost:
+                // with no dialogue group in the patch there is no header to hold it, and the quest's dialogue (and its
+                // group) still comes from the plugins that have one. Mutagen 0.54.4 writes 0 there for every quest it
+                // writes, so the in-game-proven mergepatch patches did the same. Skipped only in that case: a written
+                // quest with no dialogue and Unknown 0; any other mismatch is still reported.
+                if (w is IQuestGetter wq && p.Name == nameof(IQuestGetter.Unknown) && wq.Unknown == 0 && wq.DialogTopics.Count == 0) continue;
                 var sp = src.GetType() == w.GetType() ? p : src.GetType().GetProperty(p.Name);
                 if (sp is null || !FieldCompare.DeepEq(FieldCompare.Get(p, w), FieldCompare.Get(sp, src), 0))
                     diffs.Add($"{r.RecordType} {r.EditorID} [{r.FormKey}]: field {p.Name} reads back differently from the plugin it was copied from");
@@ -975,11 +979,14 @@ public static class PatchCommand
         }
         var kept = plan.Choices.Count(c => !c.Picked && !c.Forward);
         var later = plan.Choices.Count(c => !c.Picked && c.Forward);
+        var mergedLists = plan.Choices.Count(c => c.Merged);
         if (plan.Choices.Count > 0)
         {
-            sb.AppendLine($"## Choices ({plan.Choices.Count}; {kept} kept the winner's value{(later > 0 ? $", {later} used the later of two losing plugins' values" : "")})");
+            sb.AppendLine($"## Choices ({plan.Choices.Count}; {kept} kept the winner's value{(later > 0 ? $", {later} used the later of two losing plugins' values" : "")}{(mergedLists > 0 ? $", {mergedLists} lists merged entry by entry" : "")})");
             sb.AppendLine();
             sb.AppendLine("Both plugins changed these fields, so there is no safe automatic answer. To use the other plugin's value, run the same command again with the --pick line shown.");
+            if (mergedLists > 0)
+                sb.AppendLine("A list marked \"merged entry by entry\" keeps both plugins' entries and has no --pick line; to use one plugin's whole list instead, add `--pick <FormKey>:<Field>=<plugin>`.");
             sb.AppendLine();
             foreach (var c in plan.Choices)
             {
