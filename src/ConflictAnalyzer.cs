@@ -85,6 +85,11 @@ public record AssetFinding(string Plugin, MissingAsset Asset);
 
 public static class Analyzer
 {
+    /// <summary>A lost change's Injected answer: false when the owning plugin holds a version, unknown (null) when it
+    /// doesn't but the owner (or its version) wasn't read in full, true otherwise (0.10.0 code review rounds 2 and 3).</summary>
+    internal static bool? Injection(bool ownerHoldsAVersion, bool ownerNotReadInFull) =>
+        ownerHoldsAVersion ? false : ownerNotReadInFull ? null : true;
+
     // INavigationMeshGetter -> NavigationMesh, IIdleMarkerGetter -> IdleMarker (TrimStart('I') ate every leading I).
     public static string TypeShort(Type t) =>
         t.Name.StartsWith('I') && t.Name.EndsWith("Getter") && t.Name.Length > "IGetter".Length ? t.Name[1..^"Getter".Length] : t.Name;
@@ -661,13 +666,9 @@ public static class Analyzer
             if (lostByPair.Count > 0)
             {
                 var owner = formKey.ModKey;
-                if (versions[0].Plugin.Mod.ModKey == owner
-                    || (firstHolder.TryGetValue(formKey, out var holder) && holder.Plugin.Mod.ModKey == owner))
-                    injected = false;
-                else if (partly.Any(p => p.Mod.ModKey == owner) || typeUnread.Any(t => t.Plugin.Mod.ModKey == owner))
-                    injected = null;
-                else
-                    injected = true;
+                injected = Injection(
+                    versions[0].Plugin.Mod.ModKey == owner || (firstHolder.TryGetValue(formKey, out var holder) && holder.Plugin.Mod.ModKey == owner),
+                    partly.Any(p => p.Mod.ModKey == owner) || typeUnread.Any(t => t.Plugin.Mod.ModKey == owner));
             }
             foreach (var ((i, k), lost) in lostByPair)
             {

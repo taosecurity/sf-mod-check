@@ -239,7 +239,26 @@ public class ReleaseCreationsTests
             ("Snd - Main.ba2", Ba2("GNRL", "sound/voice/a.wem")), ("Snd - Main_xbox.ba2", Ba2("GNRL", "sound/voice/a.wem")));
         var f = Run(s, zip);
         var audio = Assert.Single(Of(f, "creations-audio", Level.Warning));
-        Assert.StartsWith("Snd-0.1.0.zip:Snd - Main.ba2 and Snd - Main_xbox.ba2 (1): 1 sound file.", audio.Text);
+        Assert.StartsWith("Snd-0.1.0.zip:Snd - Main.ba2 (1 sound file) and Snd - Main_xbox.ba2 (1 sound file).", audio.Text);
+    }
+
+    [Fact]
+    public void Archives_of_the_same_name_in_two_folders_are_checked_apart()
+    {
+        // 0.10.0 code review round 3: lists keyed by file name mixed two folders' archives, and paired twins across folders
+        using var s = new Sandbox();
+        var pex = PexBytes.Build([new PObj("MyMod:Quest", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code: [Notify("Hello")])])])]);
+        var zip = MakeZip(s, "Opt-0.1.0.zip", ("Opt.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("OptionA/Opt - Main.ba2", Ba2("DX10", "textures/a.dds")),
+            ("OptionB/Opt - Main.ba2", Ba2("GNRL", "sound/voice/a.wem")),
+            ("OptionB/Opt - Main_xbox.ba2", Ba2Stored(("scripts/mymod/quest.pex", pex))));
+        var f = Run(s, zip);
+        // OptionA's textures have no twin in OptionA, though OptionB has one
+        Assert.True(Of(f, "creations-xbox", Level.Problem).Count == 1, List(f));
+        // one sound WARNING, for OptionB's PC archive only (its twin holds no sound)
+        Assert.Equal("Opt-0.1.0.zip:Opt - Main.ba2: 1 sound file.", Assert.Single(Of(f, "creations-audio", Level.Warning)).Text.Split(" PC-format")[0]);
+        // OptionB's twin script is read: no PC archive in its folder holds it
+        Assert.Single(Of(f, "creations-debug", Level.Warning));
     }
 
     [Fact]

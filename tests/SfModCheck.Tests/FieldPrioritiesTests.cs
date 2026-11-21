@@ -68,12 +68,22 @@ public class FieldPrioritiesTests
     }
 
     [Fact]
+    public void The_analyzer_answers_unknown_when_the_owner_wasnt_read_in_full()
+    {
+        // 0.10.0 code review round 3: the three answers the analyzer gives a lost change
+        Assert.False(Analyzer.Injection(ownerHoldsAVersion: true, ownerNotReadInFull: true));
+        Assert.False(Analyzer.Injection(ownerHoldsAVersion: true, ownerNotReadInFull: false));
+        Assert.Null(Analyzer.Injection(ownerHoldsAVersion: false, ownerNotReadInFull: true));
+        Assert.True(Analyzer.Injection(ownerHoldsAVersion: false, ownerNotReadInFull: false));
+    }
+
+    [Fact]
     public void The_analyzers_injection_answer_wins_over_the_first_version()
     {
         // 0.10.0 code review: Starfield.esm holds the record (as another type, say), so the pass's first version is a mod's; not an injection
-        var partlyRead = L("Keyword", "000801:Starfield.esm", "ModA.esm", "Color") with { Injected = false };
-        Assert.False(FieldPriorityTable.IsInjected(partlyRead));
-        Assert.Equal(FieldPriority.Normal, T.Top(partlyRead));
+        var ownerHoldsIt = L("Keyword", "000801:Starfield.esm", "ModA.esm", "Color") with { Injected = false };
+        Assert.False(FieldPriorityTable.IsInjected(ownerHoldsIt));
+        Assert.Equal(FieldPriority.Normal, T.Top(ownerHoldsIt));
         Assert.True(FieldPriorityTable.IsInjected(L("Keyword", "000801:Starfield.esm", "Starfield.esm", "Color") with { Injected = true }));
         // round 2: no answer (owner read only partly) falls back to the first version, so a possible injection stays critical
         var unknown = L("Keyword", "000801:Starfield.esm", "ModA.esm", "Color") with { Injected = null };
