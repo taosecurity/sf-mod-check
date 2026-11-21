@@ -102,21 +102,57 @@ public class DiffCommandTests
         Assert.Contains("doesn't exist", DiffCommand.OutProblem(Path.Combine(s.Dir, "nofolder", "r.txt"), a, a));
     }
 
-    [Fact]
+    [LinksFact]
     public void Out_and_log_through_a_link_into_an_input_folder_are_refused()
     {
-        // code-review medium round 2 (0.11.0): a junction or link to the input folder got past the guard
+        // code-review medium rounds 2 and 3 (0.11.0): a junction or link to the input folder got past the guard
         using var s = new Sandbox();
         var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
         var folder = s.Sub("mod");
         var link = Path.Combine(s.Dir, "link");
-        if (!FollowUps091Tests.TryLink(link, folder, folder: true)) return;   // links can't be made here (no rights)
+        Assert.True(FollowUps091Tests.TryLink(link, folder, folder: true));
         Assert.Equal(DiffCommand.RealPath(folder), DiffCommand.RealPath(link));
         Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(link, "readme.txt"), folder, a));
         Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(link, "readme.txt"), folder, a, "--log"));
-        Assert.Contains("both --out and --log", DiffCommand.LogProblem(new DiffOptions
-            { Old = a, New = a, Out = Path.Combine(s.Dir, "r.txt"), Log = Path.Combine(link, "..", "r.txt") }));
         Assert.Null(DiffCommand.OutProblem(Path.Combine(s.Dir, "report.txt"), folder, a));
+
+        // the same file reached once directly and once through a link (outside the inputs)
+        var other = s.Sub("other");
+        var otherLink = Path.Combine(s.Dir, "otherlink");
+        Assert.True(FollowUps091Tests.TryLink(otherLink, other, folder: true));
+        Assert.Contains("both --out and --log", DiffCommand.LogProblem(new DiffOptions
+            { Old = a, New = a, Out = Path.Combine(other, "r.txt"), Log = Path.Combine(otherLink, "R.txt") }));
+
+        // a link whose target holds another link: both are followed
+        var hop = s.Sub("hop");
+        Assert.True(FollowUps091Tests.TryLink(Path.Combine(hop, "inner"), s.Dir, folder: true));
+        var outer = Path.Combine(s.Dir, "outer");
+        Assert.True(FollowUps091Tests.TryLink(outer, Path.Combine(hop, "inner", "mod"), folder: true));
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(outer, "r.txt"), folder, a));
+    }
+
+    [UnixFact]
+    public void On_linux_dot_dot_after_a_link_goes_up_from_the_real_folder()
+    {
+        // code-review medium round 3 (0.11.0): /tmp/l -> <input>/sub; /tmp/l/../r.txt is <input>/r.txt to the kernel
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var folder = s.Sub("mod");
+        var sub = Directory.CreateDirectory(Path.Combine(folder, "sub")).FullName;
+        var link = Path.Combine(s.Dir, "l");
+        Directory.CreateSymbolicLink(link, sub);
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(link + "/../r.txt", folder, a));
+    }
+
+    [Fact]
+    public void The_input_checks_ignore_case_on_every_system()
+    {
+        // code-review medium round 3 (0.11.0): case-blind folders (WSL /mnt/c, NTFS, exFAT) exist on Linux too
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var folder = s.Sub("ModA");
+        Directory.CreateDirectory(Path.Combine(s.Dir, "moda"));   // on Linux a second folder; on Windows the same one
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(s.Dir, "moda", "r.txt"), folder, a));
     }
 
     // ---- pairing ----

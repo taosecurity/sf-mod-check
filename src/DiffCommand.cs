@@ -176,38 +176,54 @@ public static class DiffCommand
         return null;
     }
 
-    /// <summary>File names ignore case on Windows (and on the default macOS volumes) and not on Linux.</summary>
-    static StringComparison PathCase => OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+    /// <summary>The refusal checks always ignore case, on Linux too: a folder that ignores case (WSL's /mnt/c, NTFS or
+    /// exFAT mounts) would otherwise let a path into an input. A wrong refusal costs a message; a wrong pass writes into
+    /// an input.</summary>
+    const StringComparison PathCase = StringComparison.OrdinalIgnoreCase;
 
-    /// <summary>The full path with every link or junction on the way followed (the parts that exist); the full path as it
-    /// is when a link can't be read. Used only to compare paths, never to open them.</summary>
-    public static string RealPath(string path)
+    /// <summary>Where a path really goes, with every symbolic link and junction on the way followed (in the parts that
+    /// exist, also inside a link's own target), for comparing paths only, never for opening them. ".." is applied the way
+    /// the system does: by text on Windows (before any link is followed), and to the real folder on Linux and macOS.
+    /// Null when that can't be worked out: a link to a mounted volume (\\?\Volume{...}), more than 40 links, or an error
+    /// reading a link. Hard links aren't detected.</summary>
+    public static string? RealPath(string path)
     {
-        var full = System.IO.Path.GetFullPath(path);
-        try
+        int hops = 0;
+        try { return Walk(OperatingSystem.IsWindows() ? System.IO.Path.GetFullPath(path) : Absolute(path)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
         {
-            var root = System.IO.Path.GetPathRoot(full) ?? "";
+            return null;
+        }
+
+        static string Absolute(string p) => System.IO.Path.IsPathRooted(p) ? p : System.IO.Path.Combine(Environment.CurrentDirectory, p);
+
+        string? Walk(string p)
+        {
+            var root = System.IO.Path.GetPathRoot(p) ?? "";
             var cur = root;
-            var parts = full[root.Length..].Split(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i < parts.Length; i++)
+            bool exists = true;   // once a part doesn't exist, nothing after it can be a link
+            foreach (var part in p[root.Length..].Split(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
             {
-                var next = System.IO.Path.Combine(cur, parts[i]);
-                FileSystemInfo info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
-                if (!info.Exists) return System.IO.Path.Combine([next, .. parts[(i + 1)..]]);
-                // LinkTarget by hand, not ResolveLinkTarget: Windows refuses to follow a junction that way ("untrusted mount
-                // point"). A chain of links is followed up to 40 times; a link to a link resolves on the next pass.
-                for (int hops = 0; hops < 40 && info.LinkTarget is { } target; hops++)
+                if (part == ".") continue;
+                if (part == "..") { cur = System.IO.Path.GetDirectoryName(cur) ?? cur; continue; }
+                var next = System.IO.Path.Combine(cur, part);
+                if (exists)
                 {
-                    next = System.IO.Path.GetFullPath(target, System.IO.Path.GetDirectoryName(next) ?? root);
-                    info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
+                    FileSystemInfo info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
+                    exists = info.Exists;
+                    // LinkTarget by hand, not ResolveLinkTarget: Windows refuses to follow a junction that way ("untrusted
+                    // mount point"). The target is walked again, so links inside it are followed too.
+                    if (exists && info.LinkTarget is { } target)
+                    {
+                        if (++hops > 40 || target.Contains("Volume{", StringComparison.OrdinalIgnoreCase)) return null;
+                        var t = System.IO.Path.IsPathRooted(target) ? target : System.IO.Path.Combine(cur, target);
+                        if (Walk(OperatingSystem.IsWindows() ? System.IO.Path.GetFullPath(t) : t) is not { } resolved) return null;
+                        next = resolved;
+                    }
                 }
                 cur = next;
             }
             return cur;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            return full;
         }
     }
 
@@ -221,7 +237,7 @@ public static class DiffCommand
         {
             try
             {
-                if (string.Equals(RealPath(o.Out), RealPath(o.Log), PathCase))
+                if (RealPath(o.Out) is { } ro && RealPath(o.Log) is { } rl && string.Equals(ro, rl, PathCase))
                     return $"can't use one file for both --out and --log ({System.IO.Path.GetFullPath(o.Out)}). Give them different files, " +
                            "for example --out diff-report.txt --log diff-log.txt";
             }
@@ -249,11 +265,13 @@ public static class DiffCommand
         if (ext is ".esm" or ".esp" or ".esl" or ".ba2" or ".zip" or ".7z" or ".rar" or ".pex")
             return $"won't write {what} to {full}: that name is a plugin, archive or script, and {what} would overwrite it. " +
                    $"Give {option} a .txt{(option == "--log" ? "" : " or .json")} file, for example {example}";
-        // links and junctions are followed on both sides, so a path through a link to an input folder is refused too
-        var real = RealPath(full);
+        // symbolic links and junctions are followed on both sides, so a path through a link to an input folder is refused too
+        if (RealPath(outFile) is not { } real)
+            return $"can't use {option} {full}: it goes through a mounted volume or too many links, so diff can't check that it stays " +
+                   $"out of its inputs. Give {option} a plain path, for example {example}";
         foreach (var input in new[] { oldInput, newInput })
         {
-            var inFull = RealPath(input).TrimEnd('\\', '/');
+            var inFull = (RealPath(input) ?? System.IO.Path.GetFullPath(input)).TrimEnd('\\', '/');
             if (string.Equals(real, inFull, PathCase))
                 return $"won't write {what} to {full}: that is one of the inputs. Give {option} another file.";
             if (Directory.Exists(inFull) && real.StartsWith(inFull + System.IO.Path.DirectorySeparatorChar, PathCase))

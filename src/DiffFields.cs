@@ -186,7 +186,7 @@ public static class DiffFields
     /// <summary>Compares the fields of every record in d.Changed. A record whose fields are all equal moves to d.Noise
     /// (its type's Changed count goes down and Noise up); the rest keep the fields that differ. When a plugin can't be
     /// read with Mutagen, or a record isn't found there, the record stays changed with NotCompared saying why.</summary>
-    /// <summary>name: the plugin as the rest of the log shows it (its spelling on disk); default the new file's name.</summary>
+    /// <param name="name">The plugin as the rest of the log shows it (its spelling on disk); default the new file's name.</param>
     public static void Apply(PluginDiff d, string? name = null)
     {
         name ??= Path.GetFileName(d.New.Path);

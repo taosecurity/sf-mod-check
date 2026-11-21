@@ -182,7 +182,8 @@ public sealed class DiffDetails
                           "folder), so those records are shown by FormKey only. Give --data the game's Data folder.");
         if (Names.DamagedMasters.Count > 0)
             sb.AppendLine($"  note: {string.Join(", ", Names.DamagedMasters)} {(Names.DamagedMasters.Count == 1 ? "is" : "are")} damaged (the file stops early), " +
-                          "so some of its records are shown by FormKey only. Get a good copy of the master (for the game's own files, verify them in Steam).");
+                          $"so some of {(Names.DamagedMasters.Count == 1 ? "its" : "their")} records are shown by FormKey only. " +
+                          $"Get a good copy of {(Names.DamagedMasters.Count == 1 ? "the master" : "each one")} (for the game's own files, verify them in Steam).");
         if (Cells.Count > 0)
         {
             int n = Cells.Sum(c => c.Total);
