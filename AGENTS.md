@@ -86,8 +86,12 @@ Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (
 
 Its first line is `sf-mod-check 0.10.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
-`--quiet` is given. (Use the full path, such as `C:\Tools\sf-mod-check\sf-mod-check.exe
---version`, when the folder isn't on PATH.)
+`--quiet` is given; its stdout starts with the plugin's summary line and ends with the RESULT line. (Use the full
+path, such as `C:\Tools\sf-mod-check\sf-mod-check.exe --version`, when the folder isn't on PATH.)
+
+The examples below are written for PowerShell or cmd. In Git Bash, put Windows paths in single quotes so the
+backslashes stay as they are. The first `check` also writes small caches (section 6, "Caches";
+`SFMODCHECK_CACHE_DIR` moves them).
 
 ## 5. Common tasks
 
@@ -274,7 +278,7 @@ Its first line is `sf-mod-check 0.10.0 by Richard Bejtlich - GPL-3.0 - https://g
   setup. Scripts should read the exit code and the JSON.
 - **Exit codes (`check`):** 0 = no errors (warnings allowed); 1 = errors; 2 = couldn't check (bad arguments, a missing file or
   folder, a file it couldn't open, or it ran out of memory: then no result is shown for an unfinished check).
-- **Log:** only when asked: `--log <file>` writes it to that file (overwritten each run; a plugin or archive name is refused), `--verbose` to stderr. It
+- **Log:** only when asked: `--log <file>` writes it to that file (a relative name is in the current folder; overwritten each run; a plugin or archive name is refused), `--verbose` to stderr. It
   holds the version, the arguments, the plugin, the Data folder and why it was chosen, where each master was found (or
   every place looked), the caches used or rebuilt, the time per stage, a count of findings per check, and on a crash
   the full error. It names folders on your PC: read it before posting it anywhere.
