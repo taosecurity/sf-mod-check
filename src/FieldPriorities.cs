@@ -104,7 +104,6 @@ public sealed class FieldPriorityTable
 
     /// <summary>One field's priority in a lost change, with the run-time rules (see the top of this file).
     /// injected: the record's first version isn't in the plugin that owns its FormID.</summary>
-
     public FieldPriority Of(string mutagenClass, string field, bool injected = false)
     {
         var sig = SignatureOf(mutagenClass);

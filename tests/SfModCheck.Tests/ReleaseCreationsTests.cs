@@ -218,6 +218,20 @@ public class ReleaseCreationsTests
         Assert.Null(ReleaseCreations.IsPluginInstalledTargets(none));
     }
 
+    [Fact]
+    public void A_tested_plugin_name_stays_on_one_line_in_the_warning()
+    {
+        var pex = Pex.Read(PexBytes.Build([new PObj("MyMod:Q", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:
+        [
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Str("a\nb\"c\\d\u0001")),
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Str(new string('x', 100))),
+        ])])])]), "Q.pex");
+        var t = ReleaseCreations.IsPluginInstalledTargets(pex)!;
+        Assert.Equal("\"a\\nb\\\"c\\\\d\\u0001\"", t[0]);
+        Assert.Equal("\"" + new string('x', 80) + "...\"", t[1]);
+        Assert.DoesNotContain(t, s => s.Any(char.IsControl));
+    }
+
     /// <summary>A version 1 general BA2 holding these files stored (not packed), so scripts can be read from it.</summary>
     static byte[] Ba2Stored(params (string Name, byte[] Data)[] files)
     {

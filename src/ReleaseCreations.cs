@@ -283,8 +283,31 @@ public static class ReleaseCreations
             && c.Type.Equals("Game", StringComparison.OrdinalIgnoreCase)
             && c.Name.Equals("IsPluginInstalled", StringComparison.OrdinalIgnoreCase)).ToList();
         if (calls.Count == 0) return null;
-        return calls.Select(c => c.Args.Count > 0 && c.Args[0].IsStr ? $"\"{c.Args[0].Text}\"" : "a name held in a variable")
+        return calls.Select(c => c.Args.Count > 0 && c.Args[0].IsStr ? Quoted(c.Args[0].Text) : "a name held in a variable")
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>A string from a script, in quotes, safe for a one-line finding: backslashes, quotes and control
+    /// characters escaped, and cut to 80 characters with "..." (code review round 8: a name with a newline split
+    /// the WARNING in two).</summary>
+    public static string Quoted(string s)
+    {
+        const int Max = 80;
+        var cut = s.Length > Max;
+        var sb = new System.Text.StringBuilder("\"");
+        foreach (var ch in cut ? s[..Max] : s)
+            sb.Append(ch switch
+            {
+                '\\' => "\\\\",
+                '"' => "\\\"",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
+                _ => ch.ToString(),
+            });
+        if (cut) sb.Append("...");
+        return sb.Append('"').ToString();
     }
 
     /// <summary>(object, function) for each Debug.Notification or Debug.MessageBox call the player would see: not in a
