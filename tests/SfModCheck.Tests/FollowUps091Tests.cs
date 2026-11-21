@@ -11,6 +11,7 @@ using Xunit;
 
 namespace SfModCheck.Tests;
 
+[Collection(ReleaseStatics.Name)]   // changes ReleaseCommand.MaxEntries
 public class FollowUps091Tests
 {
     static string MakeZip(Sandbox s, string name, params (string Path, string Text)[] entries)
@@ -49,6 +50,7 @@ public class FollowUps091Tests
         {
             var z = Assert.Throws<InvalidDataException>(() => ReleaseCommand.Unpack(zip, Path.Combine(s.Dir, "z")));
             Assert.Contains("it holds 5 entries, more than the 4 this check allows", z.Message);
+            Assert.Contains("unpack it yourself and run sf-mod-check triage on the unpacked folder", z.Message);   // the fix (code review of 0.9.1)
             Assert.False(Directory.Exists(Path.Combine(s.Dir, "z", "a.txt")) || File.Exists(Path.Combine(s.Dir, "z", "a.txt")));   // refused before anything is written
             var x = Assert.Throws<InvalidDataException>(() => TriageCommand.UnpackOther(sevenZip, Path.Combine(s.Dir, "x")));
             Assert.True(TriageCommand.IsRefusal(x));   // the guard's own words, not "can't be read"
@@ -193,11 +195,95 @@ public class FollowUps091Tests
         Assert.Equal(["b.esm", "scripts\\a.pex"], files);   // one name each, never the same name twice
         if (caseSensitive)
         {
+            // each named by its own spelling: the lower-case one is kept, the other skipped (code review of 0.9.1)
             var clash = Assert.Single(skipped);
-            Assert.Equal("scripts\\a.pex", clash.File);
-            Assert.Contains("same name apart from upper and lower case", clash.Why);
+            Assert.Equal("Scripts\\a.pex", clash.File);
+            Assert.Equal(TriageCommand.CaseWhyFor("scripts\\a.pex"), clash.Why);
+            Assert.StartsWith("skipped: it has the same name as scripts\\a.pex apart from upper and lower case", clash.Why);
         }
         else Assert.Empty(skipped);
+    }
+
+    [Fact]
+    public void Case_twins_are_named_by_their_own_spellings_in_the_look_and_the_table()
+    {
+        // code review of 0.9.1: on Linux both files showed as the lower-case name, so the report couldn't say which one
+        // was read. Neither spelling is all lower case here, so the kept one is the first in ordinal order.
+        using var s = new Sandbox();
+        var root = s.Sub("mod");
+        Directory.CreateDirectory(Path.Combine(root, "SCRIPTS"));
+        File.WriteAllText(Path.Combine(root, "SCRIPTS", "a.pex"), "kept");
+        if (File.Exists(Path.Combine(root, "Scripts", "A.pex")) || Directory.Exists(Path.Combine(root, "Scripts")))
+            return;   // names ignore case here (Windows, macOS's default): two such files can't exist
+        Directory.CreateDirectory(Path.Combine(root, "Scripts"));
+        File.WriteAllText(Path.Combine(root, "Scripts", "A.pex"), "skipped");
+        File.WriteAllText(Path.Combine(root, "b.esm"), "b");
+
+        var skipped = new List<(string File, string Why)>();
+        var kept = new Dictionary<string, string>(StringComparer.Ordinal);
+        var (_, files) = TriageCommand.Gather(TriageInputKind.Folder, root, "unused", skipped, kept);
+        Assert.Equal(["b.esm", "scripts\\a.pex"], files);
+        Assert.Equal("SCRIPTS\\a.pex", kept["scripts\\a.pex"]);
+        var twin = Assert.Single(skipped);
+        Assert.Equal("Scripts\\A.pex", twin.File);
+        Assert.Contains("same name as SCRIPTS\\a.pex", twin.Why);
+
+        var c = new TriageContext
+        {
+            Options = new TriageOptions(), Kind = TriageInputKind.Folder, InputPath = root, Root = root, Files = files,
+            DataPrefix = "", DataDir = Path.Combine(root, "no-game"), Work = root, Report = new TriageReport { InputName = "Mod" },
+            Skipped = skipped, CaseKept = kept,
+        };
+        Assert.Equal("kept", File.ReadAllText(c.Full("scripts\\a.pex")));   // Full reads the kept spelling, not the first match
+        var f = TriageFiles.Run(c).ToList();
+        var look = Assert.Single(f, x => x.Level == TriageLevel.Look && x.File == "Scripts\\A.pex");
+        Assert.Contains("only SCRIPTS\\a.pex is checked", look.Text);
+        var every = c.Report.Tables.Single(t => t.Title == "Every file");
+        Assert.Equal(["b.esm", "SCRIPTS\\a.pex", "Scripts\\A.pex"], every.Rows.Select(r => r[0]));
+        Assert.Equal("4", every.Rows[1][1]);   // "kept" is 4 bytes: the kept file was hashed
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes("kept"))).ToLowerInvariant(), every.Rows[1][2]);
+        Assert.Equal("same name", every.Rows[2][1]);
+    }
+
+    [Fact]
+    public void The_scripts_section_names_a_linked_archive_it_could_not_read()
+    {
+        // code review of 0.9.1: with the .ba2 beside a plugin set aside as a link, "the mod has no compiled scripts" was wrong
+        using var s = new Sandbox();
+        var root = s.Sub("mod");
+        File.WriteAllText(Path.Combine(root, "foo.esm"), "x");
+        var c = Context(root, ["foo.esm"], [("foo - main.ba2", TriageCommand.LinkWhy)]);
+        var note = Assert.Single(TriageScripts.Run(c), x => x.File == "");
+        Assert.Equal(TriageLevel.Note, note.Level);
+        Assert.Equal("The files triage read hold no compiled scripts (.pex). It skipped foo - main.ba2 because it is a link, so any scripts in there weren't read.", note.Text);
+        // a file skipped for another reason (here its name's case) isn't named
+        var other = Context(root, ["foo.esm"], [("Foo.esm", TriageCommand.CaseWhyFor("foo.esm"))]);
+        Assert.Equal("The mod has no compiled scripts (.pex), loose or in its archives.", Assert.Single(TriageScripts.Run(other)).Text);
+    }
+
+    [Fact]
+    public void A_folder_scan_asks_once_per_reparse_point()
+    {
+        // code review of 0.9.1: the transform and both predicates each asked, so a reparse point's log line came up to three
+        // times. The scan's cache asks once per path, and a plain file never asks.
+        using var s = new Sandbox();
+        var root = s.Sub("mod");
+        var plain = Path.Combine(root, "a.esm");
+        File.WriteAllText(plain, "a");
+        var outside = s.Sub("outside");
+        var link = Path.Combine(root, "Linked");
+        Assert.True(TryLink(link, outside, folder: true), "a folder link (junction or symlink) couldn't be made");
+        var cache = new TriageCommand.LinkCache();
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.True(cache.Is(link, File.GetAttributes(link)));
+            Assert.False(cache.Is(plain, File.GetAttributes(plain)));
+        }
+        Assert.Equal(1, cache.Queries);
+        // and the scan still lists the link once
+        var skipped = new List<(string File, string Why)>();
+        TriageCommand.Gather(TriageInputKind.Folder, root, "unused", skipped);
+        Assert.Single(skipped, x => x.File == "linked");
     }
 
     [Fact]
@@ -338,10 +424,12 @@ public class FollowUps091Tests
     public void One_name_per_file_does_not_need_sorted_input()
     {
         var skipped = new List<(string File, string Why)>();
-        var unique = TriageCommand.OnePerName(["scripts\\b.pex", "a.esm", "scripts\\b.pex", "A.esm"], skipped);
+        var kept = new Dictionary<string, string>();
+        var unique = TriageCommand.OnePerName(["scripts\\b.pex", "a.esm", "scripts\\b.pex", "A.esm"], skipped, kept);
         Assert.Equal(["a.esm", "scripts\\b.pex"], unique);
-        Assert.Equal(2, skipped.Count);
-        Assert.All(skipped, x => Assert.Equal(TriageCommand.CaseWhy, x.Why));
+        Assert.Equal([("A.esm", TriageCommand.CaseWhyFor("a.esm")), ("scripts\\b.pex", TriageCommand.CaseWhyFor("scripts\\b.pex"))], skipped);
+        Assert.All(skipped, x => Assert.StartsWith("skipped: ", x.Why));   // like LinkWhy (code review of 0.9.1)
+        Assert.Equal("a.esm", kept["a.esm"]);   // the all-lower-case spelling is the one kept
     }
 
     [Fact]
@@ -366,13 +454,13 @@ public class FollowUps091Tests
         using var s = new Sandbox();
         var root = s.Sub("mod");
         File.WriteAllText(Path.Combine(root, "b.esm"), "b");
-        var c = Context(root, ["b.esm"], [("a.esm", TriageCommand.LinkWhy), ("c.pex", TriageCommand.CaseWhy)]);
+        var c = Context(root, ["b.esm"], [("a.esm", TriageCommand.LinkWhy), ("C.pex", TriageCommand.CaseWhyFor("c.pex"))]);
         _ = TriageFiles.Run(c).ToList();
         var every = c.Report.Tables.Single(t => t.Title == "Every file");
-        Assert.Equal(["a.esm", "b.esm", "c.pex"], every.Rows.Select(r => r[0]));
+        Assert.Equal(["a.esm", "b.esm", "C.pex"], every.Rows.Select(r => r[0]));
         Assert.Equal("link", every.Rows[0][1]);
         Assert.Equal("1", every.Rows[1][1]);
-        Assert.Equal("?", every.Rows[2][1]);
+        Assert.Equal("same name", every.Rows[2][1]);   // not "?", which means a hash that couldn't be read
     }
 
     [Fact]

@@ -60,11 +60,20 @@ public static class TriageScripts
         var sources = Gather(c, findings);
         var scriptTable = c.Report.Table(S, "Scripts", "Script", "Name", "Parent", "Functions called", "Calls", "Logs");
         var callTable = c.Report.Table(S, "Calls worth a look", "Level", "Script", "In", "Call", "Detail");
+        // a linked archive, script or folder was set aside unread (the Files section has a LOOK for each): say that its
+        // scripts weren't read, not that the mod has none (code review of 0.9.1)
+        var linked = c.LinkedScriptHolders;
+        var linkedNames = string.Join(", ", linked.Take(3)) + (linked.Count > 3 ? $" and {linked.Count - 3:N0} more (see the Files section)" : "");
         if (sources.Count == 0)
         {
-            findings.Add(new(TriageLevel.Note, S, "", "The mod has no compiled scripts (.pex), loose or in its archives."));
+            findings.Add(new(TriageLevel.Note, S, "", linked.Count == 0
+                ? "The mod has no compiled scripts (.pex), loose or in its archives."
+                : $"The files triage read hold no compiled scripts (.pex). It skipped {linkedNames} because {(linked.Count == 1 ? "it is a link" : "they are links")}, " +
+                  "so any scripts in there weren't read."));
             return findings;
         }
+        if (linked.Count > 0)
+            findings.Add(new(TriageLevel.Note, S, "", $"Triage skipped {linkedNames} because {(linked.Count == 1 ? "it is a link" : "they are links")}, so any scripts in there weren't read."));
 
         var read = new List<(string File, PexFile Pex)>();
         foreach (var s in sources)

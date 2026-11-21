@@ -8,6 +8,15 @@ using Xunit;
 
 namespace SfModCheck.Tests;
 
+/// <summary>Tests that change ReleaseCommand's static caps (MaxEntries, MaxUnpackedBytes) for a moment. The assembly
+/// runs one test at a time already (above); this collection keeps them apart even if that is ever turned off (code
+/// review of 0.9.1).</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ReleaseStatics
+{
+    public const string Name = "ReleaseCommand statics";
+}
+
 static class TestSetup
 {
     /// <summary>A run-wide temp folder the caches use until a test points them at its own folder.</summary>

@@ -184,12 +184,16 @@ public static class TriageFiles
         var every = c.Report.Table(S, "Every file", "File", "Size (bytes)", "SHA-256");
         long totalBytes = 0;
         // what the input holds but triage didn't read (links, a second file whose name differs only in case): a LOOK
-        // each, and a row in the table too, marked "link" or "?" (code review of 0.9.1: they were missing from it)
+        // each, and a row in the table too, marked "link" or "same name" (code review of 0.9.1: they were missing from
+        // it; "?" stays for a file whose hash couldn't be read). A file skipped for its name's case is named by its own
+        // spelling, and so is the one kept in its place (Shown), so the table shows both real files side by side.
         foreach (var (rel, why) in c.Skipped) Look(rel, why);
-        static string Marker(string why) => why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy ? "link" : "?";
+        static string Marker(string why) =>
+            why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy ? "link"
+            : why.StartsWith(TriageCommand.CaseWhyStart, StringComparison.Ordinal) ? "same name" : "skipped";
         var rows = c.Files.Select(f => (Rel: f, Skip: (string?)null))
             .Concat(c.Skipped.Select(s => (Rel: s.File, Skip: (string?)Marker(s.Why))))
-            .OrderBy(r => r.Rel, StringComparer.Ordinal).ToList();
+            .OrderBy(r => Ba2Names.Normalize(r.Rel), StringComparer.Ordinal).ThenBy(r => r.Skip != null).ThenBy(r => r.Rel, StringComparer.Ordinal).ToList();
         foreach (var (rel, skip) in rows)
         {
             if (skip != null) { every.Add(rel, skip, ""); continue; }
@@ -207,11 +211,11 @@ public static class TriageFiles
                 var size = new FileInfo(full).Length;
                 totalBytes += size;
                 using var s = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
-                every.Add(rel, size.ToString("N0"), Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant());
+                every.Add(c.Shown(rel), size.ToString("N0"), Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant());
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                every.Add(rel, "?", "");
+                every.Add(c.Shown(rel), "?", "");
                 Look(rel, $"couldn't be read to take its hash ({e.Message})");
             }
         }

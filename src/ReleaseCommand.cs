@@ -79,9 +79,11 @@ public static class ReleaseCommand
     /// texture packs hold tens of thousands of files).</summary>
     public static int MaxEntries = 200_000;
 
-    /// <summary>The refusal text for an archive with more than MaxEntries entries.</summary>
+    /// <summary>The refusal text for an archive with more than MaxEntries entries, with the fix (code review of 0.9.1).</summary>
     public static string TooManyEntries(long count, string what) =>
-        $"it holds {count:N0} entries, more than the {MaxEntries:N0} this check allows; a mod's {what} holds far fewer";
+        $"it holds {count:N0} entries, more than the {MaxEntries:N0} this check allows; a mod's {what} holds far fewer. " +
+        "If it really is one mod, unpack it yourself and run sf-mod-check triage on the unpacked folder; " +
+        "if it is your own release, make the zip hold only the mod's files (not a whole Data folder)";
 
     /// <summary>The steps, in report order. Tests can swap them.</summary>
     public static List<Func<ReleaseContext, IEnumerable<ReleaseFinding>>> Steps { get; } =

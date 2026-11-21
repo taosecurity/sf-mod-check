@@ -870,6 +870,8 @@ public static class TriagePlugins
         }
         var vanilla = VanillaIndex.Get(c.DataDir);
         bool Has(string pex) => have.Contains(pex) || vanilla.ArchiveOf(pex) != null;
+        var linked = c.LinkedScriptHolders;
+        static string Names(List<string> l) => string.Join(", ", l.Take(3)) + (l.Count > 3 ? $" and {l.Count - 3:N0} more (see the Files section)" : "");
 
         // The game's own copy of an override, to tell a script Bethesda's record names too (carried over) from the mod's
         // own. Records inside cells (placed objects, navmeshes) aren't looked up: finding one makes Mutagen index every
@@ -923,7 +925,15 @@ public static class TriagePlugins
             }
             foreach (var (pex, (script, users)) in missing.Take(MaxRows))
                 table.Add(p.Name, script, pex, Assets.Users(users.Distinct().ToList()));
-            if (missing.Count > 0)
+            if (missing.Count > 0 && linked.Count > 0)
+                // a linked archive or folder was set aside unread, so a script may be in it: say so, not "doesn't run"
+                // (code review of 0.9.1)
+                look(p.Rel, $"{missing.Count:N0} attached script{(missing.Count == 1 ? " is" : "s are")} in neither the files triage read nor the game's archives. " +
+                            $"Triage skipped {Names(linked)} because {(linked.Count == 1 ? "it is a link" : "they are links")}, so {(missing.Count == 1 ? "it" : "they")} may be in there; " +
+                            "run triage on what the link points to to check: " +
+                            string.Join(", ", missing.Take(3).Select(m => $"{m.Value.Script} (used by {Assets.Users(m.Value.Users.Distinct().ToList())})")) +
+                            (missing.Count > 3 ? $" and {missing.Count - 3:N0} more in the table" : ""));
+            else if (missing.Count > 0)
                 look(p.Rel, $"{missing.Count:N0} attached script{(missing.Count == 1 ? " is" : "s are")} in neither the mod (loose or in its archives) nor the game's archives, " +
                             $"so {(missing.Count == 1 ? "it doesn't" : "they don't")} run: " +
                             string.Join(", ", missing.Take(3).Select(m => $"{m.Value.Script} (used by {Assets.Users(m.Value.Users.Distinct().ToList())})")) +

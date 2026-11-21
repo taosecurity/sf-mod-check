@@ -106,6 +106,27 @@ public class TriagePluginsTests
     }
 
     [Fact]
+    public void A_missing_script_names_a_linked_archive_triage_skipped()
+    {
+        // code review of 0.9.1: the .ba2 beside a plugin was a link and set aside, and the script check then said the
+        // scripts don't run, though they may be in that archive
+        using var game = new Game();
+        game.Mod("TrLink.esm", (m, _) =>
+            m.Activators.AddNew("TrL_Act").VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = { new ScriptEntry { Name = "TrTest:InLink" } } });
+        var c = game.Context();
+        c.Skipped.Add(("trlink - main.ba2", TriageCommand.LinkWhy));
+        var f = Run(c);
+        var look = One(f, TriageLevel.Look, "trlink.esm", "1 attached script is in neither the files triage read nor the game's archives");
+        Assert.Contains("Triage skipped trlink - main.ba2 because it is a link, so it may be in there", look.Text);
+        Assert.Contains("TrTest:InLink", look.Text);
+        None(f, TriageLevel.Look, "so it doesn't run");
+
+        // without the skipped archive: the old words
+        var plain = game.Context();
+        One(Run(plain), TriageLevel.Look, "trlink.esm", "1 attached script is in neither the mod (loose or in its archives) nor the game's archives, so it doesn't run");
+    }
+
+    [Fact]
     public void A_mod_with_an_itm_a_deleted_record_an_undone_change_and_a_missing_script()
     {
         using var game = new Game();

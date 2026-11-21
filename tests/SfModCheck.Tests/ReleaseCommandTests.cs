@@ -6,6 +6,7 @@ using Xunit;
 
 namespace SfModCheck.Tests;
 
+[Collection(ReleaseStatics.Name)]   // changes ReleaseCommand.MaxUnpackedBytes
 public class ReleaseCommandTests
 {
     static string MakeZip(Sandbox s, string name, params (string Path, string Text)[] entries)

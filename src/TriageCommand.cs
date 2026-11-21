@@ -82,6 +82,20 @@ public sealed class TriageContext
     /// <summary>Files the input holds that triage didn't read, each with why (a link, which is never followed; a second
     /// file whose name differs only in case). The Files section lists them.</summary>
     public List<(string File, string Why)> Skipped { get; init; } = [];
+    /// <summary>For a name two or more files share apart from case (Linux, macOS): the lower-case name in Files mapped to
+    /// the kept file's own spelling (TriageCommand.OnePerName). Full reads that file and Shown names it.</summary>
+    public Dictionary<string, string> CaseKept { get; init; } = new(StringComparer.Ordinal);
+    /// <summary>How the report names a file of Files: its own spelling when another file has the same name apart from
+    /// case (so the report says which one was read), else the lower-case name.</summary>
+    public string Shown(string rel) => CaseKept.TryGetValue(rel, out var own) ? own : rel;
+    /// <summary>Files triage skipped because they are links and that could hold scripts: an archive (.ba2), a script
+    /// (.pex), or a folder (a name with no extension). The Plugins and Scripts sections name them, so a script that is
+    /// only in one of them isn't simply called missing (code review of 0.9.1).</summary>
+    public List<string> LinkedScriptHolders => Skipped
+        .Where(s => s.Why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy)
+        .Select(s => s.File)
+        .Where(f => RelPath.Extension(f) is ".ba2" or ".pex" or "")
+        .Distinct(StringComparer.Ordinal).ToList();
     /// <summary>The folder name Full puts in front of a path it won't follow (a file reached only through a link), so the
     /// path doesn't exist and the Files section can say why.</summary>
     public const string LinkNotFollowed = ".sf-mod-check-link-not-followed";
@@ -142,8 +156,9 @@ public sealed class TriageContext
         {
             if (resolved.TryGetValue(rel, out var hit)) return hit;
             // every folder whose name matches ignoring case is tried in turn ("Scripts" and "scripts" can both exist),
-            // the exact spelling first; each folder is listed once (review of the Linux fix)
-            var found = Find(Root, rel.Split('\\'), 0);
+            // the exact spelling first; each folder is listed once (review of the Linux fix). Of two files whose names
+            // differ only in case, the one Gather kept is asked for by its own spelling, so this reads that one.
+            var found = Find(Root, (CaseKept.TryGetValue(rel, out var own) ? own : rel).Split('\\'), 0);
             // not there (or only behind a link, which is never followed): a path that doesn't exist, so the caller
             // reports the file as missing (review: the exact-name fallback could be the link itself)
             if (found == null) return File.Exists(direct) || Directory.Exists(direct) ? Path.Combine(Root, LinkNotFollowed, rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
@@ -382,7 +397,8 @@ public static class TriageCommand
             string root;
             List<string> files;
             var skipped = new List<(string File, string Why)>();
-            try { (root, files) = Gather(kind, input, Path.Combine(work, "mod"), skipped); }
+            var caseKept = new Dictionary<string, string>(StringComparer.Ordinal);
+            try { (root, files) = Gather(kind, input, Path.Combine(work, "mod"), skipped, caseKept); }
             catch (Exception e) when (IsFileSystem(e))
             {
                 // A file-system error: it can be the PC (a lock, a permission, a full disk) or the archive (a path too long
@@ -423,6 +439,7 @@ public static class TriageCommand
                 DataDir = o.DataDir, Work = work, Report = report,
                 HasGame = hasGame,   // the header's own answer (0.8.0 follow-up: two checks could disagree)
                 Skipped = skipped,
+                CaseKept = caseKept,
             };
             ctx.SetAsideLinked();   // one LOOK for a file only a link leads to (code review of 0.9.1)
 
@@ -562,24 +579,37 @@ public static class TriageCommand
     /// Links (symlinks, junctions) are never followed: in a folder, and beside a plugin on every system (0.8.0 follow-up:
     /// on Windows a linked .ba2 beside a plugin was read). Each one, and each second file whose name differs from another
     /// only in case (on Linux, Scripts/a.pex and scripts/a.pex), goes into skipped with why, so the report can say so.</summary>
-    public static (string Root, List<string> Files) Gather(TriageInputKind kind, string input, string dest, List<(string File, string Why)>? skipped = null)
+    public static (string Root, List<string> Files) Gather(TriageInputKind kind, string input, string dest, List<(string File, string Why)>? skipped = null,
+        Dictionary<string, string>? caseKept = null)
     {
         skipped ??= [];
         var (root, files) = GatherAll(kind, input, dest, skipped);
-        return (root, OnePerName(files, skipped));
+        return (root, OnePerName(files, skipped, caseKept));
     }
 
     /// <summary>One name per file, sorted: Files holds lower-case names, so two files that differ only in case would be
-    /// read as one twice (0.8.0 follow-up). An archive refuses such names already; a folder on Linux can hold both. Each
-    /// second name goes into skipped with CaseWhy. A set, so this doesn't depend on the input being sorted (code review
-    /// of 0.9.1); it ignores case too, so a name that kept a capital still counts once.</summary>
-    public static List<string> OnePerName(IEnumerable<string> files, List<(string File, string Why)> skipped)
+    /// read as one twice (0.8.0 follow-up). An archive refuses such names already; a folder on Linux can hold both. The
+    /// input is each file's own spelling (as on disk, with backslashes). Of two or more spellings of one name, one is
+    /// kept: the all-lower-case one if there is one, else the first in ordinal order. The others go into skipped under
+    /// their own spelling with CaseWhyFor(kept), and caseKept maps the lower-case name to the kept spelling, so the
+    /// report names both real files and TriageContext.Full reads the kept one (code review of 0.9.1: on Linux both were
+    /// shown under the lower-case name). It groups, so the input needn't be sorted.</summary>
+    public static List<string> OnePerName(IEnumerable<string> files, List<(string File, string Why)> skipped, Dictionary<string, string>? caseKept = null)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unique = new List<string>();
-        foreach (var f in files)
-            if (!seen.Add(f)) skipped.Add((f, CaseWhy));
-            else unique.Add(f);
+        foreach (var g in files.GroupBy(Ba2Names.Normalize, StringComparer.OrdinalIgnoreCase))
+        {
+            var spellings = g.Select(f => f.Replace('/', '\\').TrimStart('\\')).ToList();
+            var kept = spellings.OrderBy(f => f == Ba2Names.Normalize(f) ? 0 : 1).ThenBy(f => f, StringComparer.Ordinal).First();
+            unique.Add(g.Key);
+            if (spellings.Count < 2) continue;
+            bool keptOnce = false;
+            foreach (var f in spellings)
+                if (f == kept && !keptOnce) keptOnce = true;
+                else skipped.Add((f, CaseWhyFor(kept)));
+            if (caseKept != null) caseKept[g.Key] = kept;
+            Log.Write($"triage: {spellings.Count} files are named {g.Key} apart from case; {kept} is read, the others are skipped");
+        }
         unique.Sort(StringComparer.Ordinal);
         skipped.Sort((a, b) => string.CompareOrdinal(a.File, b.File));
         return unique;
@@ -590,9 +620,12 @@ public static class TriageCommand
                                   "Run triage on the folder it points to if you want that checked";
     /// <summary>Why a file reached only through a linked folder is skipped (Linux and macOS, where Full finds it).</summary>
     public const string LinkReachedWhy = "skipped: it is reached only through a link (symlink or junction), and triage never follows links, so it isn't checked";
-    /// <summary>Why the second of two names that differ only in case is skipped.</summary>
-    public const string CaseWhy = "another file in the mod has the same name apart from upper and lower case, and only one of them is checked. " +
-                                  "Windows keeps only one of two such files, so which one the game gets depends on how the mod is installed";
+    /// <summary>How the why of a file skipped for its name's case starts (the Files section marks it "same name").</summary>
+    public const string CaseWhyStart = "skipped: it has the same name as ";
+    /// <summary>Why a file whose name differs from the kept one's only in case is skipped; it names the kept file.</summary>
+    public static string CaseWhyFor(string kept) =>
+        $"{CaseWhyStart}{kept} apart from upper and lower case, and only {kept} is checked. " +
+        "Windows keeps only one of two such files, so which one the game gets depends on how the mod is installed";
 
     /// <summary>True for a real link: a symbolic link or a junction (mount point), the kinds FileSystemInfo.LinkTarget
     /// reads. Windows also marks other files as reparse points (OneDrive Files On-Demand placeholders, deduplicated
@@ -611,6 +644,25 @@ public static class TriageCommand
         {
             Log.Write($"triage: {path} is a reparse point whose kind couldn't be read ({e.Message}), so it is treated as a link and not followed");
             return true;
+        }
+    }
+
+    /// <summary>IsRealLink asked once per path for one folder scan (the scan's transform and both predicates ask about
+    /// each entry; code review of 0.9.1: a reparse point's log line came up to three times). Queries counts the real
+    /// questions, for the tests.</summary>
+    public sealed class LinkCache
+    {
+        readonly Dictionary<string, bool> answers = new(StringComparer.Ordinal);
+        public int Queries { get; private set; }
+        public bool Is(string full, FileAttributes attributes)
+        {
+            if ((attributes & FileAttributes.ReparsePoint) == 0) return false;
+            if (!answers.TryGetValue(full, out var l))
+            {
+                Queries++;
+                answers[full] = l = IsRealLink(full, attributes);
+            }
+            return l;
         }
     }
 
@@ -641,17 +693,23 @@ public static class TriageCommand
                 // every file and every link, never going into a linked folder (a link is listed, not followed). Only
                 // real links count: a OneDrive placeholder folder is gone into and its files read (code review of 0.9.1).
                 var opts = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0, IgnoreInaccessible = false };
+                // each entry's answer is worked out once and kept for the scan: the transform and both predicates ask,
+                // and a reparse point whose kind can't be read would log its line up to three times (code review of 0.9.1)
+                var links = new LinkCache();
+                bool Link(string full, FileAttributes attributes) => links.Is(full, attributes);
                 var entries = new System.IO.Enumeration.FileSystemEnumerable<(string Path, bool Link)>(root,
-                    (ref System.IO.Enumeration.FileSystemEntry e) => (e.ToFullPath(), IsRealLink(e.ToFullPath(), e.Attributes)), opts)
+                    (ref System.IO.Enumeration.FileSystemEntry e) => (e.ToFullPath(), Link(e.ToFullPath(), e.Attributes)), opts)
                 {
-                    ShouldIncludePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !e.IsDirectory || IsRealLink(e.ToFullPath(), e.Attributes),
-                    ShouldRecursePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !IsRealLink(e.ToFullPath(), e.Attributes),
+                    ShouldIncludePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !e.IsDirectory || Link(e.ToFullPath(), e.Attributes),
+                    ShouldRecursePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !Link(e.ToFullPath(), e.Attributes),
                 };
                 foreach (var (f, link) in entries)
                 {
-                    var rel = Ba2Names.Normalize(Path.GetRelativePath(root, f));
-                    if (link) skipped.Add((rel, LinkWhy));
-                    else files.Add(rel);
+                    // a link by its lower-case name, as before; a file by its own spelling, which OnePerName lower-cases
+                    // after it has told apart two names that differ only in case (code review of 0.9.1)
+                    var own = Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '\\');
+                    if (link) skipped.Add((Ba2Names.Normalize(own), LinkWhy));
+                    else files.Add(own);
                 }
                 files.Sort(StringComparer.Ordinal);
                 skipped.Sort((a, b) => string.CompareOrdinal(a.File, b.File));
@@ -662,14 +720,14 @@ public static class TriageCommand
                 var dir = Path.GetDirectoryName(input)!;
                 var name = Path.GetFileName(input);
                 var stem = Path.GetFileNameWithoutExtension(input);
-                var files = new List<string> { Ba2Names.Normalize(name) };
+                var files = new List<string> { name };
                 foreach (var b in Directory.EnumerateFiles(dir, "*.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0 }))
                 {
                     var bn = Path.GetFileName(b);
                     if (!bn.StartsWith(stem + " - ", StringComparison.OrdinalIgnoreCase)) continue;
                     // a linked archive isn't read, as in a folder (0.8.0 follow-up: on Windows it was followed)
                     if (IsLinkFile(b)) skipped.Add((Ba2Names.Normalize(bn), LinkWhy));
-                    else files.Add(Ba2Names.Normalize(bn));
+                    else files.Add(bn);   // its own spelling: OnePerName lower-cases it (two spellings on Linux)
                 }
                 files.Sort(StringComparer.Ordinal);
                 return (dir, files);
