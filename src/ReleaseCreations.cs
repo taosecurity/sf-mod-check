@@ -78,8 +78,10 @@ public static class ReleaseCreations
     static readonly Lazy<List<Regex>> OfficialPatterns = new(() => List.Official.Select(Wildcard).ToList(), LazyThreadSafetyMode.PublicationOnly);
 
     // \z, not $: in .NET $ also matches before a final newline, so "Starfield.esm\n" would count as official
-    // (0.10.1 code review).
-    static Regex Wildcard(string p) => new("^" + Regex.Escape(p).Replace("\\*", ".*") + "\\z", RegexOptions.IgnoreCase);
+    // (0.10.1 code review). CultureInvariant, as Checker's pattern, so case folding doesn't follow the PC's language
+    // (round 2).
+    static Regex Wildcard(string p) =>
+        new("^" + Regex.Escape(p).Replace("\\*", ".*") + "\\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>The Xbox twin's file name of a PC archive: "MyMod - Main.ba2" gives "MyMod - Main_xbox.ba2".</summary>
     public static string XboxTwin(string archive) => Path.GetFileNameWithoutExtension(archive) + "_xbox.ba2";

@@ -61,8 +61,9 @@ public class LoadOrderSetup
 
     // Bethesda's file names exactly (0.5.0): SFBGS + 3 hex digits, sfta + 2 digits, and their BlueprintShips- files.
     // A prefix test also caught mods such as SFBGS003Fixes.esm and hid their conflicts as "Bethesda vs Bethesda".
+    // \z, not $, so a name with a trailing newline isn't Bethesda's (0.10.1 code review).
     static readonly System.Text.RegularExpressions.Regex OfficialPattern = new(
-        @"^(BlueprintShips-)?(SFBGS[0-9A-F]{3}|sfta[0-9]{2})\.esm$|^BlueprintShips-Starfield\.esm$",
+        @"^(BlueprintShips-)?(SFBGS[0-9A-F]{3}|sfta[0-9]{2})\.esm\z|^BlueprintShips-Starfield\.esm\z",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     public static bool IsOfficial(string name) =>

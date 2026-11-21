@@ -138,6 +138,7 @@ public class TriageCommandTests
     [InlineData("SFBGS003Fixes.esm", false)]   // a mod: the old prefix rule took it for Bethesda's (0.8.0 code review)
     [InlineData("BlueprintShips-MyShips.esm", false)]
     [InlineData("sfta01Patch.esm", false)]
+    [InlineData("Starfield.esm\n", false)]   // \z, not $ (0.10.1 code review round 2)
     public void Official_names_are_matched_exactly(string name, bool official) => Assert.Equal(official, Checker.IsOfficial(name));
 
     [Fact]

@@ -130,6 +130,8 @@ public partial class ConflictTests
     [InlineData("sfta01.esp", false)]
     [InlineData("sftaXY.esm", false)]
     [InlineData("BlueprintShips-MyShips.esm", false)]
+    [InlineData("SFBGS003.esm\n", false)]   // \z, not $ (0.10.1 code review round 2)
+    [InlineData("BlueprintShips-Starfield.esm\n", false)]
     public void Official_files_are_recognised_by_their_exact_names(string name, bool official) =>
         Assert.Equal(official, LoadOrderSetup.IsOfficial(name));
 

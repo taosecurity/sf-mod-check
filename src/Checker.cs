@@ -585,9 +585,10 @@ public static class Checker
     static bool SeenInMasters(Type linkType, string sig) => Seen.Value.TryGetValue(linkType.Name, out var s) && s.Contains(sig);
 
     // Bethesda's names exactly, as LoadOrderSetup since 0.5.0 (0.8.0 code review): the old prefix test (SFBGS\w+,
-    // BlueprintShips-\w+) also matched mods such as SFBGS003Fixes.esm, whose ITMs were then counted only.
+    // BlueprintShips-\w+) also matched mods such as SFBGS003Fixes.esm, whose ITMs were then counted only. \z, not $,
+    // so a name with a trailing newline isn't Bethesda's (0.10.1 code review).
     static readonly System.Text.RegularExpressions.Regex Official = new(
-        @"^(Starfield|ShatteredSpace|Constellation|OldMars|BlueprintShips-Starfield|(BlueprintShips-)?(SFBGS[0-9A-F]{3}|sfta[0-9]{2}))\.esm$",
+        @"^(Starfield|ShatteredSpace|Constellation|OldMars|BlueprintShips-Starfield|(BlueprintShips-)?(SFBGS[0-9A-F]{3}|sfta[0-9]{2}))\.esm\z",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>Bethesda's own masters (by file name).</summary>

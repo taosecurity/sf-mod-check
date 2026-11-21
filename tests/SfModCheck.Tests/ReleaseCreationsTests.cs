@@ -68,6 +68,10 @@ public class ReleaseCreationsTests
         // 0.10.1 code review: the patterns end with \z, so a trailing newline doesn't match.
         Assert.False(ReleaseCreations.IsOfficial("Starfield.esm\n"));
         Assert.False(ReleaseCreations.IsOfficial("SFBGS050.esm\n"));
+        // Round 2: the ship blueprints master the docs name. (The CultureInvariant fix has no test here: the patterns
+        // are built once per run, so a culture switch inside one test can't reach them reliably.)
+        Assert.True(ReleaseCreations.IsOfficial("BlueprintShips-Starfield.esm"));
+        Assert.True(ReleaseCreations.IsOfficial("blueprintships-starfield.ESM"));
         Assert.Contains("ConsoleAPI", ReleaseCreations.List.Frameworks);
         Assert.Equal("MyMod - Main_xbox.ba2", ReleaseCreations.XboxTwin("MyMod - Main.ba2"));
     }

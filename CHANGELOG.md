@@ -9,6 +9,8 @@
 ### Fixed
 
 - `release --profile creations`: a name that ends with a newline (`"Starfield.esm\n"`) no longer matches an official plugin's name.
+- The same fix for the official-name checks of `check` and `conflict` (ITM and load-order rules).
+- `release --profile creations`: official names now match the same way on every PC language (a Turkish Windows didn't match `BLUEPRINTSHIPS-STARFIELD.ESM`).
 
 ### Example
 
