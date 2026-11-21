@@ -419,8 +419,9 @@ public static class ReleaseNeeds
     }
 
     /// <summary>The archive's file name, trimmed, with "\" read as a folder separator on every OS (Path.GetFileName
-    /// splits only on "/" on Linux and macOS; 0.10.1 code review round 7).</summary>
-    internal static string ArchiveFileName(string archive) => Path.GetFileName(archive.Trim().Replace('\\', '/'));
+    /// splits only on "/" on Linux and macOS; 0.10.1 code review round 7). Uses triage's RelPath, so release and
+    /// triage read a name the same way (round 8).</summary>
+    internal static string ArchiveFileName(string archive) => RelPath.FileName(archive.Trim()) ?? "";
 
     /// <summary>The archive each "parentmatch" file was matched in, from DMMDeps' _deps.json (Source
     /// "parent-archive:&lt;archive&gt;"); empty when the file is missing or has none.</summary>
@@ -458,14 +459,16 @@ public static class ReleaseNeeds
         foreach (var p in warn)
         {
             if (!sources.TryGetValue(p, out var archive) || IsOfficialArchive(archive)) { left.Add(p); continue; }
-            var stem = Path.GetFileNameWithoutExtension(ArchiveFileName(archive));
+            // the file name, not DMMDeps' raw Source, so a folder in it is neither shown nor counted apart (round 8)
+            var file = ArchiveFileName(archive);
+            var stem = Path.GetFileNameWithoutExtension(file);
             var owner = stem.Contains(" - ") ? stem[..stem.IndexOf(" - ", StringComparison.Ordinal)] : stem;
             if (masters.Contains(owner))
-                findings.Add(new(Level.Review, "dmmdeps", $"{name} uses {p}, which is also in its master's archive {archive} (DMMDeps): make sure replacing the master mod's copy is deliberate"));
+                findings.Add(new(Level.Review, "dmmdeps", $"{name} uses {p}, which is also in its master's archive {file} (DMMDeps): make sure replacing the master mod's copy is deliberate"));
             else
             {
                 keep.Add(p);
-                stale[archive] = stale.GetValueOrDefault(archive) + 1;
+                stale[file] = stale.GetValueOrDefault(file) + 1;
             }
         }
         if (stale.Count > 0)

@@ -214,22 +214,27 @@ public class ReleaseNeedsTests
               {"PcPath":"Data\\Meshes\\Vanilla.nif","Kind":"parentmatch","Source":"parent-archive:Starfield - Meshes01.ba2"},
               {"PcPath":"Data\\Meshes\\FromBase.nif","Kind":"parentmatch","Source":"parent-archive:Base - Main.ba2"},
               {"PcPath":"Data\\Meshes\\FromBase2.nif","Kind":"parentmatch","Source":"parent-archive:Data\\Base - Textures.ba2 \n"},
+              {"PcPath":"Data\\Meshes\\Mine2.nif","Kind":"parentmatch","Source":"parent-archive:C:\\Games\\Starfield\\Data\\patch - main.ba2"},
               {"PcPath":"Data\\Meshes\\Kept.nif","Kind":"keep","Source":"disk"}]}
             """);
         var sources = ReleaseNeeds.ReadParentSources(deps);
-        Assert.Equal(4, sources.Count);
+        Assert.Equal(5, sources.Count);
         Assert.Equal("Data\\Base - Textures.ba2", sources["meshes\\frombase2.nif"]);   // trimmed when read
         var keep = new HashSet<string>(StringComparer.Ordinal) { "meshes\\kept.nif" };
         var findings = new List<ReleaseFinding>();
-        var left = ReleaseNeeds.SortParentMatches("Patch.esm", plugin, ["meshes\\mine.nif", "meshes\\vanilla.nif", "meshes\\frombase.nif", "meshes\\frombase2.nif", "meshes\\unknown.nif"],
+        var left = ReleaseNeeds.SortParentMatches("Patch.esm", plugin, ["meshes\\mine.nif", "meshes\\mine2.nif", "meshes\\vanilla.nif", "meshes\\frombase.nif", "meshes\\frombase2.nif", "meshes\\unknown.nif"],
             sources, keep, findings);
 
         Assert.Equal(["meshes\\vanilla.nif", "meshes\\unknown.nif"], left);          // game match and no source: usual mapping
         Assert.Contains("meshes\\mine.nif", keep);                                    // stale cache: found
+        Assert.Contains("meshes\\mine2.nif", keep);
         Assert.Contains(findings, f => f.Level == Level.Review && f.Text.Contains("master's archive Base - Main.ba2") && f.Text.Contains("frombase.nif"));
-        Assert.Contains(findings, f => f.Level == Level.Note && f.Text.Contains("patch - main.ba2 (1)"));
-        // A Windows folder in the archive name still finds the master on every OS (code review round 7).
-        Assert.Contains(findings, f => f.Level == Level.Review && f.Text.Contains("Base - Textures.ba2") && f.Text.Contains("frombase2.nif"));
+        // The same archive with and without a folder is one entry, shown by its file name (code review round 8).
+        Assert.Contains(findings, f => f.Level == Level.Note && f.Text.Contains("(patch - main.ba2 (2))"));
+        Assert.DoesNotContain(findings, f => f.Text.Contains("Games"));
+        // A Windows folder in the archive name still finds the master on every OS (code review round 7), and the
+        // message names the archive without the folder (round 8).
+        Assert.Contains(findings, f => f.Level == Level.Review && f.Text.Contains("master's archive Base - Textures.ba2 (DMMDeps)") && f.Text.Contains("frombase2.nif"));
         Assert.DoesNotContain("meshes\\frombase2.nif", keep);
         Assert.Equal(3, findings.Count);
     }
