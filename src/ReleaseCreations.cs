@@ -2,7 +2,7 @@
 // PlayStation. Runs only in the creations profile; the basic rules run as well, and house rules stay WARNINGs.
 // The rules (written for sf-mod-check from the author's earlier Creations readiness check):
 //   creations-ini        PROBLEM  an INI file (Creations take none, on any platform)
-//   creations-sfse       PROBLEM  a DLL or EXE, or anything in an SFSE folder (consoles can't run them)
+//   creations-sfse       PROBLEM  a DLL, EXE or ASI, or anything in an SFSE folder (consoles can't run them)
 //   creations-framework  PROBLEM  a compiled script that names a script from an SFSE plugin (data\creations-masters.txt
 //                                 [frameworks]); found in the script's string table, so calls and casts both count
 //   creations-master     PROBLEM  a master that isn't Bethesda's and isn't known to be on Creations
@@ -10,7 +10,7 @@
 //                                 pack refuses PC textures); WARNING for any other archive with no twin
 //   creations-audio      WARNING  .wem or .bnk sound, in an archive or loose: PC-format audio is silent on consoles
 //                                 until the Creation Kit makes their versions from WAV sources
-//   creations-size       PROBLEM  plugins and archives over 2 GB
+//   creations-size       PROBLEM  a zip's plugins and archives over 2 GB (each zip is its own Creation)
 //   creations-debug      WARNING  Debug.Notification or Debug.MessageBox the player would see: the Debug script does
 //                                 nothing on Xbox and PlayStation. Read from the compiled scripts (never the source). A
 //                                 call counts as debug-only when its function's name mentions debug, trace or verbose,
@@ -24,6 +24,8 @@ public static class ReleaseCreations
 {
     public const long SizeLimit = 2L * 1024 * 1024 * 1024;
     static readonly string[] SoundExts = [".wem", ".bnk"];
+    // programs and loaders no console runs (.asi: a plugin loader's DLL; code review)
+    static readonly string[] ProgramExts = [".dll", ".exe", ".asi"];
     static readonly Regex DebugWord = new("debug|trace|verbose", RegexOptions.IgnoreCase);
 
     /// <summary>The embedded data\creations-masters.txt: its [official] patterns, [masters] and [frameworks].</summary>
@@ -62,13 +64,25 @@ public static class ReleaseCreations
     /// <summary>True for a master a Creation may require: Bethesda's own (by pattern), one listed in [masters], or one
     /// given with --creations-master.</summary>
     public static bool Allowed(string master, IEnumerable<string> extra) =>
-        List.Official.Any(p => Wildcard(p).IsMatch(master))
+        IsOfficial(master)
         || List.Masters.Concat(extra).Any(x => x.Equals(master, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True for a master that matches one of the [official] patterns (built once; code review).</summary>
+    public static bool IsOfficial(string master) => (officialPatterns ??= List.Official.Select(Wildcard).ToList()).Any(r => r.IsMatch(master));
+
+    static List<Regex>? officialPatterns;
 
     static Regex Wildcard(string p) => new("^" + Regex.Escape(p).Replace("\\*", ".*") + "$", RegexOptions.IgnoreCase);
 
     /// <summary>The Xbox twin's file name of a PC archive: "MyMod - Main.ba2" gives "MyMod - Main_xbox.ba2".</summary>
     public static string XboxTwin(string archive) => Path.GetFileNameWithoutExtension(archive) + "_xbox.ba2";
+
+    /// <summary>The PC archive's file name of an Xbox twin: "MyMod - Main_xbox.ba2" gives "MyMod - Main.ba2".</summary>
+    public static string PcTwin(string xboxArchive)
+    {
+        var stem = Path.GetFileNameWithoutExtension(xboxArchive);
+        return stem[..^"_xbox".Length] + ".ba2";
+    }
 
     public static bool IsXbox(string archive) => Path.GetFileNameWithoutExtension(archive).EndsWith("_xbox", StringComparison.OrdinalIgnoreCase);
 
@@ -78,16 +92,17 @@ public static class ReleaseCreations
         var f = new List<ReleaseFinding>();
         void Add(Level l, string rule, string text) { f.Add(new(l, rule, text)); Log.Write($"creations: {ReleaseCommand.Label(l).Trim()} [{rule}] {text}"); }
 
-        long total = 0;
         foreach (var p in c.Packages)
         {
+            // each zip is its own Creation, so the 2 GB limit is per zip (code review)
+            long total = 0;
             // files no platform takes
             var sfse = new List<string>();
             foreach (var rel in p.Files)
             {
                 if (rel.EndsWith(".ini", StringComparison.Ordinal))
                     Add(Level.Problem, "creations-ini", $"{p.Name}:{rel}: an INI file. Creations take no INI files on any platform; set the values from the plugin or a script instead.");
-                if (rel.EndsWith(".dll", StringComparison.Ordinal) || rel.EndsWith(".exe", StringComparison.Ordinal) || ("\\" + rel).Contains("\\sfse\\", StringComparison.Ordinal))
+                if (ProgramExts.Any(e => rel.EndsWith(e, StringComparison.Ordinal)) || ("\\" + rel).Contains("\\sfse\\", StringComparison.Ordinal))
                     sfse.Add(rel);
                 if (SoundExts.Any(e => rel.EndsWith(e, StringComparison.Ordinal)))
                     Add(Level.Warning, "creations-audio", $"{p.Name}:{rel}: a loose sound file. PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or offer the Creation on PC only.");
@@ -106,7 +121,7 @@ public static class ReleaseCreations
                 Log.Write($"creations: {p.Name}:{name}: masters {string.Join(", ", h.Masters)}");
                 foreach (var m in h.Masters)
                 {
-                    if (List.Official.Any(o => Wildcard(o).IsMatch(m))) continue;
+                    if (IsOfficial(m)) continue;
                     if (Allowed(m, c.Options.CreationsMasters))
                         Add(Level.Note, "creations-master", $"{name}: master {m} is allowed as a Creation ({(c.Options.CreationsMasters.Contains(m, StringComparer.OrdinalIgnoreCase) ? "--creations-master" : "the built-in list")}).");
                     else
@@ -124,7 +139,17 @@ public static class ReleaseCreations
                 List<string> inside;
                 try { inside = Ba2Names.Read(a); }
                 catch (Exception e) when (e is InvalidDataException or IOException) { Log.Write($"creations: {an}: not read ({e.Message})"); continue; }   // ba2-unreadable reports it
-                if (IsXbox(an)) { Add(Level.Note, "creations-xbox", $"{p.Name}: Xbox archive present: {an}."); continue; }
+                // sound is counted in every archive, the Xbox one too (code review: copied PC sound there is the case
+                // this rule is for)
+                int sound = inside.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal)));
+                if (sound > 0)
+                    Add(Level.Warning, "creations-audio", $"{p.Name}:{an}: {sound} sound file{(sound == 1 ? "" : "s")}. PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
+                if (IsXbox(an))
+                {
+                    Add(Level.Note, "creations-xbox", $"{p.Name}: Xbox archive present: {an}.");
+                    Log.Write($"creations: {an}: {inside.Count} files, {sound} sounds (Xbox archive)");
+                    continue;
+                }
                 var twin = XboxTwin(an);
                 int textures = inside.Count(n => n.EndsWith(".dds", StringComparison.Ordinal));
                 if (!names.Contains(twin))
@@ -134,9 +159,6 @@ public static class ReleaseCreations
                     else
                         Add(Level.Warning, "creations-xbox", $"{p.Name}:{an}: no {twin}, so Xbox gets no archive (the Creation Kit warns \"Creation for XBox that has no archives\"); build the Xbox archive with Archive2's Xbox settings.");
                 }
-                int sound = inside.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal)));
-                if (sound > 0)
-                    Add(Level.Warning, "creations-audio", $"{p.Name}:{an}: {sound} sound file{(sound == 1 ? "" : "s")}. PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
                 Log.Write($"creations: {an}: {inside.Count} files, {textures} textures, {sound} sounds, twin {(names.Contains(twin) ? "present" : "missing")}");
             }
 
@@ -153,11 +175,11 @@ public static class ReleaseCreations
                 foreach (var (obj, fn) in PlayerDebugCalls(pex))
                     Add(Level.Warning, "creations-debug", $"{label}: {obj}.{fn} calls Debug.Notification or Debug.MessageBox outside debug-only code. The Debug script does nothing on Xbox and PlayStation, so players there see nothing; show a Message record with Show() instead.");
             }
+            if (total > SizeLimit)
+                Add(Level.Problem, "creations-size", $"{p.Name}: the plugins and archives total {total / (1024.0 * 1024 * 1024):F2} GB, over the 2 GB a Creation may hold.");
+            else
+                Add(Level.Note, "creations-size", $"{p.Name}: plugins and archives: {(total < 1024 * 1024 ? $"{total / 1024.0:F1} KB" : $"{total / (1024.0 * 1024):F1} MB")} (a Creation may hold 2 GB).");
         }
-        if (total > SizeLimit)
-            Add(Level.Problem, "creations-size", $"the plugins and archives total {total / (1024.0 * 1024 * 1024):F2} GB, over the 2 GB a Creation may hold.");
-        else
-            Add(Level.Note, "creations-size", $"plugins and archives: {(total < 1024 * 1024 ? $"{total / 1024.0:F1} KB" : $"{total / (1024.0 * 1024):F1} MB")} (a Creation may hold 2 GB).");
         return f;
     }
 
@@ -176,8 +198,13 @@ public static class ReleaseCreations
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { err = e.Message; }
             yield return ($"{p.Name}:{rel}", data, err);
         }
+        // An Xbox archive whose PC twin is in the zip holds the same scripts: read only the PC one, so each finding is
+        // reported once (code review)
+        var pcNames = p.Archives.Select(Path.GetFileName).Where(n => n is not null && !IsXbox(n)).Select(n => n!).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var a in p.Archives)
         {
+            var an = Path.GetFileName(a);
+            if (IsXbox(an) && pcNames.Contains(PcTwin(an))) { Log.Write($"creations: {an}: scripts read from its PC twin {PcTwin(an)}"); continue; }
             List<(string Entry, byte[]? Data, string? Error)> s;
             try { s = TriageScripts.ArchiveScripts(a); }
             catch (Exception e) when (e is InvalidDataException or IOException) { Log.Write($"creations: {Path.GetFileName(a)}: scripts not listed ({e.Message})"); continue; }

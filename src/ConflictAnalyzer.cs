@@ -22,7 +22,12 @@ public record LostField(string Field, bool WinnerChangedToo, string LoserValue, 
 public record LostChange(
     FormKey FormKey, string RecordType, string? EditorID, string? RecordName, string Origin,
     string Loser, bool LoserOfficial, string Winner, bool WinnerOfficial,
-    List<LostField> Fields);
+    List<LostField> Fields)
+{
+    /// <summary>Set by the analyzer (0.10.0 code review): true only when the record's own plugin is loaded, was read
+    /// in full and holds no version of it, or isn't loaded at all. Null (tests, older callers): judged from Origin.</summary>
+    public bool? Injected { get; init; }
+}
 
 public record ItmRecord(string Plugin, FormKey FormKey, string RecordType, string? EditorID);
 
@@ -647,6 +652,18 @@ public static class Analyzer
                     if (partUnreadable) Unreadable(versions[i].Rec, field);
                 }
             }
+            // Injected (field priorities make every field critical): the owning plugin holds no version. Not when it was
+            // read only partly, the raw pass couldn't read it, or its version has another type (0.10.0 code review: the
+            // first version of this pass alone took those for injections).
+            bool? injected = null;
+            if (lostByPair.Count > 0)
+            {
+                var owner = formKey.ModKey;
+                injected = versions[0].Plugin.Mod.ModKey != owner
+                    && !(firstHolder.TryGetValue(formKey, out var holder) && holder.Plugin.Mod.ModKey == owner)
+                    && !partly.Any(p => p.Mod.ModKey == owner)
+                    && !typeUnread.Any(t => t.Plugin.Mod.ModKey == owner);
+            }
             foreach (var ((i, k), lost) in lostByPair)
             {
                 var (loseRec, winRec) = (versions[i].Rec, versions[k].Rec);
@@ -654,7 +671,7 @@ public static class Analyzer
                 try { recName = versions.Select(v => (v.Rec as ITranslatedNamedGetter)?.Name?.String).LastOrDefault(s => !string.IsNullOrEmpty(s)); recName = recName is null ? null : Impact.OneLine(recName); } catch (Exception err) when (Fatal.Recoverable(err)) { }
                 recLost.Add(new(formKey, loseRec.Registration.ClassType.Name, Impact.OneLine(winRec.EditorID ?? loseRec.EditorID), recName,
                     versions[0].Plugin.FileName, versions[i].Plugin.FileName, versions[i].Plugin.Official,
-                    versions[k].Plugin.FileName, versions[k].Plugin.Official, lost));
+                    versions[k].Plugin.FileName, versions[k].Plugin.Official, lost) { Injected = injected });
             }
 
             // Cost of reordering: for every pair of mods on this record (earlier e, later l, neither a master of the other),

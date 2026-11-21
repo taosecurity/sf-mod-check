@@ -4,8 +4,8 @@
 //   sf-mod-check check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]
 //                    [--no-assets] [--ini <file>]... [--language <code>]
 //                             [--verbose] [--log <file>]        (troubleshooting log: Log.cs)
-//   sf-mod-check conflict [--plugins <Plugins.txt>] [--data D] [--extra-data F] [--out F] [--max-memory GB] [--quiet]
-//                       [--verbose] [--log <file>]        (whole load order: ConflictCommand.cs; exit 0, 2 or 3)
+//   sf-mod-check conflict [--plugins <Plugins.txt>] [--data D] [--extra-data F] [--out F] [--max-memory GB] [--no-assets]
+//                       [--no-priorities] [--ini F]... [--language C] [--quiet] [--verbose] [--log <file>]        (whole load order: ConflictCommand.cs; exit 0, 2 or 3)
 //   sf-mod-check release <zip>... [...]          (release zips: ReleaseCommand.cs; exit 0, 1 or 2)
 //   sf-mod-check triage <mod> [...]              (first-pass report on someone else's mod: TriageCommand.cs; exit 0 or 2)
 //   sf-mod-check patch [...]                     (builds a local conflict patch: PatchCommand.cs, 0.9.0; exit 0, 1, 2 or 3)
@@ -32,7 +32,8 @@ const string Usage =
     "usage: sf-mod-check check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]\n" +
     "                                 [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]\n" +
     "       sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
-    "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]\n" +
+    "                           [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]\n" +
+    "                           [--quiet] [--verbose] [--log <file>]\n" +
     "       sf-mod-check release <zip>... [--profile basic|house|creations] [--dmmdeps <exe>] [...]   (sf-mod-check release --help)\n" +
     "       sf-mod-check triage <mod.zip | .7z | .rar | folder | plugin> [--game <folder>] [--out <folder>] [...]   (sf-mod-check triage --help)\n" +
     "       sf-mod-check patch [--plugins <Plugins.txt>] [--only <a.esm>,<b.esm>] [--pick <FormKey>=<plugin>]... [--out <folder>] [...]   (sf-mod-check patch --help)\n" +

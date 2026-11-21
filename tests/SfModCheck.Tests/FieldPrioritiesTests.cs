@@ -68,6 +68,16 @@ public class FieldPrioritiesTests
     }
 
     [Fact]
+    public void The_analyzers_injection_answer_wins_over_the_first_version()
+    {
+        // 0.10.0 code review: Starfield.esm read only partly, so the pass's first version is a mod's; not an injection
+        var partlyRead = L("Keyword", "000801:Starfield.esm", "ModA.esm", "Color") with { Injected = false };
+        Assert.False(FieldPriorityTable.IsInjected(partlyRead));
+        Assert.Equal(FieldPriority.Normal, T.Top(partlyRead));
+        Assert.True(FieldPriorityTable.IsInjected(L("Keyword", "000801:Starfield.esm", "Starfield.esm", "Color") with { Injected = true }));
+    }
+
+    [Fact]
     public void SplitLost_moves_benign_fields_apart_and_puts_critical_entries_first()
     {
         var plain = L("Keyword", "000801:Starfield.esm", "Starfield.esm", "Color", "EditorID");

@@ -115,9 +115,11 @@ public sealed class FieldPriorityTable
         return p;
     }
 
-    /// <summary>True when the record's first version (Origin) isn't in the plugin that owns its FormID.</summary>
+    /// <summary>True when the plugin that owns the record's FormID doesn't hold it: the analyzer's answer when it gave
+    /// one (it rules out an owner read only partly, or one whose version has another type), else the first version
+    /// (Origin) isn't in the owning plugin.</summary>
     public static bool IsInjected(LostChange l) =>
-        !string.Equals(l.Origin, l.FormKey.ModKey.FileName.String, StringComparison.OrdinalIgnoreCase);
+        l.Injected ?? !string.Equals(l.Origin, l.FormKey.ModKey.FileName.String, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The highest priority among a lost change's fields.</summary>
     public FieldPriority Top(LostChange l)

@@ -526,11 +526,11 @@ zip, the game folder or the Data folder.
 | `mutagen-gap` | basic, house | Data the Mutagen library 0.54.4 loses when it writes a plugin, and a missing ONAM list (the game ignores edits to the master's placed references). |
 | `master`, `one-plugin`, `script-source`, `root-md`, `private-file` | house only | A `BlueprintShips` master; more than one plugin in a zip; `.psc` sources in the zip; a root `.md` such as `README.md` with no mod name in it (it overwrites another mod's copy in Data; use `README-<ModName>.md`); a file such as `PERMISSION.md` that should never ship. |
 | `papyrus-lint` | never | Lint findings (WARNING only). |
-| `creations-ini`, `creations-sfse` | creations | An INI file, or a DLL, EXE or file in an `SFSE` folder: Creations take none of them on any platform. A mod that needs SFSE stays a PC (Nexus) mod. |
+| `creations-ini`, `creations-sfse` | creations | An INI file, or a DLL, EXE, ASI or file in an `SFSE` folder: Creations take none of them on any platform. A mod that needs SFSE stays a PC (Nexus) mod. |
 | `creations-framework` | creations | A compiled script that names a script from an SFSE plugin (ConsoleAPI, PapyrusUtil and others in `data\creations-masters.txt`). Consoles can't run SFSE, so those calls fail. |
 | `creations-master` | creations | A master that isn't Bethesda's (Starfield, the DLC, `SFBGS*` and `SFTA*` plugins) and isn't known to be on Creations. Make it optional in code (`Game.IsPluginInstalled`), or allow it with `--creations-master` once you have seen it there. |
 | `creations-xbox` | creations | A PC archive with textures and no `<name>_xbox.ba2` twin (the Creation Kit's Xbox pack refuses PC textures). Any other archive with no twin is a WARNING (Xbox gets no archive). |
-| `creations-size` | creations | Plugins and archives over 2 GB, the most a Creation may hold. |
+| `creations-size` | creations | A zip whose plugins and archives come to over 2 GB, the most a Creation may hold. Each zip is checked on its own, since each one becomes its own Creation. |
 | `creations-audio` | never | `.wem` or `.bnk` sound in an archive or loose (WARNING): PC-format audio is silent on Xbox and PlayStation until the Creation Kit makes their versions from WAV sources. |
 | `creations-debug` | never | `Debug.Notification` or `Debug.MessageBox` that the player would see (WARNING), read from the compiled scripts. The Debug script does nothing on Xbox and PlayStation; show a Message record with `Show()` instead. A call counts as debug-only, and isn't reported, when its function's name mentions debug, trace or verbose, or when it sits inside an `If` that tests a debug switch (something so named) without negating it. |
 

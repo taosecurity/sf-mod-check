@@ -166,6 +166,60 @@ public class ReleaseCreationsTests
         Assert.Contains("MyMod:Quest.OnInit", Assert.Single(Of(f, "creations-debug", Level.Warning)).Text);
     }
 
+    /// <summary>A version 1 general BA2 holding these files stored (not packed), so scripts can be read from it.</summary>
+    static byte[] Ba2Stored(params (string Name, byte[] Data)[] files)
+    {
+        long dataAt = 24 + 36L * files.Length;
+        long nameAt = dataAt + files.Sum(f => (long)f.Data.Length);
+        using var o = new MemoryStream();
+        using var w = new BinaryWriter(o);
+        w.Write(T("BTDX")); w.Write(1u); w.Write(T("GNRL")); w.Write((uint)files.Length); w.Write((ulong)nameAt);
+        long at = dataAt;
+        foreach (var f in files)
+        {
+            w.Write(0u); w.Write(T("pex\0")); w.Write(0u); w.Write(0x100100u);
+            w.Write((ulong)at); w.Write(0u); w.Write((uint)f.Data.Length); w.Write(0xBAADF00Du);
+            at += f.Data.Length;
+        }
+        foreach (var f in files) w.Write(f.Data);
+        foreach (var f in files) { var b = T(f.Name); w.Write((ushort)b.Length); w.Write(b); }
+        w.Flush();
+        return o.ToArray();
+    }
+
+    [Fact]
+    public void Scripts_in_an_Xbox_twin_are_read_once_and_its_sound_is_checked()
+    {
+        // 0.10.0 code review: the twin's copy of each script doubled every finding, and its sound went unchecked
+        using var s = new Sandbox();
+        var pex = PexBytes.Build([new PObj("MyMod:Quest", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code: [Notify("Hello")])])])]);
+        var zip = MakeZip(s, "Mod-0.1.0.zip", ("MyMod.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("MyMod - Main.ba2", Ba2Stored(("scripts/mymod/quest.pex", pex))),
+            ("MyMod - Main_xbox.ba2", Ba2Stored(("scripts/mymod/quest.pex", pex), ("sound/voice/a.wem", T("x")))));
+        var f = Run(s, zip);
+        Assert.True(Of(f, "creations-debug", Level.Warning).Count == 1, List(f));
+        Assert.Contains("MyMod - Main_xbox.ba2", Assert.Single(Of(f, "creations-audio", Level.Warning)).Text);
+        Assert.Equal("MyMod - Main.ba2", ReleaseCreations.PcTwin("MyMod - Main_xbox.ba2"));
+
+        // an Xbox archive alone still has its scripts read
+        var only = MakeZip(s, "Only-0.1.0.zip", ("Only.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Only - Main_xbox.ba2", Ba2Stored(("scripts/mymod/quest.pex", pex))));
+        Assert.Single(Of(Run(s, only), "creations-debug", Level.Warning));
+    }
+
+    [Fact]
+    public void The_size_limit_is_per_zip_and_asi_loaders_fail()
+    {
+        using var s = new Sandbox();
+        var a = ReleaseCommand.Unpack(MakeZip(s, "A-0.1.0.zip", ("A.esm", ReleaseRulesTests.Plugin("Starfield.esm")), ("hook.asi", T("x"))), Path.Combine(s.Dir, "out", "a"));
+        var b = ReleaseCommand.Unpack(MakeZip(s, "B-0.1.0.zip", ("B.esm", ReleaseRulesTests.Plugin("Starfield.esm"))), Path.Combine(s.Dir, "out", "b"));
+        var f = ReleaseCreations.Run(new ReleaseContext { Options = new ReleaseOptions { Profile = "creations" }, Packages = [a, b], Work = s.Sub("work") }).ToList();
+        var sizes = Of(f, "creations-size", Level.Note);
+        Assert.Equal(2, sizes.Count);
+        Assert.StartsWith(a.Name + ":", sizes[0].Text);
+        Assert.Contains("hook.asi", Assert.Single(Of(f, "creations-sfse", Level.Problem)).Text);
+    }
+
     [Fact]
     public void House_rules_stay_warnings_in_the_creations_profile()
     {

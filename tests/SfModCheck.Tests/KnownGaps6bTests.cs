@@ -95,6 +95,26 @@ public class KnownGaps6bTests
     }
 
     [Fact]
+    public void A_ref_collection_aliases_numbers_count_as_the_quests_aliases()
+    {
+        // 0.10.0 code review: AliasIds skipped collection aliases, so a condition on one warned falsely
+        var mod = new StarfieldMod(ModKey.FromFileName("SfmColl.esm"), StarfieldRelease.Starfield);
+        var cq = mod.Quests.AddNew("SFM_CollQuest");
+        (cq.Aliases ??= new()).Add(new QuestCollectionAlias { Collection = { new CollectionAlias { ID = 5, ReferenceAlias = new QuestReferenceAlias { ID = 6 } } } });
+        Assert.Equal(new uint[] { 5, 6 }, Rules.AliasIds(cq).Order());
+
+        using var w = new World();
+        var p = w.Build("condaliascoll", m =>
+        {
+            var q = m.Quests.First();
+            q.Aliases!.Add(new QuestCollectionAlias { Collection = { new CollectionAlias { ID = 5, ReferenceAlias = new QuestReferenceAlias { ID = 6, Name = "SFM_Coll" } } } });
+            q.DialogConditions.Add(new ConditionFloat { Data = new GetIsAliasRefConditionData { FirstParameter = 5 }, ComparisonValue = 1 });
+            q.DialogTopics.First().Responses.First().Conditions.Add(new ConditionFloat { Data = new GetIsAliasRefConditionData { FirstParameter = 6 }, ComparisonValue = 1 });
+        });
+        Expect.No(w.Check(p), "conditions");
+    }
+
+    [Fact]
     public void Official_alias_uses_are_asked_for_only_for_official_records()
     {
         var mod = new StarfieldMod(ModKey.FromFileName("SfmWalk.esm"), StarfieldRelease.Starfield);

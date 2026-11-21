@@ -357,6 +357,13 @@ public static class Rules
         {
             if (a is IQuestReferenceAliasGetter r) s.Add(r.ID);
             else if (a is IQuestLocationAliasGetter l) s.Add(l.ID);
+            else if (a is IQuestCollectionAliasGetter c)
+                // a ref collection alias: its own number and its reference alias's are both alias numbers (code review)
+                foreach (var e in c.Collection)
+                {
+                    if (e.ID is { } id) s.Add(id);
+                    s.Add(e.ReferenceAlias.ID);
+                }
         }
         return s;
     }
