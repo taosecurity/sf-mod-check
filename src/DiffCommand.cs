@@ -185,7 +185,8 @@ public static class DiffCommand
     /// exist, also inside a link's own target), for comparing paths only, never for opening them. ".." is applied the way
     /// the system does: by text on Windows (before any link is followed), and to the real folder on Linux and macOS.
     /// Null when that can't be worked out: a link to a mounted volume (\\?\Volume{...}) or another device path, a chain of
-    /// more than 40 links or more than 400 links in all, an invalid path, or an error reading a link. A \\?\, \??\ or \\.\
+    /// more than 40 links or more than 400 links in all, an invalid path, a part whose attributes can't be read (so it may
+    /// be a link), or an error reading a link. A \\?\, \??\ or \\.\
     /// prefix is dropped on Windows. A link whose target doesn't exist yet is followed too. Hard links and 8.3 short names aren't detected.</summary>
     public static string? RealPath(string path) => RealPath(path, out _);
     /// <summary>As <see cref="RealPath(string)"/>; when it returns null, <paramref name="why"/> says why, for the error
@@ -242,7 +243,15 @@ public static class DiffCommand
                     exists = info.Exists;
                     // code-review round 5: a link whose target doesn't exist yet is followed too, since writing through it
                     // creates the target. Attributes are -1 when nothing is there (LinkTarget would throw on Linux then).
-                    var attrs = info.Attributes;
+                    // code-review round 6: a part that exists but whose attributes can't be read (no permission) can't be
+                    // told apart from a link, so the path is refused, naming that part (a wrong refusal only costs a message)
+                    FileAttributes attrs;
+                    try { attrs = info.Attributes; }
+                    catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+                    {
+                        reason = $"{next} on the way can't be read, so diff can't tell whether it is a link ({e.Message})";
+                        return null;
+                    }
                     bool isLink = (int)attrs != -1 && attrs.HasFlag(FileAttributes.ReparsePoint);
                     // LinkTarget by hand, not ResolveLinkTarget: Windows refuses to follow a junction that way ("untrusted
                     // mount point"). The target is walked again, so links inside it are followed too.
@@ -293,6 +302,18 @@ public static class DiffCommand
     /// <summary>A ':' after the path's root (Windows): an NTFS stream name on a file or a folder.</summary>
     internal static bool HasStreamColon(string full) =>
         full[(System.IO.Path.GetPathRoot(full) ?? "").Length..].Contains(':');
+
+    /// <summary>What to do about an input <see cref="RealPath(string, out string?)"/> couldn't resolve, matched to its
+    /// reason (code-review round 6: the mounted-volume advice was given for every cause).</summary>
+    internal static string InputHint(string? why) => why switch
+    {
+        null => "Give the input by a plain path",
+        _ when why.Contains("mounted volume") => "Give the input by a drive-letter path (a mounted volume needs a drive letter for that)",
+        _ when why.Contains("device path") => "Give the input by a drive-letter path, not a device path",
+        _ when why.Contains("links") => "Give the input by its real path, without the links",
+        _ when why.Contains("isn't valid") => "Check the input's path for a typing mistake",
+        _ => "Make sure this account can read every folder on the input's path, or give the input by another path",
+    };
 
     /// <summary>The full path for a message, or the typed text when the system rejects it (never throws).</summary>
     static string SafeFull(string p)
@@ -350,10 +371,10 @@ public static class DiffCommand
             return $"can't use {option} {full}: {whyNot}, so diff can't check that it stays out of its inputs. " +
                    $"Give {option} a plain path, for example {example}";
         if (WriteProtectedName(real))
-            return $"won't write {what} to {full}: it is a link to {real}, a plugin, archive or script, and {what} would overwrite it. " +
+            return $"won't write {what} to {full}: its real path is {real}, a plugin, archive or script, and {what} would overwrite it. " +
                    $"Give {option} a .txt{(option == "--log" ? "" : " or .json")} file, for example {example}";
         if (OperatingSystem.IsWindows() && HasStreamColon(real))
-            return $"won't write {what} to {full}: it is a link to {real}, and a ':' after the drive writes into another file or folder " +
+            return $"won't write {what} to {full}: its real path is {real}, and a ':' after the drive writes into another file or folder " +
                    $"(an NTFS stream). Give {option} a plain path, for example {example}";
         foreach (var input in new[] { oldInput, newInput })
         {
@@ -361,8 +382,7 @@ public static class DiffCommand
             // by its typed path, which an output reaching the same folder by a drive letter would never match
             if (RealPath(input, out var whyInput) is not { } inReal)
                 return $"can't use {option} {full}: the input {SafeFull(input)} can't be checked ({whyInput}), so diff " +
-                       $"can't make sure {what} stays out of it. Give the input by a plain path (a mounted volume needs a drive " +
-                       $"letter for that), or leave out {option}.";
+                       $"can't make sure {what} stays out of it. {InputHint(whyInput)}, or leave out {option}.";
             // code-review round 5: never trim a root (C:\ would become C:, the current folder on drive C; / would become "")
             var inRoot = System.IO.Path.GetPathRoot(inReal) ?? "";
             var inFull = inReal.Length > inRoot.Length ? inReal.TrimEnd('\\', '/') : inReal;

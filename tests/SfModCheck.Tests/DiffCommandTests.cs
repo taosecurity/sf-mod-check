@@ -301,6 +301,45 @@ public class DiffCommandTests
         var e = DiffCommand.OutProblem(Path.Combine(s.Dir, "r.txt"), bad, b);
         Assert.NotNull(e);
         Assert.Contains("isn't valid", e);
+        // code-review medium round 6: the hint matches the cause (no mounted-volume advice for a typing mistake)
+        Assert.Contains("typing mistake", e);
+        Assert.DoesNotContain("mounted volume", e);
+    }
+
+    [Fact]
+    public void The_input_hint_matches_the_reason()
+    {
+        // code-review medium round 6 (0.11.0)
+        Assert.Contains("drive letter", DiffCommand.InputHint("it goes through a mounted volume"));
+        Assert.Contains("not a device path", DiffCommand.InputHint(@"it is a device path (\\?\GLOBALROOT\x)"));
+        Assert.Contains("without the links", DiffCommand.InputHint("it goes through more than 400 links"));
+        Assert.Contains("without the links", DiffCommand.InputHint("it goes through a chain of more than 40 links"));
+        Assert.Contains("can read every folder", DiffCommand.InputHint("/x/y on the way can't be read, so diff can't tell whether it is a link (denied)"));
+        Assert.DoesNotContain("mounted volume", DiffCommand.InputHint("a link on the way can't be read (x)"));
+    }
+
+    [UnixFact]
+    public void On_linux_a_folder_that_cant_be_read_is_refused_by_name()
+    {
+        // code-review medium round 6 (0.11.0): a part whose attributes can't be read may be a link, so the path is refused,
+        // and the message names that part
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var locked = s.Sub("locked");
+        Directory.CreateDirectory(Path.Combine(locked, "sub"));
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            // root reads everything, so there is nothing to test there
+            try { Directory.GetFileSystemEntries(locked); return; } catch (UnauthorizedAccessException) { }
+            Assert.Null(DiffCommand.RealPath(Path.Combine(locked, "sub", "r.txt"), out var why));
+            Assert.Contains(Path.Combine(locked, "sub"), why);
+            Assert.Contains("can't tell whether it is a link", why);
+            var e = DiffCommand.OutProblem(Path.Combine(locked, "sub", "r.txt"), a, a);
+            Assert.NotNull(e);
+            Assert.Contains("can't tell whether it is a link", e);
+        }
+        finally { File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); }
     }
 
     // ---- pairing ----
