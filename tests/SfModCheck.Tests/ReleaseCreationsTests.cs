@@ -194,8 +194,28 @@ public class ReleaseCreationsTests
         var f = Run(s, zip);
         var w = Assert.Single(Of(f, "creations-framework", Level.Warning));
         Assert.Contains("Guarded.pex", w.Text);
-        Assert.Contains("Game.IsPluginInstalled", w.Text);
-        Assert.Contains("Bare.pex", Assert.Single(Of(f, "creations-framework", Level.Problem)).Text);
+        Assert.Contains("Game.IsPluginInstalled (testing \"ConsoleAPI.esm\")", w.Text);   // names what it tests (round 7)
+        var p = Assert.Single(Of(f, "creations-framework", Level.Problem));
+        Assert.Contains("Bare.pex", p.Text);
+        Assert.Contains("a guard in another script isn't seen", p.Text);
+    }
+
+    [Fact]
+    public void IsPluginInstalled_targets_name_each_string_once_and_a_variable_plainly()
+    {
+        var pex = Pex.Read(PexBytes.Build([new PObj("MyMod:Q", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:
+        [
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Str("ShatteredSpace.esm")),
+            PIns.CallStatic("game", "isplugininstalled", "::temp1", PV.Str("shatteredspace.esm")),
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Id("::temp1")),
+            PIns.CallStatic("Game", "GetFormFromFile", "::temp1", PV.Str("Other.esm")),
+        ])])])]), "Q.pex");
+        Assert.Equal(["\"ShatteredSpace.esm\"", "a name held in a variable"], ReleaseCreations.IsPluginInstalledTargets(pex));
+        var none = Pex.Read(PexBytes.Build([new PObj("MyMod:N", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:
+        [
+            PIns.CallStatic("Game", "GetFormFromFile", "::temp1", PV.Str("Other.esm")),
+        ])])])]), "N.pex");
+        Assert.Null(ReleaseCreations.IsPluginInstalledTargets(none));
     }
 
     /// <summary>A version 1 general BA2 holding these files stored (not packed), so scripts can be read from it.</summary>

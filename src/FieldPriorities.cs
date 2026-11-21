@@ -99,10 +99,11 @@ public sealed class FieldPriorityTable
     /// <summary>The record signature for a Mutagen record class name (LostChange.RecordType), or null.</summary>
     public string? SignatureOf(string mutagenClass) => Signatures.GetValueOrDefault(mutagenClass);
 
-    /// <summary>One field's priority in a lost change, with the run-time rules (see the top of this file).
-    /// injected: the record's first version isn't in the plugin that owns its FormID.</summary>
     /// <summary>Story Manager and Planet Content Manager nodes whose Conditions stay normal (xEdit says benign).</summary>
     static readonly HashSet<string> TreeNodeConditions = new(StringComparer.Ordinal) { "SMBN", "SMQN", "SMEN", "PCBN", "PCMT" };
+
+    /// <summary>One field's priority in a lost change, with the run-time rules (see the top of this file).
+    /// injected: the record's first version isn't in the plugin that owns its FormID.</summary>
 
     public FieldPriority Of(string mutagenClass, string field, bool injected = false)
     {

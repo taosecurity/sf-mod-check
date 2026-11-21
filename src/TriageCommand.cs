@@ -166,7 +166,9 @@ public sealed class TriageContext
             // reports the file as missing (review: the exact-name fallback could be the link itself)
             // The test ignores case like Find does (Linux suite, 2026-11-21: a linked "Scripts" folder or a "Foo.esm"
             // link read as plain missing, because only the lower-case path was tried).
-            if (found == null) return ExistsAnyCase(Root, Shown(rel).Split('\\'), 0) ? Path.Combine(Root, LinkNotFollowed, rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
+            // Kept like a hit (code review round 7): folder listings are cached already, so the answer can't change,
+            // and each section asking again would repeat the walk through the linked folders.
+            if (found == null) found = ExistsAnyCase(Root, Shown(rel).Split('\\'), 0) ? Path.Combine(Root, LinkNotFollowed, rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
             return resolved[rel] = found;
         }
     }

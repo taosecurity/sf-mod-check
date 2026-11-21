@@ -261,7 +261,7 @@ public static class Report
 
     public const string BenignIntro =
         "These fields differ between the plugin that lost the change and the winner, but xEdit rates them as harmless " +
-        "(benign: most Editor IDs, the Master reference lists a location keeps, and a few tree links and node conditions) " +
+        "(benign: most Editor IDs, the Master reference lists a location keeps, and a few tree links) " +
         "or doesn't compare them at all " +
         "(ignore). They are listed here for completeness and are not counted as lost changes, not recommended for a patch " +
         "and not in the counts above. Run with --no-priorities to count them as lost changes, as sf-mod-check 0.9.1 did.";

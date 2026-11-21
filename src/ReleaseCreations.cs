@@ -210,12 +210,15 @@ public static class ReleaseCreations
                 try { pex = Pex.Read(data, label); }
                 catch (InvalidDataException e) { Log.Write($"creations: {label}: not a readable script ({e.Message})"); continue; }
                 var fw = Frameworks(pex);
-                if (fw.Count > 0 && CallsIsPluginInstalled(pex))
+                var tested = fw.Count > 0 ? IsPluginInstalledTargets(pex) : null;
+                if (tested != null)
                     // user, 2026-11-21: a script that checks Game.IsPluginInstalled may use the framework only when
-                    // it's there (optional in code), so a WARNING to confirm the guard; creations-check.py agrees
-                    Add(Level.Warning, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins, and also calls Game.IsPluginInstalled. Creations can't run SFSE; make sure every framework call runs only when that check finds the framework's plugin.");
+                    // it's there (optional in code), so a WARNING to confirm the guard. The text names what the script
+                    // tests, so a check for an unrelated plugin is easy to spot (code review round 7). creations-check.py
+                    // has the same levels but matches the name anywhere in the script's bytes, not only a real call.
+                    Add(Level.Warning, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins, and also calls Game.IsPluginInstalled (testing {string.Join(", ", tested)}). Creations can't run SFSE; make sure every framework call runs only when that check finds the framework's plugin.");
                 else if (fw.Count > 0)
-                    Add(Level.Problem, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins. Creations can't run SFSE, so those calls fail; remove them, guard them with Game.IsPluginInstalled, or keep the mod on PC (Nexus).");
+                    Add(Level.Problem, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins. Creations can't run SFSE, so those calls fail; remove them, guard them with Game.IsPluginInstalled in this script (a guard in another script isn't seen), or keep the mod on PC (Nexus).");
                 foreach (var (obj, fn) in PlayerDebugCalls(pex))
                     Add(Level.Warning, "creations-debug", $"{label}: {obj}.{fn} calls Debug.Notification or Debug.MessageBox outside debug-only code. The Debug script does nothing on Xbox and PlayStation, so players there see nothing; show a Message record with Show() instead.");
             }
@@ -271,11 +274,18 @@ public static class ReleaseCreations
         List.Frameworks.Where(fw => pex.Strings.Any(s => s.Equals(fw, StringComparison.OrdinalIgnoreCase)
                                                         || s.StartsWith(fw + ":", StringComparison.OrdinalIgnoreCase))).ToList();
 
-    /// <summary>True when the script calls Game.IsPluginInstalled anywhere (a callstatic on Game, names compared without case).</summary>
-    public static bool CallsIsPluginInstalled(PexFile pex) =>
-        pex.Objects.Any(o => o.Functions().Any(fn => fn.Code.Any(ins => ins.Name == "callstatic" && ins.Args.Count >= 2
-            && ins.Args[0].Text.Equals("Game", StringComparison.OrdinalIgnoreCase)
-            && ins.Args[1].Text.Equals("IsPluginInstalled", StringComparison.OrdinalIgnoreCase))));
+    /// <summary>What the script's Game.IsPluginInstalled calls test (a callstatic on Game, names compared without
+    /// case): each plugin name given as a string, in quotes, and "a name held in a variable" for any other argument;
+    /// once each, in code order. Null when the script makes no such call.</summary>
+    public static List<string>? IsPluginInstalledTargets(PexFile pex)
+    {
+        var calls = Pex.Calls(pex).Where(c => c.Kind == "static"
+            && c.Type.Equals("Game", StringComparison.OrdinalIgnoreCase)
+            && c.Name.Equals("IsPluginInstalled", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (calls.Count == 0) return null;
+        return calls.Select(c => c.Args.Count > 0 && c.Args[0].IsStr ? $"\"{c.Args[0].Text}\"" : "a name held in a variable")
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
 
     /// <summary>(object, function) for each Debug.Notification or Debug.MessageBox call the player would see: not in a
     /// function named for debugging, and not inside a block that runs only when a debug switch is on. A switch is
