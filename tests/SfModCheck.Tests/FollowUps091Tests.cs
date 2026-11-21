@@ -246,19 +246,22 @@ public class FollowUps091Tests
     }
 
     [Fact]
-    public void The_scripts_section_names_a_linked_archive_it_could_not_read()
+    public void Skipped_links_get_one_neutral_note_in_files_and_scripts_keeps_its_normal_note()
     {
-        // code review of 0.9.1: with the .ba2 beside a plugin set aside as a link, "the mod has no compiled scripts" was wrong
+        // simplify round of 0.9.1: the Scripts section gives its normal finding; the Files section says once that linked
+        // items weren't read
         using var s = new Sandbox();
         var root = s.Sub("mod");
         File.WriteAllText(Path.Combine(root, "foo.esm"), "x");
-        var c = Context(root, ["foo.esm"], [("foo - main.ba2", TriageCommand.LinkWhy)]);
-        var note = Assert.Single(TriageScripts.Run(c), x => x.File == "");
-        Assert.Equal(TriageLevel.Note, note.Level);
-        Assert.Equal("The files triage read hold no compiled scripts (.pex). It skipped foo - main.ba2 because it is a link, so any scripts in there weren't read.", note.Text);
-        // a file skipped for another reason (here its name's case) isn't named
+        var c = Context(root, ["foo.esm"], [("foo - main.ba2", TriageCommand.LinkWhy), ("scripts", TriageCommand.LinkWhy), ("readme.txt", TriageCommand.LinkWhy)]);
+        Assert.Equal("The mod has no compiled scripts (.pex), loose or in its archives.", Assert.Single(TriageScripts.Run(c), x => x.File == "").Text);
+        var note = Assert.Single(TriageFiles.Run(c), x => x.Level == TriageLevel.Note && x.Text.Contains("linked item"));
+        Assert.Equal(TriageSections.Files, note.Section);
+        Assert.Equal("2 linked items were skipped and not read (each is named in this section); any scripts or assets inside them weren't checked. " +
+                     "Run triage on what the link points to.", note.Text);   // the .txt can't hold scripts or assets: not counted
+        // a file skipped for another reason (here its name's case) gets no such note
         var other = Context(root, ["foo.esm"], [("Foo.esm", TriageCommand.CaseWhyFor("foo.esm"))]);
-        Assert.Equal("The mod has no compiled scripts (.pex), loose or in its archives.", Assert.Single(TriageScripts.Run(other)).Text);
+        Assert.DoesNotContain(TriageFiles.Run(other), x => x.Text.Contains("linked item"));
     }
 
     [Fact]
@@ -427,9 +430,25 @@ public class FollowUps091Tests
         var kept = new Dictionary<string, string>();
         var unique = TriageCommand.OnePerName(["scripts\\b.pex", "a.esm", "scripts\\b.pex", "A.esm"], skipped, kept);
         Assert.Equal(["a.esm", "scripts\\b.pex"], unique);
-        Assert.Equal([("A.esm", TriageCommand.CaseWhyFor("a.esm")), ("scripts\\b.pex", TriageCommand.CaseWhyFor("scripts\\b.pex"))], skipped);
+        // the same spelling twice is one file, not a case twin (simplify round of 0.9.1)
+        Assert.Equal([("A.esm", TriageCommand.CaseWhyFor("a.esm"))], skipped);
+        Assert.False(kept.ContainsKey("scripts\\b.pex"));
         Assert.All(skipped, x => Assert.StartsWith("skipped: ", x.Why));   // like LinkWhy (code review of 0.9.1)
         Assert.Equal("a.esm", kept["a.esm"]);   // the all-lower-case spelling is the one kept
+    }
+
+    [Fact]
+    public void Full_reads_the_kept_spelling_on_every_system()
+    {
+        // simplify round of 0.9.1: on Windows Full built its path from the lower-case name, ignoring CaseKept. Two real
+        // twins on Windows need a case-sensitive folder (admin), so this checks the spelling Full gives on each system.
+        using var s = new Sandbox();
+        var root = s.Sub("mod");
+        Directory.CreateDirectory(Path.Combine(root, "Scripts"));
+        File.WriteAllText(Path.Combine(root, "Scripts", "Foo.pex"), "x");
+        var c = Context(root, ["scripts\\foo.pex"], []);
+        c.CaseKept["scripts\\foo.pex"] = "Scripts\\Foo.pex";
+        Assert.Equal(Path.Combine(root, "Scripts", "Foo.pex"), c.Full("scripts\\foo.pex"));
     }
 
     [Fact]

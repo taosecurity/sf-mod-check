@@ -530,7 +530,7 @@ prints the LOOK lines and `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <p
 
 | Section | What it lists | LOOK when |
 |---|---|---|
-| Files | every file with its size and SHA-256 (a skipped file is listed with "link" or "?" in place of its size); each `.ba2`'s contents; version numbers in names; which archives load with which plugin; archives inside the mod (not opened); FOMOD installers; files outside the usual Data layout | an archive no plugin loads; an archive that can't be read |
+| Files | every file with its size and SHA-256 (a skipped file is listed with "link" or "same name" in place of its size, and a file whose hash couldn't be read with "?"); each `.ba2`'s contents; version numbers in names; which archives load with which plugin; archives inside the mod (not opened); FOMOD installers; files outside the usual Data layout | an archive no plugin loads; an archive that can't be read |
 | Replaces vanilla | loose files and archive entries whose path is also in the game's own archives | the mod replaces a game script (every quest and mod that uses it gets the mod's copy); a plugin or archive with the game's own name |
 | Plugins | masters (missing, unused), light/medium/full flag, FormID range, text that isn't valid UTF-8; records added, overridden and deleted by type and origin; changed fields in official records; ONAM; attached scripts; `check`'s own findings | a missing master; ITMs; deleted official records; official changes the mod undoes (it overrides a record a later official master changed, without that master); temporary references missing from ONAM; scripts that aren't there; `check` ERRORs |
 | Scripts | each `.pex` (loose or in an archive) read from its bytecode: name, parent, every function it calls, whether it logs with `Debug.Trace` | console commands; INI changes; calls to scripts in neither the mod nor the game; timers that restart themselves or start from frequent events; `GetFormFromFile` or text naming another mod's plugin; file paths that run or point outside Data |
@@ -538,7 +538,9 @@ prints the LOOK lines and `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <p
 
 What it can't see: names a DLL looks up while it runs, what a script does with values it computes, records nothing
 uses, and files behind a link (symlink or junction) inside a mod folder or beside a plugin: triage never follows one,
-and the report lists each as skipped. A plugin you name yourself is read even when it is a link, because you chose it.
+and the report lists each as skipped, with one note that any scripts or assets inside weren't checked. On Windows, a
+plugin you name yourself is read even when it is a link, because you chose it; on Linux and macOS it isn't read.
+
 Only real links count: a OneDrive placeholder or another kind of reparse point is read as a normal file or folder.
 An archive with more than 200,000 entries is refused. It reads compiled scripts as bytecode only:
 nothing is decompiled. On a large mod it uses memory like `check` does (NAPG-sized mods: about 5 GB).

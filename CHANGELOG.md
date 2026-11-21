@@ -19,17 +19,17 @@ What it prints (a real run; the folder names are changed):
     sf-mod-check 0.9.1 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
     sf-mod-check 0.9.1 triage: SomeMod (1 files; triage, not a verdict)
     LOOK [Files] textures: skipped: it is a link (symlink or junction), and triage never follows links, so what it points to isn't checked. Run triage on the folder it points to if you want that checked
-    RESULT: REPORT WRITTEN (1 to look at, 3 notes) C:\Mods\reports\SomeMod-triage.html
+    RESULT: REPORT WRITTEN (1 to look at, 4 notes) C:\Mods\reports\SomeMod-triage.html
 
 ### Fixes
 
 - `triage` and `release` refuse an archive that holds more than 200,000 entries, before they unpack anything. A crafted archive of millions of empty files used to take a very long time to unpack and clean up. The message says what to do: if it really is one mod, unpack it yourself and run `triage` on the folder.
-- `triage` never follows a link beside a plugin. On Windows, a `.ba2` next to the plugin that was a link to another file used to be read; now it is skipped, as it already was in a folder. The plugin you name yourself is still read even when it is a link.
+- `triage` never follows a link beside a plugin. On Windows, a `.ba2` next to the plugin that was a link to another file used to be read; now it is skipped, as it already was in a folder. On Windows, the plugin you name yourself is still read even when it is a link (on Linux and macOS it isn't; see "Not yet").
 - Only real links (symbolic links and junctions) are skipped. Windows also marks OneDrive Files On-Demand placeholders, deduplicated files and app aliases as reparse points; `triage` reads those as normal files and folders, so a mod kept in a OneDrive folder is checked in full.
 - Every link `triage` skips is listed in the Files section as a LOOK that says it is a link. A file reached only through a link used to show as a file that couldn't be read, under a made-up path. Such a file now gets that one LOOK only, not a second "couldn't be read" from the Plugins or Scripts section.
 - Skipped files (links, and a file whose name differs from another's only in case) are rows in the Files section's "Every file" table, marked "link" or "same name" in place of their size. A "?" there still means a file whose hash couldn't be read.
-- On Linux, two files in a mod folder whose names differ only in case (`Scripts/a.pex` and `scripts/a.pex`) are no longer read as one file twice. One of them is checked (the all-lower-case one if there is one), and the report names both by their own spellings: the LOOK for the skipped file says which file was checked in its place, and the "Every file" table shows both.
-- When a link that `triage` skipped could hold scripts (a `.ba2`, a `.pex` or a folder), the Plugins and Scripts sections name it. An attached script found nowhere else is reported as possibly in that skipped link, not as a script that doesn't run, and the Scripts section no longer says the mod has no scripts.
+- On Linux, two files in a mod folder whose names differ only in case (`Scripts/a.pex` and `scripts/a.pex`) are no longer read as one file twice. One of them is checked (the all-lower-case one if there is one), and the Files section names both by their own spellings: the LOOK for the skipped file says which file was checked in its place, and the "Every file" table shows both. The same file listed twice under one spelling is not reported as two.
+- When a link that `triage` skipped could hold scripts or assets (a `.ba2`, a `.pex` or a folder), the Files section adds one note: how many such links were skipped, that anything inside them wasn't checked, and that you can run `triage` on what the link points to. The Plugins and Scripts sections keep their normal findings, so a script that is really missing is still reported as one that doesn't run.
 - The Scripts section of `triage` unpacks archive entries packed with LZ4. They used to be named in the report and skipped. An entry that unpacks to more bytes than its archive says is reported as a size mismatch with both sizes, not as damaged data.
 - `check`, `release` and `conflict` find a lower-case `starfield.esm` on Linux, as `triage` already did, so they no longer print "no Starfield.esm" for such a Data folder.
 - On Windows, `triage` and `release` count an error as a problem of the PC (a locked file, a full disk) only when it carries a real Windows error code. An unrelated error code that happened to share the last four hex digits used to count too; it only changed the wording of the message.
@@ -47,7 +47,7 @@ What it prints (a real run; the folder names are changed):
 
 ### Documentation
 
-- The README and AGENTS.md say exactly which links `triage` skips: links inside a mod folder and beside a plugin. The plugin named on the command line is read even when it is a link.
+- The README and AGENTS.md say exactly which links `triage` skips: links inside a mod folder and beside a plugin. On Windows, the plugin named on the command line is read even when it is a link.
 
 - The README's "Known gaps" now says that Mutagen 0.54.4 writes 0 for a quest's `Unknown` value (the header of the quest's dialogue and scene group), and that the `mutagen-gap` rule doesn't report it.
 - The README and AGENTS.md now say plainly what happens when you run `conflict` or `patch` outside Mod Organizer 2: every MO2 mod shows as "listed but not found in Data" and is left out. Running sf-mod-check from inside MO2 should work but hasn't been tried.
@@ -55,6 +55,12 @@ What it prints (a real run; the folder names are changed):
 ### Not yet
 
 - The ITM step still loads whole cells, so `check` and `triage` on very large mods (NAPG-sized) still peak at about 5 GB of memory.
+- On Linux, only the Files section names a case twin by its own spelling. The other sections, and a LOOK for a file whose hash couldn't be read, name the checked file by its lower-case name.
+- On Linux, a real file and a link whose names differ only in case show under one lower-case name.
+- On Linux and macOS, a plugin named on the command line that is a symlink isn't read. When a folder holds both `Foo.esm` and `foo.esm`, `triage` may read `foo.esm` even if you named `Foo.esm`. Both were already true before 0.9.1.
+- The fix line for an archive with too many entries is the same for `release` and `triage`, so it speaks of "the archive" in both.
+
+## 0.9.0 (2026-11-20)
 
 ### What's new
 

@@ -88,14 +88,6 @@ public sealed class TriageContext
     /// <summary>How the report names a file of Files: its own spelling when another file has the same name apart from
     /// case (so the report says which one was read), else the lower-case name.</summary>
     public string Shown(string rel) => CaseKept.TryGetValue(rel, out var own) ? own : rel;
-    /// <summary>Files triage skipped because they are links and that could hold scripts: an archive (.ba2), a script
-    /// (.pex), or a folder (a name with no extension). The Plugins and Scripts sections name them, so a script that is
-    /// only in one of them isn't simply called missing (code review of 0.9.1).</summary>
-    public List<string> LinkedScriptHolders => Skipped
-        .Where(s => s.Why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy)
-        .Select(s => s.File)
-        .Where(f => RelPath.Extension(f) is ".ba2" or ".pex" or "")
-        .Distinct(StringComparer.Ordinal).ToList();
     /// <summary>The folder name Full puts in front of a path it won't follow (a file reached only through a link), so the
     /// path doesn't exist and the Files section can say why.</summary>
     public const string LinkNotFollowed = ".sf-mod-check-link-not-followed";
@@ -150,7 +142,8 @@ public sealed class TriageContext
     /// ubuntu, 2026-11-20: every section missed "Scripts/Foo.pex" as "scripts/foo.pex").</summary>
     public string Full(string rel)
     {
-        var direct = Path.Combine(Root, rel.Replace('\\', Path.DirectorySeparatorChar));
+        // the kept spelling of a case twin on both branches (Shown), so Windows and Linux read the same file
+        var direct = Path.Combine(Root, Shown(rel).Replace('\\', Path.DirectorySeparatorChar));
         if (OperatingSystem.IsWindows()) return direct;   // elsewhere always the full lookup: a link at any level is refused (security review: a linked parent folder)
         lock (resolved)
         {
@@ -158,7 +151,7 @@ public sealed class TriageContext
             // every folder whose name matches ignoring case is tried in turn ("Scripts" and "scripts" can both exist),
             // the exact spelling first; each folder is listed once (review of the Linux fix). Of two files whose names
             // differ only in case, the one Gather kept is asked for by its own spelling, so this reads that one.
-            var found = Find(Root, (CaseKept.TryGetValue(rel, out var own) ? own : rel).Split('\\'), 0);
+            var found = Find(Root, Shown(rel).Split('\\'), 0);
             // not there (or only behind a link, which is never followed): a path that doesn't exist, so the caller
             // reports the file as missing (review: the exact-name fallback could be the link itself)
             if (found == null) return File.Exists(direct) || Directory.Exists(direct) ? Path.Combine(Root, LinkNotFollowed, rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
@@ -599,14 +592,13 @@ public static class TriageCommand
         var unique = new List<string>();
         foreach (var g in files.GroupBy(Ba2Names.Normalize, StringComparer.OrdinalIgnoreCase))
         {
-            var spellings = g.Select(f => f.Replace('/', '\\').TrimStart('\\')).ToList();
+            // the same spelling twice is one file, not a case twin
+            var spellings = g.Select(f => f.Replace('/', '\\').TrimStart('\\')).Distinct(StringComparer.Ordinal).ToList();
             var kept = spellings.OrderBy(f => f == Ba2Names.Normalize(f) ? 0 : 1).ThenBy(f => f, StringComparer.Ordinal).First();
             unique.Add(g.Key);
             if (spellings.Count < 2) continue;
-            bool keptOnce = false;
             foreach (var f in spellings)
-                if (f == kept && !keptOnce) keptOnce = true;
-                else skipped.Add((f, CaseWhyFor(kept)));
+                if (f != kept) skipped.Add((f, CaseWhyFor(kept)));
             if (caseKept != null) caseKept[g.Key] = kept;
             Log.Write($"triage: {spellings.Count} files are named {g.Key} apart from case; {kept} is read, the others are skipped");
         }

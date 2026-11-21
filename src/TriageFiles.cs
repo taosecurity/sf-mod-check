@@ -188,6 +188,13 @@ public static class TriageFiles
         // it; "?" stays for a file whose hash couldn't be read). A file skipped for its name's case is named by its own
         // spelling, and so is the one kept in its place (Shown), so the table shows both real files side by side.
         foreach (var (rel, why) in c.Skipped) Look(rel, why);
+        // one neutral note when a skipped link could hold scripts or assets (an archive, a script, a folder); the Plugins
+        // and Scripts sections keep their normal findings (simplified after the code review of 0.9.1)
+        var linkedHolders = c.Skipped.Count(s => s.Why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy
+                                                && RelPath.Extension(s.File) is ".ba2" or ".pex" or "");
+        if (linkedHolders > 0)
+            Note("", $"{linkedHolders:N0} linked item{(linkedHolders == 1 ? " was" : "s were")} skipped and not read (each is named in this section); " +
+                     $"any scripts or assets inside {(linkedHolders == 1 ? "it" : "them")} weren't checked. Run triage on what the link points to.");
         static string Marker(string why) =>
             why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy ? "link"
             : why.StartsWith(TriageCommand.CaseWhyStart, StringComparison.Ordinal) ? "same name" : "skipped";
