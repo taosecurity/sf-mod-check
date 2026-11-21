@@ -409,8 +409,9 @@ public static class ReleaseNeeds
     }
 
     // Archives that belong to the game itself: Starfield's own, the DLC and Creations Bethesda ships (named after an
-    // official plugin), and the CK's sources.
-    static readonly Regex OfficialArchive = new(@"^(starfield|constellation|oldmars|shatteredspace|sfbgs[0-9a-z]+|sfta0\d|blueprintships-starfield)( - |\.)|^contentresources\.zip$",
+    // official plugin), and the CK's sources. The SFBGS, sfta and BlueprintShips shapes are Checker.Official's
+    // (0.10.1 code review round 5: the old `sfbgs[0-9a-z]+` also took mods such as "SFBGSExtras - Main.ba2").
+    static readonly Regex OfficialArchive = new(@"^(starfield|constellation|oldmars|shatteredspace|blueprintships-starfield|(blueprintships-)?(sfbgs[0-9a-f]{3}|sfta[0-9]{2}))( - |\.)|^contentresources\.zip$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     internal static bool IsOfficialArchive(string archive) => OfficialArchive.IsMatch(Path.GetFileName(archive.Trim()));
