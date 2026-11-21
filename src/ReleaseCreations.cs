@@ -105,7 +105,7 @@ public static class ReleaseCreations
     {
         if (c.Options.Profile != "creations") return [];
         var f = new List<ReleaseFinding>();
-        void Add(Level l, string rule, string text) { f.Add(new(l, rule, text)); Log.Write($"creations: {ReleaseCommand.Label(l).Trim()} [{rule}] {text}"); }
+        void Add(Level l, string rule, string text) { text = OneLine(text); f.Add(new(l, rule, text)); Log.Write($"creations: {ReleaseCommand.Label(l).Trim()} [{rule}] {text}"); }
 
         foreach (var p in c.Packages)
         {
@@ -205,10 +205,10 @@ public static class ReleaseCreations
             // compiled scripts, loose and in archives
             foreach (var (label, data, error) in Scripts(p))
             {
-                if (data == null) { Log.Write($"creations: {label}: not read ({error})"); continue; }
+                if (data == null) { Log.Write(OneLine($"creations: {label}: not read ({error})")); continue; }
                 PexFile pex;
                 try { pex = Pex.Read(data, label); }
-                catch (InvalidDataException e) { Log.Write($"creations: {label}: not a readable script ({e.Message})"); continue; }
+                catch (InvalidDataException e) { Log.Write(OneLine($"creations: {label}: not a readable script ({e.Message})")); continue; }
                 var fw = Frameworks(pex);
                 var tested = fw.Count > 0 ? IsPluginInstalledTargets(pex) : null;
                 if (tested != null)
@@ -283,32 +283,55 @@ public static class ReleaseCreations
             && c.Type.Equals("Game", StringComparison.OrdinalIgnoreCase)
             && c.Name.Equals("IsPluginInstalled", StringComparison.OrdinalIgnoreCase)).ToList();
         if (calls.Count == 0) return null;
-        return calls.Select(c => c.Args.Count > 0 && c.Args[0].IsStr ? Quoted(c.Args[0].Text) : "a name held in a variable")
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // Distinct on the names themselves, before Quoted cuts them (round 9: two long names sharing their first
+        // 80 characters would otherwise show as one).
+        return calls.Select(c => c.Args.Count > 0 && c.Args[0].IsStr ? c.Args[0].Text : null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(t => t == null ? "a name held in a variable" : Quoted(t)).ToList();
     }
 
-    /// <summary>A string from a script, in quotes, safe for a one-line finding: backslashes, quotes and control
-    /// characters escaped, and cut to 80 characters with "..." (code review round 8: a name with a newline split
-    /// the WARNING in two).</summary>
+    /// <summary>A string from a script, in quotes, safe for a one-line finding: backslashes and quotes escaped, the
+    /// characters <see cref="OneLine"/> escapes escaped the same way, and cut to 80 characters with "..." (never
+    /// inside a surrogate pair). Code review round 8: a name with a newline split the WARNING in two.</summary>
     public static string Quoted(string s)
     {
         const int Max = 80;
         var cut = s.Length > Max;
+        var keep = cut ? (char.IsHighSurrogate(s[Max - 1]) ? Max - 1 : Max) : s.Length;
         var sb = new System.Text.StringBuilder("\"");
-        foreach (var ch in cut ? s[..Max] : s)
+        foreach (var ch in s.AsSpan(0, keep))
             sb.Append(ch switch
             {
                 '\\' => "\\\\",
                 '"' => "\\\"",
-                '\n' => "\\n",
-                '\r' => "\\r",
-                '\t' => "\\t",
-                _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
-                _ => ch.ToString(),
+                _ => Escape(ch) ?? ch.ToString(),
             });
         if (cut) sb.Append("...");
         return sb.Append('"').ToString();
     }
+
+    /// <summary>Text for a one-line finding or log line: control characters (Cc), the Unicode line and paragraph
+    /// separators (Zl, Zp) and the bidi controls (U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) are written
+    /// as \n, \r, \t or \uXXXX, so names taken from a script or a zip can't split a finding or reorder it on screen
+    /// (code review round 9). Everything else, backslashes in paths included, stays as it is.</summary>
+    public static string OneLine(string s)
+    {
+        if (!s.Any(c => Escape(c) != null)) return s;
+        var sb = new System.Text.StringBuilder(s.Length + 8);
+        foreach (var ch in s) sb.Append(Escape(ch) ?? ch.ToString());
+        return sb.ToString();
+    }
+
+    static string? Escape(char ch) => ch switch
+    {
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        '‎' or '‏' or (>= '‪' and <= '‮') or (>= '⁦' and <= '⁩') => $"\\u{(int)ch:x4}",
+        _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
+        _ => char.GetUnicodeCategory(ch) is System.Globalization.UnicodeCategory.LineSeparator
+            or System.Globalization.UnicodeCategory.ParagraphSeparator ? $"\\u{(int)ch:x4}" : null,
+    };
 
     /// <summary>(object, function) for each Debug.Notification or Debug.MessageBox call the player would see: not in a
     /// function named for debugging, and not inside a block that runs only when a debug switch is on. A switch is

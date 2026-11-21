@@ -232,6 +232,53 @@ public class ReleaseCreationsTests
         Assert.DoesNotContain(t, s => s.Any(char.IsControl));
     }
 
+    [Fact]
+    public void Quoted_cuts_cleanly_and_escapes_every_line_break()
+    {
+        Assert.Equal("\"" + new string('x', 80) + "\"", ReleaseCreations.Quoted(new string('x', 80)));
+        // an emoji across the cut: the pair is dropped whole, not split
+        var q = ReleaseCreations.Quoted(new string('x', 79) + "\U0001F600" + "tail");
+        Assert.Equal("\"" + new string('x', 79) + "...\"", q);
+        Assert.DoesNotContain(q, char.IsSurrogate);
+        Assert.Equal("\"a\\u2028b\\u2029c\\u202ed\"", ReleaseCreations.Quoted("a\u2028b\u2029c\u202Ed"));
+        Assert.Equal("\"" + new string('y', 79) + "\\n...\"", ReleaseCreations.Quoted(new string('y', 79) + "\n" + new string('z', 5)));
+    }
+
+    [Fact]
+    public void A_script_name_with_a_newline_stays_on_one_line_in_the_finding()
+    {
+        // code review round 9: object and function names went into creations-debug raw
+        using var s = new Sandbox();
+        var pex = PexBytes.Build([new PObj("MyMod:Q\nWARNING [x] fake", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code: [Notify("Hello")])])])]);
+        var zip = MakeZip(s, "Mod-0.1.0.zip", ("MyMod.esm", ReleaseRulesTests.Plugin("Starfield.esm")), ("Scripts/MyMod/Quest.pex", pex));
+        var text = Assert.Single(Of(Run(s, zip), "creations-debug", Level.Warning)).Text;
+        Assert.Contains("MyMod:Q\\nWARNING [x] fake.OnInit", text);
+        Assert.DoesNotContain('\n', text);
+    }
+
+    [Fact]
+    public void OneLine_escapes_line_breaks_but_keeps_paths()
+    {
+        Assert.Equal(@"Scripts\My Mod.pex", ReleaseCreations.OneLine(@"Scripts\My Mod.pex"));
+        var s = ReleaseCreations.OneLine("Obj\nWARNING [x] fake\u2028more\u202E\u0001");
+        Assert.Equal("Obj\\nWARNING [x] fake\\u2028more\\u202e\\u0001", s);
+        Assert.DoesNotContain(s, c => char.IsControl(c) || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.LineSeparator or System.Globalization.UnicodeCategory.ParagraphSeparator);
+    }
+
+    [Fact]
+    public void Two_long_tested_names_sharing_their_start_are_both_listed()
+    {
+        var a = new string('n', 85) + "A.esm";
+        var b = new string('n', 85) + "B.esm";
+        var pex = Pex.Read(PexBytes.Build([new PObj("MyMod:Q", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:
+        [
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Str(a)),
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Str(b)),
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Str(a.ToUpperInvariant())),
+        ])])])]), "Q.pex");
+        Assert.Equal(2, ReleaseCreations.IsPluginInstalledTargets(pex)!.Count);
+    }
+
     /// <summary>A version 1 general BA2 holding these files stored (not packed), so scripts can be read from it.</summary>
     static byte[] Ba2Stored(params (string Name, byte[] Data)[] files)
     {
