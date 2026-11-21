@@ -15,6 +15,7 @@
 - `release --dmmdeps`: the game's own archives (`BLUEPRINTSHIPS-STARFIELD - Main.ba2`, `CONTENTRESOURCES.ZIP`) are also recognized the same way on every PC language.
 - `release --dmmdeps`: game archives are now told apart by the same official names `check` uses. Archives of `BlueprintShips-SFBGS*` plugins and of `sfta10` and later now count as the game's own, and a mod archive such as `SFBGSExtras - Main.ba2` no longer does.
 - `release --dmmdeps`: a game archive must now be a `.ba2` named `<official plugin> - <part>.ba2`, the same test `triage` uses. Mod archives such as `SFBGS003.Fixes - Main.ba2` or `Starfield.Extras - Main.ba2`, and files that aren't archives, no longer count as the game's own.
+- `release --dmmdeps`: on Linux and macOS, an archive DMMDeps names with a Windows folder (`Data\Starfield - Textures01.ba2`) is now recognized as the game's or a master's archive, and spaces or a line break after the name no longer hide a master's archive.
 - `triage`: script text that ends with a newline (`"MyMod.esm\n"`) is no longer reported as a plugin name, and file names match the same way on every PC language.
 
 ### Example

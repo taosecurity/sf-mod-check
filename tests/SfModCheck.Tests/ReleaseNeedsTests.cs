@@ -190,6 +190,10 @@ public class ReleaseNeedsTests
     [InlineData("Starfield - Notes.txt", false)]
     [InlineData("SFBGS003.zip", false)]
     [InlineData("Data/Starfield - Textures01.ba2", true)]
+    [InlineData("Data\\Starfield - Textures01.ba2", true)]
+    [InlineData("C:\\Games\\Starfield\\Data\\ContentResources.zip", true)]
+    [InlineData("Data\\Starfield - Textures01.ba2 \n", true)]
+    [InlineData("Data\\SomeMod - Main.ba2", false)]
     public void Official_archives_are_told_from_mods(string archive, bool official) =>
         Assert.Equal(official, ReleaseNeeds.IsOfficialArchive(archive));
 
@@ -209,19 +213,24 @@ public class ReleaseNeedsTests
               {"PcPath":"Data\\Meshes\\Mine.nif","Kind":"parentmatch","Source":"parent-archive:patch - main.ba2"},
               {"PcPath":"Data\\Meshes\\Vanilla.nif","Kind":"parentmatch","Source":"parent-archive:Starfield - Meshes01.ba2"},
               {"PcPath":"Data\\Meshes\\FromBase.nif","Kind":"parentmatch","Source":"parent-archive:Base - Main.ba2"},
+              {"PcPath":"Data\\Meshes\\FromBase2.nif","Kind":"parentmatch","Source":"parent-archive:Data\\Base - Textures.ba2 \n"},
               {"PcPath":"Data\\Meshes\\Kept.nif","Kind":"keep","Source":"disk"}]}
             """);
         var sources = ReleaseNeeds.ReadParentSources(deps);
-        Assert.Equal(3, sources.Count);
+        Assert.Equal(4, sources.Count);
+        Assert.Equal("Data\\Base - Textures.ba2", sources["meshes\\frombase2.nif"]);   // trimmed when read
         var keep = new HashSet<string>(StringComparer.Ordinal) { "meshes\\kept.nif" };
         var findings = new List<ReleaseFinding>();
-        var left = ReleaseNeeds.SortParentMatches("Patch.esm", plugin, ["meshes\\mine.nif", "meshes\\vanilla.nif", "meshes\\frombase.nif", "meshes\\unknown.nif"],
+        var left = ReleaseNeeds.SortParentMatches("Patch.esm", plugin, ["meshes\\mine.nif", "meshes\\vanilla.nif", "meshes\\frombase.nif", "meshes\\frombase2.nif", "meshes\\unknown.nif"],
             sources, keep, findings);
 
         Assert.Equal(["meshes\\vanilla.nif", "meshes\\unknown.nif"], left);          // game match and no source: usual mapping
         Assert.Contains("meshes\\mine.nif", keep);                                    // stale cache: found
         Assert.Contains(findings, f => f.Level == Level.Review && f.Text.Contains("master's archive Base - Main.ba2") && f.Text.Contains("frombase.nif"));
         Assert.Contains(findings, f => f.Level == Level.Note && f.Text.Contains("patch - main.ba2 (1)"));
-        Assert.Equal(2, findings.Count);
+        // A Windows folder in the archive name still finds the master on every OS (code review round 7).
+        Assert.Contains(findings, f => f.Level == Level.Review && f.Text.Contains("Base - Textures.ba2") && f.Text.Contains("frombase2.nif"));
+        Assert.DoesNotContain("meshes\\frombase2.nif", keep);
+        Assert.Equal(3, findings.Count);
     }
 }
