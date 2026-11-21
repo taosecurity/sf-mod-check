@@ -130,16 +130,16 @@ public static class ReleaseCreations
                 var name = Path.GetFileName(plugin);
                 RawHeader? h;
                 try { h = RawHeader.Read(plugin); }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { h = null; Log.Write($"creations: {name}: header not read ({e.Message})"); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { h = null; Log.Write($"creations: {p.Name}:{name}: header not read ({e.Message})"); }
                 if (h == null) continue;   // the plugin check reports a plugin it can't read
                 Log.Write($"creations: {p.Name}:{name}: masters {string.Join(", ", h.Masters)}");
                 foreach (var m in h.Masters)
                 {
                     if (IsOfficial(m)) continue;
                     if (Allowed(m, c.Options.CreationsMasters))
-                        Add(Level.Note, "creations-master", $"{name}: master {m} is allowed as a Creation ({(c.Options.CreationsMasters.Contains(m, StringComparer.OrdinalIgnoreCase) ? "--creations-master" : "the built-in list")}).");
+                        Add(Level.Note, "creations-master", $"{p.Name}:{name}: master {m} is allowed as a Creation ({(c.Options.CreationsMasters.Contains(m, StringComparer.OrdinalIgnoreCase) ? "--creations-master" : "the built-in list")}).");
                     else
-                        Add(Level.Problem, "creations-master", $"{name}: master {m} isn't known to be on Creations. A Creation may only require Bethesda's plugins and other Creations; make it optional in code (Game.IsPluginInstalled), or, once you have seen {m} on Creations for every platform, run again with --creations-master {m}.");
+                        Add(Level.Problem, "creations-master", $"{p.Name}:{name}: master {m} isn't known to be on Creations. A Creation may only require Bethesda's plugins and other Creations; make it optional in code (Game.IsPluginInstalled), or, once you have seen {m} on Creations for every platform, run again with --creations-master {m}.");
                 }
                 total += new FileInfo(plugin).Length;
             }
@@ -153,7 +153,7 @@ public static class ReleaseCreations
             {
                 try { lists[a] = Ba2Names.Read(a); }
                 // UnauthorizedAccessException too, as ReleaseRules' ba2-unreadable does (code review round 5)
-                catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { lists[a] = null; Log.Write($"creations: {ArchiveLabel(p, a)}: not read ({e.Message})"); }
+                catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { lists[a] = null; Log.Write($"creations: {p.Name}:{ArchiveLabel(p, a)}: not read ({e.Message})"); }
             }
             int SoundIn(string path) => lists.GetValueOrDefault(path) is { } l ? l.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal))) : 0;
             foreach (var a in p.Archives)
@@ -169,7 +169,7 @@ public static class ReleaseCreations
                     if (!IsXbox(name) && !paths.Contains(XboxTwinPath(a)))
                         Add(Level.Warning, "creations-xbox", $"{p.Name}:{an}: no {XboxTwin(name)}, so Xbox gets no archive (the Creation Kit warns \"Creation for XBox that has no archives\"), and this archive can't be read, so its textures weren't checked; rebuild it, then build the Xbox archive with Archive2's Xbox settings.");
                     else if (IsXbox(name))
-                        Log.Write($"creations: {an}: Xbox archive not read, so its sound wasn't checked (ba2-unreadable reports it)");
+                        Log.Write($"creations: {p.Name}:{an}: Xbox archive not read, so its sound wasn't checked (ba2-unreadable reports it)");
                     continue;
                 }
                 // sound is counted in every archive, the Xbox one too (code review: copied PC sound there is the case
@@ -177,7 +177,7 @@ public static class ReleaseCreations
                 int sound = inside.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal)));
                 bool pairShared = IsXbox(name) ? SoundIn(PcTwinPath(a)) > 0 : SoundIn(XboxTwinPath(a)) > 0;
                 if (sound > 0 && IsXbox(name) && pairShared)
-                    Log.Write($"creations: {an}: {sound} sounds, reported with its PC twin {ArchiveLabel(p, PcTwinPath(a))}");
+                    Log.Write($"creations: {p.Name}:{an}: {sound} sounds, reported with its PC twin {ArchiveLabel(p, PcTwinPath(a))}");
                 else if (sound > 0 && pairShared)
                     Add(Level.Warning, "creations-audio", $"{p.Name}:{an} ({Files(sound, "sound file")}) and {ArchiveLabel(p, XboxTwinPath(a))} ({Files(SoundIn(XboxTwinPath(a)), "sound file")}). PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
                 else if (sound > 0)
@@ -185,7 +185,7 @@ public static class ReleaseCreations
                 if (IsXbox(name))
                 {
                     Add(Level.Note, "creations-xbox", $"{p.Name}: Xbox archive present: {an}.");
-                    Log.Write($"creations: {an}: {inside.Count} files, {sound} sounds (Xbox archive)");
+                    Log.Write($"creations: {p.Name}:{an}: {inside.Count} files, {sound} sounds (Xbox archive)");
                     continue;
                 }
                 var twin = XboxTwin(name);
@@ -198,7 +198,7 @@ public static class ReleaseCreations
                     else
                         Add(Level.Warning, "creations-xbox", $"{p.Name}:{an}: no {twin}, so Xbox gets no archive (the Creation Kit warns \"Creation for XBox that has no archives\"); build the Xbox archive with Archive2's Xbox settings.");
                 }
-                Log.Write($"creations: {an}: {inside.Count} files, {textures} textures, {sound} sounds, twin {(hasTwin ? "present" : "missing")}");
+                Log.Write($"creations: {p.Name}:{an}: {inside.Count} files, {textures} textures, {sound} sounds, twin {(hasTwin ? "present" : "missing")}");
             }
 
             // compiled scripts, loose and in archives
@@ -247,7 +247,7 @@ public static class ReleaseCreations
             var an = ArchiveLabel(p, a);   // the path in the zip (round 4)
             List<(string Entry, byte[]? Data, string? Error)> s;
             try { s = TriageScripts.ArchiveScripts(a); }
-            catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { Log.Write($"creations: {an}: scripts not listed ({e.Message})"); continue; }
+            catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { Log.Write($"creations: {p.Name}:{an}: scripts not listed ({e.Message})"); continue; }
             var twin = IsXbox(name) ? read.GetValueOrDefault(PcTwinPath(a)) : null;   // the same folder's PC archive (round 3)
             if (!IsXbox(name)) read[a] = s.Where(x => x.Data != null).GroupBy(x => x.Entry, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Data!, StringComparer.OrdinalIgnoreCase);
             int skipped = 0;
@@ -256,7 +256,7 @@ public static class ReleaseCreations
                 if (twin != null && data != null && twin.TryGetValue(entry, out var pc) && pc.AsSpan().SequenceEqual(data)) { skipped++; continue; }
                 yield return ($"{p.Name}:{an}:{entry}", data, err);   // the zip's name too, as loose scripts have (round 5)
             }
-            if (skipped > 0) Log.Write($"creations: {an}: {skipped} script{(skipped == 1 ? "" : "s")} also in its PC twin {ArchiveLabel(p, PcTwinPath(a))}, read there");
+            if (skipped > 0) Log.Write($"creations: {p.Name}:{an}: {skipped} script{(skipped == 1 ? "" : "s")} also in its PC twin {ArchiveLabel(p, PcTwinPath(a))}, read there");
         }
     }
 

@@ -46,6 +46,13 @@ public class ReleaseCreationsTests
         return ReleaseCreations.Run(new ReleaseContext { Options = o, Packages = [p], Work = s.Sub("work") }).ToList();
     }
 
+    /// <summary>The zip rules (ReleaseRules) on the creations profile, which report unreadable archives.</summary>
+    static List<ReleaseFinding> ZipRules(Sandbox s, string zip)
+    {
+        var p = ReleaseCommand.Unpack(zip, Path.Combine(s.Dir, "out", Path.GetFileNameWithoutExtension(zip) + "-rules"));
+        return ReleaseRules.Run(new ReleaseContext { Options = new ReleaseOptions { Profile = "creations" }, Packages = [p], Work = s.Sub("work-rules") }).ToList();
+    }
+
     static string List(IEnumerable<ReleaseFinding> f) => string.Join("\n", f.Select(x => $"  {x.Level} [{x.Rule}] {x.Text}"));
 
     static List<ReleaseFinding> Of(List<ReleaseFinding> f, string rule, Level level) => f.Where(x => x.Rule == rule && x.Level == level).ToList();
@@ -83,6 +90,8 @@ public class ReleaseCreationsTests
         Assert.Contains("2 SFSE or program files", Assert.Single(Of(f, "creations-sfse", Level.Problem)).Text);
         Assert.Contains("OtherMod.esm", Assert.Single(Of(f, "creations-master", Level.Problem)).Text);
         Assert.Contains("Friend.esm", Assert.Single(Of(f, "creations-master", Level.Note)).Text);
+        // code review round 6: the master findings name the zip, like the other creations findings
+        Assert.All(Of(f, "creations-master", Level.Problem).Concat(Of(f, "creations-master", Level.Note)), x => Assert.StartsWith("Mod-0.1.0.zip:MyMod.esm: master ", x.Text));
         Assert.Single(Of(f, "creations-audio", Level.Warning));
         Assert.Single(Of(f, "creations-size", Level.Note));
     }
@@ -294,6 +303,10 @@ public class ReleaseCreationsTests
         var fx = Run(s, bx);
         Assert.Empty(Of(fx, "creations-xbox", Level.Warning));
         Assert.Empty(Of(fx, "creations-xbox", Level.Problem));
+        // round 6: both broken archives really do get their ba2-unreadable PROBLEM from the zip rules, which run in every profile
+        Assert.Contains("Bx - Main_xbox.ba2", Assert.Single(Of(ZipRules(s, bx), "ba2-unreadable", Level.Problem)).Text);
+        Assert.Contains("Bad - Main.ba2", Assert.Single(Of(ZipRules(s, zip), "ba2-unreadable", Level.Problem)).Text);
+        Assert.Contains(ReleaseCommand.Steps, step => step.Method.DeclaringType == typeof(ReleaseRules));
         // with its twin present there's nothing to say about the pair
         var twin = MakeZip(s, "Bad2-0.1.0.zip", ("Bad2.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
             ("Bad2 - Main.ba2", T("not an archive")), ("Bad2 - Main_xbox.ba2", Ba2("GNRL", "meshes/a.nif")));
