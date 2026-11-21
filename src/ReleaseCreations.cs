@@ -152,7 +152,8 @@ public static class ReleaseCreations
             foreach (var a in p.Archives)
             {
                 try { lists[a] = Ba2Names.Read(a); }
-                catch (Exception e) when (e is InvalidDataException or IOException) { lists[a] = null; Log.Write($"creations: {ArchiveLabel(p, a)}: not read ({e.Message})"); }
+                // UnauthorizedAccessException too, as ReleaseRules' ba2-unreadable does (code review round 5)
+                catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { lists[a] = null; Log.Write($"creations: {ArchiveLabel(p, a)}: not read ({e.Message})"); }
             }
             int SoundIn(string path) => lists.GetValueOrDefault(path) is { } l ? l.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal))) : 0;
             foreach (var a in p.Archives)
@@ -162,9 +163,13 @@ public static class ReleaseCreations
                 total += new FileInfo(a).Length;
                 if (lists[a] is not { } inside)
                 {
-                    // an unreadable PC archive still needs its Xbox twin (round 4); its textures can't be counted
+                    // an unreadable PC archive still needs its Xbox twin (round 4); its textures can't be counted, and the
+                    // message says so (round 5). ba2-unreadable already reports every unreadable archive as a PROBLEM,
+                    // an Xbox one too, so an unreadable Xbox archive gets only a log line here.
                     if (!IsXbox(name) && !paths.Contains(XboxTwinPath(a)))
-                        Add(Level.Warning, "creations-xbox", $"{p.Name}:{an}: no {XboxTwin(name)}, so Xbox gets no archive (the Creation Kit warns \"Creation for XBox that has no archives\"); build the Xbox archive with Archive2's Xbox settings.");
+                        Add(Level.Warning, "creations-xbox", $"{p.Name}:{an}: no {XboxTwin(name)}, so Xbox gets no archive (the Creation Kit warns \"Creation for XBox that has no archives\"), and this archive can't be read, so its textures weren't checked; rebuild it, then build the Xbox archive with Archive2's Xbox settings.");
+                    else if (IsXbox(name))
+                        Log.Write($"creations: {an}: Xbox archive not read, so its sound wasn't checked (ba2-unreadable reports it)");
                     continue;
                 }
                 // sound is counted in every archive, the Xbox one too (code review: copied PC sound there is the case
@@ -174,7 +179,7 @@ public static class ReleaseCreations
                 if (sound > 0 && IsXbox(name) && pairShared)
                     Log.Write($"creations: {an}: {sound} sounds, reported with its PC twin {ArchiveLabel(p, PcTwinPath(a))}");
                 else if (sound > 0 && pairShared)
-                    Add(Level.Warning, "creations-audio", $"{p.Name}:{an} ({Files(sound, "sound file")}) and {XboxTwin(name)} ({Files(SoundIn(XboxTwinPath(a)), "sound file")}). PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
+                    Add(Level.Warning, "creations-audio", $"{p.Name}:{an} ({Files(sound, "sound file")}) and {ArchiveLabel(p, XboxTwinPath(a))} ({Files(SoundIn(XboxTwinPath(a)), "sound file")}). PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
                 else if (sound > 0)
                     Add(Level.Warning, "creations-audio", $"{p.Name}:{an}: {Files(sound, "sound file")}. PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
                 if (IsXbox(name))
@@ -242,14 +247,14 @@ public static class ReleaseCreations
             var an = ArchiveLabel(p, a);   // the path in the zip (round 4)
             List<(string Entry, byte[]? Data, string? Error)> s;
             try { s = TriageScripts.ArchiveScripts(a); }
-            catch (Exception e) when (e is InvalidDataException or IOException) { Log.Write($"creations: {an}: scripts not listed ({e.Message})"); continue; }
+            catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { Log.Write($"creations: {an}: scripts not listed ({e.Message})"); continue; }
             var twin = IsXbox(name) ? read.GetValueOrDefault(PcTwinPath(a)) : null;   // the same folder's PC archive (round 3)
             if (!IsXbox(name)) read[a] = s.Where(x => x.Data != null).GroupBy(x => x.Entry, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Data!, StringComparer.OrdinalIgnoreCase);
             int skipped = 0;
             foreach (var (entry, data, err) in s)
             {
                 if (twin != null && data != null && twin.TryGetValue(entry, out var pc) && pc.AsSpan().SequenceEqual(data)) { skipped++; continue; }
-                yield return ($"{an}:{entry}", data, err);
+                yield return ($"{p.Name}:{an}:{entry}", data, err);   // the zip's name too, as loose scripts have (round 5)
             }
             if (skipped > 0) Log.Write($"creations: {an}: {skipped} script{(skipped == 1 ? "" : "s")} also in its PC twin {ArchiveLabel(p, PcTwinPath(a))}, read there");
         }

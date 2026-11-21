@@ -221,7 +221,7 @@ public class ReleaseCreationsTests
         var f = Run(s, extra);
         var debug = Of(f, "creations-debug", Level.Warning);
         Assert.True(debug.Count == 2, List(f));
-        Assert.Contains(debug, x => x.Text.StartsWith("Extra - Main_xbox.ba2:") && x.Text.Contains("other.pex"));
+        Assert.Contains(debug, x => x.Text.StartsWith("Extra-0.1.0.zip:Extra - Main_xbox.ba2:") && x.Text.Contains("other.pex"));
 
         // the PC archive can't be read: every script in the twin is read
         var broken = MakeZip(s, "Broken-0.1.0.zip", ("Broken.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
@@ -261,7 +261,19 @@ public class ReleaseCreationsTests
         // one sound WARNING, for OptionB's PC archive only (its twin holds no sound)
         Assert.Equal($"Opt-0.1.0.zip:{b}: 1 sound file.", Assert.Single(Of(f, "creations-audio", Level.Warning)).Text.Split(" PC-format")[0]);
         // OptionB's twin script is read: no PC archive in its folder holds it; its label names the folder too
-        Assert.StartsWith(Path.Combine("OptionB", "Opt - Main_xbox.ba2") + ":", Assert.Single(Of(f, "creations-debug", Level.Warning)).Text);
+        // ... and the zip's name, as loose scripts' labels have (round 5)
+        Assert.StartsWith("Opt-0.1.0.zip:" + Path.Combine("OptionB", "Opt - Main_xbox.ba2") + ":", Assert.Single(Of(f, "creations-debug", Level.Warning)).Text);
+    }
+
+    [Fact]
+    public void A_shared_sound_warning_names_both_archives_by_their_folder()
+    {
+        // 0.10.0 code review round 5: the twin was named by its bare file name
+        using var s = new Sandbox();
+        var zip = MakeZip(s, "Snd-0.1.0.zip", ("Snd.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("OptionA/Snd - Main.ba2", Ba2("GNRL", "sound/voice/a.wem")), ("OptionA/Snd - Main_xbox.ba2", Ba2("GNRL", "sound/voice/a.wem")));
+        var audio = Assert.Single(Of(Run(s, zip), "creations-audio", Level.Warning));
+        Assert.StartsWith($"Snd-0.1.0.zip:{Path.Combine("OptionA", "Snd - Main.ba2")} (1 sound file) and {Path.Combine("OptionA", "Snd - Main_xbox.ba2")} (1 sound file).", audio.Text);
     }
 
     [Fact]
@@ -274,6 +286,14 @@ public class ReleaseCreationsTests
         var f = Run(s, zip);
         var w = Assert.Single(Of(f, "creations-xbox", Level.Warning));
         Assert.True(w.Text.StartsWith("Bad-0.1.0.zip:Bad - Main.ba2: no Bad - Main_xbox.ba2, so Xbox gets no archive"), List(f));
+        // round 5: the text says the archive couldn't be read, so its textures weren't checked
+        Assert.Contains("this archive can't be read, so its textures weren't checked", w.Text);
+        // an unreadable Xbox archive is a ba2-unreadable PROBLEM (ReleaseRules), and the creations rules add nothing
+        var bx = MakeZip(s, "Bx-0.1.0.zip", ("Bx.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Bx - Main.ba2", Ba2("GNRL", "meshes/a.nif")), ("Bx - Main_xbox.ba2", T("not an archive")));
+        var fx = Run(s, bx);
+        Assert.Empty(Of(fx, "creations-xbox", Level.Warning));
+        Assert.Empty(Of(fx, "creations-xbox", Level.Problem));
         // with its twin present there's nothing to say about the pair
         var twin = MakeZip(s, "Bad2-0.1.0.zip", ("Bad2.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
             ("Bad2 - Main.ba2", T("not an archive")), ("Bad2 - Main_xbox.ba2", Ba2("GNRL", "meshes/a.nif")));
