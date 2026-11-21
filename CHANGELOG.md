@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.10.1 (unreleased)
+
+### Changed
+
+- `release --profile creations`: a script that names an SFSE plugin's script and calls `Game.IsPluginInstalled` only for official plugins (Starfield, the DLC, `SFBGS*` and `SFTA*` plugins) is a PROBLEM again, not a WARNING. A check for an official plugin doesn't guard the framework, so the framework calls still fail on consoles. The PROBLEM names the plugins the script tests. A script that tests any other plugin, or a name held in a variable, is still a WARNING.
+
+### Example
+
+Check a mod's release zip against the Creations rules:
+
+    sf-mod-check release --profile creations CleanHit-0.1.12.zip
+
+What it prints (a real run, with the NOTE lines and the second warning left out; this mod has no SFSE calls, so its findings are the same as in 0.10.0):
+
+    sf-mod-check 0.10.1 release (creations profile): CleanHit-0.1.12.zip (5 files, 1 plugins, 1 archives)
+    WARNING  [creations-xbox] CleanHit-0.1.12.zip:CleanHit - Main.ba2: no CleanHit - Main_xbox.ba2, so Xbox gets no archive (the Creation Kit warns "Creation for XBox that has no archives"); build the Xbox archive with Archive2's Xbox settings.
+    RESULT: OK (0 problems, 0 to review, 2 warnings)
+
+A mod whose script calls ConsoleAPI after checking only `Game.IsPluginInstalled("ShatteredSpace.esm")` now gets a `creations-framework` PROBLEM that says its check tests only official plugins, which doesn't guard the framework.
+
 ## 0.10.0 (2026-11-21)
 
 ### What's new

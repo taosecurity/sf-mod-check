@@ -5,7 +5,8 @@
 //   creations-sfse       PROBLEM  a DLL, EXE or ASI, or anything in an SFSE folder (consoles can't run them)
 //   creations-framework  PROBLEM  a compiled script that names a script from an SFSE plugin (data\creations-masters.txt
 //                                 [frameworks]); found in the script's string table, so calls and casts both count.
-//                                 WARNING instead when the same script calls Game.IsPluginInstalled (user, 2026-11-21)
+//                                 WARNING instead when the same script calls Game.IsPluginInstalled (user, 2026-11-21),
+//                                 unless every name it tests is an official plugin's, given as a string (0.10.1)
 //   creations-master     PROBLEM  a master that isn't Bethesda's and isn't known to be on Creations
 //   creations-xbox       PROBLEM  a PC archive with textures and no "<name>_xbox.ba2" twin (the Creation Kit's Xbox
 //                                 pack refuses PC textures); WARNING for any other archive with no twin
@@ -210,8 +211,15 @@ public static class ReleaseCreations
                 try { pex = Pex.Read(data, label); }
                 catch (InvalidDataException e) { Log.Write(OneLine($"creations: {label}: not a readable script ({e.Message})")); continue; }
                 var fw = Frameworks(pex);
-                var tested = fw.Count > 0 ? IsPluginInstalledTargets(pex) : null;
-                if (tested != null)
+                var names = fw.Count > 0 ? IsPluginInstalledNames(pex) : null;
+                var tested = names == null ? null : Targets(names);
+                // user, 2026-11-21 (0.10.1, option b): a check that tests only official plugins (every name a string
+                // matching [official]) doesn't guard an SFSE framework, so it stays a PROBLEM.
+                var officialOnly = names != null && names.All(n => n != null && IsOfficial(n));
+                if (names != null) Log.Write(OneLine($"creations: {label}: Game.IsPluginInstalled tests {string.Join(", ", tested!)}{(officialOnly ? " (official plugins only: not a framework guard)" : "")}"));
+                if (tested != null && officialOnly)
+                    Add(Level.Problem, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins. Its Game.IsPluginInstalled calls test only official plugins ({string.Join(", ", tested)}), which doesn't guard the framework. Creations can't run SFSE, so those calls fail; remove them, guard them with Game.IsPluginInstalled on the framework's own plugin in this script, or keep the mod on PC (Nexus).");
+                else if (tested != null)
                     // user, 2026-11-21: a script that checks Game.IsPluginInstalled may use the framework only when
                     // it's there (optional in code), so a WARNING to confirm the guard. The text names what the script
                     // tests, so a check for an unrelated plugin is easy to spot (code review round 7). creations-check.py
@@ -277,7 +285,12 @@ public static class ReleaseCreations
     /// <summary>What the script's Game.IsPluginInstalled calls test (a callstatic on Game, names compared without
     /// case): each plugin name given as a string, in quotes, and "a name held in a variable" for any other argument;
     /// once each, in code order. Null when the script makes no such call.</summary>
-    public static List<string>? IsPluginInstalledTargets(PexFile pex)
+    public static List<string>? IsPluginInstalledTargets(PexFile pex) =>
+        IsPluginInstalledNames(pex) is { } names ? Targets(names) : null;
+
+    /// <summary>The raw names the script's Game.IsPluginInstalled calls test, once each in code order, null for a
+    /// name held in a variable (0.10.1). Null when the script makes no such call.</summary>
+    public static List<string?>? IsPluginInstalledNames(PexFile pex)
     {
         var calls = Pex.Calls(pex).Where(c => c.Kind == "static"
             && c.Type.Equals("Game", StringComparison.OrdinalIgnoreCase)
@@ -286,9 +299,11 @@ public static class ReleaseCreations
         // Distinct on the names themselves, before Quoted cuts them (round 9: two long names sharing their first
         // 80 characters would otherwise show as one).
         return calls.Select(c => c.Args.Count > 0 && c.Args[0].IsStr ? c.Args[0].Text : null)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(t => t == null ? "a name held in a variable" : Quoted(t)).ToList();
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
+
+    static List<string> Targets(List<string?> names) =>
+        names.Select(t => t == null ? "a name held in a variable" : Quoted(t)).ToList();
 
     /// <summary>A string from a script, in quotes, safe for a one-line finding: backslashes and quotes escaped, the
     /// characters <see cref="OneLine"/> escapes escaped the same way, and cut to 80 characters with "..." (never

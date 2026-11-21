@@ -201,6 +201,39 @@ public class ReleaseCreationsTests
     }
 
     [Fact]
+    public void A_guard_that_tests_only_official_plugins_stays_a_problem()
+    {
+        // user, 2026-11-21 (0.10.1, option b): only official names → PROBLEM; any other name or a variable → WARNING
+        using var s = new Sandbox();
+        byte[] Script(string name, params PV[] tested) => PexBytes.Build([new PObj("MyMod:" + name, "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:
+            tested.Select(t => PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", t))
+                .Append(PIns.CallStatic("ConsoleAPI", "Execute", "::NoneVar", PV.Str("x"))).ToArray())])])]);
+        var zip = MakeZip(s, "Mod-0.1.0.zip", ("MyMod.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Scripts/MyMod/Official.pex", Script("Official", PV.Str("ShatteredSpace.esm"), PV.Str("sfbgs003.esm"))),
+            ("Scripts/MyMod/Mixed.pex", Script("Mixed", PV.Str("ShatteredSpace.esm"), PV.Str("ConsoleAPI.esm"))),
+            ("Scripts/MyMod/Variable.pex", Script("Variable", PV.Str("Starfield.esm"), PV.Id("::temp1"))));
+        var f = Run(s, zip);
+        var p = Assert.Single(Of(f, "creations-framework", Level.Problem));
+        Assert.Contains("Official.pex", p.Text);
+        Assert.Contains("test only official plugins (\"ShatteredSpace.esm\", \"sfbgs003.esm\")", p.Text);
+        var w = Of(f, "creations-framework", Level.Warning).Select(x => x.Text).ToList();
+        Assert.Equal(2, w.Count);
+        Assert.Contains(w, t => t.Contains("Mixed.pex") && t.Contains("\"ConsoleAPI.esm\""));
+        Assert.Contains(w, t => t.Contains("Variable.pex") && t.Contains("a name held in a variable"));
+    }
+
+    [Fact]
+    public void IsPluginInstalled_names_keep_the_raw_text_and_null_for_a_variable()
+    {
+        var pex = Pex.Read(PexBytes.Build([new PObj("MyMod:Q", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:
+        [
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Str("a\nb.esm")),
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Id("::temp1")),
+        ])])])]), "Q.pex");
+        Assert.Equal(["a\nb.esm", null], ReleaseCreations.IsPluginInstalledNames(pex));
+    }
+
+    [Fact]
     public void IsPluginInstalled_targets_name_each_string_once_and_a_variable_plainly()
     {
         var pex = Pex.Read(PexBytes.Build([new PObj("MyMod:Q", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:

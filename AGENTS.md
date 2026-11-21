@@ -56,35 +56,35 @@ new plugin to its own folder), or `check` on Bethesda's own masters (Starfield.e
 
 ## 3. Install
 
-Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.10.0 shown here).
+Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.10.1 shown here).
 
-1. **Stand-alone exe (Windows):** download `sf-mod-check-0.10.0-win-x64.zip` and its `.sha256` file, check the
+1. **Stand-alone exe (Windows):** download `sf-mod-check-0.10.1-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 
-       certutil -hashfile sf-mod-check-0.10.0-win-x64.zip SHA256
+       certutil -hashfile sf-mod-check-0.10.1-win-x64.zip SHA256
        mkdir C:\Tools\sf-mod-check
-       tar -xf sf-mod-check-0.10.0-win-x64.zip -C C:\Tools\sf-mod-check
+       tar -xf sf-mod-check-0.10.1-win-x64.zip -C C:\Tools\sf-mod-check
 
-   Compare the printed hash with the one in `sf-mod-check-0.10.0-win-x64.zip.sha256` (it sits next to the zip on the
+   Compare the printed hash with the one in `sf-mod-check-0.10.1-win-x64.zip.sha256` (it sits next to the zip on the
    Releases page). If the user has only the zip, print the hash, tell them it couldn't be compared, and ask them to
    download the `.sha256` file too. The program is then `C:\Tools\sf-mod-check\sf-mod-check.exe`.
 
-2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.10.0.nupkg` into a folder (here `C:\Downloads`), then
+2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.10.1.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
 
-       dotnet tool install --global sf-mod-check --add-source C:\Downloads --version 0.10.0
+       dotnet tool install --global sf-mod-check --add-source C:\Downloads --version 0.10.1
 
    or into a folder of its own (nothing global changes):
 
-       dotnet tool install sf-mod-check --tool-path C:\Tools\sf-mod-check-tool --add-source C:\Downloads --version 0.10.0
+       dotnet tool install sf-mod-check --tool-path C:\Tools\sf-mod-check-tool --add-source C:\Downloads --version 0.10.1
 
-   On Linux, `sha256sum -c sf-mod-check.0.10.0.nupkg.sha256` checks the download.
+   On Linux, `sha256sum -c sf-mod-check.0.10.1.nupkg.sha256` checks the download.
 
 ## 4. Prove the install works
 
     sf-mod-check --version
 
-Its first line is `sf-mod-check 0.10.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
+Its first line is `sf-mod-check 0.10.1 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
 `--quiet` is given; its stdout starts with the plugin's summary line and ends with the RESULT line. (Use the full
 path, such as `C:\Tools\sf-mod-check\sf-mod-check.exe --version`, when the folder isn't on PATH.)
@@ -206,7 +206,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     It fails on INI, DLL, EXE, ASI or SFSE files, scripts that call SFSE plugins, masters not known to be on Creations,
     texture archives with no `_xbox.ba2` twin, and a zip over 2 GB (each zip is checked on its own). It warns about other archives with no twin, PC-format sound, and
     `Debug.Notification` or `Debug.MessageBox` calls players would see (they show nothing on consoles). A script that
-    calls an SFSE plugin and also calls `Game.IsPluginInstalled` is a WARNING, not a failure: confirm the guard. A master by
+    calls an SFSE plugin and also calls `Game.IsPluginInstalled` is a WARNING, not a failure: confirm the guard. If that
+    script tests only official plugins (Starfield, the DLC, `SFBGS*`, `SFTA*`), it stays a failure (0.10.1). A master by
     another author that the user has seen on Creations for every platform: `--creations-master OtherMod.esm`. Never add
     one on your own judgement; ask the user.
 
