@@ -188,13 +188,6 @@ public static class TriageFiles
         // it; "?" stays for a file whose hash couldn't be read). A file skipped for its name's case is named by its own
         // spelling, and so is the one kept in its place (Shown), so the table shows both real files side by side.
         foreach (var (rel, why) in c.Skipped) Look(rel, why);
-        // one neutral note when a skipped link could hold scripts or assets (an archive, a script, a folder); the Plugins
-        // and Scripts sections keep their normal findings (simplified after the code review of 0.9.1)
-        var linkedHolders = c.Skipped.Count(s => s.Why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy
-                                                && RelPath.Extension(s.File) is ".ba2" or ".pex" or "");
-        if (linkedHolders > 0)
-            Note("", $"{linkedHolders:N0} linked item{(linkedHolders == 1 ? " was" : "s were")} skipped and not read (each is named in this section); " +
-                     $"any scripts or assets inside {(linkedHolders == 1 ? "it" : "them")} weren't checked. Run triage on what the link points to.");
         static string Marker(string why) =>
             why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy ? "link"
             : why.StartsWith(TriageCommand.CaseWhyStart, StringComparison.Ordinal) ? "same name" : "skipped";
@@ -227,6 +220,13 @@ public static class TriageFiles
             }
         }
         Log.Write($"triage files: {c.Files.Count} files hashed, {totalBytes:N0} bytes");
+        // one neutral note when any link was skipped (settled design of 0.9.1, NOTES-triage.md: don't reopen). Every
+        // LinkWhy entry counts, whatever it is; files reached through a link are listed above but aren't links. The
+        // Plugins missing-script LOOK and the Scripts note mention the same number.
+        var links = c.SkippedLinks;
+        if (links > 0)
+            Note("", $"{TriageContext.LinkedItems(links)} {(links == 1 ? "was" : "were")} skipped and not read (named in this section); " +
+                     $"anything inside {(links == 1 ? "it" : "them")} wasn't checked. Run triage on what the link points to.");
 
         // archive contents
         var contents = c.Report.Table(S, "Archive contents", "Archive", "Entry", "Size (bytes)", "Stored");

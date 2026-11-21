@@ -927,7 +927,10 @@ public static class TriagePlugins
                 look(p.Rel, $"{missing.Count:N0} attached script{(missing.Count == 1 ? " is" : "s are")} in neither the mod (loose or in its archives) nor the game's archives, " +
                             $"so {(missing.Count == 1 ? "it doesn't" : "they don't")} run: " +
                             string.Join(", ", missing.Take(3).Select(m => $"{m.Value.Script} (used by {Assets.Users(m.Value.Users.Distinct().ToList())})")) +
-                            (missing.Count > 3 ? $" and {missing.Count - 3:N0} more in the table" : ""));
+                            (missing.Count > 3 ? $" and {missing.Count - 3:N0} more in the table" : "") +
+                            // full strength, plus a pointer when a skipped link may hold the script (settled design of 0.9.1)
+                            (c.SkippedLinks is > 0 and var n
+                                ? $" (triage skipped {TriageContext.LinkedItems(n)}, which may hold {(missing.Count == 1 ? "it" : "them")}; see Files)" : ""));
             else if (uses > 0)
                 note(p.Rel, $"its records attach {distinct.Count:N0} different script{(distinct.Count == 1 ? "" : "s")} ({uses:N0} uses); each is in the mod or the game's archives");
             if (inherited > 0)

@@ -246,22 +246,43 @@ public class FollowUps091Tests
     }
 
     [Fact]
-    public void Skipped_links_get_one_neutral_note_in_files_and_scripts_keeps_its_normal_note()
+    public void Skipped_links_get_one_neutral_note_in_files_and_the_scripts_note_says_what_was_read()
     {
-        // simplify round of 0.9.1: the Scripts section gives its normal finding; the Files section says once that linked
-        // items weren't read
+        // settled design of 0.9.1 (NOTES-triage.md): every LinkWhy entry counts as a link, whatever it is; files reached
+        // through a link are listed but aren't links; the Scripts note says only what was read and points to Files
         using var s = new Sandbox();
         var root = s.Sub("mod");
         File.WriteAllText(Path.Combine(root, "foo.esm"), "x");
-        var c = Context(root, ["foo.esm"], [("foo - main.ba2", TriageCommand.LinkWhy), ("scripts", TriageCommand.LinkWhy), ("readme.txt", TriageCommand.LinkWhy)]);
-        Assert.Equal("The mod has no compiled scripts (.pex), loose or in its archives.", Assert.Single(TriageScripts.Run(c), x => x.File == "").Text);
+        var c = Context(root, ["foo.esm"], [("foo - main.ba2", TriageCommand.LinkWhy), ("scripts", TriageCommand.LinkWhy), ("readme.txt", TriageCommand.LinkWhy),
+                                           ("other\\a.pex", TriageCommand.LinkReachedWhy)]);
+        Assert.Equal(3, c.SkippedLinks);
+        Assert.Equal("The files triage read hold no compiled scripts (.pex); 3 linked items were skipped, see Files.",
+                     Assert.Single(TriageScripts.Run(c), x => x.File == "").Text);
         var note = Assert.Single(TriageFiles.Run(c), x => x.Level == TriageLevel.Note && x.Text.Contains("linked item"));
         Assert.Equal(TriageSections.Files, note.Section);
-        Assert.Equal("2 linked items were skipped and not read (each is named in this section); any scripts or assets inside them weren't checked. " +
-                     "Run triage on what the link points to.", note.Text);   // the .txt can't hold scripts or assets: not counted
-        // a file skipped for another reason (here its name's case) gets no such note
+        Assert.Equal("3 linked items were skipped and not read (named in this section); anything inside them wasn't checked. " +
+                     "Run triage on what the link points to.", note.Text);   // the .txt counts too; the file reached through a link doesn't
+        // a file skipped for another reason (here its name's case) gets no such note, and the Scripts note is the old one
         var other = Context(root, ["foo.esm"], [("Foo.esm", TriageCommand.CaseWhyFor("foo.esm"))]);
         Assert.DoesNotContain(TriageFiles.Run(other), x => x.Text.Contains("linked item"));
+        Assert.Equal("The mod has no compiled scripts (.pex), loose or in its archives.", Assert.Single(TriageScripts.Run(other), x => x.File == "").Text);
+    }
+
+    [Fact]
+    public void A_linked_loose_asset_counts_as_a_skipped_link()
+    {
+        // settled design of 0.9.1: a linked .dds (any extension) is a link like any other, and a name listed twice counts once
+        using var s = new Sandbox();
+        var root = s.Sub("mod");
+        File.WriteAllText(Path.Combine(root, "foo.esm"), "x");
+        var c = Context(root, ["foo.esm"], [("textures\\foo.dds", TriageCommand.LinkWhy), ("textures\\foo.dds", TriageCommand.LinkWhy)]);
+        Assert.Equal(1, c.SkippedLinks);
+        var f = TriageFiles.Run(c).ToList();
+        Assert.Equal("1 linked item was skipped and not read (named in this section); anything inside it wasn't checked. " +
+                     "Run triage on what the link points to.", Assert.Single(f, x => x.Level == TriageLevel.Note && x.Text.Contains("linked item")).Text);
+        Assert.Contains(f, x => x.Level == TriageLevel.Look && x.File == "textures\\foo.dds" && x.Text == TriageCommand.LinkWhy);
+        Assert.Equal("The files triage read hold no compiled scripts (.pex); 1 linked item was skipped, see Files.",
+                     Assert.Single(TriageScripts.Run(c), x => x.File == "").Text);
     }
 
     [Fact]

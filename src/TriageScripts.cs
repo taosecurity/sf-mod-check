@@ -62,7 +62,11 @@ public static class TriageScripts
         var callTable = c.Report.Table(S, "Calls worth a look", "Level", "Script", "In", "Call", "Detail");
         if (sources.Count == 0)
         {
-            findings.Add(new(TriageLevel.Note, S, "", "The mod has no compiled scripts (.pex), loose or in its archives."));
+            // settled design of 0.9.1: with a skipped link the sentence says only what was read, and points to Files
+            var links = c.SkippedLinks;
+            findings.Add(new(TriageLevel.Note, S, "", links > 0
+                ? $"The files triage read hold no compiled scripts (.pex); {TriageContext.LinkedItems(links)} {(links == 1 ? "was" : "were")} skipped, see Files."
+                : "The mod has no compiled scripts (.pex), loose or in its archives."));
             return findings;
         }
 

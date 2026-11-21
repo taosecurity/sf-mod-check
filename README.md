@@ -538,7 +538,9 @@ prints the LOOK lines and `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <p
 
 What it can't see: names a DLL looks up while it runs, what a script does with values it computes, records nothing
 uses, and files behind a link (symlink or junction) inside a mod folder or beside a plugin: triage never follows one,
-and the report lists each as skipped, with one note that any scripts or assets inside weren't checked. On Windows, a
+and the report lists each as skipped, with one note in the Files section that anything inside wasn't checked. A
+missing-script LOOK in the Plugins section and the Scripts section's note also say how many linked items were
+skipped, because a skipped link may hold the script. On Windows, a
 plugin you name yourself is read even when it is a link, because you chose it; on Linux and macOS it isn't read.
 
 Only real links count: a OneDrive placeholder or another kind of reparse point is read as a normal file or folder.

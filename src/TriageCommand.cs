@@ -82,6 +82,13 @@ public sealed class TriageContext
     /// <summary>Files the input holds that triage didn't read, each with why (a link, which is never followed; a second
     /// file whose name differs only in case). The Files section lists them.</summary>
     public List<(string File, string Why)> Skipped { get; init; } = [];
+    /// <summary>How many links triage skipped: the distinct names among Skipped entries with LinkWhy (any file or
+    /// folder, any extension). Files reached through a link (LinkReachedWhy) aren't links themselves and don't count.
+    /// The Files note, the Plugins missing-script LOOK and the Scripts note all use this one number (settled design of
+    /// 0.9.1, NOTES-triage.md).</summary>
+    public int SkippedLinks => Skipped.Where(s => s.Why == TriageCommand.LinkWhy).Select(s => s.File).Distinct(StringComparer.Ordinal).Count();
+    /// <summary>"1 linked item" or "N linked items", for the findings that mention skipped links.</summary>
+    public static string LinkedItems(int n) => $"{n:N0} linked item{(n == 1 ? "" : "s")}";
     /// <summary>For a name two or more files share apart from case (Linux, macOS): the lower-case name in Files mapped to
     /// the kept file's own spelling (TriageCommand.OnePerName). Full reads that file and Shown names it.</summary>
     public Dictionary<string, string> CaseKept { get; init; } = new(StringComparer.Ordinal);

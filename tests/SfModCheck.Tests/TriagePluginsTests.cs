@@ -106,17 +106,19 @@ public class TriagePluginsTests
     }
 
     [Fact]
-    public void A_missing_script_keeps_its_normal_look_when_a_linked_archive_was_skipped()
+    public void A_missing_script_keeps_its_full_look_and_names_skipped_links()
     {
-        // simplify round of 0.9.1: a skipped link no longer softens the missing-script LOOK (that could hide a broken
-        // script); the Files section has one neutral note about skipped links instead
+        // settled design of 0.9.1 (NOTES-triage.md): a skipped link never softens the missing-script LOOK (that could
+        // hide a broken script); the LOOK keeps its wording and adds how many links were skipped
         using var game = new Game();
         game.Mod("TrLink.esm", (m, _) =>
             m.Activators.AddNew("TrL_Act").VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = { new ScriptEntry { Name = "TrTest:InLink" } } });
         var c = game.Context();
         c.Skipped.Add(("trlink - main.ba2", TriageCommand.LinkWhy));
+        c.Skipped.Add(("elsewhere\\x.pex", TriageCommand.LinkReachedWhy));   // reached through a link: not a link itself
         var look = One(Run(c), TriageLevel.Look, "trlink.esm", "1 attached script is in neither the mod (loose or in its archives) nor the game's archives, so it doesn't run");
         Assert.Contains("TrTest:InLink", look.Text);
+        Assert.EndsWith(" (triage skipped 1 linked item, which may hold it; see Files)", look.Text);
     }
 
     [Fact]
