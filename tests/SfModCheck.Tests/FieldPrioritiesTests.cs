@@ -48,6 +48,21 @@ public class FieldPrioritiesTests
     }
 
     [Fact]
+    public void Story_Manager_and_Planet_Content_Manager_node_conditions_stay_normal()
+    {
+        // second departure from xEdit (user, 2026-11-21); the table itself still says benign
+        foreach (var cls in new[] { "StoryManagerBranchNode", "StoryManagerQuestNode", "StoryManagerEventNode", "PlanetContentManagerBranchNode", "PlanetContentManagerTree" })
+        {
+            Assert.Equal(FieldPriority.Benign, T.Fields[(T.SignatureOf(cls)!, "Conditions")]);
+            Assert.Equal(FieldPriority.Normal, T.Of(cls, "Conditions"));
+            Assert.Equal(FieldPriority.Benign, T.Of(cls, "EditorID"));
+            Assert.Equal(FieldPriority.Critical, T.Of(cls, "Conditions", injected: true));
+        }
+        // the tree links keep xEdit's rating
+        Assert.Equal(FieldPriority.Benign, T.Of("StoryManagerQuestNode", "PreviousSibling"));
+    }
+
+    [Fact]
     public void Benign_if_added_and_dynamic_fields_keep_their_static_value_in_a_lost_change()
     {
         Assert.Contains(("REFR", "Location"), T.BenignIfAdded);

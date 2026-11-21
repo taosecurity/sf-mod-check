@@ -205,7 +205,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 
     It fails on INI, DLL, EXE, ASI or SFSE files, scripts that call SFSE plugins, masters not known to be on Creations,
     texture archives with no `_xbox.ba2` twin, and a zip over 2 GB (each zip is checked on its own). It warns about other archives with no twin, PC-format sound, and
-    `Debug.Notification` or `Debug.MessageBox` calls players would see (they show nothing on consoles). A master by
+    `Debug.Notification` or `Debug.MessageBox` calls players would see (they show nothing on consoles). A script that
+    calls an SFSE plugin and also calls `Game.IsPluginInstalled` is a WARNING, not a failure: confirm the guard. A master by
     another author that the user has seen on Creations for every platform: `--creations-master OtherMod.esm`. Never add
     one on your own judgement; ask the user.
 

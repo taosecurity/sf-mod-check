@@ -507,26 +507,40 @@ public class FollowUps091Tests
     [UnixFact("Full's link lookup runs on Linux and macOS only")]
     public void A_file_reached_only_through_a_link_gets_one_look_in_the_whole_report()
     {
+        // A file that is itself a link is LinkWhy and a file inside a linked folder is LinkReachedWhy (0.10.0 item 6b).
+        // Mixed-case names on disk on purpose: Full finds them ignoring case (Linux suite, 2026-11-21).
         using var s = new Sandbox();
         var root = s.Sub("mod");
         var outside = s.Sub("elsewhere");
-        File.WriteAllText(Path.Combine(outside, "only.esm"), "decoy");
-        // Full names a link only where the lower-case path exists (else the file is simply missing), so lower case here
-        Directory.CreateDirectory(Path.Combine(root, "scripts"));
+        File.WriteAllText(Path.Combine(outside, "Only.esm"), "decoy");
         File.WriteAllText(Path.Combine(outside, "a.pex"), "decoy");
-        File.CreateSymbolicLink(Path.Combine(root, "only.esm"), Path.Combine(outside, "only.esm"));
-        File.CreateSymbolicLink(Path.Combine(root, "scripts", "a.pex"), Path.Combine(outside, "a.pex"));
+        File.CreateSymbolicLink(Path.Combine(root, "Only.esm"), Path.Combine(outside, "Only.esm"));
+        Directory.CreateSymbolicLink(Path.Combine(root, "Scripts"), outside);
         var c = Context(root, ["only.esm", "scripts\\a.pex"], []);
         Assert.Equal(2, c.SetAsideLinked());
         Assert.Empty(c.Files);
-        Assert.All(c.Skipped, x => Assert.Equal(TriageCommand.LinkReachedWhy, x.Why));
+        var expected = new Dictionary<string, string> { ["only.esm"] = TriageCommand.LinkWhy, ["scripts\\a.pex"] = TriageCommand.LinkReachedWhy };
+        Assert.Equal(expected.OrderBy(e => e.Key, StringComparer.Ordinal).Select(e => (e.Key, e.Value)), c.Skipped);
         var all = new List<TriageFinding>();
         foreach (var (_, run) in TriageCommand.Sections) all.AddRange(run(c));
-        foreach (var f in new[] { "only.esm", "scripts\\a.pex" })
+        foreach (var (f, why) in expected)
         {
             var look = Assert.Single(all, x => x.File == f && x.Level == TriageLevel.Look);
-            Assert.Equal(TriageCommand.LinkReachedWhy, look.Text);
+            Assert.Equal(why, look.Text);
         }
+    }
+
+    [UnixFact("Full's link lookup runs on Linux and macOS only")]
+    public void A_file_missing_in_every_spelling_is_missing_not_behind_a_link()
+    {
+        // the other side of the case-insensitive link test: no path at all is a plain missing file
+        using var s = new Sandbox();
+        var root = s.Sub("mod");
+        Directory.CreateSymbolicLink(Path.Combine(root, "Scripts"), s.Sub("elsewhere"));
+        var c = Context(root, ["scripts\\gone.pex", "nothere.esm"], []);
+        Assert.Equal(0, c.SetAsideLinked());
+        Assert.Equal(2, c.Files.Count);
+        Assert.All(c.Files, f => Assert.False(c.BehindLink(c.Full(f))));
     }
 
     [Fact]

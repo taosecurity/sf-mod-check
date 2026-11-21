@@ -311,13 +311,15 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
 - **Field priorities (0.10.0):** `conflict` rates each lost field the way xEdit does, from a table made from
   xEdit's Starfield definitions (`data\field-priorities.txt`; see "Build from source").
   - **Benign and ignored fields:** a field xEdit rates benign (most Editor IDs, the Master reference lists a location
-    keeps, a few tree links and node conditions) or doesn't compare (ignore) isn't counted as a lost change. The
+    keeps, a few tree links) or doesn't compare (ignore) isn't counted as a lost change. The
     report lists it apart, under "Benign differences (not counted as lost)", and conflicts.json has it in `benign`.
     A record whose only lost fields are benign gets no recommended action.
   - **Critical fields:** a field xEdit rates critical (a Game Setting's name, and every field of a record injected
     into another plugin's FormIDs) is marked "Critical" and its record comes first in its section.
-  - **One departure from xEdit:** a location's Added and Removed reference lists stay normal, because quest aliases
+  - **Two departures from xEdit:** a location's Added and Removed reference lists stay normal, because quest aliases
     read them.
+    The Conditions of Story Manager and Planet Content Manager nodes stay normal too, because they decide when a
+    quest starts or what a planet gets.
   - **Results:** the RESULT line adds ", N benign entries shown apart" (and " (C critical lost-change entries)" when
     there are any). In conflicts.json each `lost` entry and field has a `priority` (`normal` or `critical`), each
     `benign` field has `benign` or `ignore`, and `fieldPriorities` has the counts.
@@ -527,7 +529,7 @@ zip, the game folder or the Data folder.
 | `master`, `one-plugin`, `script-source`, `root-md`, `private-file` | house only | A `BlueprintShips` master; more than one plugin in a zip; `.psc` sources in the zip; a root `.md` such as `README.md` with no mod name in it (it overwrites another mod's copy in Data; use `README-<ModName>.md`); a file such as `PERMISSION.md` that should never ship. |
 | `papyrus-lint` | never | Lint findings (WARNING only). |
 | `creations-ini`, `creations-sfse` | creations | An INI file, or a DLL, EXE, ASI or file in an `SFSE` folder: Creations take none of them on any platform. A mod that needs SFSE stays a PC (Nexus) mod. |
-| `creations-framework` | creations | A compiled script that names a script from an SFSE plugin (ConsoleAPI, PapyrusUtil and others in `data\creations-masters.txt`). Consoles can't run SFSE, so those calls fail. |
+| `creations-framework` | creations | A compiled script that names a script from an SFSE plugin (ConsoleAPI, PapyrusUtil and others in `data\creations-masters.txt`). Consoles can't run SFSE, so those calls fail. A WARNING instead when the same script calls `Game.IsPluginInstalled`, so it may use the plugin only when it's there. |
 | `creations-master` | creations | A master that isn't Bethesda's (Starfield, the DLC, `SFBGS*` and `SFTA*` plugins) and isn't known to be on Creations. Make it optional in code (`Game.IsPluginInstalled`), or allow it with `--creations-master` once you have seen it there. |
 | `creations-xbox` | creations | A PC archive with textures and no `<name>_xbox.ba2` twin (the Creation Kit's Xbox pack refuses PC textures). Any other archive with no twin is a WARNING (Xbox gets no archive). |
 | `creations-size` | creations | A zip whose plugins and archives come to over 2 GB, the most a Creation may hold. Each zip is checked on its own, since each one becomes its own Creation. |

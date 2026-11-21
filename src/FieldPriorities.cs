@@ -16,6 +16,9 @@
 //     wbNAVMEdgeLinksGetCP is normal with xEdit's default options. Both keep the table's static value.
 //   - our own departure: LCTN Added*/Removed* reference lists stay normal (xEdit says benign), because quest aliases
 //     that pick a reference by its location ref type read them, so losing one can change what a quest finds.
+//   - a second departure (user, 2026-11-21): the Conditions of Story Manager and Planet Content Manager nodes (SMBN,
+//     SMQN, SMEN, PCBN, PCMT) stay normal (xEdit says benign), because they decide when a quest starts or what
+//     content a planet gets. The tree links (PreviousSibling, Parent, Previous) keep xEdit's rating.
 
 
 namespace SfModCheck.Conflict;
@@ -98,12 +101,17 @@ public sealed class FieldPriorityTable
 
     /// <summary>One field's priority in a lost change, with the run-time rules (see the top of this file).
     /// injected: the record's first version isn't in the plugin that owns its FormID.</summary>
+    /// <summary>Story Manager and Planet Content Manager nodes whose Conditions stay normal (xEdit says benign).</summary>
+    static readonly HashSet<string> TreeNodeConditions = new(StringComparer.Ordinal) { "SMBN", "SMQN", "SMEN", "PCBN", "PCMT" };
+
     public FieldPriority Of(string mutagenClass, string field, bool injected = false)
     {
         var sig = SignatureOf(mutagenClass);
         FieldPriority p;
         if (sig == "LCTN" && (field.StartsWith("Added", StringComparison.Ordinal) || field.StartsWith("Removed", StringComparison.Ordinal)))
             p = FieldPriority.Normal;   // our departure from xEdit (quest aliases read these lists)
+        else if (field == "Conditions" && sig is not null && TreeNodeConditions.Contains(sig))
+            p = FieldPriority.Normal;   // second departure (user, 2026-11-21): they decide when a quest starts or content spawns
         else if (sig is not null && Fields.TryGetValue((sig, field), out var fp))
             p = fp;                     // benign-if-added and the dynamic callbacks keep the static value in a lost change
         else if (Header.TryGetValue(field == "MajorRecordFlagsRaw" ? "MajorFlags" : field, out var hp))

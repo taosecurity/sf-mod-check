@@ -175,6 +175,29 @@ public class ReleaseCreationsTests
         Assert.Contains("MyMod:Quest.OnInit", Assert.Single(Of(f, "creations-debug", Level.Warning)).Text);
     }
 
+    [Fact]
+    public void A_framework_script_that_calls_IsPluginInstalled_warns_instead()
+    {
+        // user, 2026-11-21 (option c): the guard makes it a WARNING; a script without it stays a PROBLEM
+        using var s = new Sandbox();
+        var guarded = PexBytes.Build([new PObj("MyMod:Guarded", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:
+        [
+            PIns.CallStatic("Game", "IsPluginInstalled", "::temp1", PV.Str("ConsoleAPI.esm")), Jmpf("::temp1", 2),
+            PIns.CallStatic("ConsoleAPI", "Execute", "::NoneVar", PV.Str("x")), PIns.Return(PV.None),
+        ])])])]);
+        var bare = PexBytes.Build([new PObj("MyMod:Bare", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code:
+        [
+            PIns.CallStatic("ConsoleAPI", "Execute", "::NoneVar", PV.Str("x")),
+        ])])])]);
+        var zip = MakeZip(s, "Mod-0.1.0.zip", ("MyMod.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Scripts/MyMod/Guarded.pex", guarded), ("Scripts/MyMod/Bare.pex", bare));
+        var f = Run(s, zip);
+        var w = Assert.Single(Of(f, "creations-framework", Level.Warning));
+        Assert.Contains("Guarded.pex", w.Text);
+        Assert.Contains("Game.IsPluginInstalled", w.Text);
+        Assert.Contains("Bare.pex", Assert.Single(Of(f, "creations-framework", Level.Problem)).Text);
+    }
+
     /// <summary>A version 1 general BA2 holding these files stored (not packed), so scripts can be read from it.</summary>
     static byte[] Ba2Stored(params (string Name, byte[] Data)[] files)
     {

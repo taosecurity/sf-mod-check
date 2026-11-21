@@ -164,9 +164,28 @@ public sealed class TriageContext
             var found = Find(Root, Shown(rel).Split('\\'), 0);
             // not there (or only behind a link, which is never followed): a path that doesn't exist, so the caller
             // reports the file as missing (review: the exact-name fallback could be the link itself)
-            if (found == null) return File.Exists(direct) || Directory.Exists(direct) ? Path.Combine(Root, LinkNotFollowed, rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
+            // The test ignores case like Find does (Linux suite, 2026-11-21: a linked "Scripts" folder or a "Foo.esm"
+            // link read as plain missing, because only the lower-case path was tried).
+            if (found == null) return ExistsAnyCase(Root, Shown(rel).Split('\\'), 0) ? Path.Combine(Root, LinkNotFollowed, rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
             return resolved[rel] = found;
         }
+    }
+
+    // True when some path matching ignoring case exists with links followed. Used only to tell "only a link leads to
+    // it" from "missing"; the path it finds is never returned or read.
+    bool ExistsAnyCase(string dir, string[] parts, int i)
+    {
+        if (i == parts.Length) return true;
+        foreach (var entry in Matches(dir, parts[i]))
+        {
+            try
+            {
+                if (i == parts.Length - 1 ? File.Exists(entry) || Directory.Exists(entry) : Directory.Exists(entry) && ExistsAnyCase(entry, parts, i + 1))
+                    return true;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // gone or denied: no match
+        }
+        return false;
     }
 
     // Two passes over every folder whose name matches: a file anywhere first, a folder at the last part only when no

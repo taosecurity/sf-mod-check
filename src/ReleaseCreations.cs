@@ -4,7 +4,8 @@
 //   creations-ini        PROBLEM  an INI file (Creations take none, on any platform)
 //   creations-sfse       PROBLEM  a DLL, EXE or ASI, or anything in an SFSE folder (consoles can't run them)
 //   creations-framework  PROBLEM  a compiled script that names a script from an SFSE plugin (data\creations-masters.txt
-//                                 [frameworks]); found in the script's string table, so calls and casts both count
+//                                 [frameworks]); found in the script's string table, so calls and casts both count.
+//                                 WARNING instead when the same script calls Game.IsPluginInstalled (user, 2026-11-21)
 //   creations-master     PROBLEM  a master that isn't Bethesda's and isn't known to be on Creations
 //   creations-xbox       PROBLEM  a PC archive with textures and no "<name>_xbox.ba2" twin (the Creation Kit's Xbox
 //                                 pack refuses PC textures); WARNING for any other archive with no twin
@@ -209,8 +210,12 @@ public static class ReleaseCreations
                 try { pex = Pex.Read(data, label); }
                 catch (InvalidDataException e) { Log.Write($"creations: {label}: not a readable script ({e.Message})"); continue; }
                 var fw = Frameworks(pex);
-                if (fw.Count > 0)
-                    Add(Level.Problem, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins. Creations can't run SFSE, so those calls fail; remove them, or keep the mod on PC (Nexus).");
+                if (fw.Count > 0 && CallsIsPluginInstalled(pex))
+                    // user, 2026-11-21: a script that checks Game.IsPluginInstalled may use the framework only when
+                    // it's there (optional in code), so a WARNING to confirm the guard; creations-check.py agrees
+                    Add(Level.Warning, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins, and also calls Game.IsPluginInstalled. Creations can't run SFSE; make sure every framework call runs only when that check finds the framework's plugin.");
+                else if (fw.Count > 0)
+                    Add(Level.Problem, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins. Creations can't run SFSE, so those calls fail; remove them, guard them with Game.IsPluginInstalled, or keep the mod on PC (Nexus).");
                 foreach (var (obj, fn) in PlayerDebugCalls(pex))
                     Add(Level.Warning, "creations-debug", $"{label}: {obj}.{fn} calls Debug.Notification or Debug.MessageBox outside debug-only code. The Debug script does nothing on Xbox and PlayStation, so players there see nothing; show a Message record with Show() instead.");
             }
@@ -265,6 +270,12 @@ public static class ReleaseCreations
     public static List<string> Frameworks(PexFile pex) =>
         List.Frameworks.Where(fw => pex.Strings.Any(s => s.Equals(fw, StringComparison.OrdinalIgnoreCase)
                                                         || s.StartsWith(fw + ":", StringComparison.OrdinalIgnoreCase))).ToList();
+
+    /// <summary>True when the script calls Game.IsPluginInstalled anywhere (a callstatic on Game, names compared without case).</summary>
+    public static bool CallsIsPluginInstalled(PexFile pex) =>
+        pex.Objects.Any(o => o.Functions().Any(fn => fn.Code.Any(ins => ins.Name == "callstatic" && ins.Args.Count >= 2
+            && ins.Args[0].Text.Equals("Game", StringComparison.OrdinalIgnoreCase)
+            && ins.Args[1].Text.Equals("IsPluginInstalled", StringComparison.OrdinalIgnoreCase))));
 
     /// <summary>(object, function) for each Debug.Notification or Debug.MessageBox call the player would see: not in a
     /// function named for debugging, and not inside a block that runs only when a debug switch is on. A switch is
