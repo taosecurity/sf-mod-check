@@ -49,9 +49,9 @@ public static class TriageScripts
         "CenterOnCellAndWait", "PlayerMoveToAndWait",
     };
 
-    static readonly Regex PluginName = new(@"^[^\\/:*?""<>|\r\n]{1,200}\.(esm|esp|esl)$", RegexOptions.IgnoreCase);
-    static readonly Regex FileName = new(@"^[^*?""<>|\r\n]{0,240}[^\\/\s.]\.(txt|ini|json|toml|yaml|yml|xml|csv|log|cfg|dll|exe|bat|cmd|ps1|vbs|js|py|lua|pex|psc|ba2|nif|dds|wav|wem|swf|gfx|mat|bin|dat|sav|zip|7z|rar)$", RegexOptions.IgnoreCase);
-    static readonly Regex Runnable = new(@"\.(dll|exe|bat|cmd|ps1|vbs|js|py|lua)$", RegexOptions.IgnoreCase);
+    static readonly Regex PluginName = new(@"^[^\\/:*?""<>|\r\n]{1,200}\.(esm|esp|esl)\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    static readonly Regex FileName = new(@"^[^*?""<>|\r\n]{0,240}[^\\/\s.]\.(txt|ini|json|toml|yaml|yml|xml|csv|log|cfg|dll|exe|bat|cmd|ps1|vbs|js|py|lua|pex|psc|ba2|nif|dds|wav|wem|swf|gfx|mat|bin|dat|sav|zip|7z|rar)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    static readonly Regex Runnable = new(@"\.(dll|exe|bat|cmd|ps1|vbs|js|py|lua)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     static readonly Regex OutsidePath = new(@"^[A-Za-z]:[\\/]|(^|[\\/])\.\.[\\/]");
 
     public static IEnumerable<TriageFinding> Run(TriageContext c)

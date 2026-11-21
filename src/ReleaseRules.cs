@@ -24,23 +24,23 @@ public static class ReleaseRules
 {
     static readonly Regex[] DroppedPluginNames =
     [
-        new(@"-(starfield|constellation|oldmars|shatteredspace|sfbgs[0-9a-z]+|sfta0\d)\.es[mpl]$", RegexOptions.IgnoreCase),
-        new(@"^blueprintships-", RegexOptions.IgnoreCase),
+        new(@"-(starfield|constellation|oldmars|shatteredspace|sfbgs[0-9a-z]+|sfta0\d)\.es[mpl]$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+        new(@"^blueprintships-", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
     ];
 
     /// <summary>True when Starfield would drop this plugin name from Plugins.txt (it ends in an official plugin's name,
     /// or starts with BlueprintShips-), so the plugin never loads. Also used by `patch` for its --name (0.9.0).</summary>
     public static bool IsDroppedPluginName(string fileName) => DroppedPluginNames.Any(r => r.IsMatch(fileName));
 
-    static readonly Regex ForbiddenMaster = new(@"^blueprintships", RegexOptions.IgnoreCase);
+    static readonly Regex ForbiddenMaster = new(@"^blueprintships", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     static readonly (Regex Rx, string Why)[] PrivateFiles =
     [
-        (new(@"(^|/)permission[^/]*\.md$", RegexOptions.IgnoreCase), "permission record (quotes an author's private message)"),
-        (new(@"(^|/)[^/]*permission request[^/]*\.(png|jpe?g|tiff?|webp|gif|bmp)$", RegexOptions.IgnoreCase),
+        (new(@"(^|/)permission[^/]*\.md$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "permission record (quotes an author's private message)"),
+        (new(@"(^|/)[^/]*permission request[^/]*\.(png|jpe?g|tiff?|webp|gif|bmp)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
             "permission screenshot (an author's private message)"),
-        (new(@"(^|/)comparison[^/]*\.md$", RegexOptions.IgnoreCase), "private comparison notes"),
-        (new(@"(^|/)comparison/", RegexOptions.IgnoreCase), "private comparison folder"),
+        (new(@"(^|/)comparison[^/]*\.md$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "private comparison notes"),
+        (new(@"(^|/)comparison/", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "private comparison folder"),
     ];
 
     static readonly string[] SoundExts = [".wem", ".ffxanim"];

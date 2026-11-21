@@ -157,6 +157,8 @@ public class ReleaseRulesTests
     [InlineData("Fix-Starfield.esm", true)]
     [InlineData("Fix-OldMars.esm", true)]
     [InlineData("BlueprintShips-Mine.esm", true)]
+    [InlineData("MYMOD-CONSTELLATION.ESM", true)]
+    [InlineData("BLUEPRINTSHIPS-MINE.ESM", true)]
     [InlineData("Data\\Sub/MyMod-ShatteredSpace.esm", true)]
     [InlineData("MyMod-ShatteredSpaceAddon.esm", false)]
     [InlineData("ShatteredSpace.esm", false)]

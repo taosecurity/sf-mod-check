@@ -87,6 +87,7 @@ public class TriageScriptsTests
                     PIns.CallStatic("Debug", "OpenUserLog", "::temp1", PV.Str("MyModLog")),
                     PIns.CallStatic("Debug", "QuitGame", "::NoneVar"),
                     PIns.Assign("::temp1", PV.Str("Patch.esp")),
+                    PIns.Assign("::temp1", PV.Str("Late.esm\n")),   // a trailing newline isn't a plugin name (0.10.1)
                     PIns.Assign("::temp1", PV.Str("Meshes\\Thing.nif")),
                     PIns.CallMethod("StartTimer", "self", "::NoneVar", PV.Flt(1f), PV.Int(1)),
                 ]),
@@ -157,6 +158,7 @@ public class TriageScriptsTests
         Assert.True(Has(TriageLevel.Note, "busy.pex", "OnPlayerLoadGame calls RegisterForMenuOpenCloseEvent"), all);
         Assert.True(Has(TriageLevel.Look, "busy.pex", "calls ConsoleUtil, a script that is neither in the mod nor in the game"), all);
         Assert.True(Has(TriageLevel.Look, "busy.pex", "names Patch.esp in its text"), all);
+        Assert.False(findings.Any(f => f.Text.Contains("Late.esm")), all);
         Assert.True(Has(TriageLevel.Note, "busy.pex", "names the file \"Meshes\\Thing.nif\""), all);
         Assert.True(Has(TriageLevel.Look, "busy.pex", "names the file \"C:\\Tools\\run.exe\""), all);
         Assert.False(findings.Any(f => f.Text.Contains("names OtherMod.esm")), all);   // already named by GetFormFromFile

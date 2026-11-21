@@ -251,7 +251,7 @@ public static class ReleaseLint
         return parts.Length <= 1 ? "." : string.Join(Path.DirectorySeparatorChar, parts.Skip(1));   // drop SourceN
     }
 
-    static readonly Regex VanillaEntry = new(@"^Scripts[/\\]Source[/\\](.+\.(?:psc|flg))$", RegexOptions.IgnoreCase);
+    static readonly Regex VanillaEntry = new(@"^Scripts[/\\]Source[/\\](.+\.(?:psc|flg))$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>The folder of vanilla Papyrus sources from the Creation Kit's ContentResources.zip, extracted once per
     /// zip version (size and modified time) under LearnedCache.Root. Throws InvalidDataException when an entry would
