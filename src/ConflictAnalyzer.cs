@@ -24,8 +24,9 @@ public record LostChange(
     string Loser, bool LoserOfficial, string Winner, bool WinnerOfficial,
     List<LostField> Fields)
 {
-    /// <summary>Set by the analyzer (0.10.0 code review): true only when the record's own plugin is loaded, was read
-    /// in full and holds no version of it, or isn't loaded at all. Null (tests, older callers): judged from Origin.</summary>
+    /// <summary>Set by the analyzer (0.10.0 code review): true when the record's own plugin was read in full and holds
+    /// no version of it, or isn't loaded at all; false when it holds one. Null when it was read only partly (and in
+    /// tests and older callers): judged from Origin, so a possible injection counts as one.</summary>
     public bool? Injected { get; init; }
 }
 
@@ -652,17 +653,21 @@ public static class Analyzer
                     if (partUnreadable) Unreadable(versions[i].Rec, field);
                 }
             }
-            // Injected (field priorities make every field critical): the owning plugin holds no version. Not when it was
-            // read only partly, the raw pass couldn't read it, or its version has another type (0.10.0 code review: the
-            // first version of this pass alone took those for injections).
+            // Injected (field priorities make every field critical): the owning plugin holds no version. False when the
+            // owner holds a version (of this type or, as the first holder, another one; 0.10.0 code review round 1).
+            // Unknown (null) when the owner was read only partly or the raw pass couldn't read it: then the first
+            // version decides, so a possible injection stays critical and is never shown apart as benign (round 2).
             bool? injected = null;
             if (lostByPair.Count > 0)
             {
                 var owner = formKey.ModKey;
-                injected = versions[0].Plugin.Mod.ModKey != owner
-                    && !(firstHolder.TryGetValue(formKey, out var holder) && holder.Plugin.Mod.ModKey == owner)
-                    && !partly.Any(p => p.Mod.ModKey == owner)
-                    && !typeUnread.Any(t => t.Plugin.Mod.ModKey == owner);
+                if (versions[0].Plugin.Mod.ModKey == owner
+                    || (firstHolder.TryGetValue(formKey, out var holder) && holder.Plugin.Mod.ModKey == owner))
+                    injected = false;
+                else if (partly.Any(p => p.Mod.ModKey == owner) || typeUnread.Any(t => t.Plugin.Mod.ModKey == owner))
+                    injected = null;
+                else
+                    injected = true;
             }
             foreach (var ((i, k), lost) in lostByPair)
             {

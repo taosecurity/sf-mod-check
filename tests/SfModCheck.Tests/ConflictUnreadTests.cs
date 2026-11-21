@@ -396,4 +396,27 @@ public class ConflictUnreadTests
             foreach (var p in lo.Plugins) p.Mod.Dispose();
         }
     }
+
+    // 0.10.0 code review round 2: Base.esm's keywords are read only partly, so its own version of B_K001 is unread and
+    // the first version seen is ModX's. The record is skipped and counted (ModX is built on Base.esm), so no lost
+    // change reaches the field priorities with a wrong "not injected" answer. (Should one ever get there, the analyzer
+    // leaves Injected null and FieldPriorities takes it as injected: FieldPrioritiesTests.)
+    [Fact]
+    public void A_record_whose_owner_was_read_only_partly_is_counted_not_judged_by_priorities()
+    {
+        using var game = new Game();
+        game.Mod("ModX.esm", (m, open) => m.Keywords.GetOrAddAsOverride(open("Base.esm").Keywords.Skip(1).First()).Notes = "X notes");
+        game.Mod("ModY.esm", (m, open) => m.Keywords.GetOrAddAsOverride(open("Base.esm").Keywords.Skip(1).First()).Notes = "Y notes");
+        DamageFirstKeyword(Path.Combine(game.Data, "Base.esm"));
+
+        var txt = game.PluginsTxt(new[] { "Base.esm", "ModX.esm", "ModY.esm" });
+        var outDir = Path.Combine(game.Dir, "report");
+        var log = Path.Combine(game.Dir, "debug.log");
+        var (code, stdout, _) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", txt, "--out", outDir, "--quiet", "--log", log);
+        Assert.True(code == 0, stdout);
+        var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "conflicts.json"))).RootElement;
+        Assert.DoesNotContain(json.GetProperty("lost").EnumerateArray(), l => l.GetProperty("RecordType").GetString() == "Keyword");
+        Assert.DoesNotContain(json.GetProperty("benign").EnumerateArray(), l => l.GetProperty("RecordType").GetString() == "Keyword");
+        Assert.Contains(Errors(json), e => e.StartsWith("Base.esm: ") && e.Contains("was not compared"));
+    }
 }

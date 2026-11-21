@@ -116,8 +116,8 @@ public sealed class FieldPriorityTable
     }
 
     /// <summary>True when the plugin that owns the record's FormID doesn't hold it: the analyzer's answer when it gave
-    /// one (it rules out an owner read only partly, or one whose version has another type), else the first version
-    /// (Origin) isn't in the owning plugin.</summary>
+    /// one (false when the owner holds a version, of this type or another), else (owner read only partly, or no
+    /// answer) the first version (Origin) isn't in the owning plugin, so a possible injection counts as one.</summary>
     public static bool IsInjected(LostChange l) =>
         l.Injected ?? !string.Equals(l.Origin, l.FormKey.ModKey.FileName.String, StringComparison.OrdinalIgnoreCase);
 

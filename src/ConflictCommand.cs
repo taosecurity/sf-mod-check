@@ -116,7 +116,8 @@ public static class ConflictCommand
         foreach (var l in analysis.Lost.Where(l => l.Fields.Any(analysis.CriticalFields.Contains)))
             Log.Write($"field priorities: critical: {l.RecordType} {Impact.OneLine(l.EditorID)} [{l.FormKey}] {l.Winner} over {l.Loser}: " +
                       string.Join(", ", l.Fields.Where(analysis.CriticalFields.Contains).Select(f => f.Field)) +
-                      (FieldPriorityTable.IsInjected(l) ? $" (injected: first defined in {l.Origin}, not in {l.FormKey.ModKey.FileName})" : ""));
+                      (l.Injected == true ? $" (injected: {l.FormKey.ModKey.FileName} holds no version)"
+                       : l.Injected is null && FieldPriorityTable.IsInjected(l) ? $" (taken as injected: {l.FormKey.ModKey.FileName} wasn't read in full)" : ""));
     }
 
     static readonly string[] ReportFiles ={ "report.md", "report.html", "conflicts.json" };

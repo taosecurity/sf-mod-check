@@ -199,8 +199,8 @@ Its first line is `sf-mod-check 0.10.0 by Richard Bejtlich - GPL-3.0 - https://g
 
         sf-mod-check release MyMod-1.0.0.zip --profile creations
 
-    It fails on INI, DLL or SFSE files, scripts that call SFSE plugins, masters not known to be on Creations, and
-    texture archives with no `_xbox.ba2` twin. It warns about other archives with no twin, PC-format sound, and
+    It fails on INI, DLL, EXE, ASI or SFSE files, scripts that call SFSE plugins, masters not known to be on Creations,
+    texture archives with no `_xbox.ba2` twin, and a zip over 2 GB (each zip is checked on its own). It warns about other archives with no twin, PC-format sound, and
     `Debug.Notification` or `Debug.MessageBox` calls players would see (they show nothing on consoles). A master by
     another author that the user has seen on Creations for every platform: `--creations-master OtherMod.esm`. Never add
     one on your own judgement; ask the user.

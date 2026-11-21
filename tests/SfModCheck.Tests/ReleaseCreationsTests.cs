@@ -208,6 +208,41 @@ public class ReleaseCreationsTests
     }
 
     [Fact]
+    public void An_Xbox_twins_own_scripts_are_read_when_the_PC_archive_lacks_them_or_is_unreadable()
+    {
+        // 0.10.0 code review round 2: the twin was skipped whenever a PC archive of the same name was in the zip
+        using var s = new Sandbox();
+        var pex = PexBytes.Build([new PObj("MyMod:Quest", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code: [Notify("Hello")])])])]);
+        var other = PexBytes.Build([new PObj("MyMod:Other", "Quest", States: [("", [new PFn("OnInit", Locals: Locals, Code: [Notify("Hi")])])])]);
+        // the twin holds a script the PC archive lacks: both scripts are read, the shared one once
+        var extra = MakeZip(s, "Extra-0.1.0.zip", ("Extra.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Extra - Main.ba2", Ba2Stored(("scripts/mymod/quest.pex", pex))),
+            ("Extra - Main_xbox.ba2", Ba2Stored(("scripts/mymod/quest.pex", pex), ("scripts/mymod/other.pex", other))));
+        var f = Run(s, extra);
+        var debug = Of(f, "creations-debug", Level.Warning);
+        Assert.True(debug.Count == 2, List(f));
+        Assert.Contains(debug, x => x.Text.StartsWith("Extra - Main_xbox.ba2:") && x.Text.Contains("other.pex"));
+
+        // the PC archive can't be read: every script in the twin is read
+        var broken = MakeZip(s, "Broken-0.1.0.zip", ("Broken.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Broken - Main.ba2", T("not an archive")),
+            ("Broken - Main_xbox.ba2", Ba2Stored(("scripts/mymod/quest.pex", pex))));
+        Assert.Single(Of(Run(s, broken), "creations-debug", Level.Warning));
+    }
+
+    [Fact]
+    public void Sound_in_a_PC_archive_and_its_Xbox_twin_gives_one_warning()
+    {
+        // 0.10.0 code review round 2: one WARNING per pair, naming both archives
+        using var s = new Sandbox();
+        var zip = MakeZip(s, "Snd-0.1.0.zip", ("Snd.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Snd - Main.ba2", Ba2("GNRL", "sound/voice/a.wem")), ("Snd - Main_xbox.ba2", Ba2("GNRL", "sound/voice/a.wem")));
+        var f = Run(s, zip);
+        var audio = Assert.Single(Of(f, "creations-audio", Level.Warning));
+        Assert.StartsWith("Snd-0.1.0.zip:Snd - Main.ba2 and Snd - Main_xbox.ba2 (1): 1 sound file.", audio.Text);
+    }
+
+    [Fact]
     public void The_size_limit_is_per_zip_and_asi_loaders_fail()
     {
         using var s = new Sandbox();

@@ -31,9 +31,9 @@ public static class ReleaseCreations
     /// <summary>The embedded data\creations-masters.txt: its [official] patterns, [masters] and [frameworks].</summary>
     public sealed record MasterList(List<string> Official, List<string> Masters, List<string> Frameworks);
 
-    static MasterList? list;
+    static readonly Lazy<MasterList> list = new(() => Parse(ReadEmbedded()));   // Lazy: safe if two threads ask first (code review round 2)
 
-    public static MasterList List => list ??= Parse(ReadEmbedded());
+    public static MasterList List => list.Value;
 
     static string ReadEmbedded()
     {
@@ -68,9 +68,9 @@ public static class ReleaseCreations
         || List.Masters.Concat(extra).Any(x => x.Equals(master, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>True for a master that matches one of the [official] patterns (built once; code review).</summary>
-    public static bool IsOfficial(string master) => (officialPatterns ??= List.Official.Select(Wildcard).ToList()).Any(r => r.IsMatch(master));
+    public static bool IsOfficial(string master) => OfficialPatterns.Value.Any(r => r.IsMatch(master));
 
-    static List<Regex>? officialPatterns;
+    static readonly Lazy<List<Regex>> OfficialPatterns = new(() => List.Official.Select(Wildcard).ToList());
 
     static Regex Wildcard(string p) => new("^" + Regex.Escape(p).Replace("\\*", ".*") + "$", RegexOptions.IgnoreCase);
 
@@ -132,18 +132,28 @@ public static class ReleaseCreations
 
             // archives: Xbox twins, textures, sound, frameworks named in compiled scripts
             var names = p.Archives.Select(a => Path.GetFileName(a)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // each archive's file list, read once; null when it can't be read (ba2-unreadable reports it)
+            var lists = new Dictionary<string, List<string>?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in p.Archives)
+            {
+                var an = Path.GetFileName(a);
+                try { lists[an] = Ba2Names.Read(a); }
+                catch (Exception e) when (e is InvalidDataException or IOException) { lists[an] = null; Log.Write($"creations: {an}: not read ({e.Message})"); }
+            }
+            int SoundIn(string an) => lists.GetValueOrDefault(an) is { } l ? l.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal))) : 0;
             foreach (var a in p.Archives)
             {
                 var an = Path.GetFileName(a);
                 total += new FileInfo(a).Length;
-                List<string> inside;
-                try { inside = Ba2Names.Read(a); }
-                catch (Exception e) when (e is InvalidDataException or IOException) { Log.Write($"creations: {an}: not read ({e.Message})"); continue; }   // ba2-unreadable reports it
+                if (lists[an] is not { } inside) continue;
                 // sound is counted in every archive, the Xbox one too (code review: copied PC sound there is the case
-                // this rule is for)
+                // this rule is for); a PC archive and its Xbox twin that both hold sound share one WARNING (round 2)
                 int sound = inside.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal)));
-                if (sound > 0)
-                    Add(Level.Warning, "creations-audio", $"{p.Name}:{an}: {sound} sound file{(sound == 1 ? "" : "s")}. PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
+                bool pairShared = IsXbox(an) ? SoundIn(PcTwin(an)) > 0 : SoundIn(XboxTwin(an)) > 0;
+                if (sound > 0 && IsXbox(an) && pairShared)
+                    Log.Write($"creations: {an}: {sound} sounds, reported with its PC twin {PcTwin(an)}");
+                else if (sound > 0)
+                    Add(Level.Warning, "creations-audio", $"{p.Name}:{an}{(pairShared ? $" and {XboxTwin(an)} ({SoundIn(XboxTwin(an))})" : "")}: {sound} sound file{(sound == 1 ? "" : "s")}. PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
                 if (IsXbox(an))
                 {
                     Add(Level.Note, "creations-xbox", $"{p.Name}: Xbox archive present: {an}.");
@@ -198,17 +208,25 @@ public static class ReleaseCreations
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { err = e.Message; }
             yield return ($"{p.Name}:{rel}", data, err);
         }
-        // An Xbox archive whose PC twin is in the zip holds the same scripts: read only the PC one, so each finding is
-        // reported once (code review)
-        var pcNames = p.Archives.Select(Path.GetFileName).Where(n => n is not null && !IsXbox(n)).Select(n => n!).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var a in p.Archives)
+        // An Xbox archive's script that its PC twin also holds, with the same bytes, is skipped so each finding is
+        // reported once (code review). Anything else in the twin is read: a script only it holds, a different copy,
+        // or every script when the PC archive can't be read (round 2).
+        var read = new Dictionary<string, Dictionary<string, byte[]>>(StringComparer.OrdinalIgnoreCase);   // PC archive -> entry -> bytes
+        foreach (var a in p.Archives.OrderBy(x => IsXbox(Path.GetFileName(x)) ? 1 : 0))   // PC archives first
         {
             var an = Path.GetFileName(a);
-            if (IsXbox(an) && pcNames.Contains(PcTwin(an))) { Log.Write($"creations: {an}: scripts read from its PC twin {PcTwin(an)}"); continue; }
             List<(string Entry, byte[]? Data, string? Error)> s;
             try { s = TriageScripts.ArchiveScripts(a); }
-            catch (Exception e) when (e is InvalidDataException or IOException) { Log.Write($"creations: {Path.GetFileName(a)}: scripts not listed ({e.Message})"); continue; }
-            foreach (var (entry, data, err) in s) yield return ($"{Path.GetFileName(a)}:{entry}", data, err);
+            catch (Exception e) when (e is InvalidDataException or IOException) { Log.Write($"creations: {an}: scripts not listed ({e.Message})"); continue; }
+            var twin = IsXbox(an) ? read.GetValueOrDefault(PcTwin(an)) : null;
+            if (!IsXbox(an)) read[an] = s.Where(x => x.Data != null).GroupBy(x => x.Entry, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Data!, StringComparer.OrdinalIgnoreCase);
+            int skipped = 0;
+            foreach (var (entry, data, err) in s)
+            {
+                if (twin != null && data != null && twin.TryGetValue(entry, out var pc) && pc.AsSpan().SequenceEqual(data)) { skipped++; continue; }
+                yield return ($"{an}:{entry}", data, err);
+            }
+            if (skipped > 0) Log.Write($"creations: {an}: {skipped} script{(skipped == 1 ? "" : "s")} also in its PC twin {PcTwin(an)}, read there");
         }
     }
 

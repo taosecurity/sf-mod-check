@@ -70,11 +70,14 @@ public class FieldPrioritiesTests
     [Fact]
     public void The_analyzers_injection_answer_wins_over_the_first_version()
     {
-        // 0.10.0 code review: Starfield.esm read only partly, so the pass's first version is a mod's; not an injection
+        // 0.10.0 code review: Starfield.esm holds the record (as another type, say), so the pass's first version is a mod's; not an injection
         var partlyRead = L("Keyword", "000801:Starfield.esm", "ModA.esm", "Color") with { Injected = false };
         Assert.False(FieldPriorityTable.IsInjected(partlyRead));
         Assert.Equal(FieldPriority.Normal, T.Top(partlyRead));
         Assert.True(FieldPriorityTable.IsInjected(L("Keyword", "000801:Starfield.esm", "Starfield.esm", "Color") with { Injected = true }));
+        // round 2: no answer (owner read only partly) falls back to the first version, so a possible injection stays critical
+        var unknown = L("Keyword", "000801:Starfield.esm", "ModA.esm", "Color") with { Injected = null };
+        Assert.Equal(FieldPriority.Critical, T.Top(unknown));
     }
 
     [Fact]
