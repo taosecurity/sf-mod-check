@@ -49,13 +49,21 @@ public static class Overrides
         foreach (var cell in plugin.EnumerateMajorRecords<ICellGetter>())
             foreach (var child in cell.EnumerateMajorRecords())
                 if (child.FormKey != cell.FormKey) parentCell.TryAdd(child.FormKey, cell.FormKey);
+        // Every master's version of a cell, the winning one first. Cells themselves are looked up here too, not with
+        // TryResolve: Mutagen keeps a separate cell index for each of the two calls, about 2 GB each for Starfield.esm,
+        // so a mod that overrides cells and their children needed both (NAPGR 0.1.6: 4.35 GB peak; 0.10.0 relay step 13).
+        var cellVersions = new Dictionary<FormKey, List<ICellGetter>>();
+        List<ICellGetter> CellVersions(FormKey cellKey)
+        {
+            if (!cellVersions.TryGetValue(cellKey, out var vs)) cellVersions[cellKey] = vs = masters.ResolveAll<ICellGetter>(cellKey).ToList();
+            return vs;
+        }
         var cellChildren = new Dictionary<FormKey, List<Dictionary<FormKey, IMajorRecordGetter>>>();
         IMajorRecordGetter? InCells(FormKey cellKey, FormKey fk)
         {
             if (!cellChildren.TryGetValue(cellKey, out var versions))
             {
-                // every master's version of the cell, the winning one first
-                versions = masters.ResolveAll<ICellGetter>(cellKey)
+                versions = CellVersions(cellKey)
                     .Select(c => { var d = new Dictionary<FormKey, IMajorRecordGetter>(); foreach (var ch in c.EnumerateMajorRecords()) d.TryAdd(ch.FormKey, ch); return d; })
                     .ToList();
                 cellChildren[cellKey] = versions;
@@ -89,6 +97,7 @@ public static class Overrides
                     if (orig == null && cellChildren.TryGetValue(ck, out var vs) && vs.Count == 0 && ck.ModKey != modKey)
                     { tResolve.Stop(); failed++; continue; }
                 }
+                else if (rec is ICellGetter) orig = CellVersions(rec.FormKey).FirstOrDefault();   // the winning version, as TryResolve gives
                 else orig = masters.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
                 tResolve.Stop();
                 var resolveSecs = (tResolve.Elapsed - started).TotalSeconds;

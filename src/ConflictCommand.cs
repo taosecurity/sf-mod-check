@@ -2,7 +2,7 @@
 // mods, one mod's changes lost to another, ITMs, load-order problems), with a recommendation for each. Read-only:
 // it writes only its report folder. Moved in from the author's StarfieldConflictCheck on 2026-11-16 (0.5.0).
 //   sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
-//                       [--max-memory <GB>] [--no-assets] [--ini <file>]... [--language <code>]
+//                       [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]
 //                       [--quiet] [--verbose] [--log <file>]
 // Exit 0 = report written, 2 = could not run, 3 = stopped at --max-memory. Every run ends with one RESULT line.
 using System.Diagnostics;
@@ -15,7 +15,7 @@ public static class ConflictCommand
 {
     public const string Usage =
         "usage: sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
-        "                           [--max-memory <GB>] [--no-assets] [--ini <file>]... [--language <code>]\n" +
+        "                           [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]\n" +
         "                           [--quiet] [--verbose] [--log <file>]";
 
     // The game's own load order file (the game writes it; Vortex and the in-game Creations menu update it).
@@ -89,6 +89,36 @@ public static class ConflictCommand
         return part;
     }
 
+    /// <summary>The RESULT line's field-priority part (0.10.0): "2 benign entries shown apart (1 critical lost-change
+    /// entry), " with priorities on; nothing with --no-priorities, so that line reads as in 0.9.1.</summary>
+    internal static string BenignPart(Analysis a)
+    {
+        if (!a.PrioritiesOn) return "";
+        var b = a.Benign.Count;
+        var c = a.Lost.Count(l => l.Fields.Any(a.CriticalFields.Contains));
+        return $"{b} benign entr{(b == 1 ? "y" : "ies")} shown apart" +
+               (c > 0 ? $" ({c} critical lost-change entr{(c == 1 ? "y" : "ies")})" : "") + ", ";
+    }
+
+    /// <summary>Applies the built-in field priorities to the analysis and logs what moved and why.</summary>
+    static void ApplyPriorities(Analysis analysis)
+    {
+        Analyzer.Where = "applying the field priorities";
+        var table = FieldPriorityTable.Load();
+        var before = analysis.Lost.Count;
+        table.Apply(analysis);
+        var critical = analysis.Lost.Count(l => l.Fields.Any(analysis.CriticalFields.Contains));
+        Log.Write($"field priorities: on (xEdit's, data\\field-priorities.txt): {before} lost-change entries before; {analysis.Lost.Count} kept " +
+                  $"({critical} with a critical field, listed first), {analysis.Benign.Count} benign entries shown apart");
+        foreach (var l in analysis.Benign)
+            Log.Write($"field priorities: shown apart: {l.RecordType} {Impact.OneLine(l.EditorID)} [{l.FormKey}] {l.Winner} over {l.Loser}: " +
+                      string.Join(", ", l.Fields.Select(f => $"{f.Field} ({table.NameOf(l, f)})")));
+        foreach (var l in analysis.Lost.Where(l => l.Fields.Any(analysis.CriticalFields.Contains)))
+            Log.Write($"field priorities: critical: {l.RecordType} {Impact.OneLine(l.EditorID)} [{l.FormKey}] {l.Winner} over {l.Loser}: " +
+                      string.Join(", ", l.Fields.Where(analysis.CriticalFields.Contains).Select(f => f.Field)) +
+                      (FieldPriorityTable.IsInjected(l) ? $" (injected: first defined in {l.Origin}, not in {l.FormKey.ModKey.FileName})" : ""));
+    }
+
     static readonly string[] ReportFiles ={ "report.md", "report.html", "conflicts.json" };
 
     /// <summary>Deletes the three report files after a failed write; returns those still there (a missing file or folder
@@ -128,7 +158,7 @@ public static class ConflictCommand
         cantWhy = "bad arguments; see the message above";
         string? pluginsTxt = null, dataDir = null, extraDir = null, outDir = null, logFile = null;
         double maxGb = 0;
-        bool quiet = false, verbose = false, noAssets = false;
+        bool quiet = false, verbose = false, noAssets = false, noPriorities = false;
         var inis = new List<string>();
         var language = "en";
         string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
@@ -162,6 +192,7 @@ public static class ConflictCommand
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
                 case "--no-assets": noAssets = true; break;
+                case "--no-priorities": noPriorities = true; break;
                 case "--ini":
                     if (Value(ref i, "an INI file") is not { } ini) return 2;
                     inis.Add(ini); break;
@@ -273,6 +304,9 @@ public static class ConflictCommand
                 Log.Write($"stopped at the memory limit: {e.Message}");
                 return 3;
             }
+            // Field priorities (0.10.0): here only, never in Analyzer.Run, so patch and triage are unchanged.
+            if (noPriorities) Log.Write("field priorities: off (--no-priorities); every differing field counts as a lost change, as in 0.9.1");
+            else ApplyPriorities(analysis);
             // the assets check (0.6.0): every active plugin's archives load; each mod plugin's scripts and models are
             // looked up in them and in loose files (the --extra-data folder first, then Data)
             // the archive counts per registry are made either way (--no-assets reads only each archive's header)
@@ -346,6 +380,7 @@ public static class ConflictCommand
             foreach (var err in analysis.Errors.Take(5)) Console.Error.WriteLine($"note: {err}");
             if (analysis.Errors.Count > 5) Console.Error.WriteLine($"note: ... and {analysis.Errors.Count - 5} more (the report's \"Tool limits hit\" section)");
             Console.WriteLine($"RESULT: OK, {analysis.Lost.Count} lost-change entries ({official} official, {analysis.Lost.Count - official} mod vs mod), " +
+                              BenignPart(analysis) +
                               $"{analysis.Itms.Count} ITMs, {lo.Problems.Count} load-order problems" +
                               $"{(analysis.TypeChanges.Count is var tcn and > 0 ? $", {tcn} override{(tcn == 1 ? "" : "s")} that change{(tcn == 1 ? "s" : "")} a record's type" : "")}" +
                               MissingAssetsPart(analysis) + ArchiveLimitPart(analysis) +

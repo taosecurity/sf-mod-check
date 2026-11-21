@@ -1,6 +1,6 @@
 # Condition form parameters in the official masters: <function number> <parameter 1|2> <uses> <empty uses>  # Mutagen function name.
-# Made by StarfieldPluginCheck --learn-conditions (Mutagen 0.54.4) from Starfield.esm, sfbgs00d.esm, SFBGS050.esm, BlueprintShips-SFBGS050.esm, BlueprintShips-Starfield.esm, SFBGS003.esm, SFBGS004.esm, SFBGS006.esm, SFBGS007.esm, SFBGS008.esm, SFBGS047.esm, sfta01.esm, sfta02.esm, sfta03.esm, sfta04.esm, sfta05.esm, sfta06.esm, ShatteredSpace.esm.
-# 128652 conditions, 0 records Mutagen couldn't read. Uses include alias and package-data parameters; 'empty' = a null form link.
+# Made by sf-mod-check --learn-conditions (Mutagen 0.54.4) from Starfield.esm, sfbgs00d.esm, SFBGS050.esm, BlueprintShips-SFBGS050.esm, BlueprintShips-Starfield.esm, SFBGS003.esm, SFBGS004.esm, SFBGS006.esm, SFBGS007.esm, SFBGS008.esm, SFBGS047.esm, sfta01.esm, sfta02.esm, sfta03.esm, sfta04.esm, sfta05.esm, sfta06.esm, ShatteredSpace.esm.
+# 128727 conditions, 0 records Mutagen couldn't read. Uses include alias and package-data parameters; 'empty' = a null form link.
 1 1 6390 58  # GetDistance
 14 1 3940 2  # GetValue
 27 1 56 0  # GetLineOfSight
@@ -12,7 +12,7 @@
 59 1 37700 46  # GetStageDone
 67 1 516 2  # GetInCell
 69 1 125 0  # GetIsRace
-71 1 2722 1  # GetInFaction
+71 1 2740 1  # GetInFaction
 72 1 8340 52  # GetIsID
 73 1 1 0  # GetFactionRank
 74 1 9461 15  # GetGlobalValue
@@ -45,7 +45,7 @@
 444 1 22 0  # GetInCurrentLocationFormList
 445 1 17 0  # GetInZone
 448 1 1029 5  # HasPerk
-449 1 97 26  # GetFactionRelation
+449 1 103 32  # GetFactionRelation
 459 1 62 32  # GetCrimeGold
 465 1 17 0  # GetKeywordItemCount
 497 1 14 8  # CanPayCrimeGold
@@ -60,7 +60,7 @@
 523 1 13 13  # GetVATSLeftTargetVisible
 543 1 2220 3  # GetQuestCompleted
 550 1 347 0  # IsSceneActionComplete
-560 1 5098 6  # HasKeyword
+560 1 5117 6  # HasKeyword
 561 1 2887 0  # HasRefType
 562 1 847 0  # LocationHasKeyword
 563 1 337 0  # LocationHasRefType
@@ -118,6 +118,7 @@
 874 1 1227 0  # IsResearchComplete
 875 1 55 0  # BodyIsPlanetTraitKnown
 880 1 1 0  # IsScannableKeywordRevealed
+881 1 6 6  # IsMyVictim
 896 1 91 0  # GetDistanceGalacticParsec
 899 1 611 0  # GetGroupMembersInRadiusCount
 900 1 4 0  # GetShipPiracyValue

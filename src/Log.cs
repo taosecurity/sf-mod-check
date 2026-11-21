@@ -65,15 +65,32 @@ public static class Log
         foreach (var line in text.Replace("\r", "").Split('\n'))
         {
             if (toStderr) Console.Error.WriteLine($"log: {line}");
-            if (file == null) continue;
-            try { file.WriteLine($"{clock.Elapsed.TotalSeconds,8:F2}s  {line}"); }
-            catch (Exception e) when (e is IOException or ObjectDisposedException or UnauthorizedAccessException)
-            {
-                var f = file;
-                file = null;
-                try { f.Dispose(); } catch (Exception) { /* already broken */ }
-                Console.Error.WriteLine($"note: stopped writing the log file {filePath}: {e.Message} The check carries on.");
-            }
+            ToFileOnly(line);
+        }
+    }
+
+    static void ToFileOnly(string line)
+    {
+        if (file == null) return;
+        try { file.WriteLine($"{clock.Elapsed.TotalSeconds,8:F2}s  {line}"); }
+        catch (Exception e) when (e is IOException or ObjectDisposedException or UnauthorizedAccessException)
+        {
+            var f = file;
+            file = null;
+            try { f.Dispose(); } catch (Exception) { /* already broken */ }
+            Console.Error.WriteLine($"note: stopped writing the log file {filePath}: {e.Message} The check carries on.");
+        }
+    }
+
+    /// <summary>An error Mutagen caught and printed itself (it carries on reading). Each line goes to stderr as
+    /// "mutagen: ...", always, and to the --log file, so stdout keeps only sf-mod-check's own lines (0.10.0).</summary>
+    public static void Mutagen(string text)
+    {
+        var lines = text.Replace("\r", "").TrimEnd('\n').Split('\n');
+        foreach (var line in lines)
+        {
+            Console.Error.WriteLine($"mutagen: {line}");   // once, with or without --verbose
+            ToFileOnly($"mutagen: {line}");
         }
     }
 

@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.10.0 (unreleased)
+
+### What's new
+
+This release adds three checks to `check` (Story Manager and Planet Content Manager node overrides, ship systems, and condition aliases and functions), a `creations` profile for `release`, and an opt-in `patch` option for changes one official plugin loses to another. `conflict` now uses xEdit's field conflict priorities by default, so benign differences are shown apart instead of counted as lost changes.
+
+- `check` has a new check, `trees`. It gives one WARNING for each override of an official Story Manager node (SMBN, SMQN, SMEN) or Planet Content Manager node (PCMT, PCBN, PCCN). Every mod that edits the same official node conflicts with the others, so the warning says the conflict-free way: add your own node to the tree rather than edit an official one. Bethesda's own plugins aren't flagged.
+- `conflict` names these records as Story Manager or Planet Content Manager nodes in its impact text, with the same advice.
+- `check` warns about a condition whose function number sf-mod-check doesn't know. Known means in Mutagen's list (607 functions) or used by the official masters, which use a few numbers Mutagen lacks; those come from a new data file, `data\condition-functions-seen.txt`. Before, such a condition went unreported.
+- `check` lists ships. For every ship a plugin adds or overrides, the log gets its modules by system, its class (from the reactor), its three weapon slots and the required systems it lacks (cockpit, reactor, grav drive, engine, fuel tank, landing gear, docker, landing bay). The normal output gets one `SHIPS:` count line, only for plugins with ships. A new check, `ships`, gives one WARNING for each ship the plugin adds that has a cockpit but lacks a required system, and names the missing systems. A ship's record doesn't say who flies it, so the warning says a ship only NPCs fly can ignore it. Overrides, one-piece hulls (like the Starborn ships) and Bethesda's own plugins aren't flagged, and a missing shield is listed only.
+- `release` has a new profile, `--profile creations`, for Bethesda Creations on PC, Xbox and PlayStation. It runs the `basic` rules plus the Creations ones. It fails on INI, DLL, EXE or SFSE files, on compiled scripts that name a script from an SFSE plugin, on masters that aren't Bethesda's and aren't known to be on Creations, on texture archives with no `_xbox.ba2` twin, and on more than 2 GB. It warns about other archives with no twin, `.wem` or `.bnk` sound (PC-format audio is silent on consoles), and `Debug.Notification` or `Debug.MessageBox` calls the player would see, read from the compiled scripts.
+- `--creations-master <plugin>` allows another author's master that you have seen on Creations. The built-in list is a new data file, `data\creations-masters.txt` (taken 2026-11-18).
+- `patch` has a new option, `--include-official`, off by default. It also brings back changes one official plugin loses to another, such as a reference one Trackers Alliance mission adds to a location and a later one drops. Without it, `patch` builds exactly what 0.9.1 built. `conflict` still doesn't list such losses.
+- `check` gives a script or model path with a part that ends in a dot or a space (`meshes\armor.\helm.nif`) its own text. Windows trims such a part when it opens a loose file, and an archive doesn't. When the trimmed path is a loose file, the finding is a WARNING saying the game may load it on Windows but not once it is packed into a `.ba2`; otherwise the path is missing as before, and the finding names the trimmed path. Before, such a path was always reported missing.
+- `check` now sees the conditions inside a package's target data (75 in 14 official packages, mostly the creature `CCT_*` packages), so the empty-parameter and unknown-function rules cover them. Mutagen read them all along; sf-mod-check's condition walk didn't enter a package's data inputs. `data\condition-params-seen.txt` was relearned with them.
+- `check` warns about a condition in a quest, a dialogue response or a package that names an alias number its quest doesn't have (the quest itself, the response's topic quest, or the package's owner quest). The official masters have 229 such conditions, so a use an official version of the same record already has isn't flagged. Before, only scenes were checked for this.
+- `--verbose` and `--log` list each record that lacks a field every official record of its type has, from a new data file, `data\required-fields-seen.txt`. It is a listing, not a finding, because many working mods lack fields the Creation Kit always writes.
+- `conflict` uses xEdit's field conflict priorities, on by default. A lost field xEdit rates benign (most Editor IDs, a location's Master reference lists, a few tree links and node conditions) or ignores is no longer counted as a lost change: the reports list it apart under "Benign differences (not counted as lost)", and conflicts.json has a new `benign` array. A critical field (a Game Setting's name, the fields of a record injected into another plugin's FormIDs) is marked "Critical" and its record comes first. A location's Added and Removed reference lists stay normal, unlike in xEdit, because quest aliases read them. The table is a new data file, `data\field-priorities.txt`, made from xEdit 4.1.5r's Starfield definitions (MPL-2.0), with its generator in `data\gen\`.
+- `conflict --no-priorities` counts every differing field as a lost change, as 0.9.1 did. `patch` and `triage` don't use the priorities.
+- `--verbose` and `--log` record each tree-node override and each unknown condition function the checks met, and each Creations rule's reading (masters, archives, scripts).
+
+### Example
+
+Check a load order of 158 plugins for lost changes, with field priorities on (the default):
+
+    sf-mod-check conflict --plugins C:\temp\loadorder.txt --out C:\temp\conflict
+
+What it prints (a real run; the paths are shortened):
+
+    sf-mod-check 0.10.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
+    sf-mod-check 0.10.0 conflict: 158 plugins (18 official, 140 mods), 2558 records overridden by mods
+    RESULT: OK, 62 lost-change entries (27 official, 35 mod vs mod), 0 benign entries shown apart, 11 ITMs, 0 load-order problems, 53 missing assets (4 scripts, 49 models) (report: C:\temp\conflict\report.html; 129 s)
+
+In this load order every lost field is one xEdit rates normal, so the counts match `--no-priorities`. When a lost field is benign, the RESULT line counts it under "benign entries shown apart", and when one is critical, it adds "(N critical lost-change entries)".
+
+### Fixes
+
+- Stack traces that Mutagen prints itself (`Unexpected header type: PAQO`, for scene actions it can't fully read) no longer land on stdout. They go to stderr, each line starting `mutagen: `, and to the `--log` file, so stdout holds only sf-mod-check's own lines.
+- An archive name in an INI that starts with one `/` (`/Extra - Main.ba2`) means a file under Data, as one leading `\` already did. Before, it was looked up at the root of the drive.
+- On Linux and macOS, a network name in an INI (`\\server\share\x.ba2`) is no longer looked up under Data. It has no Linux or macOS path sf-mod-check can know, so it is "listed but not found", as a Windows drive path already was.
+- On Linux and macOS, when a folder under Data can't be listed, the log names it and says its loose files count as missing. Before, those files were missing with no reason given.
+- Tests that only mean something on one kind of system are reported as skipped on the others, not as passed.
+- Triage on Linux and macOS: a plugin named on the command line that is itself a symlink is now named as a link and counted in the skipped-link note. Before, it was called "reached only through a link" and the count said 0.
+- Triage on Linux and macOS: two links whose names differ only in case keep their own spellings, so each gets its own LOOK. Before, both were shown under one lower-case name.
+- Triage's first line says "1 file" for one file, not "1 files".
+- `check` (and triage) needs about half the memory on mods that override cells and records inside them. The ITM step looked cells up in two ways, and Mutagen kept a large index of Starfield.esm's cells for each; now it uses one. On one large mod that overrides many cells, the peak fell from 4.25 GB to 2.35 GB, with the same findings.
+- The `links` hint is shorter, and the README's long `conditions` and `ships` entries are split into short bullets. The advice is the same.
+- README "Build from source" names the BuildKit version the lock files really pin (0.3.1), not 0.2.0.
+
+### Not yet
+
+- Asset checks (textures, materials, sounds, face data and the Xbox texture rule) wait on a test on an Xbox.
+- Whether the game opens only exact `<plugin> - Main.ba2` names or searches the folder is still open, so the `<plugin> - *.ba2` rule stays as it was.
+- Whether a lost change to a Story Manager or Planet Content Manager node's conditions should count as a normal lost change (xEdit rates it benign) is still being decided.
+- A record that lacks a field every official record of its type has is listed in the log only, not reported as a finding.
+
 ## 0.9.1 (2026-11-20)
 
 ### What's new

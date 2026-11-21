@@ -187,23 +187,70 @@ public sealed class AssetIndex
         return looseSeen[p] = found;
     }
 
+    /// <summary>Whether a data-relative path has a part that ends in a dot or a space ("meshes\armor.\helm.nif").
+    /// Such a path never counts as found loose (see Has); the assets check reports it with its own text (0.10.0).</summary>
+    public static bool OddPart(string relPath) =>
+        Ba2Names.Normalize(relPath).Split('\\').Any(s => s.Length > 0 && s != "." && s != ".." && (s.EndsWith('.') || s.EndsWith(' ')));
+
+    /// <summary>The path Windows opens for a data-relative path (0.10.0, tested on Windows 11 2026-11-21 with
+    /// File.Exists and cmd): the last part loses all its trailing dots and spaces ("helm.nif. " -> "helm.nif"); any
+    /// other part loses one trailing dot unless a dot comes before it ("armor." -> "armor", "armor.." and "armor "
+    /// stay as they are). Archives look a name up exactly, so only loose files are found this way.</summary>
+    public static string WindowsTrim(string relPath)
+    {
+        var parts = Ba2Names.Normalize(relPath).Split('\\');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var s = parts[i];
+            if (s.Length == 0 || s == "." || s == "..") continue;
+            if (i == parts.Length - 1) parts[i] = s.TrimEnd('.', ' ');
+            else if (s.EndsWith('.') && (s.Length < 2 || s[^2] != '.')) parts[i] = s[..^1];
+        }
+        return string.Join('\\', parts);
+    }
+
+    /// <summary>For a path with a part ending in a dot or a space: the trimmed path Windows would open, when that is a
+    /// loose file the game can find (under the same rules as Has); otherwise null.</summary>
+    public string? TrimmedLoose(string relPath)
+    {
+        var p = Ba2Names.Normalize(relPath);
+        if (!OddPart(p)) return null;
+        var t = WindowsTrim(p);
+        if (t == p || t.Length == 0 || t.EndsWith('\\') || OddPart(t)) return null;
+        if (Path.IsPathRooted(t) || t.Contains(':') || t.Split('\\').Contains("..")) return null;
+        foreach (var d in looseDirs)
+        {
+            try { if (LooseFile(d, t) != null) return t; }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException) { }
+        }
+        return null;
+    }
+
     // folder -> its entries by name, matched without regard to case; several when names differ only in case (Linux and
     // macOS only)
     readonly Dictionary<string, Dictionary<string, List<string>>> listings = new(StringComparer.Ordinal);
 
+    /// <summary>Sub-folders the Linux and macOS lookup couldn't list (each is logged once).</summary>
+    public readonly List<string> Unlistable = new();
+
     /// <summary>The loose file for a data-relative path ("scripts\foo.pex") under a folder, or null. Windows paths
     /// ignore case and take "\" as a separator; on Linux and macOS (Proton, Wine) each part is matched without regard
     /// to case, as the game sees it, so "Scripts/Foo.pex" on disk counts (CI on ubuntu, 0.6.0). When folders differ only
-    /// in case ("Scripts" and "scripts", from two mods), each is searched. One leading "\" means under Data; another
-    /// rooted name (an INI's archive list may hold one) is looked up as given; a Windows drive path off Windows is not
-    /// found.</summary>
+    /// in case ("Scripts" and "scripts", from two mods), each is searched. One leading "\" or "/" means under Data; on
+    /// Windows a drive or network path (an INI's archive list may hold one) is looked up as given, and off Windows it is
+    /// not found.</summary>
     internal string? LooseFile(string dir, string rel)
     {
-        // one leading "\" ("\x.ba2" in an INI) means under Data on every system, not the drive's root (code review 0.6.0)
-        if (rel.StartsWith('\\') && !rel.StartsWith(@"\\")) rel = rel.TrimStart('\\');
-        if (OperatingSystem.IsWindows() || Path.IsPathRooted(rel)) { var w = Path.Combine(dir, rel); return File.Exists(w) ? w : null; }
-        // a Windows drive path ("C:\Mods\x.ba2", as a Proton INI may hold) has no Linux path we can know
-        if (rel.Length >= 2 && rel[1] == ':') return null;
+        static bool Sep(char c) => c is '\\' or '/';
+        // a "\\server\share" name (either slash) is a network path, never a folder under Data
+        var network = rel.Length >= 2 && Sep(rel[0]) && Sep(rel[1]);
+        // one leading "\" or "/" ("\x.ba2" in an INI) means under Data on every system, not the drive's root (code
+        // review 0.6.0; "/" since 0.10.0, which Windows reads the same way)
+        if (!network && rel.Length >= 1 && Sep(rel[0])) rel = rel[1..];
+        if (OperatingSystem.IsWindows()) { var w = Path.Combine(dir, rel); return File.Exists(w) ? w : null; }
+        // off Windows: a network name or a Windows drive path ("C:\Mods\x.ba2", as a Proton INI may hold) has no
+        // Linux path we can know (0.10.0: a "\\server" name was looked up under Data before)
+        if (network || (rel.Length >= 2 && rel[1] == ':')) return null;
         // "." parts name the same folder; a ".." part is never followed (code review 0.6.0)
         var parts = rel.Split('\\', '/', StringSplitOptions.RemoveEmptyEntries).Where(s => s != ".").ToArray();
         return parts.Length == 0 || parts.Contains("..") ? null : Walk(dir, parts, 0);
@@ -224,7 +271,12 @@ public sealed class AssetIndex
                         same.Add(e);
                     }
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // a folder it can't list has nothing found in it
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // a folder it can't list has nothing found in it; the log says why its files count as missing (0.10.0)
+                Unlistable.Add(cur);
+                Log.Write($"assets: folder {cur} can't be listed ({e.GetType().Name}: {e.Message}); loose files under it count as missing");
+            }
             listings[cur] = entries;
         }
         if (!entries.TryGetValue(parts[i], out var candidates)) return null;
@@ -463,10 +515,23 @@ public static class Assets
         catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"assets: stopped at a record Mutagen can't read ({e.GetType().Name}: {e.Message}); the read check lists it"); }
         var missing = new List<MissingAsset>();
         foreach (var (pex, (script, users)) in missingScripts)
-            missing.Add(new MissingAsset("ERROR", "script", pex, script, users.Distinct().ToList()));
+            missing.Add(Odd(new MissingAsset("ERROR", "script", pex, script, users.Distinct().ToList()), index));
         foreach (var (path, users) in missingModels)
-            missing.Add(new MissingAsset("WARNING", "model", path, null, users.Distinct().ToList()));
+            missing.Add(Odd(new MissingAsset("WARNING", "model", path, null, users.Distinct().ToList()), index));
         return (scripts, models, missing, inherited);
+    }
+
+    /// <summary>0.10.0 (README "Known gaps" until 0.9.1): a missing path with a part ending in a dot or a space gets its
+    /// own text. When the path Windows trims it to is a loose file, the game on Windows may load it, so the finding
+    /// becomes a WARNING that says so (an archive lookup uses the exact name, so packing the file breaks it); otherwise
+    /// it stays missing, with the trimmed name added.</summary>
+    static MissingAsset Odd(MissingAsset m, AssetIndex index)
+    {
+        if (!AssetIndex.OddPart(m.Path)) return m;
+        var t = AssetIndex.WindowsTrim(m.Path);
+        var loose = index.TrimmedLoose(m.Path);
+        Log.Write($"assets: {m.Path} has a part ending in a dot or a space; Windows opens {t}, which {(loose != null ? "is" : "isn't")} a loose file here");
+        return m with { Severity = loose != null ? "WARNING" : m.Severity, Trimmed = t, TrimmedFound = loose != null };
     }
 
     internal static string Users(IReadOnlyList<string> users) => string.Join(", ", users.Take(3)) + (users.Count > 3 ? $" and {users.Count - 3} more" : "");
@@ -477,7 +542,16 @@ public static class Assets
 /// records that use it, each once, in the order found.</summary>
 public sealed record MissingAsset(string Severity, string Kind, string Path, string? Script, IReadOnlyList<string> Users)
 {
-    public string Text => Kind == "script"
-        ? $"script {Script} ({Path}) is in no loose file or loaded archive; used by {Assets.Users(Users)}"
-        : $"model {Path} is in no loose file or loaded archive; used by {Assets.Users(Users)}";
+    /// <summary>0.10.0: for a path with a part ending in a dot or a space, the path Windows opens instead (else null),
+    /// and whether that is a loose file here.</summary>
+    public string? Trimmed { get; init; }
+    public bool TrimmedFound { get; init; }
+
+    string What => Kind == "script" ? $"script {Script} ({Path})" : $"model {Path}";
+
+    public string Text => Trimmed == null
+        ? $"{What} is in no loose file or loaded archive; used by {Assets.Users(Users)}"
+        : TrimmedFound
+            ? $"{What} has a part that ends in a dot or a space. Windows trims it and opens the loose file {Trimmed}, so the game may load it on Windows, but an archive lookup uses the exact name, so the file goes missing once it is packed into a .ba2. Fix the path in the record; used by {Assets.Users(Users)}"
+            : $"{What} is in no loose file or loaded archive, and it has a part that ends in a dot or a space (Windows would open {Trimmed}, which isn't there either); used by {Assets.Users(Users)}";
 }

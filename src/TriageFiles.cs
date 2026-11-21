@@ -187,12 +187,14 @@ public static class TriageFiles
         // each, and a row in the table too, marked "link" or "same name" (code review of 0.9.1: they were missing from
         // it; "?" stays for a file whose hash couldn't be read). A file skipped for its name's case is named by its own
         // spelling, and so is the one kept in its place (Shown), so the table shows both real files side by side.
-        foreach (var (rel, why) in c.Skipped) Look(rel, why);
+        // The same entry twice is one LOOK and one row, as SkippedLinks counts it once (0.9.1 last review).
+        var skippedOnce = c.Skipped.Distinct().ToList();
+        foreach (var (rel, why) in skippedOnce) Look(rel, why);
         static string Marker(string why) =>
             why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy ? "link"
             : why.StartsWith(TriageCommand.CaseWhyStart, StringComparison.Ordinal) ? "same name" : "skipped";
         var rows = c.Files.Select(f => (Rel: f, Skip: (string?)null))
-            .Concat(c.Skipped.Select(s => (Rel: s.File, Skip: (string?)Marker(s.Why))))
+            .Concat(skippedOnce.Select(s => (Rel: s.File, Skip: (string?)Marker(s.Why))))
             .OrderBy(r => Ba2Names.Normalize(r.Rel), StringComparer.Ordinal).ThenBy(r => r.Skip != null).ThenBy(r => r.Rel, StringComparer.Ordinal).ToList();
         foreach (var (rel, skip) in rows)
         {

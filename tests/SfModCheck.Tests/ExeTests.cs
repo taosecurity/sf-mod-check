@@ -261,7 +261,7 @@ public class ExeTests
         var check = Options("Program.cs");
         Assert.Equal(new[] { "--data", "--ini", "--language", "--log", "--masters-dir", "--max", "--no-assets", "--no-hints", "--quiet", "--verbose" }, check.Order());
         var conflict = Options("ConflictCommand.cs");
-        Assert.Equal(new[] { "--data", "--extra-data", "--ini", "--language", "--log", "--max-memory", "--no-assets", "--out", "--plugins", "--quiet", "--verbose" }, conflict.Order());
+        Assert.Equal(new[] { "--data", "--extra-data", "--ini", "--language", "--log", "--max-memory", "--no-assets", "--no-priorities", "--out", "--plugins", "--quiet", "--verbose" }, conflict.Order());
         var (_, usage) = Run("check");
         var (_, conflictUsage) = Run("conflict", "--help");
         foreach (var file in new[] { "README.md", "AGENTS.md" })
@@ -328,7 +328,7 @@ public class ExeTests
         var (code, stdout, _) = RunSplit("conflict", "--data", Path.GetDirectoryName(plugin)!, "--plugins", PluginsTxt(s, "Solo.esm"),
             "--out", outDir, "--log", log);
         Assert.Equal(0, code);
-        Assert.StartsWith("RESULT: OK, 0 lost-change entries (0 official, 0 mod vs mod), 0 ITMs, 0 load-order problems (report: ", ResultLine(stdout));
+        Assert.StartsWith("RESULT: OK, 0 lost-change entries (0 official, 0 mod vs mod), 0 benign entries shown apart, 0 ITMs, 0 load-order problems (report: ", ResultLine(stdout));
         foreach (var f in new[] { "report.html", "report.md", "conflicts.json" }) Assert.True(File.Exists(Path.Combine(outDir, f)), f);
         Assert.DoesNotContain("googleapis", File.ReadAllText(Path.Combine(outDir, "report.html")));   // PRIVACY.md: no network
         var logText = File.ReadAllText(log);
@@ -419,7 +419,7 @@ public class ExeTests
         var re = new System.Text.RegularExpressions.Regex(@"\b[Aa]dd\((?:""(?:ERROR|WARNING)""|sev), ""([a-z]+)""");
         var used = Directory.GetFiles(Path.Combine(dir!.FullName, "src"), "*.cs")
             .SelectMany(f => re.Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value)).ToHashSet();
-        Assert.Equal(13, used.Count);   // structure, header, ids, records, read, links, navi, conditions, dialogue, scenes, editorids, itm, assets
+        Assert.Equal(15, used.Count);   // structure, header, ids, records, read, links, navi, conditions, dialogue, scenes, editorids, itm, assets, trees, ships (0.10.0)
         Assert.Equal(used.OrderBy(x => x), Hints.ByCheck.Keys.OrderBy(x => x));
         Assert.All(Hints.ByCheck.Values, h => Assert.True(h.Length > 40 && !h.Contains('\n'), "hint too short or not one line: " + h));
         // README's "For Creation Kit and xEdit authors" section repeats each hint word for word.

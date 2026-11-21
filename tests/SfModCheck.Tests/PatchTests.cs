@@ -317,6 +317,64 @@ public class PatchTests
         Assert.DoesNotContain(patch.ModHeader.MasterReferences, r => r.Master.FileName == "ModA.esm");
     }
 
+    // 0.10.0 item 4: two "official" plugins (official by name, as sfta02 and sfta06 are), neither a master of the other,
+    // each changing one field of B_Misc, so sfta06 (loading later, a full copy) drops sfta02's change.
+    static void TwoOfficialEdits(Game game)
+    {
+        game.Mod("sfta02.esm", (m, b) => Misc(m, b).Value = 10);
+        game.Mod("sfta06.esm", (m, b) => Misc(m, b).Weight = 2);
+    }
+
+    [Fact]
+    public void Official_vs_official_losses_are_left_alone_by_default()
+    {
+        using var game = new Game();
+        TwoOfficialEdits(game);
+        var (code, stdout, stderr) = game.Patch(new[] { "Base.esm" });
+        Assert.True(code == 0, stdout + stderr);
+        Assert.StartsWith("RESULT: OK, nothing to patch", ExeTests.ResultLine(stdout));
+        Assert.False(File.Exists(Path.Combine(game.Out, "ConflictPatch.esm")));
+        Assert.DoesNotContain("--include-official", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+    }
+
+    [Fact]
+    public void Include_official_restores_a_change_one_official_plugin_loses_to_another()
+    {
+        using var game = new Game();
+        TwoOfficialEdits(game);
+        game.Mod("ModA.esm", (m, b) => Misc(m, b, "B_Misc2").Value = 70);
+        game.Mod("ModB.esm", (m, b) => Misc(m, b, "B_Misc2").Weight = 30);
+        var (code, stdout, stderr) = game.Patch(new[] { "Base.esm", "ModA.esm", "ModB.esm" }, "--include-official");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("2 records, 2 fields forwarded", ExeTests.ResultLine(stdout));
+        var patch = game.Open(Path.Combine(game.Out, "ConflictPatch.esm"));
+        var byId = patch.MiscItems.ToDictionary(m => m.EditorID!);
+        Assert.Equal((10, 2f), (byId["B_Misc"].Value, byId["B_Misc"].Weight));     // sfta02's Value back under sfta06's Weight
+        Assert.Equal((70, 30f), (byId["B_Misc2"].Value, byId["B_Misc2"].Weight));  // the mods' conflict, as without the option
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("Value from sfta02.esm", report);
+        Assert.Contains("Made with --include-official", report);
+        // the patch reads back and checks clean, and conflict (which ignores official-vs-official) finds nothing left
+        var (checkCode, checkOut, checkErr) = ExeTests.RunSplit("check", Path.Combine(game.Out, "ConflictPatch.esm"), "--data", game.Data, "--quiet", "--no-assets");
+        Assert.True(checkCode == 0, checkOut + checkErr);
+        var (cCode, cOut, _) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", Path.Combine(game.Out, "Plugins-with-patch.txt"),
+            "--extra-data", game.Out, "--out", Path.Combine(game.Dir, "report"), "--quiet");
+        Assert.Equal(0, cCode);
+        Assert.StartsWith("RESULT: OK, 0 lost-change entries", ExeTests.ResultLine(cOut));
+    }
+
+    [Fact]
+    public void Include_official_with_only_is_refused()
+    {
+        using var game = new Game();
+        TwoOfficialEdits(game);
+        game.Mod("ModA.esm", (m, b) => Misc(m, b, "B_Misc2").Value = 70);
+        var (code, stdout, stderr) = game.Patch(new[] { "Base.esm", "ModA.esm" }, "--include-official", "--only", "ModA.esm");
+        Assert.Equal(2, code);
+        Assert.Contains("--include-official can't be used with --only", stderr);
+        Assert.StartsWith("RESULT: CANNOT BUILD", ExeTests.ResultLine(stdout));
+    }
+
     [Fact]
     public void A_patched_quest_carries_no_dialogue()
     {

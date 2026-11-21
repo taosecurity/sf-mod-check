@@ -78,7 +78,8 @@ public class ConflictUnreadTests
 
         var txt = game.PluginsTxt(new[] { "Base.esm", "ModX.esm", "ModZ.esm", "ModY.esm" });
         var outDir = Path.Combine(game.Dir, "report");
-        var (code, stdout, _) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", txt, "--out", outDir, "--quiet");
+        // the test change is an Editor ID, which field priorities (0.10.0) show apart as benign: test the unread logic without them
+        var (code, stdout, _) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", txt, "--out", outDir, "--quiet", "--no-priorities");
         Assert.True(code == 0, stdout);
         var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "conflicts.json"))).RootElement;
         var lostKw = Assert.Single(json.GetProperty("lost").EnumerateArray(), l => l.GetProperty("RecordType").GetString() == "Keyword");
@@ -139,7 +140,8 @@ public class ConflictUnreadTests
 
         var txt = game.PluginsTxt(new[] { "Base.esm", "ModX.esm", "ModZ.esm", "ModP.esm", "ModW.esm" });
         var outDir = Path.Combine(game.Dir, "report");
-        var (code, stdout, _) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", txt, "--out", outDir, "--quiet");
+        // Editor ID changes again: without field priorities, as above
+        var (code, stdout, _) = ExeTests.RunSplit("conflict", "--data", game.Data, "--plugins", txt, "--out", outDir, "--quiet", "--no-priorities");
         Assert.True(code == 0, stdout);
         var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "conflicts.json"))).RootElement;
         Assert.Contains(json.GetProperty("lost").EnumerateArray(), l => l.GetProperty("RecordType").GetString() == "Keyword"

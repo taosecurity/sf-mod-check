@@ -15,6 +15,15 @@ data/engine-forms.txt
     change is the format (one line per record) and one added record, PlayerRef 000014. sfmodcheck builds the file
     into its exe unchanged; the source form is this file in the repository.
 
+data/field-priorities.txt
+    Field conflict priorities derived from xEdit (https://github.com/TES5Edit/TES5Edit), MPL-2.0. The table gives,
+    for each field of each Starfield record type, the conflict priority xEdit's Starfield definitions
+    (Core/wbDefinitionsSF1.pas and Core/wbDefinitionsCommon.pas at commit b0e67b16, release 4.1.5r, by ElminsterAU
+    and the xEdit team) assign to it, keyed by the field names in Mutagen's Starfield record definitions (commit
+    0188012c, GPL-3.0). It holds the priorities as data only, no xEdit code. The table is used under the Mozilla
+    Public License 2.0 (https://mozilla.org/MPL/2.0/) and stays under it with its header kept; its source form is
+    this file and data/gen/gen_field_priorities.py, which makes it from the xEdit and Mutagen sources.
+
 Libraries (not included in the source; downloaded from nuget.org at build time)
     Mutagen.Bethesda.Starfield and its Mutagen dependencies, by Noggog and the Mutagen contributors, GPL-3.0
         (https://github.com/Mutagen-Modding/Mutagen).

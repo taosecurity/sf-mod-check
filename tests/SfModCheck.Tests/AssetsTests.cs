@@ -204,13 +204,11 @@ public class AssetsTests
 
     // 0.6.0 part 2 item 2: the archives we count for the limit are the ones Mutagen says apply to each plugin
     // (Archive.GetApplicableArchivePaths per ModKey), less other languages' voice archives, which the game doesn't load.
-    [Fact]
+    // Mutagen's GetApplicableArchivePaths reads the game's Plugins.txt folder under LocalAppData, which it can't find
+    // on Linux or macOS (CI 2026-11-19), so the comparison runs on Windows only; our own count is tested elsewhere.
+    [WindowsFact("Mutagen's applicable-archives list needs the Windows Plugins.txt folder")]
     public void The_archives_counted_match_mutagens_applicable_archives()
     {
-        // Mutagen's GetApplicableArchivePaths reads the game's Plugins.txt folder under LocalAppData, which it can't find
-        // on Linux or macOS (CI 2026-11-19), so the comparison runs on Windows only; our own count is tested elsewhere.
-        // (xunit 2.9 has no runtime skip, so elsewhere it shows as passed.)
-        if (!OperatingSystem.IsWindows()) return;
         using var s = new Sandbox();
         var data = s.Sub("Data");
         var gnrl = Ba2("GNRL", "meshes\\a.nif");

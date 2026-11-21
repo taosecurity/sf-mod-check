@@ -8,8 +8,9 @@ commands:
 
 - [`check`](#run-it) reads one plugin (`.esm`) and reports problems that would break it in the game: damaged files,
   bad headers, FormIDs outside the plugin's range, links to records that don't exist, broken conditions, scenes and
-  navmesh links, repeated EditorIDs, deleted records and ITM records. After each kind of problem it says how to fix
-  it in xEdit or the Creation Kit.
+  navmesh links, repeated EditorIDs, deleted records, ITM records and edits to official Story Manager and Planet
+  Content Manager nodes. After each kind of problem it says how to fix
+  it in xEdit or the Creation Kit. For a ship mod, it also lists each ship's modules and the systems it lacks.
 - [`conflict`](#conflicts-between-mods-sf-mod-check-conflict) reads your whole load order and reports which changes
   it throws away (official changes undone by mods, one mod's changes lost to another) and what to do about each.
 - [`patch`](#build-a-conflict-patch-sf-mod-check-patch) builds a local patch that brings back the changes `conflict`
@@ -205,6 +206,8 @@ plugin's full path.
 - `ERROR [check] ...`: the plugin is broken; fix it before release.
 - `WARNING [check] ...`: probably a mistake, or a risk; look at it.
 - `HINT [check] ...`: how to fix that check's findings, once per check (not part of the result).
+- `SHIPS: <n> ships listed: ...` (0.10.0): only when the plugin adds or overrides a ship. It counts the ships with
+  every required system, those missing one, and one-piece hulls. The full listing is in the log (see the ships check).
 - `RESULT: OK|FAILED, <n> errors, <n> warnings (...)`: always the last line. It adds "links not checked" when a
   master is missing, and "official scenes not checked" when the scene list couldn't be learned (see the scenes check).
 
@@ -253,7 +256,7 @@ patch for you (0.9.0); the report also gives the steps for xEdit and a prompt yo
 Then open `sf-mod-check-conflict\report.html` in a browser.
 
     sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
-                        [--max-memory <GB>] [--no-assets] [--ini <file>]... [--language <code>]
+                        [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]
                         [--quiet] [--verbose] [--log <file>]
 
 - `--plugins`: the load order to check (default: the game's own, `%LOCALAPPDATA%\Starfield\Plugins.txt`, which
@@ -305,10 +308,26 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
   - **Unreadable archives:** an archive whose header can't be read isn't counted. The archive paragraph names it and
     says the true counts may be higher, and with `--no-assets` the RESULT line adds ", N archives that can't be read
     (not counted)".
+- **Field priorities (0.10.0):** `conflict` rates each lost field the way xEdit does, from a table made from
+  xEdit's Starfield definitions (`data\field-priorities.txt`; see "Build from source").
+  - **Benign and ignored fields:** a field xEdit rates benign (most Editor IDs, the Master reference lists a location
+    keeps, a few tree links and node conditions) or doesn't compare (ignore) isn't counted as a lost change. The
+    report lists it apart, under "Benign differences (not counted as lost)", and conflicts.json has it in `benign`.
+    A record whose only lost fields are benign gets no recommended action.
+  - **Critical fields:** a field xEdit rates critical (a Game Setting's name, and every field of a record injected
+    into another plugin's FormIDs) is marked "Critical" and its record comes first in its section.
+  - **One departure from xEdit:** a location's Added and Removed reference lists stay normal, because quest aliases
+    read them.
+  - **Results:** the RESULT line adds ", N benign entries shown apart" (and " (C critical lost-change entries)" when
+    there are any). In conflicts.json each `lost` entry and field has a `priority` (`normal` or `critical`), each
+    `benign` field has `benign` or `ignore`, and `fieldPriorities` has the counts.
+  - **`patch` and `triage` don't use the priorities:** `patch` still restores a benign field along with the rest.
+- `--no-priorities`: count every differing field as a lost change, as 0.9.1 did. The lost changes and counts are
+  then the same as 0.9.1's, with no benign section, no Critical marks and no new conflicts.json keys.
 - `--quiet`: leave out the byline, the progress lines and the summary line.
 - `--verbose` and `--log <file>`: the troubleshooting log, as for `check`. It records the Data folder and load order
   used and why, the plugins loaded, each load-order problem, one line per record type (records, versions and memory),
-  and the result.
+  whether field priorities were on, each entry shown apart as benign and each critical entry, and the result.
 
 **Mod Organizer 2 (not tested):** MO2 keeps each mod in its own folder, so the game's Data folder doesn't hold your
 mods' plugins.
@@ -333,9 +352,10 @@ always the RESULT line, for example:
 
     RESULT: OK, 29 lost-change entries (19 official, 10 mod vs mod), 103 ITMs, 0 load-order problems (report: ...\sf-mod-check-conflict\report.html; 122 s)
 
-Before the summary line, stdout can also hold stack traces such as `System.ArgumentException: Unexpected header
-type: PAQO`. Mutagen (the plugin library) prints these itself when it can't fully read a scene's actions; sf-mod-check
-doesn't count or report them yet. A script should read only the exit code and the RESULT line.
+Mutagen (the plugin library) prints a stack trace itself when it can't fully read a scene's actions, such as
+`System.ArgumentException: Unexpected header type: PAQO`. sf-mod-check sends those lines to stderr, each starting
+`mutagen: `, and to the `--log` file, so stdout holds only sf-mod-check's own lines. It doesn't count or report them
+as findings yet. A script should still read only the exit code and the RESULT line.
 
 **Plugins and records it can't read:** a plugin that can't be opened at all is skipped and listed as a load-order
 problem. Running out of memory is never skipped that way: the run stops with `CANNOT CHECK` and writes no report.
@@ -403,7 +423,7 @@ How it builds each record:
 
     sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
                        [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]] [--pick <FormKey>[:<Field>]=<plugin>]...
-                       [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
+                       [--include-official] [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
 
 - `--plugins`, `--data`, `--extra-data`, `--max-memory`, `--quiet`, `--verbose`, `--log`: as for `conflict`.
 - `--out`: the folder for the patch and its report (default `sf-mod-check-patch` in the current folder). It can't be
@@ -415,6 +435,11 @@ How it builds each record:
 - `--only`: patch only the conflicts that involve these plugins (file names, separated by commas; give it more than
   once if you like). It is also faster: only the records those plugins change are compared.
 - `--pick`: see step 3. A pick that matches nothing gets a WARNING.
+- `--include-official`: also bring back changes that one official plugin (the base game, a DLC or a Creation from
+  Bethesda) loses to another, for example a reference one Trackers Alliance mission adds to a location and a later
+  one drops. Off by default, because `conflict` doesn't list such losses either: the game ships that way, and they
+  may be meant. It also compares the records only official plugins change, so the run takes a little longer. It
+  can't be combined with `--only`. The report says when a patch was made with it.
 
 **What it writes** (all in the `--out` folder): the patch; `patch-report.md` (each record and field it forwarded and
 from which plugin, the Choice fields with their `--pick` lines, the records it didn't build, and the next steps; a
@@ -458,7 +483,8 @@ and everything `check` finds in each plugin.
 
     sf-mod-check release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]...
                                 [--dmmdeps <exe>] [--papyrus <exe> --ck-sources <ContentResources.zip>]
-                                [--profile basic|house] [--quiet] [--verbose] [--log <file>]
+                                [--profile basic|house|creations] [--creations-master <plugin>]...
+                                [--quiet] [--verbose] [--log <file>]
 
 - `<zip>`: the release zip. Give an add-on's zip together with its main mod's zip, so the add-on's plugin finds
   the main plugin and its scripts.
@@ -478,6 +504,10 @@ and everything `check` finds in each plugin.
   the vanilla sources the lint is skipped with a WARNING (it would only report noise).
 - `--profile basic` (default): only what breaks the mod in the game makes it FAIL. `--profile house`: also fails on
   packaging rules (below), which `basic` only shows as WARNING lines.
+- `--profile creations` (0.10.0): the `basic` rules plus Bethesda Creations' rules for PC, Xbox and PlayStation (the
+  `creations-` rules below). Use it before you upload a Creation. Packaging rules stay WARNING lines, as in `basic`.
+- `--creations-master <plugin>`: with `--profile creations`, a master by another author that you have seen on
+  Creations for every platform your Creation targets. It is then allowed for this run. Can be given more than once.
 - `--quiet`, `--verbose`, `--log <file>`: as for `check`.
 
 Output is PROBLEM lines (fail), REVIEW lines (look at them), WARNING and NOTE lines, each with its rule in brackets,
@@ -496,6 +526,13 @@ zip, the game folder or the Data folder.
 | `mutagen-gap` | basic, house | Data the Mutagen library 0.54.4 loses when it writes a plugin, and a missing ONAM list (the game ignores edits to the master's placed references). |
 | `master`, `one-plugin`, `script-source`, `root-md`, `private-file` | house only | A `BlueprintShips` master; more than one plugin in a zip; `.psc` sources in the zip; a root `.md` such as `README.md` with no mod name in it (it overwrites another mod's copy in Data; use `README-<ModName>.md`); a file such as `PERMISSION.md` that should never ship. |
 | `papyrus-lint` | never | Lint findings (WARNING only). |
+| `creations-ini`, `creations-sfse` | creations | An INI file, or a DLL, EXE or file in an `SFSE` folder: Creations take none of them on any platform. A mod that needs SFSE stays a PC (Nexus) mod. |
+| `creations-framework` | creations | A compiled script that names a script from an SFSE plugin (ConsoleAPI, PapyrusUtil and others in `data\creations-masters.txt`). Consoles can't run SFSE, so those calls fail. |
+| `creations-master` | creations | A master that isn't Bethesda's (Starfield, the DLC, `SFBGS*` and `SFTA*` plugins) and isn't known to be on Creations. Make it optional in code (`Game.IsPluginInstalled`), or allow it with `--creations-master` once you have seen it there. |
+| `creations-xbox` | creations | A PC archive with textures and no `<name>_xbox.ba2` twin (the Creation Kit's Xbox pack refuses PC textures). Any other archive with no twin is a WARNING (Xbox gets no archive). |
+| `creations-size` | creations | Plugins and archives over 2 GB, the most a Creation may hold. |
+| `creations-audio` | never | `.wem` or `.bnk` sound in an archive or loose (WARNING): PC-format audio is silent on Xbox and PlayStation until the Creation Kit makes their versions from WAV sources. |
+| `creations-debug` | never | `Debug.Notification` or `Debug.MessageBox` that the player would see (WARNING), read from the compiled scripts. The Debug script does nothing on Xbox and PlayStation; show a Message record with `Show()` instead. A call counts as debug-only, and isn't reported, when its function's name mentions debug, trace or verbose, or when it sits inside an `If` that tests a debug switch (something so named) without negating it. |
 
 ## Look over a downloaded mod: `sf-mod-check triage`
 
@@ -538,8 +575,9 @@ prints the LOOK lines and `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <p
 
 What it can't see: names a DLL looks up while it runs, what a script does with values it computes, records nothing
 uses, and files behind a link (symlink or junction) inside a mod folder or beside a plugin: triage never follows one,
-and the report lists each as skipped, with one note in the Files section that anything inside wasn't checked. A
-missing-script LOOK in the Plugins section says how many linked items were skipped, because a skipped link may
+and the report lists each as skipped, with one note in the Files section that anything inside wasn't checked.
+
+A missing-script LOOK in the Plugins section says how many linked items were skipped, because a skipped link may
 hold the script, and so does the Scripts section's note when it finds no compiled scripts at all. On Windows, a
 plugin you name yourself is read even when it is a link, because you chose it; on Linux and macOS it isn't read.
 
@@ -566,7 +604,39 @@ Each finding names its check in brackets.
   the other), except an armor record on an armor addon's FormID or the other way round, a WARNING (the game lets
   those two replace each other, but it is usually a wrong FormID). Records the game's engine creates itself (such as PlayerRef) count as existing.
 - **conditions**: a condition whose form parameter is empty where the official masters always fill it for that
-  function (WARNING: the condition tests nothing).
+  function (WARNING: the condition tests nothing), and a condition whose function number sf-mod-check doesn't know
+  (WARNING).
+  - Known functions: those in Mutagen's list (607 functions) or used by the official masters (they use one number
+    Mutagen lacks, 966, so the list is learned from them too). A function added by a game update newer than this
+    tool would also be flagged.
+  - Aliases (0.10.0): a condition in a quest, a dialogue response or a package that names an alias number its quest
+    doesn't have (WARNING: the condition is never true). The quest is the quest itself, the response's topic quest or
+    the package's owner quest. Both alias uses are read: a condition that runs on an alias, and a function such as
+    GetIsAliasRef whose parameter is an alias.
+  - The official masters have 229 such alias conditions (mostly in radiant dialogue), so a use an official version
+    of the same record already has isn't flagged.
+  - Since 0.10.0 the conditions inside a package's target data (the creature `CCT_*` packages) are checked too.
+- **trees** (0.10.0): an override of an official Story Manager node (SMBN, SMQN, SMEN) or Planet Content Manager node
+  (PCMT, PCBN, PCCN), one WARNING each. These trees decide which quests and events start and what content each planet
+  gets. Every mod that edits the same official node conflicts with the others, so the conflict-free way is to add your
+  own node to the tree rather than edit an official one. Bethesda's own plugins aren't flagged (the DLCs extend the
+  base game's trees on purpose). `conflict` names these records the same way and gives the same advice.
+- **ships** (0.10.0): a listing, plus one WARNING per added ship that lacks a required system.
+  - The listing: for every ship base form the plugin adds or overrides, the log (`--verbose` or `--log`) gets one
+    line with its modules by system (cockpit, reactor, grav drive, engine, fuel tank, landing gear, docker, landing
+    bay, shield, weapons), its class (from the reactor's class keyword), its three weapon slots resolved to modules,
+    and the required systems it lacks. The normal output gets one `SHIPS:` count line.
+  - Required means what every standard official player ship has: cockpit, reactor, grav drive, engine, fuel tank,
+    landing gear, docker and landing bay. A module's systems are read from its own data (its actor values, its
+    weapon link, and the docking and landing markers in its exterior packin), never from its EditorID.
+  - A ship with one module that covers three or more systems (like the Starborn ships) is listed as a one-piece hull
+    and not checked.
+  - The WARNING: each ship the plugin adds (not an override) that has a cockpit but lacks a required system gets one
+    WARNING naming the missing systems. A ship's record doesn't say whether players fly it, and many official NPC
+    ships lack landing gear or a landing bay on purpose, so the warning says a ship only NPCs fly can ignore it.
+    Bethesda's own plugins aren't flagged.
+  - A missing shield and the weapon slots are listed only, because many official player ships have a weapon slot
+    that points at a non-weapon part.
 - **dialogue**: a response with Emotion 0, where the official masters use "none" or an emotion keyword (WARNING).
 - **scenes**: the quest aliases a scene uses must exist in its quest. Actors, actions and dialogue targets that name a
   missing alias are ERRORs; alias conditions that do are WARNINGs; a scene with no quest is a WARNING because it can't
@@ -591,6 +661,12 @@ Each finding names its check in brackets.
   - **How it reports:** each missing file is listed once, with up to 3 records that use it. An override isn't blamed
     for a missing file the master's version of the record already names (some vanilla records attach scripts the
     game doesn't ship; `--verbose` lists each one left out).
+  - **A part ending in a dot or a space** (0.10.0, such as `meshes\armor.\helm.nif`): Windows trims such a part when
+    it opens a loose file. The last part loses all its trailing dots and spaces; any other part loses one trailing
+    dot, unless a dot comes before it. An archive looks the name up exactly. So when the trimmed path is a loose
+    file, the finding is a WARNING that says the game may load it on Windows but not once the file is packed into a
+    `.ba2` (a script too, not an ERROR). Otherwise the path is missing as usual, and the finding names the trimmed
+    path.
   - **Not checked yet:** textures and materials (a mesh's `.mat` and `.dds` files), `.mesh` geometry, files the game finds by name (voice,
   lip and face animation, `.af`/`.hkx` animations, LOD, Wwise sounds), a script's parent and imports, whether an SFSE
   plugin a native script needs is installed, and which copy of a file wins. Tested on Steam installs only.
@@ -606,14 +682,16 @@ What each check's findings mean and how to fix them. These are the same lines sf
 - **header**: xEdit: select the File Header record. Missing master: install it, or remove it with Clean Masters (only when nothing uses it). Master order: right-click > Sort Masters. Flags: an .esm needs the ESM (Master) flag, and only one of Light (ESL) or Medium. Next Object ID: edit HEDR > Next Object ID in the File Header so it is above the plugin's highest own FormID.
 - **ids**: Own FormIDs must fit the plugin type (light 000-FFF, medium 0000-FFFF). xEdit: Compact FormIDs for ESL / for Medium, or take the Light or Medium flag off. A master index past the master list is a broken FormID: add the missing master in xEdit, or rebuild the record.
 - **read**: Mutagen (the library sf-mod-check reads plugins with) can't read this record, so the game may not either. Look at the named record in xEdit for errors in red, fields from another game or a wrong field size, then fix the field or make the record again in the CK.
-- **links**: A field points at a record that doesn't exist, is the wrong type or is deleted. xEdit: open the named record; the field shows the FormID, often in red. Point it at an existing record of the right type, or clear it. 'Doesn't exist' often means a master is missing or a master record was removed. CK: re-pick the item in that form's drop-down and save. 'Injected record' means the plugin adds a record in a master's FormID range: fine only if you meant it. 'Overrides ..., which is a <type>' means the plugin's record has the FormID of a master record of another type. The game keeps whichever record loads first and silently drops the other (armor and armor addon records are the exception: they may replace each other); for placed objects in temporary groups, the object may vanish when its cell loads. Usually the plugin meant to add a new record and has a wrong master index or FormID: give the record its own FormID (xEdit: right-click > Change FormID) or remove it.
+- **links**: A field points at a record that doesn't exist (often a missing master), is the wrong type or is deleted. xEdit: point the named record's field at an existing record of the right type, or clear it. CK: re-pick it in the form's drop-down and save. 'Injected record': the plugin adds a record in a master's FormID range, fine only if you meant it. 'Overrides ..., which is a <type>': the record has a master record's FormID but another type. The game keeps whichever record loads first and silently drops the other (armor and armor addon may replace each other). Give it its own FormID (xEdit: right-click > Change FormID) or remove it.
 - **navi**: The navmesh info map (NAVI) points at a navmesh that doesn't exist, isn't a navmesh or is deleted. CK: load the cell, select its navmesh and Finalize it, then save. If the plugin deletes a navmesh that others link to, restore it instead. xEdit can't safely fix navmesh data by hand.
-- **conditions**: A condition leaves its form parameter empty, where the game's own uses of that function always fill it. CK: open the record's condition list, edit the condition and pick the form (or remove the condition). xEdit: fill in the condition's Parameter #1/#2 field.
+- **conditions**: A condition leaves its form parameter empty, where the game's own uses of that function always fill it, uses a function number the game doesn't have, or names an alias its quest doesn't have. CK: open the record's condition list, edit the condition and pick the form, a real function or one of the quest's aliases (or remove the condition). xEdit: fill in the condition's Parameter #1/#2 field, or fix its Function or alias number.
 - **dialogue**: A dialogue response has an empty Emotion. CK: open the topic info, edit the response and pick an emotion (Neutral is fine). xEdit: set the response's TRDA Emotion to a real value.
 - **scenes**: A scene uses a quest alias its quest doesn't have, or has no quest. CK: open the scene's quest, check the Quest Aliases tab, then fix each scene actor, action and condition that names the alias (or set the scene's quest). xEdit: compare the scene's alias IDs with the quest's alias list.
 - **editorids**: Give each new record its own Editor ID that no master uses either. CK: open the form and change its ID. xEdit: edit the EDID field. This usually comes from duplicating a record or Copy as New Record.
 - **itm**: Identical to Master (ITM) records change nothing but can undo other mods' edits to the same record. xEdit: right-click the plugin > Remove "Identical to Master" records (or run QuickAutoClean). In the CK they come from opening a form and pressing OK without changes.
-- **assets**: A missing script means the record's script never runs; a missing model shows as an empty or error mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file comes from another mod, make that mod a master or a requirement. Run with --verbose to see which archives were read.
+- **trees**: The plugin edits an official Story Manager or Planet Content Manager node. Every mod that edits the same node conflicts, and the last one loaded wins. CK: make your own node under the official branch (Story Manager: set its parent and previous sibling) and revert your edits to the official one. xEdit: remove the override (right-click > Remove) once your own node does the job. Keep the edit only if you mean to.
+- **ships**: A ship the plugin adds has a cockpit but lacks a system every official player ship has (cockpit, reactor, grav drive, engine, fuel tank, landing gear, docker, landing bay). CK: open the ship in the Spaceship Editor, add a module for each missing system and run its flight check. xEdit: add the module to the ship's Blueprint component. A ship only NPCs fly (an enemy or a quest ship) can ignore this.
+- **assets**: A missing script means the record's script never runs; a missing model shows as an empty or error mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file comes from another mod, make that mod a master or a requirement. A folder or file name in the path that ends in a dot or a space works only as a loose file on Windows: remove the dot or space in the record. Run with --verbose to see which archives were read.
 - **records**: Deleted records can crash the game when the game or another mod still uses them. xEdit: on placed references (REFR, ACHR) use right-click > Undelete and Disable References. For other types, remove the deleting override in xEdit (right-click > Remove) unless you really mean it. In the CK, disable instead of deleting vanilla objects.
 
 Each finding names the record by its EditorID (where it has one) and `[TYPE:FormID:Plugin]`, where FormID is the
@@ -649,13 +727,19 @@ filter.
 
 ## Known gaps
 
-- Conditions inside package target data (75 `CCT_*` conditions in the official masters) aren't seen, because Mutagen
-  0.54.4 doesn't expose them as conditions.
-- When a condition's parameter is a quest alias rather than a form, the alias number isn't checked.
+- A form parameter flagged "use aliases" isn't checked as an alias number: in the official masters many of them hold
+  values such as -2 that can't be alias numbers, so Mutagen 0.54.4's reading of that flag isn't reliable enough for a
+  rule. Conditions on other record types (perks, spells, condition forms) that name an alias aren't checked either,
+  because those records have no quest of their own.
 - In NAVI, only the traversal entries are read directly; edge, preferred and door links come through Mutagen and are
   checked as links.
-- Not checked: "missing required field" checks, face data, and what is inside loose files or BA2 archives (the
-  `assets` check only looks up the names of attached scripts and models).
+- "Missing required field" is a listing, not a finding (0.10.0). The log (`--verbose` or `--log`) lists each record
+  that lacks a field every official record of its type has (learned from the official masters into
+  `data\required-fields-seen.txt`). It isn't a WARNING because many mods that work in the game lack fields the
+  Creation Kit always writes (such as a dialogue topic's info count), so "every official record has it" doesn't show
+  the game needs it.
+- Not checked: face data, and what is inside loose files or BA2 archives (the `assets` check only looks up the names
+  of attached scripts and models).
 - `check` checks one plugin against its masters. Conflicts between mods are `sf-mod-check conflict`'s job.
 - The `mutagen-gap` rule compares fields only. A quest's `Unknown` value in Mutagen isn't a field: it is the last 4
   bytes of the header of the quest's child group (its dialogue and scenes). Mutagen 0.54.4 writes 0 there whatever
@@ -666,8 +750,6 @@ filter.
   (`- Main_xbox.ba2`, `- Main01.ba2`) and a longer plugin's archives (`Foo - Patch - Main.ba2` counts for `Foo.esm`
   when `Foo - Patch.esm` isn't active), so the archive count and the archives searched for assets can be a little
   wider than what the game opens.
-- A script or model path with a part that ends in a dot or a space (`meshes\armor.\helm.nif`) is always reported
-  missing, though Windows may trim the part and the game may load the file.
 
 ## Build from source
 
@@ -677,7 +759,7 @@ Needs the [.NET SDK](https://dotnet.microsoft.com/download) 9 or later.
     dotnet test tests/SfModCheck.Tests -c Release
 
 Package versions are fixed by the lock files (`packages.public.lock.json`): Mutagen comes through
-[BuildKit](https://github.com/taosecurity/BuildKit) 0.2.0 from nuget.org. The tool package and the stand-alone exe:
+[BuildKit](https://github.com/taosecurity/BuildKit) 0.3.1 from nuget.org. The tool package and the stand-alone exe:
 
     dotnet pack src -c Release -p:SfModCheckPack=true -o out
     dotnet publish src -c Release -r win-x64 -p:SfModCheckStandalone=true -o out/exe
@@ -694,14 +776,37 @@ the real Starfield.esm (engine-made records and the official scene list) and are
 - `data\link-types-seen.txt`: for each Mutagen link type, the record types the official masters link to, and how often.
 - `data\condition-params-seen.txt`: for each condition function and parameter, how often the official masters use it
   and how often they leave it empty.
+- `data\condition-functions-seen.txt` (0.10.0): the condition function numbers the official masters use that
+  Mutagen's list lacks, with how often, so the `conditions` check doesn't flag them.
+- `data\required-fields-seen.txt` (0.10.0): for each record type with at least 20 official records, the fields
+  every one of them has (record types, field signatures and counts only), for the fields listing in the log.
+- `data\creations-masters.txt` (0.10.0): for `release --profile creations`, the masters a Creation may require
+  (Bethesda's plugins by name pattern, taken 2026-11-18) and the script names that come from SFSE plugins.
 
-The last two hold counts and record type names only. They are relearned from the official masters after a game update
-with the hidden commands `--learn-link-types <out> [Data]` and `--learn-conditions <out> [Data]`, then built in again.
+The link-type, the two condition and the required-fields files hold counts, numbers, field signatures and record
+type names only. They are relearned from the official masters after a game update with the hidden commands
+`--learn-link-types <out> [Data]`, `--learn-conditions <out> [Data]`, `--learn-condition-functions <out> [Data]` and
+`--learn-required-fields <out> [Data]`, then built in again.
+
+- `data\field-priorities.txt` (0.10.0): xEdit's conflict priority (ignore, benign, normal or critical) for each
+  field of each Starfield record type, under Mutagen's field names, used by `conflict` (see "Field priorities"). It holds priorities as data only, no xEdit code
+  and no game data, and stays under the Mozilla Public License 2.0; see [NOTICE](NOTICE).
+
+The field-priority table is made from source code, not from the game. To make it again (Python 3.10 or later, git):
+
+    python -I data/gen/gen_field_priorities.py --xedit-core <TES5Edit clone>/Core --mutagen-repo <Mutagen clone>
+
+The xEdit clone should be at commit b0e67b16 (release 4.1.5r); the Mutagen clone needs commit 0188012c (the
+Mutagen.Bethesda.Starfield 0.54.4 package), which is read with `git archive`, so its checkout can be anywhere.
+`--json <file>` also writes the full view (every xEdit member and the values inside it), `--log <file>` or
+`--verbose` records what was read and decided, and `python -I data/gen/test_gen_field_priorities.py` is the
+generator's self-test. Exit codes: 0 written, 1 an input is missing (the message names it), 2 a source isn't given.
 
 ## Credits and license
 
 sf-mod-check is © 2026 Richard Bejtlich, under the GNU General Public License version 3 ([LICENSE](LICENSE)).
 `data\engine-forms.txt` is derived from xEdit's hardcoded Starfield list (TES5Edit, by ElminsterAU and the xEdit team)
-and stays under the Mozilla Public License 2.0; see [NOTICE](NOTICE). Mutagen is by Noggog and the Mutagen
+and stays under the Mozilla Public License 2.0; see [NOTICE](NOTICE). Field conflict priorities derived from xEdit
+(https://github.com/TES5Edit/TES5Edit), MPL-2.0: `data\field-priorities.txt` keeps that license. Mutagen is by Noggog and the Mutagen
 contributors (GPL-3.0). See [PRIVACY.md](PRIVACY.md) for what the tool reads and writes (it makes no network
 connections), and [CHANGELOG.md](CHANGELOG.md) for changes.

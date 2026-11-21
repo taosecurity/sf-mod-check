@@ -5,6 +5,9 @@
 //   read       Mutagen can read every record (and list its links)
 //   links      every link points to an existing record of a type the field allows (medium/light aware), not to a
 //              deleted record; every override overrides a record that exists, with the same type
+//   trees      (0.10.0) overrides of official Story Manager and Planet Content Manager nodes (TreeNodes.cs)
+//   ships      (0.10.0) a listing of each ship's modules by system, class, weapon slots and missing systems (Ships.cs);
+//              log plus a count line, and a WARNING for each added ship with a cockpit that lacks a required system
 using System.Diagnostics;
 using System.Reflection;
 using BuildKit;
@@ -49,6 +52,8 @@ public sealed class Result
     public int ScenesNotChecked;
     public string ScenesNotCheckedWhy = "";
     public string Summary = "";
+    /// <summary>0.10.0: the ships listing (Ships.cs); empty when the plugin has no ship base form.</summary>
+    public List<Ships.Listing> ShipListings = new();
     public int Errors => Findings.Count(f => f.Severity == "ERROR");
     public int Warnings => Findings.Count(f => f.Severity == "WARNING");
     public bool Has(string severity, string check) => Findings.Any(f => f.Severity == severity && f.Check == check);
@@ -158,13 +163,18 @@ public static class Checker
         var ids = new IdMap(self, h.Style, h.Masters.Select(m => (m, styleOf.GetValueOrDefault(m, Style.Full))));
         var recs = new List<RawRecord>();
         var rf = new Rules.RawFindings();
+        var rff = new RequiredFields.Findings();
         using (var f = new RawFile(o.Plugin))
         {
             var w = new RawWalker(f, deep: true, (sev, off, text) => Add(sev, "structure", $"at 0x{off:X}: {text}"))
             {
                 SameId = (a, b) => a == b || ids.Decode(a) is var x && ids.Decode(b) is var y && x.File == y.File && x.File != null && x.Local == y.Local,
                 OnRecord = recs.Add,
-                OnFields = (rec, fields) => Rules.OnRawFields(rec, fields, ids, rf),
+                OnFields = (rec, fields) =>
+                {
+                    Rules.OnRawFields(rec, fields, ids, rf);
+                    RequiredFields.Check(rec, fields, () => Rules.RawName(rec, fields, ids), rff);
+                },
             };
             w.Walk();
             r.Records = w.Records;
@@ -173,6 +183,12 @@ public static class Checker
         Log.Write($"stage raw read: {r.Records} records, {r.Groups} groups ({sw.Elapsed.TotalSeconds:F1} s so far)");
         foreach (var t in rf.Emotion0) Add("WARNING", "dialogue", t);
         foreach (var t in rf.NaviUnreadable) Add("WARNING", "navi", t);
+        // fields (0.10.0): records that lack a field every official record of their type has. A listing in the log, not
+        // a finding: many working mods lack fields the Creation Kit always writes (relay step 8, 2026-11-21: NOTES
+        // "Required fields"), so whether any of it becomes a WARNING waits on the user.
+        Log.Write($"fields: {rff.Checked} records of the {RequiredFields.TypeCount} record types with always-present fields checked " +
+                  $"({RequiredFields.FieldCount} fields, data\\required-fields-seen.txt); {rff.Missing.Values.Sum(v => v.Count)} missing");
+        foreach (var t in RequiredFields.Texts(rff)) Log.Write("fields: " + t);
 
         // (HEDR's record count is not checked: official masters store records + 1, Mutagen and the Creation Kit
         // count groups too, in different ways, and the game doesn't rely on it.)
@@ -346,11 +362,28 @@ public static class Checker
             notChecked[m] = notChecked.GetValueOrDefault(m) + 1;
             return true;
         }
+        // 0.10.0: the quest whose aliases a record's conditions name: a quest's own, a dialogue response's topic quest
+        // (the response sits under its topic in the same plugin), a package's owner quest. An official plugin checked
+        // itself isn't checked for this (its alias uses are the reference the rule compares with).
+        var topicQuest = new Dictionary<FormKey, FormKey>();
+        foreach (var (rec, _) in perRecord)
+            if (rec is IDialogTopicGetter t && !t.Quest.IsNull)
+                foreach (var resp in t.Responses) topicQuest.TryAdd(resp.FormKey, t.Quest.FormKey);
+        bool selfOfficial = IsOfficial(selfKey.FileName.String);
+        IQuestGetter? AliasQuestOf(IMajorRecordGetter rec) => selfOfficial ? null : rec switch
+        {
+            IQuestGetter q => QuestOf(q.FormKey),
+            IDialogResponsesGetter i => topicQuest.TryGetValue(i.FormKey, out var tq) ? QuestOf(tq) : null,
+            IPackageGetter p => p.OwnerQuest.IsNull ? null : QuestOf(p.OwnerQuest.FormKey),
+            _ => null,
+        };
         foreach (var (rec, _) in perRecord)
         {
             try
             {
                 Rules.CheckConditions(rec, Name(rec), add);
+                if (rec is IQuestGetter or IDialogResponsesGetter or IPackageGetter)
+                    Rules.CheckConditionAliases(rec, Name(rec), AliasQuestOf(rec), () => Rules.OfficialAliasUses(game.LinkCache, rec, IsOfficial), add);
                 if (rec is ISceneGetter s && !SkipOfficialScene(s)) Rules.CheckScene(s, Name(rec), QuestOf, add);
             }
             // (the name is built without the EditorID here: on a damaged record reading it is what throws)
@@ -459,9 +492,40 @@ public static class Checker
             }
         }
 
+        // 4b. trees (0.10.0): overrides of official Story Manager and Planet Content Manager nodes. Official plugins edit
+        // each other's nodes by design (the DLCs extend Starfield.esm's trees), so they are counted in the log only.
+        int treeOverrides = 0;
+        foreach (var ov in overrides)
+        {
+            if (TreeNodes.FromSig(SigOf(ov)) is not { } kind || !IsOfficial(ov.FormKey.ModKey.FileName.String)) continue;
+            treeOverrides++;
+            Log.Write($"trees: {Name(ov)} overrides an official {kind.Tree} {kind.Node} from {ov.FormKey.ModKey.FileName}");
+            if (!IsOfficial(self)) add("WARNING", "trees", TreeNodes.CheckText(Name(ov), kind, ov.FormKey.ModKey.FileName.String));
+        }
+        Stage($"trees: {treeOverrides} override(s) of official Story Manager or Planet Content Manager nodes{(IsOfficial(self) && treeOverrides > 0 ? " (official plugin: log only)" : "")}");
+
+        // 4c. ships (0.10.0): a listing of every ship base form the plugin adds or overrides (Ships.cs), and a WARNING
+        // for each added ship with a cockpit that lacks a required system (not for official plugins).
+        if (mod is IStarfieldModGetter sfMod)
+        {
+            try { r.ShipListings = Ships.List(sfMod, game.LinkCache); }
+            catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"ships: listing stopped: {e}"); add("WARNING", "read", $"ships not listed: {e.GetType().Name}: {e.Message}"); }
+            foreach (var s in r.ShipListings)
+            {
+                Log.Write(Ships.Line(s));
+                if (!s.Warns) continue;
+                if (IsOfficial(self)) Log.Write($"ships: {s.Ship} would warn, but this is an official plugin (log only)");
+                else add("WARNING", "ships", Ships.CheckText(s));
+            }
+        }
+        Stage($"ships: {r.ShipListings.Count} ship base form(s) listed, {r.ShipListings.Count(s => s.Missing.Count > 0)} missing a required system, {r.ShipListings.Count(s => s.Warns)} added with a cockpit (warned unless official), {r.ShipListings.Count(s => s.OnePiece != null)} one-piece hull(s)");
+
         // 5. itm (0.4.0, from an earlier stand-alone itm-check): overrides identical to the master version they override
         var itmSw = Stopwatch.StartNew();
+        bool itmTiming = Environment.GetEnvironmentVariable("SFMODCHECK_TIMING") == "1";
+        if (itmTiming) { var pr = Process.GetCurrentProcess(); Console.Error.WriteLine($"itm: before, working set {pr.WorkingSet64 / 1e9:F2} GB, peak {pr.PeakWorkingSet64 / 1e9:F2} GB, managed {GC.GetTotalMemory(false) / 1e9:F2} GB"); }
         var (itms, notCompared) = Overrides.FindItms(mod, overrides, game.LinkCache);
+        if (itmTiming) { var pr = Process.GetCurrentProcess(); Console.Error.WriteLine($"itm: after, working set {pr.WorkingSet64 / 1e9:F2} GB, peak {pr.PeakWorkingSet64 / 1e9:F2} GB, managed {GC.GetTotalMemory(false) / 1e9:F2} GB"); }
         r.Itms = itms.Count;
         // Official plugins: the count only (user, 2026-11-09). Bethesda's DLC and Creations masters carry hundreds of
         // real ITMs (1,961 over 18 masters) that nobody can act on.

@@ -29,7 +29,17 @@ public static class ConditionWalker
     static readonly Dictionary<Type, bool> reach = new();
     static readonly Dictionary<Type, PropertyInfo[]> propsFor = new();
 
-    public static void ForEach(IMajorRecordGetter root, Action<IConditionGetter> f) => Walk(root, root, f, 0);
+    public static void ForEach(IMajorRecordGetter root, Action<IConditionGetter> f)
+    {
+        Walk(root, root, f, 0);
+        // 0.10.0: a package's data inputs are a dictionary (index -> data), which the reflection walk doesn't enter, so
+        // the conditions of its target inputs (PTDA + CITC + CTDA; 75 in 14 official packages, mostly CCT_* creature
+        // packages) were never seen. Mutagen 0.54.4 reads them into PackageDataTarget.Conditions.
+        if (root is IPackageGetter pk)
+            foreach (var d in pk.Data.Values)
+                if (d is IPackageDataTargetGetter t)
+                    foreach (var c in t.Conditions) f(c);
+    }
 
     static void Walk(object o, object root, Action<IConditionGetter> f, int depth)
     {
@@ -187,6 +197,27 @@ public static class Rules
 
     public static bool HaveConditionData => ParamsSeen.Value.Count > 0;
 
+    /// <summary>How many condition functions Mutagen's Starfield list has (607 in 0.54.4).</summary>
+    public static readonly int KnownFunctionCount = Enum.GetValues<Condition.Function>().Distinct().Count();
+
+    /// <summary>Condition function numbers the official masters use that Mutagen's list lacks (data\condition-functions-seen.txt,
+    /// made by --learn-condition-functions; e.g. 966 in Starfield.esm's dialogue). The game has them, so they aren't flagged.</summary>
+    static readonly Lazy<HashSet<int>> FunctionsSeen = new(() =>
+    {
+        var d = new HashSet<int>();
+        using var s = typeof(Rules).Assembly.GetManifestResourceStream("condition-functions-seen.txt");
+        if (s == null) return d;
+        using var rd = new StreamReader(s);
+        while (rd.ReadLine() is { } line)
+            if (!line.StartsWith('#') && line.Length > 0) d.Add(int.Parse(line.Split(' ')[0]));
+        return d;
+    });
+
+    /// <summary>True when a function number is neither in Mutagen's list nor used by the official masters.</summary>
+    public static bool UnknownFunction(IConditionDataGetter d) => d is IUnknownConditionDataGetter && !FunctionsSeen.Value.Contains((int)d.Function);
+
+    public static int FunctionsSeenCount => FunctionsSeen.Value.Count;
+
     public static void CheckConditions(IMajorRecordGetter rec, string name, Action<string, string, string> add)
     {
         // one line per function and parameter in this record, with how many conditions have it empty
@@ -197,6 +228,19 @@ public static class Rules
             var d = c.Data;
             var p = (IConditionParametersGetter)d;
             var fn = (int)d.Function;
+            // 0.10.0: a function number the game may not have. Mutagen 0.54.4 reads every function in its list
+            // (Condition.Function, 607) into its own class and any other number into UnknownConditionData. The official
+            // masters use a few numbers Mutagen lacks (966 in Starfield.esm, found 2026-11-20), so those learned numbers
+            // count as known too.
+            if (d is IUnknownConditionDataGetter)
+            {
+                if (!UnknownFunction(d)) return;
+                var text = $"{name}: condition function {fn} isn't one sf-mod-check knows (the {KnownFunctionCount} in Mutagen's list and the ones the official masters use), so it may not be a real condition function. Check it in the Creation Kit or xEdit: it can come from a hand edit, from another game, or from a game update newer than this tool";
+                if (!count.TryGetValue(text, out var n)) order.Add(text);
+                count[text] = n + 1;
+                Log.Write($"conditions: {name} uses condition function {fn}, which isn't in Mutagen's list");
+                return;
+            }
             for (int slot = 1; slot <= 2; slot++)
             {
                 var (kind, empty, _, _) = ConditionWalker.Param(slot == 1 ? p.Parameter1 : p.Parameter2);
@@ -258,6 +302,43 @@ public static class Rules
         Console.WriteLine($"{counts.Count} function parameters -> {outPath} ({sw.Elapsed.TotalSeconds:F0} s)");
     }
 
+    /// <summary>--learn-condition-functions (0.10.0): the condition function numbers the official masters use that
+    /// Mutagen's list lacks, with how often. Writes data\condition-functions-seen.txt (numbers and counts only).</summary>
+    public static void LearnConditionFunctions(string dataDir, string outPath)
+    {
+        var sw = Stopwatch.StartNew();
+        using var game = new GameData(dataDir);
+        foreach (var n in Checker.OfficialMasters(dataDir)) game.Open(n);
+        var counts = new SortedDictionary<int, long>();
+        var where = new Dictionary<int, SortedSet<string>>();
+        long conds = 0, failed = 0;
+        foreach (var mod in game.LoadOrder)
+        {
+            foreach (var rec in mod.EnumerateMajorRecords())
+            {
+                try
+                {
+                    ConditionWalker.ForEach(rec, c =>
+                    {
+                        conds++;
+                        if (c.Data is not IUnknownConditionDataGetter) return;
+                        var fn = (int)c.Data.Function;
+                        counts[fn] = counts.GetValueOrDefault(fn) + 1;
+                        (where.TryGetValue(fn, out var w) ? w : where[fn] = new()).Add($"{mod.ModKey.FileName} {rec.Registration.ClassType.Name}");
+                    });
+                }
+                catch (Exception e) when (Fatal.Recoverable(e)) { failed++; }
+            }
+            Console.WriteLine($"  {mod.ModKey}: {conds} conditions so far ({sw.Elapsed.TotalSeconds:F0} s)");
+        }
+        using var o = new StreamWriter(outPath, false, new UTF8Encoding(false)) { NewLine = "\n" };
+        o.WriteLine("# Condition function numbers the official masters use that Mutagen 0.54.4's list lacks: <function number> <uses>  # where (plugin, record type).");
+        o.WriteLine($"# Made by sf-mod-check --learn-condition-functions from {string.Join(", ", game.LoadOrder.Select(m => m.ModKey.FileName.String))}.");
+        o.WriteLine($"# {conds} conditions, {failed} records Mutagen couldn't read. Mutagen's list has {KnownFunctionCount} functions.");
+        foreach (var (fn, n) in counts) o.WriteLine($"{fn} {n}  # {string.Join(", ", where[fn])}");
+        Console.WriteLine($"{counts.Count} function numbers outside Mutagen's list -> {outPath} ({sw.Elapsed.TotalSeconds:F0} s)");
+    }
+
     // ---- scenes and quest aliases ----
 
     /// <summary>Starfield partial form (record flag 0x4000): only the fields it holds replace the earlier version's.</summary>
@@ -289,6 +370,43 @@ public static class Rules
         if (d.RunOnType == Condition.RunOnType.QuestAlias && d.Unknown3 >= 0) yield return ((uint)d.Unknown3, $"condition {d.Function} runs on alias");
         var p = (IConditionParametersGetter)d;
         if (ConditionWalker.FirstParamIsAlias(d) && p.Parameter1 is int a && a >= 0) yield return ((uint)a, $"condition {d.Function} tests alias");
+    }
+
+    /// <summary>0.10.0: alias numbers in the conditions of a quest (its own aliases), a dialogue response (its topic's
+    /// quest) or a package (its owner quest) must exist in that quest. Scenes have their own rule (CheckScene). WARNING
+    /// only: the official masters have 229 such conditions that name an alias their quest lacks (mostly GetIsAliasRef in
+    /// OE_ and MB_Passenger dialogue, 2026-11-21), so the rule skips every use an official version of the record already
+    /// has (<paramref name="officialUses"/>, asked for only when a use is missing).</summary>
+    public static void CheckConditionAliases(IMajorRecordGetter rec, string name, IQuestGetter? quest,
+        Func<HashSet<(uint, string)>> officialUses, Action<string, string, string> add)
+    {
+        if (quest == null || rec is ISceneGetter) return;
+        var uses = new List<(uint Id, string Where)>();
+        ConditionWalker.ForEach(rec, c => uses.AddRange(ConditionAliases(c)));
+        if (uses.Count == 0) return;
+        var ids = AliasIds(quest);
+        HashSet<(uint, string)>? official = null;
+        var qn = $"{quest.EditorID ?? "(no EditorID)"} [QUST:{quest.FormKey}]";
+        var said = new HashSet<string>();
+        foreach (var (id, where) in uses)
+        {
+            if (ids.Contains(id)) continue;
+            if ((official ??= officialUses()).Contains((id, where))) continue;
+            var t = $"{name}: {where} {id}, which its quest {qn} doesn't have, so the condition is never true";
+            if (said.Add(t)) add("WARNING", "conditions", t);
+            Log.Write($"conditions: {name}: {where} {id}; quest {qn} has aliases {string.Join(",", ids.OrderBy(x => x))}");
+        }
+    }
+
+    /// <summary>Alias uses (number, where) in the conditions of every official plugin's version of a record.</summary>
+    public static HashSet<(uint, string)> OfficialAliasUses(ILinkCache cache, IMajorRecordGetter rec, Func<string, bool> isOfficial)
+    {
+        var s = new HashSet<(uint, string)>();
+        if (!isOfficial(rec.FormKey.ModKey.FileName.String)) return s;   // a new record of a non-official plugin
+        foreach (var ctx in cache.ResolveAllSimpleContexts(rec.FormKey, rec.Registration.GetterType))
+            if (isOfficial(ctx.ModKey.FileName.String))
+                ConditionWalker.ForEach(ctx.Record, c => { foreach (var u in ConditionAliases(c)) s.Add(u); });
+        return s;
     }
 
     /// <summary>Official scenes whose alias numbers don't match their quest, as built into the private build
@@ -379,7 +497,7 @@ public static class Rules
         public int NaviEntries;
     }
 
-    static string RawName(RawRecord rec, List<(string Type, byte[] Data)> fields, IdMap ids)
+    internal static string RawName(RawRecord rec, List<(string Type, byte[] Data)> fields, IdMap ids)
     {
         var (file, local, _) = ids.Decode(rec.FormId);
         var edid = fields.FirstOrDefault(f => f.Type == "EDID").Data;

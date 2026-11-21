@@ -11,7 +11,7 @@ using Xunit;
 
 namespace SfModCheck.Tests;
 
-public class ConflictTests
+public partial class ConflictTests
 {
     static readonly WriteOptions NoGap = new() { GapCheck = false, FixEffects = false };
 

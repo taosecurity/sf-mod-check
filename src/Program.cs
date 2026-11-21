@@ -15,7 +15,9 @@
 //   sf-mod-check --census <plugin>...      (raw layout counts; used to set the structure rules)
 //   sf-mod-check --learn-link-types <out> [Data]     (record types each Mutagen link type points to)
 //   sf-mod-check --learn-conditions <out> [Data]     (condition form parameters in the official masters)
+//   sf-mod-check --learn-condition-functions <out> [Data]   (function numbers the masters use that Mutagen lacks)
 //   sf-mod-check --learn-scene-quirks <out> [Data]   (official scenes the scenes rule must skip)
+//   sf-mod-check --learn-required-fields <out> [Data]   (fields every official record of a type has; 0.10.0)
 // Until 2026-11-09 (0.3.0) this program was called StarfieldPluginCheck.
 using System.Diagnostics;
 using SfModCheck;
@@ -31,7 +33,7 @@ const string Usage =
     "                                 [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]\n" +
     "       sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
     "                           [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]\n" +
-    "       sf-mod-check release <zip>... [--profile basic|house] [--dmmdeps <exe>] [...]   (sf-mod-check release --help)\n" +
+    "       sf-mod-check release <zip>... [--profile basic|house|creations] [--dmmdeps <exe>] [...]   (sf-mod-check release --help)\n" +
     "       sf-mod-check triage <mod.zip | .7z | .rar | folder | plugin> [--game <folder>] [--out <folder>] [...]   (sf-mod-check triage --help)\n" +
     "       sf-mod-check patch [--plugins <Plugins.txt>] [--only <a.esm>,<b.esm>] [--pick <FormKey>=<plugin>]... [--out <folder>] [...]   (sf-mod-check patch --help)\n" +
     "       sf-mod-check --version";
@@ -80,6 +82,18 @@ int Dispatch(string[] args)
     if (args.Length >= 2 && args[0] == "--learn-conditions")
     {
         Rules.LearnConditions(args.Length > 2 ? args[2] : DefaultData, args[1]);
+        return 0;
+    }
+
+    if (args.Length >= 2 && args[0] == "--learn-condition-functions")
+    {
+        Rules.LearnConditionFunctions(args.Length > 2 ? args[2] : DefaultData, args[1]);
+        return 0;
+    }
+
+    if (args.Length >= 2 && args[0] == "--learn-required-fields")
+    {
+        RequiredFields.Learn(args.Length > 2 ? args[2] : DefaultData, args[1]);
         return 0;
     }
 
@@ -323,6 +337,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
         if (hints && !groups.Skip(gi + 1).Any(x => x.Key.Check == g.Key.Check) && Hints.For(g.Key.Check) is { } hint)
             Console.WriteLine($"HINT [{g.Key.Check}] {hint}");
     }
+    if (Ships.Summary(r.ShipListings) is { } shipLine) Console.WriteLine(shipLine);
     var note = r.CannotCheckLinks ? "; links not checked" : "";
     if (r.ScenesNotChecked > 0) note += $"; {r.ScenesNotChecked} official scene{(r.ScenesNotChecked == 1 ? "" : "s")} not checked ({r.ScenesNotCheckedWhy})";
     var verdict = r.Errors > 0 ? "FAILED" : "OK";

@@ -12,7 +12,8 @@
 // left out (no ITMs). It reads plugins and writes only its output folder: never the Data folder, never Plugins.txt.
 //   sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
 //                      [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]]... [--pick <FormKey>[:<Field>]=<plugin>]...
-//                      [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
+//                      [--include-official] [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
+// --include-official (0.10.0, off by default) also restores changes one official plugin loses to another.
 // Exit 0 = patch written (or nothing to patch), 1 = written, but reading it back found a difference (don't use it),
 // 2 = could not run, 3 = stopped at --max-memory. Every run ends with one RESULT line.
 using System.Collections;
@@ -38,7 +39,7 @@ public static class PatchCommand
     public const string Usage =
         "usage: sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
         "                          [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]]... [--pick <FormKey>[:<Field>]=<plugin>]...\n" +
-        "                          [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]";
+        "                          [--include-official] [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]";
 
     public const string DefaultName = "ConflictPatch.esm";
     const int PartialFlag = FieldCompare.PartialFormFlag;
@@ -139,7 +140,7 @@ public static class PatchCommand
         string? pluginsTxt = null, dataDir = null, extraDir = null, outDir = null, logFile = null;
         var name = DefaultName;
         double maxGb = 0;
-        bool quiet = false, verbose = false;
+        bool quiet = false, verbose = false, includeOfficial = false;
         var only = new List<string>();
         var picks = new List<Pick>();
         string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
@@ -187,6 +188,7 @@ public static class PatchCommand
                     if (Value(ref i, "a file name") is not { } lf) return 2;
                     logFile = lf; break;
                 case "--verbose": verbose = true; break;
+                case "--include-official": includeOfficial = true; break;
                 case "--quiet": quiet = true; break;
                 case "-h": case "--help":
                     Console.Error.WriteLine(Usage);
@@ -203,6 +205,14 @@ public static class PatchCommand
         Log.Write($"sf-mod-check {version} patch on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
         Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");
         Log.Write($"working folder: {Environment.CurrentDirectory}");
+
+        if (includeOfficial && only.Count > 0)
+        {
+            cantWhy = "--include-official with --only";
+            Console.Error.WriteLine("--include-official can't be used with --only: --only patches only the named plugins' changes, and --include-official " +
+                                    "adds changes one official plugin loses to another. Use one or the other.");
+            return 2;
+        }
 
         // The patch's name: a plain plugin file name the game keeps in Plugins.txt.
         if (!GameData.IsPlainPluginName(name) || !name.EndsWith(".esm", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".esp", StringComparison.OrdinalIgnoreCase))
@@ -322,7 +332,11 @@ public static class PatchCommand
             }
 
             Analysis analysis;
-            try { analysis = Analyzer.Run(lo.Plugins, onlySet.Count > 0 ? onlySet : null); }
+            // --include-official (0.10.0): also restore changes one official plugin loses to another, for the record types
+            // a patch can build (the rest would only fill the "Not built" list).
+            Func<Type, bool>? officialTypes = includeOfficial ? t => WhyNotBuilt(t) is null : null;
+            if (includeOfficial) Log.Write("patch: --include-official: changes one official plugin loses to another are restored too");
+            try { analysis = Analyzer.Run(lo.Plugins, onlySet.Count > 0 ? onlySet : null, officialTypes: officialTypes); }
             catch (MemoryLimitException e)
             {
                 resultPrinted = true;
@@ -332,6 +346,7 @@ public static class PatchCommand
             }
             Analyzer.Where = "working out the patch";
             var plan = Build(lo, analysis, onlySet, picks);
+            plan.IncludeOfficial = includeOfficial;
             foreach (var pk in picks.Where(pk => !pk.Used))
                 Console.Error.WriteLine($"WARNING: --pick {pk.FormKey}{(pk.Field is null ? "" : ":" + pk.Field)}={pk.Plugin} was not used: that record has no Choice field " +
                                         $"{(pk.Field is null ? "" : pk.Field + " ")}that {pk.Plugin} supplies, or the record isn't patched");
@@ -391,6 +406,8 @@ public static class PatchCommand
         public List<ChoiceField> Choices { get; } = new();
         public List<NotBuiltRecord> NotBuilt { get; } = new();
         public List<string> Notes { get; } = new();
+        // made with --include-official: some records restore a change one official plugin loses to another
+        public bool IncludeOfficial { get; set; }
         public int Forwarded => Records.Sum(r => r.Fields.Count(f => !f.Picked));
     }
 
@@ -964,6 +981,8 @@ public static class PatchCommand
             sb.AppendLine($"1. Install `{name}` from this folder with your mod manager (zip it, or add it as a mod), and put it at the end of the load order.");
             sb.AppendLine("2. Check it: `sf-mod-check check " + name + "` (with --data if your game isn't Steam's), then run `sf-mod-check conflict` again: these lost changes should be gone.");
             sb.AppendLine("   Before installing, `sf-mod-check conflict --plugins Plugins-with-patch.txt --extra-data <this folder>` does the same check.");
+            if (plan.IncludeOfficial)
+                sb.AppendLine("   Made with --include-official: it also restores changes one official plugin loses to another. `conflict` never lists those, so it can't show them restored.");
             sb.AppendLine("3. Try the affected places in game. Build the patch again whenever you add, remove or update a mod it lists as a master.");
             sb.AppendLine();
             sb.AppendLine($"Masters ({masters?.Count ?? 0}, in load order): {string.Join(", ", (masters ?? new()).Select(m => Md(m)))}");

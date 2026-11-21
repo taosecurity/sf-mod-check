@@ -66,6 +66,12 @@ public class Analysis
     // when the run stopped before them.
     public bool ArchivesCounted;
     public int GnrlArchives, Dx10Archives;
+    // Field priorities (0.10.0, conflict only; FieldPriorities.cs): PrioritiesOn is false with --no-priorities and in
+    // patch and triage. When on, Lost keeps the normal and critical fields (entries with a critical field first),
+    // Benign holds the ignore and benign fields as entries of their own, and CriticalFields marks the critical ones.
+    public bool PrioritiesOn;
+    public List<LostChange> Benign { get; } = new();
+    public HashSet<LostField> CriticalFields { get; } = new(ReferenceEqualityComparer.Instance);
 }
 
 /// <summary>A missing script or model, and the plugin whose records use it.</summary>
@@ -142,8 +148,14 @@ public static class Analyzer
     /// before, and no Changes.</param>
     /// <param name="onlyRecords">triage: when given, of those overrides only these records are compared (triage reads
     /// records that live in cells and worldspaces raw instead: their Mutagen reads kept gigabytes, NAPGR 0.1.6).</param>
-    public static Analysis Run(List<PluginInfo> plugins, ISet<string>? only = null, ISet<FormKey>? onlyRecords = null)
+    /// <param name="officialTypes">patch --include-official (0.10.0): when given, a change one official plugin loses to
+    /// another is kept too (normally "Bethesda vs Bethesda is not our business"), and records that only official plugins
+    /// override are compared as well, for the record types this accepts (the ones patch can build). Ignored with `only`.
+    /// Null (conflict, triage, a default patch): exactly the 0.9.1 analysis.</param>
+    public static Analysis Run(List<PluginInfo> plugins, ISet<string>? only = null, ISet<FormKey>? onlyRecords = null,
+        Func<Type, bool>? officialTypes = null)
     {
+        bool withOfficial = officialTypes is not null && only is null;
         var result = new Analysis();
         var onlySet = only is null ? null : new HashSet<string>(only, StringComparer.OrdinalIgnoreCase);
         var byName = plugins.ToDictionary(p => p.FileName, StringComparer.OrdinalIgnoreCase);
@@ -284,6 +296,43 @@ public static class Analyzer
             return held is null || held.Contains(fk);
         }
         Progress?.Invoke($"record types compared in {typeWatch.Elapsed.TotalSeconds:F1} s: {result.TypeChanges.Count} overrides change a record's type");
+
+        // patch --include-official: records that only official plugins override, where a later official version doesn't
+        // have an earlier overriding one among its masters (so it may drop that one's change: the 0.9.0 example is
+        // SFBGS003TrackersAllianceHQLocation, sfta06 vs sfta02). Added after the record-type pass, which is about mods.
+        if (withOfficial)
+        {
+            Where = "finding records official plugins override";
+            var officialOverrides = new Dictionary<FormKey, (Type Type, List<PluginInfo> By)>();
+            foreach (var p in plugins.Where(p => p.Official && p.Masters.Count > 0))
+            {
+                try
+                {
+                    foreach (var rec in p.Mod.EnumerateMajorRecords())
+                    {
+                        if (rec.FormKey.ModKey == p.Mod.ModKey || targets.ContainsKey(rec.FormKey)) continue;
+                        var type = rec.Registration.GetterType;
+                        if (!officialTypes!(type)) continue;
+                        if (!officialOverrides.TryGetValue(rec.FormKey, out var e)) officialOverrides[rec.FormKey] = e = (type, new());
+                        else if (e.Type != type) continue;   // a type change between official files: left alone
+                        if (e.By.Count == 0 || e.By[^1] != p) e.By.Add(p);
+                    }
+                }
+                catch (Exception e) when (Fatal.Recoverable(e)) { ReadProblem(p, "official override", e); }
+                if (OverMemory()) throw MemoryStop($"finding the records {p.FileName} overrides");
+            }
+            int added = 0;
+            foreach (var (fk, (type, by)) in officialOverrides)
+            {
+                bool mayLose = false;
+                for (int b = 1; b < by.Count && !mayLose; b++)
+                    for (int a = 0; a < b && !mayLose; a++)
+                        mayLose = !MastersOf(by[b]).Contains(by[a].Mod.ModKey);
+                if (mayLose && targets.TryAdd(fk, type)) added++;
+            }
+            Info($"--include-official: {added} records only official plugins override, where one may drop another's change");
+            Progress?.Invoke($"--include-official: {officialOverrides.Count} records only official plugins override, {added} compared");
+        }
 
         // Record references in impact text read as "EditorID (type)" rather than raw FormKeys. The cache keeps EditorIDs
         // only and is asked for the link's own record type: a whole-record, any-type lookup made Mutagen index and keep
@@ -565,7 +614,7 @@ public static class Analyzer
                 {
                     var loser = versions[i].Plugin;
                     if (!intended[i].Contains(f)) continue;
-                    if (loser.Official && winner.Official) continue;          // Bethesda vs Bethesda is not our business
+                    if (loser.Official && winner.Official && !withOfficial) continue;   // Bethesda vs Bethesda is not our business (unless patch --include-official)
                     if (winnerMasters.Contains(loser.Mod.ModKey)) continue;   // winner saw this plugin and decided
                     bool same;
                     try { same = FieldCompare.DeepEq(vals[i, f], vals[k, f], 0); }

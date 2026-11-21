@@ -1,0 +1,4 @@
+# Condition function numbers the official masters use that Mutagen 0.54.4's list lacks: <function number> <uses>  # where (plugin, record type).
+# Made by sf-mod-check --learn-condition-functions from Starfield.esm, sfbgs00d.esm, SFBGS050.esm, BlueprintShips-SFBGS050.esm, BlueprintShips-Starfield.esm, SFBGS003.esm, SFBGS004.esm, SFBGS006.esm, SFBGS007.esm, SFBGS008.esm, SFBGS047.esm, sfta01.esm, sfta02.esm, sfta03.esm, sfta04.esm, sfta05.esm, sfta06.esm, ShatteredSpace.esm.
+# 128652 conditions, 0 records Mutagen couldn't read. Mutagen's list has 607 functions.
+966 17  # SFBGS004.esm LoadScreen, ShatteredSpace.esm DialogResponses, Starfield.esm DialogResponses

@@ -27,7 +27,9 @@ public static class Hints
             "A missing script means the record's script never runs; a missing model shows as an empty or error " +
             "mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file " +
             "under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file " +
-            "comes from another mod, make that mod a master or a requirement. Run with --verbose to see which archives " +
+            "comes from another mod, make that mod a master or a requirement. A folder or file name in the path that " +
+            "ends in a dot or a space works only as a loose file on Windows: remove the dot or space in the record. " +
+            "Run with --verbose to see which archives " +
             "were read.",
         ["records"] =
             "Deleted records can crash the game when the game or another mod still uses them. xEdit: on placed " +
@@ -35,20 +37,23 @@ public static class Hints
             "the deleting override in xEdit (right-click > Remove) unless you really mean it. In the CK, disable " +
             "instead of deleting vanilla objects.",
         ["links"] =
-            "A field points at a record that doesn't exist, is the wrong type or is deleted. xEdit: open the named " +
-            "record; the field shows the FormID, often in red. Point it at an existing record of the right type, or " +
-            "clear it. 'Doesn't exist' often means a master is missing or a master record was removed. CK: re-pick " +
-            "the item in that form's drop-down and save. 'Injected record' means the plugin adds a record in a " +
-            "master's FormID range: fine only if you meant it. 'Overrides ..., which is a <type>' means the plugin's " +
-            "record has the FormID of a master record of another type. " + Conflict.TypeChanges.Hint,
+            "A field points at a record that doesn't exist (often a missing master), is the wrong type or is deleted. " +
+            "xEdit: point the named record's field at an existing record of the right type, or clear it. CK: re-pick " +
+            "it in the form's drop-down and save. 'Injected record': the plugin adds a record in a master's FormID " +
+            "range, fine only if you meant it. 'Overrides ..., which is a <type>': the record has a master record's " +
+            "FormID but another type. The game keeps whichever record loads first and silently drops the other " +
+            "(armor and armor addon may replace each other). Give it its own FormID (xEdit: right-click > Change " +
+            "FormID) or remove it.",
         ["navi"] =
             "The navmesh info map (NAVI) points at a navmesh that doesn't exist, isn't a navmesh or is deleted. CK: " +
             "load the cell, select its navmesh and Finalize it, then save. If the plugin deletes a navmesh that others " +
             "link to, restore it instead. xEdit can't safely fix navmesh data by hand.",
         ["conditions"] =
-            "A condition leaves its form parameter empty, where the game's own uses of that function always fill it. " +
-            "CK: open the record's condition list, edit the condition and pick the form (or remove the condition). " +
-            "xEdit: fill in the condition's Parameter #1/#2 field.",
+            "A condition leaves its form parameter empty, where the game's own uses of that function always fill it, " +
+            "uses a function number the game doesn't have, or names an alias its quest doesn't have. CK: open the " +
+            "record's condition list, edit the condition and pick the form, a real function or one of the quest's " +
+            "aliases (or remove the condition). xEdit: fill in the condition's Parameter #1/#2 field, or fix its " +
+            "Function or alias number.",
         ["dialogue"] =
             "A dialogue response has an empty Emotion. CK: open the topic info, edit the response and pick an " +
             "emotion (Neutral is fine). xEdit: set the response's TRDA Emotion to a real value.",
@@ -59,6 +64,16 @@ public static class Hints
         ["editorids"] =
             "Give each new record its own Editor ID that no master uses either. CK: open the form and change its " +
             "ID. xEdit: edit the EDID field. This usually comes from duplicating a record or Copy as New Record.",
+        ["trees"] =
+            "The plugin edits an official Story Manager or Planet Content Manager node. Every mod that edits the same " +
+            "node conflicts, and the last one loaded wins. CK: make your own node under the official branch (Story " +
+            "Manager: set its parent and previous sibling) and revert your edits to the official one. xEdit: remove " +
+            "the override (right-click > Remove) once your own node does the job. Keep the edit only if you mean to.",
+        ["ships"] =
+            "A ship the plugin adds has a cockpit but lacks a system every official player ship has (cockpit, " +
+            "reactor, grav drive, engine, fuel tank, landing gear, docker, landing bay). CK: open the ship in the " +
+            "Spaceship Editor, add a module for each missing system and run its flight check. xEdit: add the module " +
+            "to the ship's Blueprint component. A ship only NPCs fly (an enemy or a quest ship) can ignore this.",
         ["itm"] =
             "Identical to Master (ITM) records change nothing but can undo other mods' edits to the same record. " +
             "xEdit: right-click the plugin > Remove \"Identical to Master\" records (or run QuickAutoClean). In the " +

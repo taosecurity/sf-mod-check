@@ -1,6 +1,6 @@
 // Command "release" (0.7.0): one OK or FAIL on a mod's release zip(s).
 //   sfmodcheck release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]... [--dmmdeps <exe>]
-//                      [--papyrus <exe> --ck-sources <ContentResources.zip>] [--profile basic|house]
+//                      [--papyrus <exe> --ck-sources <ContentResources.zip>] [--profile basic|house|creations] [--creations-master <plugin>]...
 //                      [--quiet] [--verbose] [--log <file>]
 // Each zip is unpacked into a temp folder that is always removed; nothing else is written. Zips inside a game install
 // are refused. Output: PROBLEM / REVIEW / WARNING / NOTE lines, then "RESULT: OK|FAIL (n problems, n to review, n
@@ -35,6 +35,8 @@ public sealed class ReleaseOptions
     public string? Papyrus { get; set; }
     public string? CkSources { get; set; }
     public string Profile { get; set; } = "basic";
+    /// <summary>--creations-master: other authors' plugins the user has seen on Creations (creations profile).</summary>
+    public List<string> CreationsMasters { get; } = new();
 }
 
 /// <summary>One unpacked zip.</summary>
@@ -66,8 +68,8 @@ public static class ReleaseCommand
 {
     public const string Usage =
         "usage: sf-mod-check release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]... [--dmmdeps <exe>]\n" +
-        "                          [--papyrus <exe> --ck-sources <ContentResources.zip>] [--profile basic|house]\n" +
-        "                          [--quiet] [--verbose] [--log <file>]";
+        "                          [--papyrus <exe> --ck-sources <ContentResources.zip>] [--profile basic|house|creations]\n" +
+        "                          [--creations-master <plugin>]... [--quiet] [--verbose] [--log <file>]";
 
     static readonly string[] PluginExts = [".esm", ".esp", ".esl"];
 
@@ -87,7 +89,7 @@ public static class ReleaseCommand
 
     /// <summary>The steps, in report order. Tests can swap them.</summary>
     public static List<Func<ReleaseContext, IEnumerable<ReleaseFinding>>> Steps { get; } =
-        [ReleaseRules.Run, ReleaseNeeds.Run, GapCheck.Run, ReleaseLint.Run];
+        [ReleaseRules.Run, ReleaseNeeds.Run, GapCheck.Run, ReleaseLint.Run, ReleaseCreations.Run];
 
     public static int Run(string[] a, string version, string byline)
     {
@@ -142,13 +144,16 @@ public static class ReleaseCommand
                     if (Value(ref i, "the Creation Kit's Tools\\ContentResources.zip") is not { } ck) return 2;
                     o.CkSources = ck; break;
                 case "--profile":
-                    if (Value(ref i, "basic or house") is not { } pr) return 2;
-                    if (pr is not ("basic" or "house"))
+                    if (Value(ref i, "basic, house or creations") is not { } pr) return 2;
+                    if (pr is not ("basic" or "house" or "creations"))
                     {
-                        Console.Error.WriteLine($"--profile is basic (only problems that break the mod in game fail) or house (our packaging rules fail too), not \"{pr}\"");
+                        Console.Error.WriteLine($"--profile is basic (only problems that break the mod in game fail), house (our packaging rules fail too) or creations (basic plus Bethesda Creations' rules for PC, Xbox and PlayStation), not \"{pr}\"");
                         return 2;
                     }
                     o.Profile = pr; break;
+                case "--creations-master":
+                    if (Value(ref i, "a plugin's file name, for example OtherMod.esm") is not { } cm) return 2;
+                    o.CreationsMasters.Add(cm); break;
                 case "--log":
                     if (Value(ref i, "a file name") is not { } lf) return 2;
                     logFile = lf; break;
@@ -300,9 +305,9 @@ public static class ReleaseCommand
         }).ToList();
     }
 
-    /// <summary>In the basic profile a house rule's problem is shown as a WARNING, marked so.</summary>
+    /// <summary>In the basic and creations profiles a house rule's problem is shown as a WARNING, marked so.</summary>
     public static ReleaseFinding Apply(ReleaseFinding f, string profile) =>
-        profile == "basic" && f.Kind == RuleKind.House && f.Level == Level.Problem
+        profile != "house" && f.Kind == RuleKind.House && f.Level == Level.Problem
             ? f with { Level = Level.Warning, Text = f.Text + " (a failure with --profile house)" }
             : f;
 

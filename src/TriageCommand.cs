@@ -110,14 +110,17 @@ public sealed class TriageContext
     {
         var kept = new List<string>(Files.Count);
         foreach (var f in Files)
-            if (BehindLink(Full(f))) Skipped.Add((f, TriageCommand.LinkReachedWhy));
+            // a file that is itself a link (a plugin named on the command line that is a symlink) is a link like any
+            // other: LinkWhy, so the skipped-link count has it; one inside a linked folder is only reached through it
+            // (0.9.1 last review)
+            if (BehindLink(Full(f))) Skipped.Add((f, IsLinkItself(f) ? TriageCommand.LinkWhy : TriageCommand.LinkReachedWhy));
             else kept.Add(f);
         var moved = Files.Count - kept.Count;
         if (moved == 0) return 0;
         Files.Clear();
         Files.AddRange(kept);
         Skipped.Sort((a, b) => string.CompareOrdinal(a.File, b.File));
-        Log.Write($"triage: {moved} files are reached only through a link and are skipped");
+        Log.Write($"triage: {moved} files are links or reached only through a link and are skipped");
         return moved;
     }
 
@@ -183,6 +186,18 @@ public sealed class TriageContext
             if (folder && Find(entry, parts, i + 1, folderOk) is { } f) return f;
         }
         return null;
+    }
+
+    /// <summary>True when the file itself is a link (its folders aren't): its folder is reached without a link, and an
+    /// entry there whose name matches ignoring case is a link. False for a file reached only through a linked folder.</summary>
+    public bool IsLinkItself(string rel)
+    {
+        var parts = Shown(rel).Split('\\');
+        lock (resolved)
+        {
+            var folder = Find(Root, parts[..^1], 0, folderOk: true);
+            return folder != null && Matches(folder, parts[^1]).Any(IsLink);
+        }
     }
 
     /// <summary>True for a link (symlink, junction); also when its attributes can't be read (then it isn't followed).</summary>
@@ -463,7 +478,7 @@ public static class TriageCommand
             int looks = report.Findings.Count(f => f.Level == TriageLevel.Look), notes = report.Findings.Count - looks;
             if (!quiet)
             {
-                Console.WriteLine($"sf-mod-check {version} triage: {report.InputName} ({files.Count} files; triage, not a verdict)");
+                Console.WriteLine(Header(version, report.InputName, files.Count));
                 foreach (var f in report.Findings.Where(f => f.Level == TriageLevel.Look))
                     Console.WriteLine($"LOOK [{f.Section}] {(f.File != "" ? f.File + ": " : "")}{f.Text}");
                 foreach (var i in report.Incomplete) Console.WriteLine($"INCOMPLETE {i}");
@@ -614,6 +629,27 @@ public static class TriageCommand
         return unique;
     }
 
+    /// <summary>How the report names skipped links: by the lower-case name, as files are, except when two links have the
+    /// same name apart from case (Linux and macOS), which keep their own spellings, so each gets its own LOOK and the
+    /// skipped-link count matches them (0.9.1 last review: two identical LOOKs, counted once).</summary>
+    public static List<string> LinkNames(IEnumerable<string> own)
+    {
+        var names = new List<string>();
+        foreach (var g in own.Select(o => o.Replace('/', '\\').TrimStart('\\')).Distinct(StringComparer.Ordinal)
+                             .GroupBy(Ba2Names.Normalize, StringComparer.Ordinal))
+        {
+            var spellings = g.ToList();
+            if (spellings.Count == 1) names.Add(g.Key);
+            else names.AddRange(spellings);
+        }
+        names.Sort(StringComparer.Ordinal);
+        return names;
+    }
+
+    /// <summary>The first line triage prints: the tool, the input and how many files it reads ("1 file", "2 files").</summary>
+    public static string Header(string version, string input, int files) =>
+        $"sf-mod-check {version} triage: {input} ({files} {(files == 1 ? "file" : "files")}; triage, not a verdict)";
+
     /// <summary>Why a link is skipped (the Files section marks such a file "link" in its table).</summary>
     public const string LinkWhy = "skipped: it is a link (symlink or junction), and triage never follows links, so what it points to isn't checked. " +
                                   "Run triage on the folder it points to if you want that checked";
@@ -702,14 +738,16 @@ public static class TriageCommand
                     ShouldIncludePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !e.IsDirectory || Link(e.ToFullPath(), e.Attributes),
                     ShouldRecursePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !Link(e.ToFullPath(), e.Attributes),
                 };
+                var linked = new List<string>();
                 foreach (var (f, link) in entries)
                 {
-                    // a link by its lower-case name, as before; a file by its own spelling, which OnePerName lower-cases
-                    // after it has told apart two names that differ only in case (code review of 0.9.1)
+                    // a link by its lower-case name, as before (LinkNames); a file by its own spelling, which OnePerName
+                    // lower-cases after it has told apart two names that differ only in case (code review of 0.9.1)
                     var own = Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '\\');
-                    if (link) skipped.Add((Ba2Names.Normalize(own), LinkWhy));
+                    if (link) linked.Add(own);
                     else files.Add(own);
                 }
+                foreach (var l in LinkNames(linked)) skipped.Add((l, LinkWhy));
                 files.Sort(StringComparer.Ordinal);
                 skipped.Sort((a, b) => string.CompareOrdinal(a.File, b.File));
                 return (root, files);
@@ -720,14 +758,16 @@ public static class TriageCommand
                 var name = Path.GetFileName(input);
                 var stem = Path.GetFileNameWithoutExtension(input);
                 var files = new List<string> { name };
+                var linked = new List<string>();
                 foreach (var b in Directory.EnumerateFiles(dir, "*.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0 }))
                 {
                     var bn = Path.GetFileName(b);
                     if (!bn.StartsWith(stem + " - ", StringComparison.OrdinalIgnoreCase)) continue;
                     // a linked archive isn't read, as in a folder (0.8.0 follow-up: on Windows it was followed)
-                    if (IsLinkFile(b)) skipped.Add((Ba2Names.Normalize(bn), LinkWhy));
+                    if (IsLinkFile(b)) linked.Add(bn);
                     else files.Add(bn);   // its own spelling: OnePerName lower-cases it (two spellings on Linux)
                 }
+                foreach (var l in LinkNames(linked)) skipped.Add((l, LinkWhy));
                 files.Sort(StringComparer.Ordinal);
                 return (dir, files);
             }

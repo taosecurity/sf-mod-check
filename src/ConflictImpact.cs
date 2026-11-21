@@ -149,6 +149,10 @@ public static class Impact
         ["LeveledItem"] = "leveled list", ["LeveledNpc"] = "leveled NPC list", ["Weapon"] = "weapon", ["Armor"] = "armor piece",
         ["Location"] = "location", ["Container"] = "container", ["Perk"] = "perk", ["Spell"] = "spell", ["MagicEffect"] = "magic effect",
         ["ObjectModification"] = "mod (item modification)", ["Terminal"] = "terminal", ["Book"] = "book", ["Faction"] = "faction",
+        ["StoryManagerBranchNode"] = "Story Manager branch node", ["StoryManagerQuestNode"] = "Story Manager quest node",
+        ["StoryManagerEventNode"] = "Story Manager event node", ["PlanetContentManagerTree"] = "Planet Content Manager tree",
+        ["PlanetContentManagerBranchNode"] = "Planet Content Manager branch node",
+        ["PlanetContentManagerContentNode"] = "Planet Content Manager content node",
     };
 
     static string D(string plugin) => LoadOrderSetup.Display(plugin);
@@ -171,9 +175,12 @@ public static class Impact
     // The four-part impact for a single lost field.
     public static ImpactText ForField(LostChange l, LostField f)
     {
-        var what = TypeMeaning.TryGetValue(l.RecordType, out var tm) ? tm : TypeName(l.RecordType);
+        var node = TreeNodes.FromType(l.RecordType);
+        var what = node != null ? TreeNodes.Describe(node) : TypeMeaning.TryGetValue(l.RecordType, out var tm) ? tm : TypeName(l.RecordType);
         var id = l.RecordName is { Length: > 0 } rn ? $"\"{rn}\" ({l.EditorID ?? l.FormKey.ToString()})" : (l.EditorID ?? l.FormKey.ToString());
         var whatLine = $"{Cap(TypeName(l.RecordType))} {id}: {what}. The conflict is in {Meaning(f.Field)}.";
+        // 0.10.0: Story Manager and Planet Content Manager nodes say the conflict-free alternative
+        if (node != null) whatLine += " " + TreeNodes.Alternative;
         if (l.EditorID is { } ed && Regex.IsMatch(ed, "(Debug|Test|Dev)(?![a-z])"))
             whatLine += " Its editor ID marks it as a developer test record, so it probably never matters in normal play.";
         var orig = f.Original.Length > 450 ? f.Original[..450] + "…" : f.Original;

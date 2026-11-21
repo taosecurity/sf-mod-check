@@ -21,7 +21,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SfModCheck</RootNamespace>
     <AssemblyName>sf-mod-check</AssemblyName>
-    <Version>0.9.1</Version>
+    <Version>0.10.0</Version>
     <!-- Shown in the exe's file properties (Details tab); attribution added 2026-11-11. -->
     <Product>sf-mod-check</Product>
     <AssemblyTitle>sf-mod-check: read-only checks of Starfield mods</AssemblyTitle>
@@ -76,6 +76,10 @@
     <EmbeddedResource Include="..\data\engine-forms.txt" LogicalName="engine-forms.txt" />
     <EmbeddedResource Include="..\data\link-types-seen.txt" LogicalName="link-types-seen.txt" Condition="Exists('..\data\link-types-seen.txt')" />
     <EmbeddedResource Include="..\data\condition-params-seen.txt" LogicalName="condition-params-seen.txt" Condition="Exists('..\data\condition-params-seen.txt')" />
+    <EmbeddedResource Include="..\data\condition-functions-seen.txt" LogicalName="condition-functions-seen.txt" Condition="Exists('..\data\condition-functions-seen.txt')" />
+    <EmbeddedResource Include="..\data\required-fields-seen.txt" LogicalName="required-fields-seen.txt" Condition="Exists('..\data\required-fields-seen.txt')" />
+    <EmbeddedResource Include="..\data\creations-masters.txt" LogicalName="creations-masters.txt" />
+    <EmbeddedResource Include="..\data\field-priorities.txt" LogicalName="field-priorities.txt" />
     <EmbeddedResource Include="..\data\scene-alias-quirks.txt" LogicalName="scene-alias-quirks.txt" Condition="'$(EmbedSceneQuirks)' != 'false' And Exists('..\data\scene-alias-quirks.txt')" />
   </ItemGroup>
 

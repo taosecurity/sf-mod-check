@@ -29,6 +29,7 @@ public static class Report
         md.AppendLine($"| Records overridden by mods | {a.RecordsOverriddenByMods} |");
         md.AppendLine($"| Records where an official change is lost | {official.Select(l => l.FormKey).Distinct().Count()} |");
         md.AppendLine($"| Records where one mod's change is lost to another mod | {modVsMod.Select(l => l.FormKey).Distinct().Count()} |");
+        if (a.PrioritiesOn) md.AppendLine($"| Benign differences shown apart (xEdit field priorities) | {BenignCount(a)} |");
         md.AppendLine($"| Overrides that change nothing (ITM) | {a.Itms.Count} |");
         md.AppendLine($"| Load-order problems | {lo.Problems.Count} |");
         md.AppendLine($"| Overrides that change a record's type | {a.TypeChanges.Count} |");
@@ -129,6 +130,26 @@ public static class Report
         md.AppendLine();
         WriteGroups(md, modVsMod, lo, a);
 
+        if (a.PrioritiesOn)
+        {
+            md.AppendLine("## Benign differences (not counted as lost)");
+            md.AppendLine();
+            md.AppendLine(Md(BenignIntro));
+            md.AppendLine();
+            if (a.Benign.Count == 0) { md.AppendLine("None found."); md.AppendLine(); }
+            else
+            {
+                var table = FieldPriorityTable.Load();
+                md.AppendLine("| Record | Winning plugin | Loses changes from | Field | Priority | Lost value | Winning value |");
+                md.AppendLine("|---|---|---|---|---|---|---|");
+                var rows = a.Benign.SelectMany(l => l.Fields.Select(f => (l, f))).ToList();
+                foreach (var (l, f) in rows.Take(BenignRows))
+                    md.AppendLine($"| {Md(l.RecordType)} {Md(Impact.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(LoadOrderSetup.Display(l.Winner))} | {Md(LoadOrderSetup.Display(l.Loser))} | {Md(f.Field)} | {table.NameOf(l, f)} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
+                if (rows.Count > BenignRows) md.AppendLine($"\n… {rows.Count - BenignRows} more fields in conflicts.json");
+                md.AppendLine();
+            }
+        }
+
         md.AppendLine("## Overrides that change nothing (ITM)");
         md.AppendLine();
         md.AppendLine("Harmless on their own, but they can undo another plugin's change if they load later. Often a sign of an outdated or carelessly saved plugin.");
@@ -152,6 +173,7 @@ public static class Report
         md.AppendLine($"- Fields ignored as bookkeeping or engine-generated: {string.Join(", ", FieldCompare.IgnoredFields.Order())}; also the 3 unused bytes after a cell grid's land flags (XCLC), which hold junk in the official files.");
         md.AppendLine("- Child records (cell references, quest dialogue, navmeshes) are checked as records of their own, not as part of their parent.");
         md.AppendLine($"- {Md(AssetsNotChecked(a))}");
+        if (a.PrioritiesOn) md.AppendLine($"- {Md(PrioritiesNote)}");
         md.AppendLine();
 
         if (a.UnreadableFields.Count > 0 || a.Errors.Count > 0)
@@ -192,8 +214,67 @@ public static class Report
             archiveCounts = a.ArchivesCounted ? new { gnrl = a.GnrlArchives, dx10 = a.Dx10Archives, slots = AssetIndex.ArchiveSlots } : null,
             archiveLimitWarnings = Assets.ArchiveLimitWarnings(a),
         };
-        File.WriteAllText(Path.Combine(outDir, "conflicts.json"), JsonSerializer.Serialize(json, new JsonSerializerOptions { WriteIndented = true }));
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        // --no-priorities writes exactly 0.9.1's file; with priorities on, each lost entry and field gets its priority
+        // and a "benign" array (the same shape as "lost") holds the differences shown apart.
+        File.WriteAllText(Path.Combine(outDir, "conflicts.json"),
+            a.PrioritiesOn ? WithPriorities(JsonSerializer.SerializeToNode(json, options)!, a, options) : JsonSerializer.Serialize(json, options));
     }
+
+    static string WithPriorities(System.Text.Json.Nodes.JsonNode root, Analysis a, JsonSerializerOptions options)
+    {
+        var table = FieldPriorityTable.Load();
+        var lost = root["lost"]!.AsArray();
+        for (int i = 0; i < a.Lost.Count; i++)
+        {
+            var l = a.Lost[i];
+            lost[i]!["priority"] = l.Fields.Any(a.CriticalFields.Contains) ? "critical" : "normal";
+            var fields = lost[i]!["Fields"]!.AsArray();
+            for (int j = 0; j < l.Fields.Count; j++) fields[j]!["priority"] = a.CriticalFields.Contains(l.Fields[j]) ? "critical" : "normal";
+        }
+        var benign = JsonSerializer.SerializeToNode(a.Benign.Select(l => new { formKey = l.FormKey.ToString(), l.RecordType, l.EditorID, l.Loser, l.LoserOfficial, l.Winner, l.Fields }), options)!.AsArray();
+        for (int i = 0; i < a.Benign.Count; i++)
+        {
+            var fields = benign[i]!["Fields"]!.AsArray();
+            for (int j = 0; j < a.Benign[i].Fields.Count; j++) fields[j]!["priority"] = table.NameOf(a.Benign[i], a.Benign[i].Fields[j]);
+        }
+        var obj = root.AsObject();
+        obj["benign"] = benign;
+        obj["fieldPriorities"] = new System.Text.Json.Nodes.JsonObject
+        {
+            ["source"] = "xEdit's Starfield definitions (data\\field-priorities.txt, MPL-2.0)",
+            ["criticalEntries"] = a.Lost.Count(l => l.Fields.Any(a.CriticalFields.Contains)),
+            ["benignEntries"] = a.Benign.Count,
+        };
+        return root.ToJsonString(options);
+    }
+
+    const int BenignRows = 500;
+
+    /// <summary>The summary cell for the benign differences: "12 fields in 9 records".</summary>
+    public static string BenignCount(Analysis a)
+    {
+        var f = a.Benign.Sum(l => l.Fields.Count);
+        var r = a.Benign.Select(l => l.FormKey).Distinct().Count();
+        return $"{f} field{(f == 1 ? "" : "s")} in {r} record{(r == 1 ? "" : "s")}";
+    }
+
+    public const string BenignIntro =
+        "These fields differ between the plugin that lost the change and the winner, but xEdit rates them as harmless " +
+        "(benign: most Editor IDs, the Master reference lists a location keeps, and a few tree links and node conditions) " +
+        "or doesn't compare them at all " +
+        "(ignore). They are listed here for completeness and are not counted as lost changes, not recommended for a patch " +
+        "and not in the counts above. Run with --no-priorities to count them as lost changes, as sf-mod-check 0.9.1 did.";
+
+    // In the Impact cell of a critical field (report.md); report.html shows a badge.
+    public const string CriticalNote = "Critical (xEdit priority): ";
+
+    public const string PrioritiesNote =
+        "Field priorities come from xEdit's Starfield definitions (data\\field-priorities.txt, made from xEdit 4.1.5r, MPL-2.0): " +
+        "fields xEdit ignores or rates benign are listed under \"Benign differences\" instead of as lost changes, and critical " +
+        "fields (the FormID and Game Setting names, and the fields of a record injected into another plugin's FormIDs) are " +
+        "marked and listed first. One departure: a location's Added and Removed reference lists stay normal, because quest " +
+        "aliases read them. Use --no-priorities to turn this off.";
 
     static string Cut(string s) => Md(s.Length > 160 ? s[..160] + "…" : s);
 
@@ -338,7 +419,7 @@ public static class Report
             md.AppendLine("|---|---|---|---|---|---|");
             foreach (var l in g.Take(RowsPerGroup))
                 foreach (var f in l.Fields)
-                    md.AppendLine($"| {Md(l.RecordType)} {Md(Impact.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(f.Field)} | {(Impact.IsMinor(f) ? "No effect" : f.WinnerChangedToo ? "Choice" : "Forwardable")} | {Md(Impact.Flat(Impact.ForField(l, f)))} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
+                    md.AppendLine($"| {Md(l.RecordType)} {Md(Impact.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(f.Field)} | {(Impact.IsMinor(f) ? "No effect" : f.WinnerChangedToo ? "Choice" : "Forwardable")} | {(a.CriticalFields.Contains(f) ? CriticalNote : "")}{Md(Impact.Flat(Impact.ForField(l, f)))} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
             if (g.Count() > RowsPerGroup) md.AppendLine($"\n… {g.Count() - RowsPerGroup} more records in conflicts.json");
             md.AppendLine();
         }

@@ -158,11 +158,10 @@ public class FollowUps091Tests
         Assert.Contains("never follows links", link.Why);
     }
 
-    [Fact]
+    // Full's own lookup refuses links on Linux and macOS (on Windows the folder walk already leaves them out)
+    [UnixFact("Full's link lookup runs on Linux and macOS only")]
     public void A_file_reached_only_through_a_link_is_named_as_skipped()
     {
-        // Full's own lookup refuses links on Linux and macOS (on Windows the folder walk already leaves them out)
-        if (OperatingSystem.IsWindows()) return;
         using var s = new Sandbox();
         var root = s.Sub("mod");
         var outside = Path.Combine(s.Sub("elsewhere"), "decoy.esm");
@@ -280,7 +279,9 @@ public class FollowUps091Tests
         var f = TriageFiles.Run(c).ToList();
         Assert.Equal("1 linked item was skipped and not read (named in this section); anything inside it wasn't checked. " +
                      "Run triage on what the link points to.", Assert.Single(f, x => x.Level == TriageLevel.Note && x.Text.Contains("linked item")).Text);
-        Assert.Contains(f, x => x.Level == TriageLevel.Look && x.File == "textures\\foo.dds" && x.Text == TriageCommand.LinkWhy);
+        // one LOOK for the name listed twice, as the note counts one (0.9.1 last review)
+        Assert.Equal(TriageCommand.LinkWhy, Assert.Single(f, x => x.Level == TriageLevel.Look && x.File == "textures\\foo.dds").Text);
+        Assert.Single(c.Report.Tables.Single(t => t.Title == "Every file").Rows, r => r[0] == "textures\\foo.dds");
         Assert.Equal("The files triage read hold no compiled scripts (.pex); 1 linked item was skipped, see Files.",
                      Assert.Single(TriageScripts.Run(c), x => x.File == "").Text);
     }
@@ -503,10 +504,9 @@ public class FollowUps091Tests
         Assert.Equal("same name", every.Rows[2][1]);   // not "?", which means a hash that couldn't be read
     }
 
-    [Fact]
+    [UnixFact("Full's link lookup runs on Linux and macOS only")]
     public void A_file_reached_only_through_a_link_gets_one_look_in_the_whole_report()
     {
-        if (OperatingSystem.IsWindows()) return;   // Full's lookup refuses links on Linux and macOS only (see above)
         using var s = new Sandbox();
         var root = s.Sub("mod");
         var outside = s.Sub("elsewhere");

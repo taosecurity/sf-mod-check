@@ -110,6 +110,7 @@ public static class HtmlReport
         Card(h, a.RecordsOverriddenByMods.ToString(), "records changed by mods");
         Card(h, official.Select(l => l.FormKey).Distinct().Count().ToString(), "records losing an official change", official.Count > 0);
         Card(h, modVsMod.Select(l => l.FormKey).Distinct().Count().ToString(), "records losing a mod's change", modVsMod.Count > 0);
+        if (a.PrioritiesOn) Card(h, a.Benign.Sum(l => l.Fields.Count).ToString(), "benign differences shown apart (xEdit field priorities)");
         Card(h, a.Itms.Count.ToString(), "overrides that change nothing (ITM)");
         Card(h, lo.Problems.Count.ToString(), "load-order problems", lo.Problems.Count > 0);
         Card(h, a.TypeChanges.Count.ToString(), "overrides that change a record's type", a.TypeChanges.Count > 0);
@@ -210,6 +211,23 @@ public static class HtmlReport
         h.Append("<h2 id=\"mod-vs-mod\">Mod changes lost to other mods</h2><p class=\"muted\">A later mod overrides a record that an earlier mod changed, without having that mod as a master.</p>");
         Groups(h, modVsMod, lo, a);
 
+        if (a.PrioritiesOn)
+        {
+            h.Append($"<h2 id=\"benign\">Benign differences (not counted as lost)</h2><p class=\"muted\">{HtmlEncode(Report.BenignIntro)}</p>");
+            if (a.Benign.Count == 0) h.Append("<p>None found.</p>");
+            else
+            {
+                var table = FieldPriorityTable.Load();
+                h.Append("<details class=\"pair\"><summary>Show ").Append(Report.BenignCount(a)).Append("</summary><div><table><tr><th>Record</th><th>Winning plugin</th><th>Loses changes from</th><th>Field</th><th>Priority</th><th>Lost value</th><th>Winning value</th></tr>");
+                foreach (var l in a.Benign)
+                    foreach (var f in l.Fields)
+                        h.Append($"<tr class=\"f\"><td>{HtmlEncode(l.RecordType)} {HtmlEncode(l.EditorID ?? "")} <code>{HtmlEncode(l.FormKey.ToString())}</code></td><td>{HtmlEncode(LoadOrderSetup.Display(l.Winner))}</td>" +
+                                 $"<td>{HtmlEncode(LoadOrderSetup.Display(l.Loser))}</td><td>{HtmlEncode(f.Field)}</td><td><span class=\"badge minor\">{table.NameOf(l, f)}</span></td>" +
+                                 $"<td class=\"val\">{Value(f.LoserValue)}</td><td class=\"val\">{Value(f.WinnerValue)}</td></tr>");
+                h.Append("</table></div></details>");
+            }
+        }
+
         h.Append("<h2 id=\"itm\">Overrides that change nothing (ITM)</h2><p class=\"muted\">Harmless on their own, but they can undo another plugin's change if they load later.</p>");
         if (a.Itms.Count == 0) h.Append("<p>None found.</p>");
         else
@@ -228,7 +246,9 @@ public static class HtmlReport
         h.Append("<h2 id=\"not-checked\">What this report does not check</h2><ul class=\"muted\">");
         h.Append($"<li>Fields ignored as bookkeeping or engine-generated: {HtmlEncode(string.Join(", ", FieldCompare.IgnoredFields.Order()))}; also the 3 unused bytes after a cell grid's land flags (XCLC), which hold junk in the official files.</li>");
         h.Append("<li>Child records (cell references, quest dialogue, navmeshes) are checked as records of their own, not as part of their parent.</li>");
-        h.Append($"<li>{HtmlEncode(Report.AssetsNotChecked(a))}</li></ul>");
+        h.Append($"<li>{HtmlEncode(Report.AssetsNotChecked(a))}</li>");
+        if (a.PrioritiesOn) h.Append($"<li>{HtmlEncode(Report.PrioritiesNote)}</li>");
+        h.Append("</ul>");
         if (a.UnreadableFields.Count > 0 || a.Errors.Count > 0)
         {
             h.Append("<h2 id=\"tool-limits\">Tool limits hit</h2><ul>");
@@ -311,6 +331,7 @@ public static class HtmlReport
         Item("assets", "Missing assets", a.AssetsChecked ? a.MissingAssets.Count + a.UnreadableArchives.Count + limits : limits + a.UnreadableArchives.Count is var c and > 0 ? c : null); n.Append("</li>");
         Item("official", "Official changes lost", official.Select(l => l.FormKey).Distinct().Count()); Pairs(official); n.Append("</li>");
         Item("mod-vs-mod", "Mod changes lost", modVsMod.Select(l => l.FormKey).Distinct().Count()); Pairs(modVsMod); n.Append("</li>");
+        if (a.PrioritiesOn) { Item("benign", "Benign differences", a.Benign.Sum(l => l.Fields.Count)); n.Append("</li>"); }
         Item("itm", "ITM records", a.Itms.Count); n.Append("</li>");
         Item("load-order", "Load order used", lo.Plugins.Count); n.Append("</li>");
         Item("not-checked", "Not checked"); n.Append("</li>");
@@ -364,11 +385,13 @@ public static class HtmlReport
                 h.Append("</ul></div>");
             }
             h.Append("<table><thead><tr><th>Field</th><th>Kind</th><th>Lost value</th><th>Winning value</th></tr></thead>");
-            foreach (var l in g.OrderBy(l => l.RecordType).ThenBy(l => l.EditorID))
+            // critical entries first when priorities are on (always false with --no-priorities, so 0.9.1's order)
+            foreach (var l in g.OrderBy(l => l.Fields.Any(a.CriticalFields.Contains) ? 0 : 1).ThenBy(l => l.RecordType).ThenBy(l => l.EditorID))
             {
                 h.Append($"<tbody class=\"rec-block\"><tr class=\"rec\"><td colspan=\"4\">{HtmlEncode(l.RecordType)} {HtmlEncode(l.EditorID ?? "")} <code>{HtmlEncode(l.FormKey.ToString())}</code></td></tr>");
                 foreach (var f in l.Fields)
-                    h.Append($"<tr><td>{HtmlEncode(f.Field)}</td><td>{(Impact.IsMinor(f) ? "<span class=\"badge minor\">No effect</span>" : f.WinnerChangedToo ? "<span class=\"badge choice\">Choice</span>" : "<span class=\"badge fwd\">Forwardable</span>")}</td>" +
+                    h.Append($"<tr><td>{HtmlEncode(f.Field)}</td><td>{(Impact.IsMinor(f) ? "<span class=\"badge minor\">No effect</span>" : f.WinnerChangedToo ? "<span class=\"badge choice\">Choice</span>" : "<span class=\"badge fwd\">Forwardable</span>")}" +
+                             $"{(a.CriticalFields.Contains(f) ? " <span class=\"badge p1\">Critical</span>" : "")}</td>" +
                              $"<td class=\"val\">{Value(f.LoserValue)}</td><td class=\"val\">{Value(f.WinnerValue)}</td></tr>" +
                              ImpactRow(Impact.ForField(l, f), l));
                 h.Append("</tbody>");
