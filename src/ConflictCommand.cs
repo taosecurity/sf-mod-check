@@ -201,8 +201,8 @@ public static class ConflictCommand
             return 2;
         }
         dataDir = Path.GetFullPath(dataDir);
-        Log.Write($"Data folder: {dataDir}: {dataWhy}; Starfield.esm {(File.Exists(Path.Combine(dataDir, "Starfield.esm")) ? "found there" : "NOT there")}");
-        if (!File.Exists(Path.Combine(dataDir, "Starfield.esm")))
+        Log.Write($"Data folder: {dataDir}: {dataWhy}; Starfield.esm {(TriageCommand.HasStarfield(dataDir) ? "found there" : "NOT there")}");
+        if (!TriageCommand.HasStarfield(dataDir))
             Console.Error.WriteLine($"note: no Starfield.esm in {dataDir}. If that isn't your game's Data folder, run again with --data \"<the game's Data folder>\".");
 
         // Load order: --plugins, else the game's own Plugins.txt. Without either it stops: guessing an order (every

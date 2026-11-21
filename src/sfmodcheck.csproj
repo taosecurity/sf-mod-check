@@ -21,7 +21,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SfModCheck</RootNamespace>
     <AssemblyName>sf-mod-check</AssemblyName>
-    <Version>0.9.0</Version>
+    <Version>0.9.1</Version>
     <!-- Shown in the exe's file properties (Details tab); attribution added 2026-11-11. -->
     <Product>sf-mod-check</Product>
     <AssemblyTitle>sf-mod-check: read-only checks of Starfield mods</AssemblyTitle>
@@ -87,6 +87,9 @@
   <!-- triage reads .7z and .rar downloads (0.8.0). SharpCompress is MIT; exact pin, 0.50.7 released 2026-10-20. -->
   <ItemGroup>
     <PackageReference Include="SharpCompress" Version="[0.50.7]" />
+    <!-- the Scripts section unpacks LZ4 entries of .ba2 archives itself (0.9.1). K4os.Compression.LZ4 is MIT; exact pin at
+         1.3.8, the version Mutagen already brought in, so the build no longer depends on what another package pulls in. -->
+    <PackageReference Include="K4os.Compression.LZ4" Version="[1.3.8]" />
   </ItemGroup>
 
   <!-- Mutagen.Bethesda.Starfield 0.54.4 comes through BuildKit (exact pin, never the local taosecurity package). -->

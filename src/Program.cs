@@ -241,10 +241,10 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     // installs) uses that folder.
     string dataNote = "";
     string dataWhy = dataGiven ? "from --data" : "Steam's usual folder (no --data given)";
-    if (!dataGiven && !File.Exists(Path.Combine(o.DataDir, "Starfield.esm")))
+    if (!dataGiven && !TriageCommand.HasStarfield(o.DataDir))
     {
         var own = Path.GetDirectoryName(Path.GetFullPath(plugin))!;
-        if (File.Exists(Path.Combine(own, "Starfield.esm"))) { o.DataDir = own; dataNote = $"Data folder: {own} (the plugin's own folder)"; dataWhy = "the plugin's own folder (it holds Starfield.esm; Steam's usual folder doesn't)"; }
+        if (TriageCommand.HasStarfield(own)) { o.DataDir = own; dataNote = $"Data folder: {own} (the plugin's own folder)"; dataWhy = "the plugin's own folder (it holds Starfield.esm; Steam's usual folder doesn't)"; }
     }
     foreach (var md in o.MastersDirs)
         if (!Directory.Exists(md))
@@ -273,7 +273,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
         Log.Write($"stopped: Data folder {Path.GetFullPath(o.DataDir)} doesn't exist");
         return 2;
     }
-    var hasStarfield = File.Exists(Path.Combine(o.DataDir, "Starfield.esm"));
+    var hasStarfield = TriageCommand.HasStarfield(o.DataDir);
     Log.Write($"Data folder: {Path.GetFullPath(o.DataDir)}: {dataWhy}; Starfield.esm {(hasStarfield ? "found there" : "NOT there")}");
     var masterDirs = Checker.MasterDirs(o);
     Log.Write($"masters are looked for in: {string.Join(", ", masterDirs.Select(Path.GetFullPath))} ({(o.MastersDirs.Count > 0 ? "--masters-dir" : "the plugin's own folder")}), then the Data folder");

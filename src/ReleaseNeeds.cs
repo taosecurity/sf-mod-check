@@ -290,7 +290,7 @@ public static class ReleaseNeeds
             return;
         }
         var data = Path.GetFullPath(c.DataDir).TrimEnd('\\', '/');
-        var gameRoot = File.Exists(Path.Combine(data, "Starfield.esm")) ? Path.GetDirectoryName(data) : null;
+        var gameRoot = TriageCommand.HasStarfield(data) ? Path.GetDirectoryName(data) : null;
         var cachePassDone = false;
         for (int pi = 0; pi < c.Packages.Count; pi++)
         {

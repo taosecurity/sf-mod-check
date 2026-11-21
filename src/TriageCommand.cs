@@ -72,9 +72,41 @@ public sealed class TriageContext
     public required string DataDir { get; init; }
     /// <summary>The game install folder (the one above Data), or null when the Data folder has no parent.</summary>
     public string? GameDir => Path.GetDirectoryName(Path.GetFullPath(DataDir).TrimEnd('\\', '/'));
-    public bool HasGame => hasGame.Value;   // worked out once, thread-safe (it is read per file)
+    /// <summary>True when the Data folder holds Starfield.esm. The run sets it from the one check the report header
+    /// also shows, so the two can't disagree when the file changes during the run (0.8.0 follow-up); without that it is
+    /// worked out once, thread-safe (it is read per file).</summary>
+    public bool HasGame { get => hasGameGiven ?? hasGame.Value; init => hasGameGiven = value; }
+    readonly bool? hasGameGiven;
     readonly Lazy<bool> hasGame;
     public TriageContext() => hasGame = new Lazy<bool>(() => TriageCommand.HasStarfield(DataDir));
+    /// <summary>Files the input holds that triage didn't read, each with why (a link, which is never followed; a second
+    /// file whose name differs only in case). The Files section lists them.</summary>
+    public List<(string File, string Why)> Skipped { get; init; } = [];
+    /// <summary>The folder name Full puts in front of a path it won't follow (a file reached only through a link), so the
+    /// path doesn't exist and the Files section can say why.</summary>
+    public const string LinkNotFollowed = ".sf-mod-check-link-not-followed";
+    /// <summary>True for a path Full gave for a file reached only through a link.</summary>
+    public bool BehindLink(string full) =>
+        full.StartsWith(Path.Combine(Root, LinkNotFollowed) + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+
+    /// <summary>Moves each file of Files that only a link leads to (Full gives a BehindLink path; Linux and macOS) into
+    /// Skipped, before any section runs. Each section then sees only files it can read, and the report has one LOOK
+    /// for such a file, not "skipped" from the Files section plus "couldn't be read" from Plugins, Scripts or the
+    /// archive reader (code review of 0.9.1). Returns how many were moved.</summary>
+    public int SetAsideLinked()
+    {
+        var kept = new List<string>(Files.Count);
+        foreach (var f in Files)
+            if (BehindLink(Full(f))) Skipped.Add((f, TriageCommand.LinkReachedWhy));
+            else kept.Add(f);
+        var moved = Files.Count - kept.Count;
+        if (moved == 0) return 0;
+        Files.Clear();
+        Files.AddRange(kept);
+        Skipped.Sort((a, b) => string.CompareOrdinal(a.File, b.File));
+        Log.Write($"triage: {moved} files are reached only through a link and are skipped");
+        return moved;
+    }
 
     /// <summary>The full path of a file in the game's Data folder, its name matched ignoring case; null when none.</summary>
     public string? DataFind(string fileName)
@@ -114,7 +146,7 @@ public sealed class TriageContext
             var found = Find(Root, rel.Split('\\'), 0);
             // not there (or only behind a link, which is never followed): a path that doesn't exist, so the caller
             // reports the file as missing (review: the exact-name fallback could be the link itself)
-            if (found == null) return File.Exists(direct) || Directory.Exists(direct) ? Path.Combine(Root, ".sf-mod-check-link-not-followed", rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
+            if (found == null) return File.Exists(direct) || Directory.Exists(direct) ? Path.Combine(Root, LinkNotFollowed, rel.Replace('\\', Path.DirectorySeparatorChar)) : direct;
             return resolved[rel] = found;
         }
     }
@@ -141,7 +173,7 @@ public sealed class TriageContext
     /// <summary>True for a link (symlink, junction); also when its attributes can't be read (then it isn't followed).</summary>
     static bool IsLink(string path)
     {
-        try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+        try { return TriageCommand.IsRealLink(path, File.GetAttributes(path)); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return true; }
     }
 
@@ -349,7 +381,8 @@ public static class TriageCommand
         {
             string root;
             List<string> files;
-            try { (root, files) = Gather(kind, input, Path.Combine(work, "mod")); }
+            var skipped = new List<(string File, string Why)>();
+            try { (root, files) = Gather(kind, input, Path.Combine(work, "mod"), skipped); }
             catch (Exception e) when (IsFileSystem(e))
             {
                 // A file-system error: it can be the PC (a lock, a permission, a full disk) or the archive (a path too long
@@ -388,7 +421,10 @@ public static class TriageCommand
                 Options = o, Kind = kind, InputPath = input, Root = root, Files = files,
                 DataPrefix = files.Count > 0 && files.All(f => f.StartsWith("data\\", StringComparison.Ordinal)) ? "data\\" : "",
                 DataDir = o.DataDir, Work = work, Report = report,
+                HasGame = hasGame,   // the header's own answer (0.8.0 follow-up: two checks could disagree)
+                Skipped = skipped,
             };
+            ctx.SetAsideLinked();   // one LOOK for a file only a link leads to (code review of 0.9.1)
 
             foreach (var (name, run) in Sections)
             {
@@ -437,15 +473,22 @@ public static class TriageCommand
 
     /// <summary>True when the folder holds Starfield.esm, its name matched ignoring case (Linux and macOS too; review of
     /// the Linux fix). Never throws.</summary>
-    public static bool HasStarfield(string dir)
+    public static bool HasStarfield(string dir) => StarfieldFile(dir) != null;
+
+    /// <summary>The path of the folder's Starfield.esm with the file's own spelling ("starfield.esm" on a Linux disk
+    /// that holds it so), or null when there is none. Never throws. Every later lookup takes a name from a listing or
+    /// matches ignoring case (code review of 0.9.1: OfficialMasters, LearnedCache, BuildKit's GameData.Locate,
+    /// TriageContext.DataFind and DataHas), so this is the name to use for any new exact-path lookup.</summary>
+    public static string? StarfieldFile(string dir)
     {
         try
         {
-            if (File.Exists(Path.Combine(dir, "Starfield.esm"))) return true;
-            return !OperatingSystem.IsWindows() && Directory.Exists(dir) &&
-                   Directory.EnumerateFiles(dir, "starfield.esm", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0 }).Any();
+            var exact = Path.Combine(dir, "Starfield.esm");
+            if (File.Exists(exact)) return exact;   // on Windows any spelling opens through this path
+            if (OperatingSystem.IsWindows() || !Directory.Exists(dir)) return null;
+            return Directory.EnumerateFiles(dir, "starfield.esm", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0 }).FirstOrDefault();
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
     }
 
     /// <summary>The input's name for messages: its last part, without a trailing slash; the whole path for a drive root
@@ -515,8 +558,73 @@ public static class TriageCommand
     }
 
     /// <summary>The mod's root folder and its files. Archives are unpacked into dest; a folder is read where it is; a
-    /// plugin brings the archives beside it that share its name ("Foo - Main.ba2").</summary>
-    public static (string Root, List<string> Files) Gather(TriageInputKind kind, string input, string dest)
+    /// plugin brings the archives beside it that share its name ("Foo - Main.ba2").
+    /// Links (symlinks, junctions) are never followed: in a folder, and beside a plugin on every system (0.8.0 follow-up:
+    /// on Windows a linked .ba2 beside a plugin was read). Each one, and each second file whose name differs from another
+    /// only in case (on Linux, Scripts/a.pex and scripts/a.pex), goes into skipped with why, so the report can say so.</summary>
+    public static (string Root, List<string> Files) Gather(TriageInputKind kind, string input, string dest, List<(string File, string Why)>? skipped = null)
+    {
+        skipped ??= [];
+        var (root, files) = GatherAll(kind, input, dest, skipped);
+        return (root, OnePerName(files, skipped));
+    }
+
+    /// <summary>One name per file, sorted: Files holds lower-case names, so two files that differ only in case would be
+    /// read as one twice (0.8.0 follow-up). An archive refuses such names already; a folder on Linux can hold both. Each
+    /// second name goes into skipped with CaseWhy. A set, so this doesn't depend on the input being sorted (code review
+    /// of 0.9.1); it ignores case too, so a name that kept a capital still counts once.</summary>
+    public static List<string> OnePerName(IEnumerable<string> files, List<(string File, string Why)> skipped)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unique = new List<string>();
+        foreach (var f in files)
+            if (!seen.Add(f)) skipped.Add((f, CaseWhy));
+            else unique.Add(f);
+        unique.Sort(StringComparer.Ordinal);
+        skipped.Sort((a, b) => string.CompareOrdinal(a.File, b.File));
+        return unique;
+    }
+
+    /// <summary>Why a link is skipped (the Files section marks such a file "link" in its table).</summary>
+    public const string LinkWhy = "skipped: it is a link (symlink or junction), and triage never follows links, so what it points to isn't checked. " +
+                                  "Run triage on the folder it points to if you want that checked";
+    /// <summary>Why a file reached only through a linked folder is skipped (Linux and macOS, where Full finds it).</summary>
+    public const string LinkReachedWhy = "skipped: it is reached only through a link (symlink or junction), and triage never follows links, so it isn't checked";
+    /// <summary>Why the second of two names that differ only in case is skipped.</summary>
+    public const string CaseWhy = "another file in the mod has the same name apart from upper and lower case, and only one of them is checked. " +
+                                  "Windows keeps only one of two such files, so which one the game gets depends on how the mod is installed";
+
+    /// <summary>True for a real link: a symbolic link or a junction (mount point), the kinds FileSystemInfo.LinkTarget
+    /// reads. Windows also marks other files as reparse points (OneDrive Files On-Demand placeholders, deduplicated
+    /// files, cloud and app links); those aren't links, so they are read as normal files and folders (code review of
+    /// 0.9.1: a mod in a OneDrive folder had every file skipped). When a reparse point's kind can't be read it counts
+    /// as a link, so nothing unknown is followed, and the log says why.</summary>
+    public static bool IsRealLink(string path, FileAttributes attributes)
+    {
+        if ((attributes & FileAttributes.ReparsePoint) == 0) return false;
+        try
+        {
+            FileSystemInfo fi = (attributes & FileAttributes.Directory) != 0 ? new DirectoryInfo(path) : new FileInfo(path);
+            return fi.LinkTarget != null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Write($"triage: {path} is a reparse point whose kind couldn't be read ({e.Message}), so it is treated as a link and not followed");
+            return true;
+        }
+    }
+
+    /// <summary>True for a link (symlink, junction). When its attributes can't be read it counts as a file, so the
+    /// section that reads it says what went wrong.</summary>
+    static bool IsLinkFile(string path)
+    {
+        FileAttributes a;
+        try { a = File.GetAttributes(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+        return IsRealLink(path, a);
+    }
+
+    static (string Root, List<string> Files) GatherAll(TriageInputKind kind, string input, string dest, List<(string File, string Why)> skipped)
     {
         switch (kind)
         {
@@ -530,10 +638,23 @@ public static class TriageCommand
             {
                 var root = input.TrimEnd('\\', '/');
                 var files = new List<string>();
-                var opts = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false };
-                foreach (var f in Directory.EnumerateFiles(root, "*", opts))
-                    files.Add(Ba2Names.Normalize(Path.GetRelativePath(root, f)));
+                // every file and every link, never going into a linked folder (a link is listed, not followed). Only
+                // real links count: a OneDrive placeholder folder is gone into and its files read (code review of 0.9.1).
+                var opts = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0, IgnoreInaccessible = false };
+                var entries = new System.IO.Enumeration.FileSystemEnumerable<(string Path, bool Link)>(root,
+                    (ref System.IO.Enumeration.FileSystemEntry e) => (e.ToFullPath(), IsRealLink(e.ToFullPath(), e.Attributes)), opts)
+                {
+                    ShouldIncludePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !e.IsDirectory || IsRealLink(e.ToFullPath(), e.Attributes),
+                    ShouldRecursePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !IsRealLink(e.ToFullPath(), e.Attributes),
+                };
+                foreach (var (f, link) in entries)
+                {
+                    var rel = Ba2Names.Normalize(Path.GetRelativePath(root, f));
+                    if (link) skipped.Add((rel, LinkWhy));
+                    else files.Add(rel);
+                }
                 files.Sort(StringComparer.Ordinal);
+                skipped.Sort((a, b) => string.CompareOrdinal(a.File, b.File));
                 return (root, files);
             }
             default:
@@ -545,7 +666,10 @@ public static class TriageCommand
                 foreach (var b in Directory.EnumerateFiles(dir, "*.ba2", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, AttributesToSkip = 0 }))
                 {
                     var bn = Path.GetFileName(b);
-                    if (bn.StartsWith(stem + " - ", StringComparison.OrdinalIgnoreCase)) files.Add(Ba2Names.Normalize(bn));
+                    if (!bn.StartsWith(stem + " - ", StringComparison.OrdinalIgnoreCase)) continue;
+                    // a linked archive isn't read, as in a folder (0.8.0 follow-up: on Windows it was followed)
+                    if (IsLinkFile(b)) skipped.Add((Ba2Names.Normalize(bn), LinkWhy));
+                    else files.Add(Ba2Names.Normalize(bn));
                 }
                 files.Sort(StringComparer.Ordinal);
                 return (dir, files);
@@ -595,8 +719,16 @@ public static class TriageCommand
         e is UnauthorizedAccessException or DriveNotFoundException
         || (e is IOException and not (FileNotFoundException or DirectoryNotFoundException or PathTooLongException or EndOfStreamException) &&
             (OperatingSystem.IsWindows()
-                ? (e.HResult & 0xFFFF) is 32 or 33 or 39 or 112 or 59 or 64 or 19 or 21   // sharing, lock; disk full; network dropped; write-protected, not ready
+                ? Win32Code(e.HResult) is 32 or 33 or 39 or 112 or 59 or 64 or 19 or 21   // sharing, lock; disk full; network dropped; write-protected, not ready
                 : e.HResult is 28 or 30 or 5 || e.HResult == (OperatingSystem.IsMacOS() ? 69 : 122) || e.HResult == (OperatingSystem.IsMacOS() ? 35 : 11)));   // ENOSPC, EROFS, EIO; EDQUOT and EAGAIN (a lock) per OS
+
+    /// <summary>The Windows error code an HResult carries: its low 16 bits when it is a Win32 one (facility 7,
+    /// 0x8007xxxx, as .NET makes them) or a plain code; -1 for any other HResult, so one whose low word happens to match
+    /// isn't taken for a PC problem (0.8.0 follow-up).</summary>
+    public static int Win32Code(int hresult) =>
+        ((uint)hresult & 0xFFFF0000u) == 0x80070000u ? hresult & 0xFFFF
+        : hresult is >= 0 and <= 0xFFFF ? hresult
+        : -1;
 
     const string GuardMark = "sf-mod-check unpack guard";
 
@@ -621,7 +753,9 @@ public static class TriageCommand
         HashSet<string> clashFiles = new(StringComparer.Ordinal), clashDirs = new(StringComparer.Ordinal);
         long max = ReleaseCommand.MaxUnpackedBytes;
         using var a = ArchiveFactory.OpenArchive(archive, new SharpCompress.Readers.ReaderOptions());
-        var entries = a.Entries.Where(e => !e.IsDirectory).ToList();
+        var all = a.Entries.ToList();
+        if (all.Count > ReleaseCommand.MaxEntries) throw Refused(ReleaseCommand.TooManyEntries(all.Count, "archive"));
+        var entries = all.Where(e => !e.IsDirectory).ToList();
         if (a.IsEncrypted || entries.Any(e => e.IsEncrypted))
             throw Refused("it is password-protected; triage doesn't open encrypted archives");
         long total = entries.Sum(e => Math.Max(0, e.Size)), written = 0;

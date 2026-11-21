@@ -183,9 +183,25 @@ public static class TriageFiles
         // every file, with size and SHA-256
         var every = c.Report.Table(S, "Every file", "File", "Size (bytes)", "SHA-256");
         long totalBytes = 0;
-        foreach (var rel in c.Files)
+        // what the input holds but triage didn't read (links, a second file whose name differs only in case): a LOOK
+        // each, and a row in the table too, marked "link" or "?" (code review of 0.9.1: they were missing from it)
+        foreach (var (rel, why) in c.Skipped) Look(rel, why);
+        static string Marker(string why) => why is TriageCommand.LinkWhy or TriageCommand.LinkReachedWhy ? "link" : "?";
+        var rows = c.Files.Select(f => (Rel: f, Skip: (string?)null))
+            .Concat(c.Skipped.Select(s => (Rel: s.File, Skip: (string?)Marker(s.Why))))
+            .OrderBy(r => r.Rel, StringComparer.Ordinal).ToList();
+        foreach (var (rel, skip) in rows)
         {
+            if (skip != null) { every.Add(rel, skip, ""); continue; }
             var full = c.Full(rel);
+            if (c.BehindLink(full))
+            {
+                // only a link leads to it (0.8.0 follow-up: this read as "couldn't be read" under a made-up path). The
+                // run moves such files to Skipped first (SetAsideLinked); this is for a context made without that.
+                every.Add(rel, "link", "");
+                Look(rel, TriageCommand.LinkReachedWhy);
+                continue;
+            }
             try
             {
                 var size = new FileInfo(full).Length;

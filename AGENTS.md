@@ -1,7 +1,7 @@
 # sf-mod-check: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sf-mod-check. Every command
-here was run once on sf-mod-check 0.9.0 before release. The [README](README.md) has the full description.
+here was run once on sf-mod-check 0.9.1 (2026-11-20) before release. The [README](README.md) has the full description.
 Until 0.7.0 the tool was called **sfmodcheck**: the command is now `sf-mod-check` (the exe zip also holds a
 `sfmodcheck.cmd` that runs it under the old name, for one release). Old caches and `SFMODCHECK_*` variables still work.
 
@@ -50,35 +50,35 @@ new plugin to its own folder), or `check` on Bethesda's own masters (Starfield.e
 
 ## 3. Install
 
-Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.9.0 shown here).
+Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.9.1 shown here).
 
-1. **Stand-alone exe (Windows):** download `sf-mod-check-0.9.0-win-x64.zip` and its `.sha256` file, check the
+1. **Stand-alone exe (Windows):** download `sf-mod-check-0.9.1-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 
-       certutil -hashfile sf-mod-check-0.9.0-win-x64.zip SHA256
+       certutil -hashfile sf-mod-check-0.9.1-win-x64.zip SHA256
        mkdir C:\Tools\sf-mod-check
-       tar -xf sf-mod-check-0.9.0-win-x64.zip -C C:\Tools\sf-mod-check
+       tar -xf sf-mod-check-0.9.1-win-x64.zip -C C:\Tools\sf-mod-check
 
-   Compare the printed hash with the one in `sf-mod-check-0.9.0-win-x64.zip.sha256` (it sits next to the zip on the
+   Compare the printed hash with the one in `sf-mod-check-0.9.1-win-x64.zip.sha256` (it sits next to the zip on the
    Releases page). If the user has only the zip, print the hash, tell them it couldn't be compared, and ask them to
    download the `.sha256` file too. The program is then `C:\Tools\sf-mod-check\sf-mod-check.exe`.
 
-2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.9.0.nupkg` into a folder (here `C:\Downloads`), then
+2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.9.1.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
 
-       dotnet tool install --global sf-mod-check --add-source C:\Downloads --version 0.9.0
+       dotnet tool install --global sf-mod-check --add-source C:\Downloads --version 0.9.1
 
    or into a folder of its own (nothing global changes):
 
-       dotnet tool install sf-mod-check --tool-path C:\Tools\sf-mod-check-tool --add-source C:\Downloads --version 0.9.0
+       dotnet tool install sf-mod-check --tool-path C:\Tools\sf-mod-check-tool --add-source C:\Downloads --version 0.9.1
 
-   On Linux, `sha256sum -c sf-mod-check.0.9.0.nupkg.sha256` checks the download.
+   On Linux, `sha256sum -c sf-mod-check.0.9.1.nupkg.sha256` checks the download.
 
 ## 4. Prove the install works
 
     sf-mod-check --version
 
-Its first line is `sf-mod-check 0.9.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
+Its first line is `sf-mod-check 0.9.1 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
 `--quiet` is given. (Use the full path, such as `C:\Tools\sf-mod-check\sf-mod-check.exe
 --version`, when the folder isn't on PATH.)
@@ -301,8 +301,11 @@ Its first line is `sf-mod-check 0.9.0 by Richard Bejtlich - GPL-3.0 - https://gi
 4. A patch `conflict` suggests or `patch` builds holds other authors' data: it is for the player's own game, never
    for publishing. `patch` doesn't build records inside cells, worldspaces, quests or dialogue topics (the report
    lists them for xEdit).
-   Mod Organizer 2 keeps mods out of the Data folder, so run `conflict` from MO2 (as an executable) or it won't see
-   them (not yet tried).
+   Mod Organizer 2 keeps mods out of the Data folder. Run outside MO2, `conflict` and `patch` see only the plugins
+   in the real Data folder: each MO2 mod in the load order is a load-order problem ("listed but not found in Data")
+   and is left out, so the results are incomplete. Starting sf-mod-check from MO2 (added as an executable) should
+   let it see the mods through MO2's virtual Data folder, but that has never been tried: say so to the user, and
+   check the report's load-order problems before trusting a result.
 5. A missing master stops the link checks (the RESULT line says "links not checked"): install the master or point
    `--data` / `--masters-dir` at it, then run again.
 6. `check` isn't meant for Bethesda's own masters (Starfield.esm needs over 30 GB of memory and about 4 minutes).
@@ -311,4 +314,7 @@ Its first line is `sf-mod-check 0.9.0 by Richard Bejtlich - GPL-3.0 - https://gi
 7. Known gaps are in the README ("Known gaps" and "Traps").
 8. `triage` is a first pass, not a review: it can't see what a DLL looks up while it runs, what a script does with
    values it computes, or whether a record nothing uses is dead weight. Don't report a "bug" or "malware" to a mod's
-   author from a triage report alone. Archive entries packed with LZ4 aren't unpacked (each is named in the report).
+   author from a triage report alone. Files behind a link (symlink or junction) in a mod folder or beside a plugin
+   are never read; the report lists each one as skipped. The plugin named on the command line is read even when it
+   is a link. Other reparse points (OneDrive placeholders) are read as normal files. An archive with more than
+   200,000 entries is refused (exit 2).

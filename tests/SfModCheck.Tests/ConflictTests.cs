@@ -405,6 +405,26 @@ public class ConflictTests
         Assert.Contains(@"B\`Misc\*bold\*", md);
     }
 
+    // 0.9.1: the 0.5.0 changelog said the problem list and the ITM table's plugin cell weren't escaped yet. This proves
+    // they are (since 0.5.1): an ITM-only plugin and a missing plugin, both with Markdown characters in their names.
+    [Fact]
+    public void The_problem_list_and_the_itm_table_escape_plugin_names_too()
+    {
+        const string itm = "Itm_[x]`.esm", gone = "Gone_[y]`|.esm";
+        using var game = new Game();
+        game.Mod(itm, (m, open) => Misc(m, open("Base.esm")));   // an override that changes nothing: an ITM
+        var (code, _, json) = game.Conflict(new[] { "Base.esm", itm, gone });
+        Assert.Equal(0, code);
+        Assert.Contains(Itms(json), i => S(i, "Plugin") == itm);
+        var md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        var prompt = PromptPart(md);   // no lost changes here, so there may be no prompt at all
+        var outsidePrompt = prompt.Length > 0 ? md.Replace(prompt, "") : md;
+        Assert.DoesNotContain(itm, outsidePrompt);
+        Assert.DoesNotContain(gone, outsidePrompt);
+        Assert.Contains(@"- Gone\_\[y\]\`\|.esm: listed but not found in Data", md);   // the problem list
+        Assert.Contains(@"| Itm\_\[x\]\`.esm | 1 |", md);                          // the ITM table's plugin cell
+    }
+
     // The AI prompt block (kept as written, in its own fence) so the escaping test can leave it out.
     static string PromptPart(string md)
     {

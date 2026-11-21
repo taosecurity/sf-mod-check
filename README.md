@@ -310,10 +310,16 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
   used and why, the plugins loaded, each load-order problem, one line per record type (records, versions and memory),
   and the result.
 
-**Mod Organizer 2:** MO2 keeps each mod in its own folder, so the game's Data folder doesn't hold your mods' plugins.
-Add sf-mod-check to MO2 as an executable (arguments `conflict --plugins "<MO2>\profiles\<profile>\plugins.txt" --out
-"<a folder outside MO2>"`) and start it from MO2, so it sees the mods through MO2's virtual Data folder. We haven't
-tried this yet.
+**Mod Organizer 2 (not tested):** MO2 keeps each mod in its own folder, so the game's Data folder doesn't hold your
+mods' plugins.
+
+- Run outside MO2, `conflict` (and `patch`) sees only the plugins in the real Data folder. Every MO2 mod in your load
+  order shows up as a load-order problem ("listed but not found in Data") and is left out, so the results are
+  incomplete.
+- The way that should work is to add sf-mod-check to MO2 as an executable (arguments `conflict --plugins
+  "<MO2>\profiles\<profile>\plugins.txt" --out "<a folder outside MO2>"`) and start it from MO2, so it sees the mods
+  through MO2's virtual Data folder.
+- We haven't tried that yet, so check the report's load-order problems before you trust a result.
 
 **Time and memory:** on the author's PC, 148 plugins (about 2,650 records changed by mods, including city cells and
 navmeshes) took about 2 minutes and 8.4 to 8.8 GB at its peak; a small load order takes seconds. Large numbers of changed cells,
@@ -524,14 +530,17 @@ prints the LOOK lines and `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <p
 
 | Section | What it lists | LOOK when |
 |---|---|---|
-| Files | every file with its size and SHA-256; each `.ba2`'s contents; version numbers in names; which archives load with which plugin; archives inside the mod (not opened); FOMOD installers; files outside the usual Data layout | an archive no plugin loads; an archive that can't be read |
+| Files | every file with its size and SHA-256 (a skipped file is listed with "link" or "?" in place of its size); each `.ba2`'s contents; version numbers in names; which archives load with which plugin; archives inside the mod (not opened); FOMOD installers; files outside the usual Data layout | an archive no plugin loads; an archive that can't be read |
 | Replaces vanilla | loose files and archive entries whose path is also in the game's own archives | the mod replaces a game script (every quest and mod that uses it gets the mod's copy); a plugin or archive with the game's own name |
 | Plugins | masters (missing, unused), light/medium/full flag, FormID range, text that isn't valid UTF-8; records added, overridden and deleted by type and origin; changed fields in official records; ONAM; attached scripts; `check`'s own findings | a missing master; ITMs; deleted official records; official changes the mod undoes (it overrides a record a later official master changed, without that master); temporary references missing from ONAM; scripts that aren't there; `check` ERRORs |
 | Scripts | each `.pex` (loose or in an archive) read from its bytecode: name, parent, every function it calls, whether it logs with `Debug.Trace` | console commands; INI changes; calls to scripts in neither the mod nor the game; timers that restart themselves or start from frequent events; `GetFormFromFile` or text naming another mod's plugin; file paths that run or point outside Data |
 | Binaries | each `.dll`, `.exe` and `.asi` read from its bytes: machine, build time, PDB path, ASLR/DEP/CFG, imports grouped by what they allow, exports, SFSE plugin data (game versions, Address Library or signature scanning), signature | network, process-creation and memory-injection imports; URLs and IP addresses in its strings; an SFSE DLL without `SFSEPlugin_Version`; a DLL named like a Windows DLL the game would load instead |
 
 What it can't see: names a DLL looks up while it runs, what a script does with values it computes, records nothing
-uses, and archive entries packed with LZ4 (named in the report). It reads compiled scripts as bytecode only:
+uses, and files behind a link (symlink or junction) inside a mod folder or beside a plugin: triage never follows one,
+and the report lists each as skipped. A plugin you name yourself is read even when it is a link, because you chose it.
+Only real links count: a OneDrive placeholder or another kind of reparse point is read as a normal file or folder.
+An archive with more than 200,000 entries is refused. It reads compiled scripts as bytecode only:
 nothing is decompiled. On a large mod it uses memory like `check` does (NAPG-sized mods: about 5 GB).
 
 ## What it checks
@@ -644,6 +653,11 @@ filter.
 - Not checked: "missing required field" checks, face data, and what is inside loose files or BA2 archives (the
   `assets` check only looks up the names of attached scripts and models).
 - `check` checks one plugin against its masters. Conflicts between mods are `sf-mod-check conflict`'s job.
+- The `mutagen-gap` rule compares fields only. A quest's `Unknown` value in Mutagen isn't a field: it is the last 4
+  bytes of the header of the quest's child group (its dialogue and scenes). Mutagen 0.54.4 writes 0 there whatever
+  the value was, so a Mutagen-built plugin that overrides a quest with dialogue has 0 there, and the rule doesn't
+  report it. No effect in the game has been seen. `patch` writes no child group for a quest, so it doesn't carry the
+  value either.
 - A plugin's archives are every `<plugin> - *.ba2` (Mutagen's rule). That also takes archives with any suffix
   (`- Main_xbox.ba2`, `- Main01.ba2`) and a longer plugin's archives (`Foo - Patch - Main.ba2` counts for `Foo.esm`
   when `Foo - Patch.esm` isn't active), so the archive count and the archives searched for assets can be a little

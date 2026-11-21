@@ -1,6 +1,59 @@
 # Changelog
 
-## 0.9.0 (2026-11-20)
+## 0.9.1 (2026-11-20)
+
+### What's new
+
+This release fixes the small items left open after 0.8.0, mostly in `triage`. Nothing in `check`, `conflict` or `patch` gives different findings, and no option changed.
+
+`triage` now says plainly when it skipped a file because the file is a link (a symlink or a junction), instead of reporting it as a file that couldn't be read. It also unpacks scripts stored with LZ4 compression inside a mod's archives, so those scripts are checked like any other.
+
+### Example
+
+Triage a mod folder in which `Textures` is a junction to another folder:
+
+    sf-mod-check triage "C:\Mods\SomeMod" --out C:\Mods\reports
+
+What it prints (a real run; the folder names are changed):
+
+    sf-mod-check 0.9.1 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
+    sf-mod-check 0.9.1 triage: SomeMod (1 files; triage, not a verdict)
+    LOOK [Files] textures: skipped: it is a link (symlink or junction), and triage never follows links, so what it points to isn't checked. Run triage on the folder it points to if you want that checked
+    RESULT: REPORT WRITTEN (1 to look at, 3 notes) C:\Mods\reports\SomeMod-triage.html
+
+### Fixes
+
+- `triage` and `release` refuse an archive that holds more than 200,000 entries, before they unpack anything. A crafted archive of millions of empty files used to take a very long time to unpack and clean up.
+- `triage` never follows a link beside a plugin. On Windows, a `.ba2` next to the plugin that was a link to another file used to be read; now it is skipped, as it already was in a folder. The plugin you name yourself is still read even when it is a link.
+- Only real links (symbolic links and junctions) are skipped. Windows also marks OneDrive Files On-Demand placeholders, deduplicated files and app aliases as reparse points; `triage` reads those as normal files and folders, so a mod kept in a OneDrive folder is checked in full.
+- Every link `triage` skips is listed in the Files section as a LOOK that says it is a link. A file reached only through a link used to show as a file that couldn't be read, under a made-up path. Such a file now gets that one LOOK only, not a second "couldn't be read" from the Plugins or Scripts section.
+- Skipped files (links, and the second of two names that differ only in case) are rows in the Files section's "Every file" table, marked "link" or "?" in place of their size.
+- On Linux, two files in a mod folder whose names differ only in case (`Scripts/a.pex` and `scripts/a.pex`) are no longer read as one file twice. One of them is checked, and the report names the other and says why.
+- The Scripts section of `triage` unpacks archive entries packed with LZ4. They used to be named in the report and skipped. An entry that unpacks to more bytes than its archive says is reported as a size mismatch with both sizes, not as damaged data.
+- `check`, `release` and `conflict` find a lower-case `starfield.esm` on Linux, as `triage` already did, so they no longer print "no Starfield.esm" for such a Data folder.
+- On Windows, `triage` and `release` count an error as a problem of the PC (a locked file, a full disk) only when it carries a real Windows error code. An unrelated error code that happened to share the last four hex digits used to count too; it only changed the wording of the message.
+- `triage` checks once whether the game is in the Data folder, and the report header and the sections use that one answer. Before, a `Starfield.esm` removed during the run could make the two disagree.
+
+### Checked and still fine
+
+- The zip unpacker names a file and a folder with the same name (a zip holding both `Data` and `Data/b.txt`) and says which entry to rename. This was listed as open after 0.8.0 but had already been fixed in 0.8.0's review rounds; a new test proves it both ways round.
+- report.md escapes Markdown characters in plugin names in the load-order problem list and in the ITM table, not only in the tables the 0.5.0 notes named. That has been true since 0.5.1; a new test proves it.
+- When the Data folder holds a lower-case `starfield.esm` (possible on Linux), every later step finds it: each one either takes the name from the folder's own listing or matches names ignoring case. A new test proves it.
+
+### Build
+
+- The LZ4 package that the Scripts section uses is now pinned in the project file (K4os.Compression.LZ4 1.3.8, MIT), at the version the build already used through Mutagen. No other package changed.
+
+### Documentation
+
+- The README and AGENTS.md say exactly which links `triage` skips: links inside a mod folder and beside a plugin. The plugin named on the command line is read even when it is a link.
+
+- The README's "Known gaps" now says that Mutagen 0.54.4 writes 0 for a quest's `Unknown` value (the header of the quest's dialogue and scene group), and that the `mutagen-gap` rule doesn't report it.
+- The README and AGENTS.md now say plainly what happens when you run `conflict` or `patch` outside Mod Organizer 2: every MO2 mod shows as "listed but not found in Data" and is left out. Running sf-mod-check from inside MO2 should work but hasn't been tried.
+
+### Not yet
+
+- The ITM step still loads whole cells, so `check` and `triage` on very large mods (NAPG-sized) still peak at about 5 GB of memory.
 
 ### What's new
 

@@ -74,6 +74,15 @@ public static class ReleaseCommand
     /// <summary>The most a zip may unpack to (a damaged or crafted zip could fill the disk). 12 GB is far above any release.</summary>
     public static long MaxUnpackedBytes = 12L * 1024 * 1024 * 1024;
 
+    /// <summary>The most entries (files and folder records) an archive may hold: a crafted archive of millions of empty
+    /// files would take very long to unpack and clean up (0.8.0 follow-up). 200,000 is far above any mod (the largest
+    /// texture packs hold tens of thousands of files).</summary>
+    public static int MaxEntries = 200_000;
+
+    /// <summary>The refusal text for an archive with more than MaxEntries entries.</summary>
+    public static string TooManyEntries(long count, string what) =>
+        $"it holds {count:N0} entries, more than the {MaxEntries:N0} this check allows; a mod's {what} holds far fewer";
+
     /// <summary>The steps, in report order. Tests can swap them.</summary>
     public static List<Func<ReleaseContext, IEnumerable<ReleaseFinding>>> Steps { get; } =
         [ReleaseRules.Run, ReleaseNeeds.Run, GapCheck.Run, ReleaseLint.Run];
@@ -189,7 +198,7 @@ public static class ReleaseCommand
             return CantRun("no Data folder",
                 o.DataGiven ? $"can't use the Data folder {Path.GetFullPath(o.DataDir)}: it doesn't exist. Give --data the game's Data folder, the one that holds Starfield.esm."
                             : $"can't find the game's Data folder: Steam's usual folder {o.DataDir} doesn't exist. Run again with --data \"<the game's Data folder>\" (Game Pass: ...\\Starfield\\Content\\Data).");
-        if (!File.Exists(Path.Combine(o.DataDir, "Starfield.esm")))
+        if (!TriageCommand.HasStarfield(o.DataDir))
             Console.Error.WriteLine($"note: no Starfield.esm in {Path.GetFullPath(o.DataDir)}; give --data the game's Data folder if it is somewhere else.");
         foreach (var md in o.MastersDirs)
             if (!Directory.Exists(md))
@@ -311,7 +320,7 @@ public static class ReleaseCommand
             var data = Path.GetFullPath(dataDir).TrimEnd('\\', '/');
             // Only a Data folder that holds Starfield.esm is known to be the game's: any other folder named Data could be
             // the user's own (the run prints a note when Starfield.esm isn't there).
-            if (!File.Exists(Path.Combine(data, "Starfield.esm"))) return false;
+            if (!TriageCommand.HasStarfield(data)) return false;
             var install = Path.GetDirectoryName(data);
             if (install == null) return false;
             return full.StartsWith(install.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
@@ -378,6 +387,7 @@ public static class ReleaseCommand
         HashSet<string> clashFiles = new(StringComparer.Ordinal), clashDirs = new(StringComparer.Ordinal);
         using (var z = ZipFile.OpenRead(zip))
         {
+            if (z.Entries.Count > MaxEntries) throw new InvalidDataException(TooManyEntries(z.Entries.Count, "zip"));
             long total = z.Entries.Sum(e => e.Length), written = 0;
             if (total > MaxUnpackedBytes)
                 throw new InvalidDataException($"it unpacks to {total / (1024 * 1024 * 1024.0):F1} GB, more than the {MaxUnpackedBytes / (1024 * 1024 * 1024)} GB this check allows; a release zip is far smaller than that");

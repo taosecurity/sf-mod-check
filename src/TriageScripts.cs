@@ -338,9 +338,8 @@ public static class TriageScripts
 
     /// <summary>The .pex entries of a general (GNRL) archive with their unpacked bytes; a texture (DX10) archive has
     /// none. The file records (36 bytes each: offset at 16, packed size at 24, size at 28) follow the header (24
-    /// bytes, plus 8 in version 2 and 12 in version 3, whose last 4 name the compression: 3 = LZ4). Only zlib is
-    /// unpacked (the only kind seen in general archives); an LZ4 or damaged entry comes back with an error and the rest
-    /// are still read. Throws InvalidDataException when the header or records don't add up.</summary>
+    /// bytes, plus 8 in version 2 and 12 in version 3, whose last 4 name the compression: 3 = LZ4 block, else zlib).
+    /// Both are unpacked (LZ4 since 0.9.1); a damaged entry comes back with an error and the rest are still read. Throws InvalidDataException when the header or records don't add up.</summary>
     public static List<(string Entry, byte[]? Data, string? Error)> ArchiveScripts(string path)
     {
         var name = RelPath.FileName(path);
@@ -376,11 +375,35 @@ public static class TriageScripts
             var stored = packed != 0 ? packed : size;
             if (size > Pex.MaxBytes || stored > Pex.MaxBytes) { result.Add((names[i], null, $"it says it is {Math.Max(size, stored):N0} bytes, larger than any compiled script")); continue; }
             if (offset > (ulong)f.Length || offset + stored > (ulong)f.Length) { result.Add((names[i], null, $"its data at byte {offset} runs past the end of {name}")); continue; }
-            if (packed != 0 && method == 3) { result.Add((names[i], null, $"{name} uses LZ4 compression, which this check doesn't unpack")); continue; }
             var raw = new byte[stored];
             f.Seek((long)offset, SeekOrigin.Begin);
             f.ReadExactly(raw);
             if (packed == 0) { result.Add((names[i], raw, null)); continue; }
+            if (method == 3)
+            {
+                // an LZ4 block (0.8.0 follow-up: these were named and skipped). First into the size the record says
+                // plus one spare byte; a block that doesn't fit is decoded again into a buffer large enough for
+                // whatever it holds, so one that unpacks to more than its record says is told as a size mismatch, not
+                // as damage (code review of 0.9.1). LZ4 can't grow data more than 255 times, and no compiled script is
+                // larger than Pex.MaxBytes, so the second buffer needs no more than either.
+                var outBytes = new byte[size + 1];
+                var got = Lz4Decode(raw, outBytes);
+                if (got < 0)
+                {
+                    var room = (int)Math.Min(Pex.MaxBytes + 1L, (long)raw.Length * 255 + 16);
+                    if (room > outBytes.Length)
+                    {
+                        var big = new byte[room];
+                        var bigGot = Lz4Decode(raw, big);
+                        if (bigGot >= 0) got = bigGot;
+                        else if (room > Pex.MaxBytes) { result.Add((names[i], null, $"it won't unpack (LZ4: the data is damaged, or it unpacks to more than {Pex.MaxBytes:N0} bytes, larger than any compiled script)")); continue; }
+                    }
+                }
+                if (got < 0) result.Add((names[i], null, "it won't unpack (LZ4: the data is damaged)"));
+                else if (got != size) result.Add((names[i], null, $"it unpacks to a different size than the {size:N0} bytes {name} says ({got:N0} bytes)"));
+                else result.Add((names[i], outBytes[..(int)size], null));
+                continue;
+            }
             try
             {
                 var outBytes = new byte[size];
@@ -395,6 +418,13 @@ public static class TriageScripts
             catch (InvalidDataException e) { result.Add((names[i], null, $"it won't unpack (zlib: {e.Message})")); }
         }
         return result;
+    }
+
+    /// <summary>Decodes one LZ4 block into target: the bytes written, or -1 when it is damaged or doesn't fit.</summary>
+    static int Lz4Decode(byte[] raw, byte[] target)
+    {
+        try { return K4os.Compression.LZ4.LZ4Codec.Decode(raw, target); }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or IndexOutOfRangeException) { return -1; }
     }
 
     // ---- the game's own scripts ----
