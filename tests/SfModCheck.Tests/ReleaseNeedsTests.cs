@@ -182,6 +182,14 @@ public class ReleaseNeedsTests
     [InlineData("somemod - main.ba2", false)]
     [InlineData("MyMod-ShatteredSpaceAddon - Main.ba2", false)]
     [InlineData("StarfieldExtended - Main.ba2", false)]
+    [InlineData("SFBGS003Fixes - Main.ba2", false)]
+    [InlineData("sfta01Patch - Main.ba2", false)]
+    [InlineData("SFBGS003.Fixes - Main.ba2", false)]
+    [InlineData("Starfield.Extras - Main.ba2", false)]
+    [InlineData("sfta01.patch.ba2", false)]
+    [InlineData("Starfield - Notes.txt", false)]
+    [InlineData("SFBGS003.zip", false)]
+    [InlineData("Data/Starfield - Textures01.ba2", true)]
     public void Official_archives_are_told_from_mods(string archive, bool official) =>
         Assert.Equal(official, ReleaseNeeds.IsOfficialArchive(archive));
 

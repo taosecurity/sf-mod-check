@@ -408,13 +408,15 @@ public static class ReleaseNeeds
         return f;
     }
 
-    // Archives that belong to the game itself: Starfield's own, the DLC and Creations Bethesda ships (named after an
-    // official plugin), and the CK's sources. The SFBGS, sfta and BlueprintShips shapes are Checker.Official's
-    // (0.10.1 code review round 5: the old `sfbgs[0-9a-z]+` also took mods such as "SFBGSExtras - Main.ba2").
-    static readonly Regex OfficialArchive = new(@"^(starfield|constellation|oldmars|shatteredspace|blueprintships-starfield|(blueprintships-)?(sfbgs[0-9a-f]{3}|sfta[0-9]{2}))( - |\.)|^contentresources\.zip$",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    internal static bool IsOfficialArchive(string archive) => OfficialArchive.IsMatch(Path.GetFileName(archive.Trim()));
+    // Archives that belong to the game itself: "<official plugin> - <part>.ba2" (Starfield's own, the DLC and the
+    // Creations Bethesda ships) and the CK's sources. The plugin test is Checker.IsOfficial, through triage's
+    // VanillaIndex.IsOfficialArchive, so check, triage and release share one list (0.10.1 code review round 6: a
+    // hand-copied pattern also took "SFBGS003.Fixes - Main.ba2" and files that aren't archives).
+    internal static bool IsOfficialArchive(string archive)
+    {
+        var name = Path.GetFileName(archive.Trim());
+        return name.Equals("contentresources.zip", StringComparison.OrdinalIgnoreCase) || VanillaIndex.IsOfficialArchive(name);
+    }
 
     /// <summary>The archive each "parentmatch" file was matched in, from DMMDeps' _deps.json (Source
     /// "parent-archive:&lt;archive&gt;"); empty when the file is missing or has none.</summary>
