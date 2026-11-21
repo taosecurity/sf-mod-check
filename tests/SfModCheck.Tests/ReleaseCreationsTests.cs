@@ -266,6 +266,16 @@ public class ReleaseCreationsTests
     }
 
     [Fact]
+    public void OneLine_escapes_every_format_character()
+    {
+        // Code review round 10: U+061C (a bidi mark) and the zero-width characters weren't escaped.
+        var s = ReleaseCreations.OneLine("A؜B​C‍D⁠E﻿F‎G⁦H");
+        Assert.Equal("A\\u061cB\\u200bC\\u200dD\\u2060E\\ufeffF\\u200eG\\u2066H", s);
+        Assert.Equal("\"x\\u061c\"", ReleaseCreations.Quoted("x؜"));
+        Assert.Equal("Ünïcødé – ok", ReleaseCreations.OneLine("Ünïcødé – ok"));
+    }
+
+    [Fact]
     public void Two_long_tested_names_sharing_their_start_are_both_listed()
     {
         var a = new string('n', 85) + "A.esm";

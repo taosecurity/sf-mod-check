@@ -311,9 +311,10 @@ public static class ReleaseCreations
     }
 
     /// <summary>Text for a one-line finding or log line: control characters (Cc), the Unicode line and paragraph
-    /// separators (Zl, Zp) and the bidi controls (U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) are written
-    /// as \n, \r, \t or \uXXXX, so names taken from a script or a zip can't split a finding or reorder it on screen
-    /// (code review round 9). Everything else, backslashes in paths included, stays as it is.</summary>
+    /// separators (Zl, Zp) and every format character (Cf: the bidi controls such as U+202E and U+061C, zero-width
+    /// characters, U+FEFF) are written as \n, \r, \t or \uXXXX, so names taken from a script or a zip can't split a
+    /// finding, hide characters or reorder it on screen (code review rounds 9 and 10). Everything else, backslashes
+    /// in paths included, stays as it is.</summary>
     public static string OneLine(string s)
     {
         if (!s.Any(c => Escape(c) != null)) return s;
@@ -327,10 +328,10 @@ public static class ReleaseCreations
         '\n' => "\\n",
         '\r' => "\\r",
         '\t' => "\\t",
-        '‎' or '‏' or (>= '‪' and <= '‮') or (>= '⁦' and <= '⁩') => $"\\u{(int)ch:x4}",
         _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
         _ => char.GetUnicodeCategory(ch) is System.Globalization.UnicodeCategory.LineSeparator
-            or System.Globalization.UnicodeCategory.ParagraphSeparator ? $"\\u{(int)ch:x4}" : null,
+            or System.Globalization.UnicodeCategory.ParagraphSeparator
+            or System.Globalization.UnicodeCategory.Format ? $"\\u{(int)ch:x4}" : null,
     };
 
     /// <summary>(object, function) for each Debug.Notification or Debug.MessageBox call the player would see: not in a
