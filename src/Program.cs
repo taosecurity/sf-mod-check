@@ -9,6 +9,7 @@
 //   sf-mod-check release <zip>... [...]          (release zips: ReleaseCommand.cs; exit 0, 1 or 2)
 //   sf-mod-check triage <mod> [...]              (first-pass report on someone else's mod: TriageCommand.cs; exit 0 or 2)
 //   sf-mod-check patch [...]                     (builds a local conflict patch: PatchCommand.cs, 0.9.0; exit 0, 1, 2 or 3)
+//   sf-mod-check diff <old> <new> [...]          (two versions of a plugin or mod: DiffCommand.cs, 0.11.0; exit 0, 1 or 2)
 //   sf-mod-check <plugin> [...]                  (same as check: older callers, and a plugin dropped on the exe)
 //   sf-mod-check --version
 // Hidden maintenance modes (run on the official masters after a game update):
@@ -37,6 +38,7 @@ const string Usage =
     "       sf-mod-check release <zip>... [--profile basic|house|creations] [--dmmdeps <exe>] [...]   (sf-mod-check release --help)\n" +
     "       sf-mod-check triage <mod.zip | .7z | .rar | folder | plugin> [--game <folder>] [--out <folder>] [...]   (sf-mod-check triage --help)\n" +
     "       sf-mod-check patch [--plugins <Plugins.txt>] [--only <a.esm>,<b.esm>] [--pick <FormKey>=<plugin>]... [--out <folder>] [...]   (sf-mod-check patch --help)\n" +
+    "       sf-mod-check diff <old> <new> [--data <Data folder>] [--json] [--out <file>] [...]   (sf-mod-check diff --help)\n" +
     "       sf-mod-check --version";
 // A plugin past this many records (the header's count) gets the memory note on stderr. Mods stay far below it; the
 // official Starfield.esm has about 3.8 million and needs over 30 GB of memory to check.
@@ -130,6 +132,7 @@ int Dispatch(string[] args)
     if (args.Length > 0 && args[0] == "release") return ReleaseCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     if (args.Length > 0 && args[0] == "triage") return TriageCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     if (args.Length > 0 && args[0] == "patch") return PatchCommand.Run(args.Skip(1).ToArray(), Version, Byline);
+    if (args.Length > 0 && args[0] == "diff") return DiffCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     var rest = args.Length > 0 && args[0] == "check" ? args.Skip(1).ToArray() : args;
     return Check(rest);
 }

@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.11.0 (unreleased)
+
+### Added
+
+- `diff <old> <new>`: compares two versions of a plugin, or of a mod (a .zip, .7z or .rar download, or a folder). Plugins in two mods are paired by file name, and a plugin in only one of them is listed as added or removed. Options `--data`, `--json`, `--out`, `--quiet`, `--verbose` and `--log`. Exit 0 = no differences, 1 = differences, 2 = bad input or setup.
+- `diff` compares records by their fields, not only their bytes, and names the top-level fields that changed. Own records that kept their type and EditorID under a new FormID are listed as renumbered (old and new FormID). A record whose bytes differ but whose fields are all equal (padding bytes, field order, -0 and +0) is counted as noise, which is no difference: a version that differs only by noise exits 0.
+- `diff` detail views: placed objects and the other cell records grouped by their cell (added, removed, changed and moved to another cell), leveled-list entries added and removed (level, reference, count), and base-object swaps. EditorIDs of master records come from the masters in the mod or the Data folder (`--data`).
+- `diff` option `--all`: lists everything in the text report, including each cell's records (long lists are cut short otherwise; the JSON always lists everything).
+- `diff` compares the other files of two mods: loose files by SHA-256, each archive's files (archives paired by name, each file hashed as stored), and changed scripts (.pex, loose or in an archive) by their objects, states and functions, names only. Any file difference is a difference; the RESULT line counts the files added, removed and changed. JSON keys `files`, `archives` and `scripts`.
+- `diff` with `--verbose` or `--log` records what it read, how it paired plugins, archives and loose files, what it left out and why, each header change, renumbered record, changed record and changed file, and the result. Errors name the file and say what to do. The README has an Example with real output, and AGENTS.md lists every JSON key.
+
+### Example
+
+Compare two versions of a mod (here two folders of a small made-up mod, built by the tests):
+
+    sf-mod-check diff MyMod-1.0 MyMod-1.1
+
+What it prints (a real run, with the loose-file, archive and script sections left out):
+
+    sf-mod-check 0.11.0 diff: MyMod-1.0 -> MyMod-1.1
+    ...
+    == MyMod.esm ==
+      old: full, 0 masters, 8 records (8 own)
+      new: full, 0 masters, 9 records (9 own)
+      header: HEDR record count: 16 -> 17 (information only)
+      header: HEDR next object ID: 822 -> 823 (information only)
+      own records: 2 added, 1 removed, 3 changed; 4 the same
+    ...
+      leveled lists with changed entries (1):
+        LVLI 000803:MyMod.esm MYM_VaultLoot: 2 added, 1 removed
+          + level 1, 000802:MyMod.esm MYM_Coin, count 10
+          + level 5, 000805:MyMod.esm MYM_NewToken, count 1
+          - level 1, 000802:MyMod.esm MYM_Coin, count 5
+      base-object swaps (1; placed objects whose base object changed):
+        REFR 000821:MyMod.esm in 000810:MyMod.esm MYM_VaultCell: 000802:MyMod.esm MYM_Coin -> 000801:MyMod.esm MYM_Gem
+      changed records (3; the fields that differ):
+        MISC 000801:MyMod.esm MYM_Gem: Keywords
+        LVLI 000803:MyMod.esm MYM_VaultLoot: Entries
+        REFR 000821:MyMod.esm (no EditorID): Base
+    ...
+    RESULT: DIFFERENCES (1 plugin compared, 1 changed, 0 added, 0 removed; records: 2 added, 1 removed, 3 changed, 0 renumbered, 0 noise; files: 1 added, 0 removed, 3 changed)
+
+The full output and a JSON excerpt are in the README, section "Compare two versions of a mod".
+
 ## 0.10.1 (2026-11-21)
 
 ### Changed

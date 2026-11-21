@@ -47,14 +47,25 @@ public sealed class DeepCompare
     /// conflict uses it to tell an "undocumented fields only" difference apart.</summary>
     public bool IgnoreUnknown { get; init; }
 
+    /// <summary>Rule 7 (diff, 0.11.0). Leave out the members Mutagen names as padding: "Unused", "Unused1", "Unused2"
+    /// and so on (the 3 padding bytes after a condition's flags, a leveled-list entry's bytes 2-3 and 11). Longer
+    /// names such as UnusedConditions or UnusedWorldspaceParent hold data and stay compared.</summary>
+    public bool IgnorePadding { get; init; }
+
+    /// <summary>Whether a member name is one of Mutagen's padding names (rule 7).</summary>
+    public static bool IsPadding(string name) =>
+        name.StartsWith("Unused", StringComparison.Ordinal) && name.AsSpan(6).IndexOfAnyExceptInRange('0', '9') < 0;
+
+    bool Skipped(string name) => (IgnoreUnknown && name.StartsWith("Unknown")) || (IgnorePadding && IsPadding(name));
+
     readonly ConcurrentDictionary<Type, PropertyInfo[]> props = new();
     readonly ConcurrentDictionary<Type, FieldInfo[]> fields = new();
 
     public PropertyInfo[] Properties(Type t) => props.GetOrAdd(t, t =>
-        IgnoreUnknown ? SelectProperties(t).Where(p => !p.Name.StartsWith("Unknown")).ToArray() : SelectProperties(t));
+        IgnoreUnknown || IgnorePadding ? SelectProperties(t).Where(p => !Skipped(p.Name)).ToArray() : SelectProperties(t));
 
     public FieldInfo[] Fields(Type t) => fields.GetOrAdd(t, t => t.GetFields(BindingFlags.Public | BindingFlags.Instance)
-        .Where(f => !(IgnoreUnknown && f.Name.StartsWith("Unknown"))).ToArray());
+        .Where(f => !Skipped(f.Name)).ToArray());
 
     /// <summary>Whether a and b hold the same value. depth: how deep the walk is (0 for a record's field).</summary>
     public bool Eq(object? a, object? b, int depth)
@@ -139,6 +150,14 @@ public sealed class DeepCompare
     public static readonly DeepCompare Conflict = new()
     {
         EqualsFirst = true, WalkValueTypeLists = true, TypesByEquals = false, EmptyByEquals = false,
+        SelectProperties = SfModCheck.Conflict.FieldCompare.NestedProperties,
+    };
+
+    /// <summary>diff's noise test: conflict's rules, leaving out Mutagen's padding members (rule 7). Undocumented
+    /// "Unknown*" members stay compared: they may hold real data.</summary>
+    public static readonly DeepCompare DiffIgnoringPadding = new()
+    {
+        EqualsFirst = true, WalkValueTypeLists = true, TypesByEquals = false, EmptyByEquals = false, IgnorePadding = true,
         SelectProperties = SfModCheck.Conflict.FieldCompare.NestedProperties,
     };
 

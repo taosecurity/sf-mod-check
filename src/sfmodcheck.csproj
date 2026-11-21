@@ -21,7 +21,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SfModCheck</RootNamespace>
     <AssemblyName>sf-mod-check</AssemblyName>
-    <Version>0.10.1</Version>
+    <Version>0.11.0</Version>
     <!-- Shown in the exe's file properties (Details tab); attribution added 2026-11-11. -->
     <Product>sf-mod-check</Product>
     <AssemblyTitle>sf-mod-check: read-only checks of Starfield mods</AssemblyTitle>

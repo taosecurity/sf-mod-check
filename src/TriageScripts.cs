@@ -344,7 +344,8 @@ public static class TriageScripts
     /// none. The file records (36 bytes each: offset at 16, packed size at 24, size at 28) follow the header (24
     /// bytes, plus 8 in version 2 and 12 in version 3, whose last 4 name the compression: 3 = LZ4 block, else zlib).
     /// Both are unpacked (LZ4 since 0.9.1); a damaged entry comes back with an error and the rest are still read. Throws InvalidDataException when the header or records don't add up.</summary>
-    public static List<(string Entry, byte[]? Data, string? Error)> ArchiveScripts(string path)
+    /// <param name="want">Only these entries (as Ba2Names gives them) are unpacked; null = every .pex (diff, 0.11.0).</param>
+    public static List<(string Entry, byte[]? Data, string? Error)> ArchiveScripts(string path, Func<string, bool>? want = null)
     {
         var name = RelPath.FileName(path);
         var names = Ba2Names.Read(path);  // checks the header and the name table
@@ -372,6 +373,7 @@ public static class TriageScripts
         for (int i = 0; i < names.Count; i++)
         {
             if (!names[i].EndsWith(".pex", StringComparison.Ordinal)) continue;
+            if (want != null && !want(names[i])) continue;
             var r = rec.AsSpan(36 * i, 36);
             var offset = BinaryPrimitives.ReadUInt64LittleEndian(r[16..]);
             var packed = BinaryPrimitives.ReadUInt32LittleEndian(r[24..]);

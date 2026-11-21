@@ -587,6 +587,178 @@ Only real links count: a OneDrive placeholder or another kind of reparse point i
 An archive with more than 200,000 entries is refused. It reads compiled scripts as bytecode only:
 nothing is decompiled. On a large mod it uses memory like `check` does (NAPG-sized mods: about 5 GB).
 
+## Compare two versions of a mod: `sf-mod-check diff`
+
+Run it when a mod you use or build on has a new version, to see what changed between the two.
+
+    sf-mod-check diff MyMod-1.0.zip MyMod-1.1.zip
+
+    sf-mod-check diff <old> <new> [--data <Data folder>] [--json] [--out <file>] [--all] [--quiet] [--verbose] [--log <file>]
+
+- `<old>` and `<new>`: two plugins (`.esm`, `.esp` or `.esl`), or two mods, each a `.zip`, `.7z` or `.rar` download
+  or a mod folder (a zip and a folder can be compared). An archive is unpacked into a temp folder that is always
+  removed. Plugins in two mods are paired by file name, and a plugin in only one of them is listed as added or
+  removed. Two plugins you name directly are compared whatever their names.
+- `--data <folder>`: the game's Data folder, for the EditorIDs of records in the masters (default: Steam's usual
+  folder).
+- `--json`: the report as JSON instead of text. The JSON always lists everything.
+- `--out <file>`: write the report to this file; stdout then gets only the RESULT line. It never writes over a
+  plugin, an archive or a script, and never inside an input folder.
+- `--all`: list everything in the text report. Without it, long lists stop after a set number of lines (40 cells,
+  25 leveled lists, 20 entries per list, 50 base-object swaps, 100 changed records) and say how many were left out.
+  With it, each cell's records are listed too.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`.
+
+For each plugin the report counts the records added, removed, changed and renumbered per record type, split into the
+plugin's own records and its overrides of master records, lists the changed records with the fields that differ, and
+lists the renumbered records (same type and EditorID, new FormID) with their old and new FormIDs.
+A record whose bytes differ but whose fields are all equal (padding bytes, field order, -0 and +0, as a resave in the
+Creation Kit or xEdit leaves them) is counted as noise. Noise is no difference: it is shown, but it never makes the
+result DIFFERENCES.
+
+Three views follow the counts:
+
+- **By cell**: placed objects, navmeshes and the other records that sit in a cell, grouped by their cell, with the
+  cell's EditorID and a summary such as `+REFR 197, -REFR 87, ~REFR 8` (`+` added, `-` removed, `~` changed or moved
+  in, `>` moved out to another cell). The cells with the most changes come first.
+- **Leveled lists with changed entries**: for each leveled list (items, NPCs, base forms, pack-ins and the others) whose
+  entries changed, the entries added and removed, each with its level, the record it gives and its count.
+- **Base-object swaps**: placed objects whose base object changed, with the old and the new base.
+
+EditorIDs of records in the masters come from the master files: first a master in the mod itself, then the game's
+Data folder (`--data`). When a master isn't found, its records are shown by FormKey only, and the report says so.
+
+For two mods, three more sections follow the plugins:
+
+- **Loose files**: every file that isn't a plugin or an archive, paired by its path inside the mod and compared by
+  size, then SHA-256: added, removed and changed, with a summary per folder first.
+- **Archives**: each .ba2 is paired by file name, as plugins are. Archives with the same bytes are "same". For the
+  others, the files inside are listed and each is compared by a hash of its stored bytes (nothing is unpacked), with
+  the files added, removed and changed and a summary per folder. A file stored with other compression counts as
+  changed.
+- **Scripts**: each changed .pex, loose or inside an archive, is read and compared object by object: the states and
+  functions added, removed or changed (a function changed means its code, parameters, locals, return type or flags
+  differ), and whether its parent, variables, properties or structs differ. Only names and counts are shown, never
+  the code. A script whose bytes differ but whose objects are all the same (compiled again, other debug info) says so.
+
+Any file difference makes the result DIFFERENCES, and the RESULT line adds the files added, removed and changed (loose
+files plus the files inside archives).
+
+It is read-only: it never writes next to its inputs. The last line on stdout is `RESULT: NO DIFFERENCES (...)`,
+`RESULT: DIFFERENCES (...)` or `RESULT: CANNOT DIFF (...)`. Exit codes: 0 no differences (noise counts as none), 1
+differences, 2 bad input or setup.
+
+### Example
+
+Two versions of a small made-up mod, MyMod 1.0 and 1.1, each a folder with `MyMod.esm`, a readme, a loose script and
+`MyMod - Main.ba2` (the tests build them: `DiffExampleTests`). In 1.1 a misc item gained a keyword, one item was
+replaced by another, the vault's leveled list changed, a placed object got another base object, one more object was
+placed, the script gained a function, and the archive gained a mesh. Run from the folder that holds both:
+
+    sf-mod-check diff MyMod-1.0 MyMod-1.1
+
+The real output (exit code 1):
+
+    sf-mod-check 0.11.0 diff: MyMod-1.0 -> MyMod-1.1
+    old: M:\MyMod-1.0 (folder)
+    new: M:\MyMod-1.1 (folder)
+
+    == Plugins ==
+      changed  MyMod.esm
+
+    == MyMod.esm ==
+      old: full, 0 masters, 8 records (8 own)
+      new: full, 0 masters, 9 records (9 own)
+      header: HEDR record count: 16 -> 17 (information only)
+      header: HEDR next object ID: 822 -> 823 (information only)
+      own records: 2 added, 1 removed, 3 changed; 4 the same
+      overrides:   -; 0 the same
+      by record type (changed = fields differ; noise = the bytes differ but every field is equal, which is no difference):
+        LVLI  own: 1 changed  |  overrides: -
+        MISC  own: 1 added, 1 removed, 1 changed  |  overrides: -
+        REFR  own: 1 added, 1 changed  |  overrides: -
+      by cell (1 cell, 2 records; + added, - removed, ~ changed, > moved out):
+        000810:MyMod.esm MYM_VaultCell: +REFR 1, ~REFR 1
+        (--all lists each cell's records)
+      leveled lists with changed entries (1):
+        LVLI 000803:MyMod.esm MYM_VaultLoot: 2 added, 1 removed
+          + level 1, 000802:MyMod.esm MYM_Coin, count 10
+          + level 5, 000805:MyMod.esm MYM_NewToken, count 1
+          - level 1, 000802:MyMod.esm MYM_Coin, count 5
+      base-object swaps (1; placed objects whose base object changed):
+        REFR 000821:MyMod.esm in 000810:MyMod.esm MYM_VaultCell: 000802:MyMod.esm MYM_Coin -> 000801:MyMod.esm MYM_Gem
+      changed records (3; the fields that differ):
+        MISC 000801:MyMod.esm MYM_Gem: Keywords
+        LVLI 000803:MyMod.esm MYM_VaultLoot: Entries
+        REFR 000821:MyMod.esm (no EditorID): Base
+
+    == Loose files (not plugins or archives; compared by size, then SHA-256) ==
+      0 added, 0 removed, 2 changed; 0 the same
+    ...
+      changed (2):
+        MyMod-Readme.txt (11 -> 23 bytes)
+        Scripts\MyMod\VaultScript.pex (249 -> 285 bytes)
+
+    == Archives (.ba2; each file compared by a hash of its stored bytes) ==
+      changed  MyMod - Main.ba2 (GNRL, 2 -> 3 files): 1 added, 0 removed, 1 changed; 1 the same
+    ...
+        added (1):
+          meshes\mymod\gem.nif
+        changed (1):
+          meshes\mymod\coin.nif
+
+    == Scripts (changed .pex files: objects, states and functions by name; no code is shown) ==
+      Scripts\MyMod\VaultScript.pex (loose):
+        object MyMod:VaultScript: changed
+          functions changed (1): OnActivate
+          functions added (1): OnLoad
+    RESULT: DIFFERENCES (1 plugin compared, 1 changed, 0 added, 0 removed; records: 2 added, 1 removed, 3 changed, 0 renumbered, 0 noise; files: 1 added, 0 removed, 3 changed)
+
+The same run with `--json --out diff.json` writes the whole report as JSON (its full shape is in
+[AGENTS.md](AGENTS.md), section 6). An excerpt:
+
+    {
+      "schema": 1,
+      "tool": "sf-mod-check 0.11.0",
+    ...
+      "plugins": [
+        {
+          "name": "MyMod.esm",
+          "status": "changed",
+    ...
+          "changed": [
+            {
+              "key": "000801:MyMod.esm",
+              "type": "MISC",
+              "editor_id": "MYM_Gem",
+              "override": false,
+              "fields": [
+                "Keywords"
+              ],
+              "not_compared": null
+            },
+    ...
+          "base_swaps": [
+            {
+              "key": "000821:MyMod.esm",
+              "type": "REFR",
+              "editor_id": null,
+              "cell": "000810:MyMod.esm",
+              "old": {
+                "key": "000802:MyMod.esm",
+                "editor_id": "MYM_Coin"
+              },
+              "new": {
+                "key": "000801:MyMod.esm",
+                "editor_id": "MYM_Gem"
+              }
+            }
+          ]
+    ...
+      "differences": true,
+      "exit_code": 1
+    }
+
 ## What it checks
 
 Each finding names its check in brackets.

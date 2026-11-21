@@ -1,7 +1,7 @@
 # sf-mod-check: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sf-mod-check. Every command
-here was run once on sf-mod-check 0.10.0 (2026-11-21) before release. The [README](README.md) has the full description.
+here was run once on sf-mod-check 0.11.0 (2026-11-21) before release. The [README](README.md) has the full description.
 Until 0.7.0 the tool was called **sfmodcheck**: the command is now `sf-mod-check` (the exe zip also holds a
 `sfmodcheck.cmd` that runs it under the old name, for one release). Old caches and `SFMODCHECK_*` variables still work.
 
@@ -56,35 +56,35 @@ new plugin to its own folder), or `check` on Bethesda's own masters (Starfield.e
 
 ## 3. Install
 
-Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.10.1 shown here).
+Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.11.0 shown here).
 
-1. **Stand-alone exe (Windows):** download `sf-mod-check-0.10.1-win-x64.zip` and its `.sha256` file, check the
+1. **Stand-alone exe (Windows):** download `sf-mod-check-0.11.0-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 
-       certutil -hashfile sf-mod-check-0.10.1-win-x64.zip SHA256
+       certutil -hashfile sf-mod-check-0.11.0-win-x64.zip SHA256
        mkdir C:\Tools\sf-mod-check
-       tar -xf sf-mod-check-0.10.1-win-x64.zip -C C:\Tools\sf-mod-check
+       tar -xf sf-mod-check-0.11.0-win-x64.zip -C C:\Tools\sf-mod-check
 
-   Compare the printed hash with the one in `sf-mod-check-0.10.1-win-x64.zip.sha256` (it sits next to the zip on the
+   Compare the printed hash with the one in `sf-mod-check-0.11.0-win-x64.zip.sha256` (it sits next to the zip on the
    Releases page). If the user has only the zip, print the hash, tell them it couldn't be compared, and ask them to
    download the `.sha256` file too. The program is then `C:\Tools\sf-mod-check\sf-mod-check.exe`.
 
-2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.10.1.nupkg` into a folder (here `C:\Downloads`), then
+2. **dotnet tool (Windows or Linux):** download `sf-mod-check.0.11.0.nupkg` into a folder (here `C:\Downloads`), then
    either install it for the user:
 
-       dotnet tool install --global sf-mod-check --add-source C:\Downloads --version 0.10.1
+       dotnet tool install --global sf-mod-check --add-source C:\Downloads --version 0.11.0
 
    or into a folder of its own (nothing global changes):
 
-       dotnet tool install sf-mod-check --tool-path C:\Tools\sf-mod-check-tool --add-source C:\Downloads --version 0.10.1
+       dotnet tool install sf-mod-check --tool-path C:\Tools\sf-mod-check-tool --add-source C:\Downloads --version 0.11.0
 
-   On Linux, `sha256sum -c sf-mod-check.0.10.1.nupkg.sha256` checks the download.
+   On Linux, `sha256sum -c sf-mod-check.0.11.0.nupkg.sha256` checks the download.
 
 ## 4. Prove the install works
 
     sf-mod-check --version
 
-Its first line is `sf-mod-check 0.10.1 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
+Its first line is `sf-mod-check 0.11.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check`
 (two credit lines follow), and it exits with code 0. A `check` prints the same first line on stderr, unless
 `--quiet` is given; its stdout starts with the plugin's summary line and ends with the RESULT line. (Use the full
 path, such as `C:\Tools\sf-mod-check\sf-mod-check.exe --version`, when the folder isn't on PATH.)
@@ -251,6 +251,29 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     updated. `--include-official` (off by default; not with `--only`) also restores changes one official plugin loses
     to another; use it only when the user asks, since `conflict` never lists those losses and can't show them restored.
 
+16. Compare two versions of a mod (0.11.0): two downloads, two folders, a download and a folder, or two plugins.
+    Give the old version first:
+
+        sf-mod-check diff "C:\Downloads\SomeMod-1.0.zip" "C:\Downloads\SomeMod-1.1.zip"
+        sf-mod-check diff OldCopy\SomeMod.esm SomeMod.esm --json --out diff.json
+
+    To read the result, use the exit code and the last stdout line: exit 0 and `RESULT: NO DIFFERENCES (...)` mean
+    the two versions are the same (noise only), exit 1 and `RESULT: DIFFERENCES (...)` mean they differ, and exit 2
+    and `RESULT: CANNOT DIFF (...)` mean it couldn't compare them (the message above it names the file and the fix).
+    The RESULT line counts the plugins, records and files, for example
+    `RESULT: DIFFERENCES (1 plugin compared, 1 changed, 0 added, 0 removed; records: 2 added, 1 removed, 3 changed, 0 renumbered, 0 noise; files: 1 added, 0 removed, 3 changed)`.
+    For the details, read the JSON (`--json --out diff.json`; its shape is in section 6 under `diff`).
+    Exit 0 means no differences, 1 differences, 2 bad input. Records whose bytes differ but whose fields are all
+    equal are counted as noise, which is no difference (exit 0 when only noise differs). `--data` gives the game's Data folder (default: Steam's
+    usual one, for master EditorIDs), `--quiet`, `--verbose` and `--log <file>` work as for `check`. `--out` never takes a plugin, archive
+    or script name, or a path inside an input folder. The report groups placed objects by cell and lists leveled-list
+    entries added and removed and base-object swaps. For two mods it also compares the loose files (SHA-256), each
+    archive's files (paired by name, hashed as stored) and changed scripts (objects, states and functions by name,
+    never code); any file difference counts as a difference. Long text lists are cut short; `--all` lists everything (the JSON
+    always does):
+
+        sf-mod-check diff OldCopy\SomeMod.esm SomeMod.esm --all --out diff.txt
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -278,6 +301,43 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   `INCOMPLETE ...` lines, and always one last line `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <html path>` or
   `RESULT: NO REPORT (...)`. Exit codes: 0 = report written (whatever it found: there is no "fail"); 2 = bad input or
   setup. Scripts should read the exit code and the JSON.
+- **`diff`:** input is two plugins, or two mods (each a .zip, .7z or .rar, unpacked into a temp folder that is
+  removed at the end, or a folder read where it is); plugins in two mods are paired by file name. Output: the report
+  on stdout, or in the `--out` file (text, or JSON with `--json`), then always one last line on stdout:
+  `RESULT: NO DIFFERENCES (...)`, `RESULT: DIFFERENCES (...)` or `RESULT: CANNOT DIFF (...)`. Exit codes: 0 = no
+  differences (noise only counts as none), 1 = differences, 2 = bad input or setup. Scripts should read the exit code
+  and the JSON. The JSON shape (`schema` 1; a key that doesn't apply is null, not left out):
+  - Top level: `schema`, `tool`, `old` and `new` (each `path`, `kind` plugin, folder, zip, 7z or rar, `files` (a
+    count), `skipped` (a count)), `plugins`, `files`, `archives`, `scripts`, `differences` (true or false),
+    `exit_code`.
+  - Each of `plugins`: `name`, `status` (same, changed, added or removed), `old` and `new` (its path inside each
+    input, null when it is only in one). A plugin only in one version has nothing more. A paired one also has:
+    - `header`: `old` and `new` (each `type` full, medium or light, `flags` as hex, `form_version`, `masters` (each
+      `name`, `type`, `found`), `hedr_records`), and `changes` (each `text`, and `real`: false = information only).
+    - `records`: `old` and `new` (each `records`, `own`, `overrides`, `past_end`, `duplicates`, `unpackable`), and
+      the totals `own` and `overrides`, each a count object: `added`, `removed`, `changed`, `noise`, `renumbered`,
+      `same`.
+    - `types`: each `type` (the record type, such as REFR) with `own` and `overrides` count objects.
+    - `fields_not_compared` (why Mutagen couldn't read the plugin, or null), and `changed`: each `key`, `type`,
+      `editor_id`, `override`, `fields` (the field names that differ), `not_compared`.
+    - `renumbered`: each own record that kept its type and EditorID under a new FormID: `type`, `editor_id`,
+      `old_key`, `new_key`.
+    - `cells`: each `cell` (key), `editor_id`, `added`, `removed`, `changed` and `moved_out` (each an object of counts
+      keyed by record type, such as `{"REFR": 3}`), and `records` (each `change` added, removed, changed or moved
+      out, `key`, `type`, `editor_id`, `moved_from`, `moved_to`).
+    - `leveled_lists`: each `key`, `type`, `editor_id`, `override`, `added` and `removed` entries (each `level`, `ref`,
+      `editor_id`, `count`), and `other_entry_changes`.
+    - `base_swaps`: each `key`, `type`, `editor_id`, `cell`, and `old` and `new` (each `key`, `editor_id`).
+    - `editor_ids_missing`: the masters that weren't found, so their records show as FormKeys.
+  - `files` (null for two plugins): `added` and `removed` (paths), `changed` (each `path`, `old_size`, `new_size`),
+    and `same` (a count).
+  - `archives` (null for two plugins): each `name`, `status` (same, changed, added or removed), `old`, `new` (paths
+    inside each input), `type` (GNRL or DX10), `old_files`, `new_files`, `same_bytes`, `added`, `removed` and `changed`
+    (file names inside), `same` (a count), `error` (why its files couldn't be listed, or null).
+  - `scripts` (null for two plugins): each changed .pex as `path`, `where` (loose, or the archive's name), `error`,
+    `code_same` (true when only the bytes differ), and `objects`, each `name`, `status` (added, removed or changed), `parent_change`,
+    `states_added`, `states_removed`, `functions_added`, `functions_removed`, `functions_changed`, `other` (names
+    only, never code).
 - **Exit codes (`check`):** 0 = no errors (warnings allowed); 1 = errors; 2 = couldn't check (bad arguments, a missing file or
   folder, a file it couldn't open, or it ran out of memory: then no result is shown for an unfinished check).
 - **Log:** only when asked: `--log <file>` writes it to that file (a relative name is in the current folder; overwritten each run; a plugin or archive name is refused), `--verbose` to stderr. It

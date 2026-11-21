@@ -221,7 +221,20 @@ public sealed class RawWalker
 
     static bool IsSig(string s) => s.All(c => c is >= 'A' and <= 'Z' or >= '0' and <= '9' or '_');
 
-    sealed record Ctx(int Type, uint Label, string LabelSig, Ctx? Parent);
+    /// <summary>A group: Owner is the stored FormID of the record just before it when that is a CELL (the cell a type 6
+    /// cell-children group belongs to, written the same way as the cell's own record).</summary>
+    sealed record Ctx(int Type, uint Label, string LabelSig, Ctx? Parent, uint? Owner = null);
+
+    /// <summary>While OnRecord runs: the stored FormID of the cell the record sits under (the nearest type 6 group's
+    /// cell, or its label when no CELL record comes before it), or null for a record that isn't in a cell (diff 0.11.0).</summary>
+    public uint? CurrentCell { get; private set; }
+
+    static uint? CellOf(Ctx? c)
+    {
+        for (; c != null; c = c.Parent)
+            if (c.Type == 6) return c.Owner ?? c.Label;
+        return null;
+    }
 
     public void Walk()
     {
@@ -254,7 +267,7 @@ public sealed class RawWalker
                 var label = f.U32(off + 8);
                 var type = f.I32(off + 12);
                 var labelSig = f.Sig(off + 8);
-                var c = new Ctx(type, label, labelSig, ctx);
+                var c = new Ctx(type, label, labelSig, ctx, prev is { Sig: "CELL" } p ? p.FormId : null);
                 Census[$"group type {type} in {(ctx == null ? "top" : "type " + ctx.Type)}"] = Census.GetValueOrDefault($"group type {type} in {(ctx == null ? "top" : "type " + ctx.Type)}") + 1;
                 CheckGroup(off, c, prev);
                 Container(off + 24, off + size, c);
@@ -271,7 +284,11 @@ public sealed class RawWalker
             Census[key] = Census.GetValueOrDefault(key) + 1;
             CheckPlacement(rec, ctx);
             if (rec.FormId == 0) problem("ERROR", off, $"{sig} record with FormID 00000000");
-            OnRecord?.Invoke(rec);
+            if (OnRecord != null)
+            {
+                CurrentCell = CellOf(ctx);
+                OnRecord(rec);
+            }
             if (deep) Fields(rec);
             prev = rec;
             off = recEnd;
