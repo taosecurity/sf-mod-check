@@ -184,21 +184,33 @@ public static class DiffCommand
     /// <summary>Where a path really goes, with every symbolic link and junction on the way followed (in the parts that
     /// exist, also inside a link's own target), for comparing paths only, never for opening them. ".." is applied the way
     /// the system does: by text on Windows (before any link is followed), and to the real folder on Linux and macOS.
-    /// Null when that can't be worked out: a link to a mounted volume (\\?\Volume{...}), a chain of more than 40 links, or
-    /// an error reading a link. A \\?\ prefix is dropped on Windows. Hard links and 8.3 short names aren't detected.</summary>
+    /// Null when that can't be worked out: a link to a mounted volume (\\?\Volume{...}) or another device path, a chain of
+    /// more than 40 links or more than 400 links in all, an invalid path, or an error reading a link. A \\?\, \??\ or \\.\
+    /// prefix is dropped on Windows. A link whose target doesn't exist yet is followed too. Hard links and 8.3 short names aren't detected.</summary>
     public static string? RealPath(string path) => RealPath(path, out _);
     /// <summary>As <see cref="RealPath(string)"/>; when it returns null, <paramref name="why"/> says why, for the error
     /// message (code-review round 4: one fixed message named the wrong cause for an access error).</summary>
     public static string? RealPath(string path, out string? why)
     {
         string? reason = null;
+        int links = 0;   // code-review round 5: a budget for the whole call, so links whose targets repeat links can't run for ever
         try
         {
             var r = Walk(OperatingSystem.IsWindows() ? NoPrefix(System.IO.Path.GetFullPath(path)) : Absolute(path), 0);
             why = reason;
             return r;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            why = $"the path isn't valid ({e.Message})";
+            return null;
+        }
+        catch (UnauthorizedAccessException e)
+        {
+            why = $"a folder or link on the way can't be read ({e.Message})";
+            return null;
+        }
+        catch (IOException e)
         {
             why = $"a link on the way can't be read ({e.Message})";
             return null;
@@ -208,6 +220,13 @@ public static class DiffCommand
 
         string? Walk(string p, int depth)
         {
+            // code-review round 5: \\?\GLOBALROOT, \\.\PhysicalDrive0 and other device paths that NoPrefix can't turn into
+            // a drive letter never match one, so they can't be checked
+            if (OperatingSystem.IsWindows() && IsDevicePath(p))
+            {
+                reason = IsVolumeTarget(p) ? "it goes through a mounted volume" : $"it is a device path ({p})";
+                return null;
+            }
             var root = System.IO.Path.GetPathRoot(p) ?? "";
             var cur = root;
             bool exists = true;   // once a part doesn't exist, nothing after it can be a link
@@ -221,13 +240,18 @@ public static class DiffCommand
                 {
                     FileSystemInfo info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
                     exists = info.Exists;
+                    // code-review round 5: a link whose target doesn't exist yet is followed too, since writing through it
+                    // creates the target. Attributes are -1 when nothing is there (LinkTarget would throw on Linux then).
+                    var attrs = info.Attributes;
+                    bool isLink = (int)attrs != -1 && attrs.HasFlag(FileAttributes.ReparsePoint);
                     // LinkTarget by hand, not ResolveLinkTarget: Windows refuses to follow a junction that way ("untrusted
                     // mount point"). The target is walked again, so links inside it are followed too.
-                    if (exists && info.LinkTarget is { } target)
+                    if (isLink && info.LinkTarget is { } target)
                     {
-                        // the limit is per chain (a link whose target holds a link, and so on), so loops end and a long
-                        // path with many separate links still passes
+                        // the depth limit is per chain (a link whose target holds a link, and so on), so loops end and a
+                        // long path with many separate links still passes; the total budget stops targets that repeat links
                         if (depth >= 40) { reason = "it goes through a chain of more than 40 links"; return null; }
+                        if (++links > 400) { reason = "it goes through more than 400 links"; return null; }
                         if (IsVolumeTarget(target)) { reason = "it goes through a mounted volume"; return null; }
                         var t = System.IO.Path.IsPathRooted(target) ? target : System.IO.Path.Combine(cur, target);
                         if (Walk(OperatingSystem.IsWindows() ? NoPrefix(System.IO.Path.GetFullPath(t)) : t, depth + 1) is not { } resolved) return null;
@@ -244,13 +268,19 @@ public static class DiffCommand
     /// which never matches a drive letter. Elsewhere "Volume{" is an ordinary folder name.</summary>
     internal static bool IsVolumeTarget(string target) =>
         OperatingSystem.IsWindows() &&
-        (target.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase) || target.StartsWith(@"\??\Volume{", StringComparison.OrdinalIgnoreCase));
+        DevicePrefixes.Any(pre => target.StartsWith(pre + "Volume{", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Drops a Windows \\?\ (or \??\) prefix so the path compares with its plain form: \\?\C:\x is C:\x,
-    /// \\?\UNC\server\share is \\server\share. Volume GUID paths are left as they are.</summary>
+    static readonly string[] DevicePrefixes = [@"\\?\", @"\??\", @"\\.\"];
+
+    /// <summary>A Windows path that still starts with \\?\, \??\ or \\.\ after <see cref="NoPrefix"/> (a volume GUID,
+    /// GLOBALROOT or another device), which never matches a drive-letter path.</summary>
+    internal static bool IsDevicePath(string p) => DevicePrefixes.Any(pre => p.StartsWith(pre, StringComparison.Ordinal));
+
+    /// <summary>Drops a Windows \\?\, \??\ or \\.\ prefix so the path compares with its plain form: \\?\C:\x is C:\x,
+    /// \\?\UNC\server\share is \\server\share. Volume GUID and other device paths are left as they are.</summary>
     internal static string NoPrefix(string p)
     {
-        foreach (var pre in new[] { @"\\?\", @"\??\" })
+        foreach (var pre in DevicePrefixes)
         {
             if (!p.StartsWith(pre, StringComparison.Ordinal)) continue;
             var rest = p[pre.Length..];
@@ -258,6 +288,17 @@ public static class DiffCommand
             if (rest.Length >= 2 && char.IsAsciiLetter(rest[0]) && rest[1] == ':') return rest;
         }
         return p;
+    }
+
+    /// <summary>A ':' after the path's root (Windows): an NTFS stream name on a file or a folder.</summary>
+    internal static bool HasStreamColon(string full) =>
+        full[(System.IO.Path.GetPathRoot(full) ?? "").Length..].Contains(':');
+
+    /// <summary>The full path for a message, or the typed text when the system rejects it (never throws).</summary>
+    static string SafeFull(string p)
+    {
+        try { return System.IO.Path.GetFullPath(p); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return p; }
     }
 
     /// <summary>Why --log can't be used, or null. Checked before the log file is opened, so a bad --log never truncates an
@@ -296,10 +337,11 @@ public static class DiffCommand
         }
         if (Directory.Exists(full))
             return $"can't use {option} {full}: that is a folder. Give {option} a file name, for example {option} \"{System.IO.Path.Combine(full, exampleName)}\"";
-        // code-review round 4: on Windows "A.esm:r.txt" is a stream inside A.esm, so writing it would change that file
-        if (OperatingSystem.IsWindows() && System.IO.Path.GetFileName(full).Contains(':'))
-            return $"won't write {what} to {full}: a ':' in the file name writes into another file (an NTFS stream). " +
-                   $"Give {option} a plain file name, for example {example}";
+        // code-review rounds 4 and 5: on Windows "A.esm:r.txt" is a stream inside A.esm, and "mod::$INDEX_ALLOCATION\r.txt"
+        // opens the folder mod itself, so a ':' anywhere after the drive is refused
+        if (OperatingSystem.IsWindows() && HasStreamColon(full))
+            return $"won't write {what} to {full}: a ':' after the drive writes into another file or folder (an NTFS stream). " +
+                   $"Give {option} a plain path, for example {example}";
         if (WriteProtectedName(full))
             return $"won't write {what} to {full}: that name is a plugin, archive or script, and {what} would overwrite it. " +
                    $"Give {option} a .txt{(option == "--log" ? "" : " or .json")} file, for example {example}";
@@ -310,17 +352,25 @@ public static class DiffCommand
         if (WriteProtectedName(real))
             return $"won't write {what} to {full}: it is a link to {real}, a plugin, archive or script, and {what} would overwrite it. " +
                    $"Give {option} a .txt{(option == "--log" ? "" : " or .json")} file, for example {example}";
+        if (OperatingSystem.IsWindows() && HasStreamColon(real))
+            return $"won't write {what} to {full}: it is a link to {real}, and a ':' after the drive writes into another file or folder " +
+                   $"(an NTFS stream). Give {option} a plain path, for example {example}";
         foreach (var input in new[] { oldInput, newInput })
         {
             // code-review round 4: an input that can't be resolved (a mounted volume on its way) is refused, not compared
             // by its typed path, which an output reaching the same folder by a drive letter would never match
             if (RealPath(input, out var whyInput) is not { } inReal)
-                return $"can't use {option} {full}: the input {System.IO.Path.GetFullPath(input)} can't be checked ({whyInput}), so diff " +
-                       $"can't make sure {what} stays out of it. Give the input by a plain path, or leave out {option}.";
-            var inFull = inReal.TrimEnd('\\', '/');
+                return $"can't use {option} {full}: the input {SafeFull(input)} can't be checked ({whyInput}), so diff " +
+                       $"can't make sure {what} stays out of it. Give the input by a plain path (a mounted volume needs a drive " +
+                       $"letter for that), or leave out {option}.";
+            // code-review round 5: never trim a root (C:\ would become C:, the current folder on drive C; / would become "")
+            var inRoot = System.IO.Path.GetPathRoot(inReal) ?? "";
+            var inFull = inReal.Length > inRoot.Length ? inReal.TrimEnd('\\', '/') : inReal;
+            if (inFull.Length < inRoot.Length) inFull = inRoot;
             if (string.Equals(real, inFull, PathCase))
                 return $"won't write {what} to {full}: that is one of the inputs. Give {option} another file.";
-            if (Directory.Exists(inFull) && real.StartsWith(inFull + System.IO.Path.DirectorySeparatorChar, PathCase))
+            var inside = System.IO.Path.EndsInDirectorySeparator(inFull) ? inFull : inFull + System.IO.Path.DirectorySeparatorChar;
+            if (Directory.Exists(inFull) && real.StartsWith(inside, PathCase))
                 return $"won't write {what} to {full}: it is inside the input folder {inFull}, and diff never writes into its inputs. " +
                        $"Give {option} a file outside it.";
         }

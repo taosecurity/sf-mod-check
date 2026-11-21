@@ -230,6 +230,79 @@ public class DiffCommandTests
         Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(plain, "into", "r.txt"), dirs[n], a));
     }
 
+    [LinksFact]
+    public void Links_whose_targets_repeat_links_stop_at_the_total_budget()
+    {
+        // code-review medium round 5 (0.11.0): x(i) -> D\x(i+1)\x(i+1) doubles the work at every level; without a total
+        // budget 30 levels would follow about 2^30 links
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var d = s.Sub("D");
+        const int n = 30;
+        Assert.True(FollowUps091Tests.TryLink(Path.Combine(d, "x" + n), d, folder: true));
+        for (int i = n - 1; i >= 0; i--)
+            Assert.True(FollowUps091Tests.TryLink(Path.Combine(d, "x" + i), Path.Combine(d, "x" + (i + 1), "x" + (i + 1)), folder: true));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Null(DiffCommand.RealPath(Path.Combine(d, "x0", "r.txt"), out var why));
+        Assert.Contains("more than 400 links", why);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(30), $"took {sw.Elapsed}");
+        Assert.Contains("400 links", DiffCommand.OutProblem(Path.Combine(d, "x0", "r.txt"), a, a));
+    }
+
+    [WindowsFact]
+    public void On_windows_folder_streams_and_device_paths_are_caught()
+    {
+        // code-review medium round 5 (0.11.0): mod::$INDEX_ALLOCATION\r.txt opens the folder mod; \\.\C:\x is C:\x;
+        // GLOBALROOT and other device paths can't be checked
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var folder = s.Sub("mod");
+        Assert.Contains("NTFS stream", DiffCommand.OutProblem(folder + @"::$INDEX_ALLOCATION\r.txt", folder, a));
+        Assert.Contains("NTFS stream", DiffCommand.OutProblem(folder + @":$I30:$INDEX_ALLOCATION\r.txt", folder, a, "--log"));
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(@"\\.\" + Path.Combine(folder, "r.txt"), folder, a));
+        Assert.Equal(@"C:\x", DiffCommand.NoPrefix(@"\\.\C:\x"));
+        Assert.True(DiffCommand.IsVolumeTarget(@"\\.\Volume{1234}\"));
+        Assert.True(DiffCommand.IsDevicePath(@"\\?\GLOBALROOT\Device\HarddiskVolume3\x"));
+        Assert.Null(DiffCommand.RealPath(@"\\?\GLOBALROOT\Device\HarddiskVolume3\x", out var why));
+        Assert.Contains("device path", why);
+        Assert.False(DiffCommand.HasStreamColon(@"C:\mods\r.txt"));
+        Assert.False(DiffCommand.HasStreamColon(@"\\.\C:\mods\r.txt"));
+    }
+
+    [UnixFact]
+    public void On_linux_a_link_to_a_file_not_made_yet_is_followed()
+    {
+        // code-review medium round 5 (0.11.0): writing through report.txt -> ModA/New.esm would create New.esm
+        using var s = new Sandbox();
+        var mod = s.Sub("ModA");
+        File.WriteAllText(Path.Combine(mod, "Mod.esm"), "x");
+        var b = Path.Combine(s.Dir, "B.esm"); File.WriteAllText(b, "y");
+        var report = Path.Combine(s.Dir, "report.txt");
+        File.CreateSymbolicLink(report, Path.Combine(mod, "New.esm"));
+        Assert.Contains("a plugin, archive or script", DiffCommand.OutProblem(report, mod, b));
+        var report2 = Path.Combine(s.Dir, "report2.txt");
+        File.CreateSymbolicLink(report2, Path.Combine(mod, "r.txt"));
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(report2, mod, b));
+        Assert.False(File.Exists(Path.Combine(mod, "New.esm")));
+        // and a plain new file next to the inputs is still fine
+        Assert.Null(DiffCommand.OutProblem(Path.Combine(s.Dir, "fresh.txt"), mod, b));
+    }
+
+    [Fact]
+    public void A_root_input_and_a_bad_input_path_give_messages_not_crashes()
+    {
+        // code-review medium round 5 (0.11.0): a root input kept its separator (C:\ trimmed to C: meant the current folder
+        // on drive C); an input the system rejects made the refusal message itself throw
+        using var s = new Sandbox();
+        var b = Path.Combine(s.Dir, "B.esm"); File.WriteAllText(b, "y");
+        var root = Path.GetPathRoot(s.Dir)!;
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(s.Dir, "r.txt"), root, b));
+        var bad = "bad\0path";
+        var e = DiffCommand.OutProblem(Path.Combine(s.Dir, "r.txt"), bad, b);
+        Assert.NotNull(e);
+        Assert.Contains("isn't valid", e);
+    }
+
     // ---- pairing ----
 
     [Fact]
