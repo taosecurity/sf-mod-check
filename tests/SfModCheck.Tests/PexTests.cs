@@ -32,7 +32,8 @@ public sealed record PFn(string Name, string Ret = "None", (string Name, string 
 public sealed record PProp(string Name, string Type, string? AutoVar = null, PFn? Get = null, PFn? Set = null);
 
 public sealed record PObj(string Name, string Parent = "", (string Name, string Type, PV Value)[]? Vars = null,
-                          PProp[]? Props = null, (string State, PFn[] Fns)[]? States = null);
+                          PProp[]? Props = null, (string State, PFn[] Fns)[]? States = null,
+                          (string Name, (string Name, string Type, string Doc)[] Members)[]? Structs = null);
 
 /// <summary>Builds a .pex file from objects. Strings go into the table in first-use order.</summary>
 public static class PexBytes
@@ -91,7 +92,12 @@ public static class PexBytes
             w.Write(0u);
             var start = body.Position;
             S(o.Parent); S(""); w.Write((byte)0); w.Write(0u); S("");
-            w.Write((ushort)0);   // structs
+            var structs = o.Structs ?? []; w.Write((ushort)structs.Length);
+            foreach (var (sn, members) in structs)
+            {
+                S(sn); w.Write((ushort)members.Length);
+                foreach (var (mn, mt, md) in members) { S(mn); S(mt); w.Write(0u); V(PV.None); w.Write((byte)0); S(md); }
+            }
             var vars = o.Vars ?? []; w.Write((ushort)vars.Length);
             foreach (var (n, t, v) in vars) { S(n); S(t); w.Write(0u); V(v); w.Write((byte)0); }
             if (minor >= 12) w.Write((ushort)0);   // guards

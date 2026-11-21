@@ -97,10 +97,11 @@ public sealed class RecordIndex
     {
         var stored = f.Span(rec.Offset + 24, (int)rec.Size);
         ReadOnlySpan<byte> body = stored;
+        bool packed = false;   // compressed and won't unpack: compared by stored bytes, no EditorID (the bytes aren't fields)
         if ((rec.Flags & Flags.Compressed) != 0)
         {
             if (Subrecords.Decompress(stored, out _) is { } d) body = d;
-            else unpackable++;
+            else { unpackable++; packed = true; }
         }
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         Span<byte> flags = stackalloc byte[4];
@@ -109,7 +110,7 @@ public sealed class RecordIndex
         sha.AppendData(body);
         Span<byte> hash = stackalloc byte[32];
         sha.GetHashAndReset(hash);
-        return new(string.Intern(rec.Sig), rec.FormId, EditorId(body), BitConverter.ToUInt128(hash), rec.Offset);
+        return new(string.Intern(rec.Sig), rec.FormId, packed ? null : EditorId(body), BitConverter.ToUInt128(hash), rec.Offset);
     }
 
     /// <summary>The EDID field's text in a record body, or null.</summary>

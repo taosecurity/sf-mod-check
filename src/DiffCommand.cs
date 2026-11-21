@@ -176,34 +176,57 @@ public static class DiffCommand
         return null;
     }
 
-    /// <summary>Why --out can't be used, or null: diff never writes over a plugin, an archive or one of its inputs, and
-    /// never inside an input folder (it is read-only).</summary>
-    public static string? OutProblem(string outFile, string oldInput, string newInput)
+    /// <summary>Why --log can't be used, or null. Checked before the log file is opened, so a bad --log never truncates an
+    /// input: the same rules as --out, and --out and --log must be different files.</summary>
+    public static string? LogProblem(DiffOptions o)
     {
+        if (o.Log == null) return null;
+        if (OutProblem(o.Log, o.Old, o.New, "--log") is { } e) return e;
+        if (o.Out != null)
+        {
+            try
+            {
+                var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                if (string.Equals(System.IO.Path.GetFullPath(o.Out), System.IO.Path.GetFullPath(o.Log), cmp))
+                    return $"can't use one file for both --out and --log ({System.IO.Path.GetFullPath(o.Out)}). Give them different files, " +
+                           "for example --out diff-report.txt --log diff-log.txt";
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { /* OutProblem reports a bad --out */ }
+        }
+        return null;
+    }
+
+    /// <summary>Why --out (or, with option "--log", the log file) can't be used, or null: diff never writes over a plugin,
+    /// an archive or one of its inputs, and never inside an input folder (it is read-only).</summary>
+    public static string? OutProblem(string outFile, string oldInput, string newInput, string option = "--out")
+    {
+        var what = option == "--log" ? "the log" : "the report";
+        var example = option == "--log" ? "--log diff-log.txt" : "--out diff-report.txt";
+        var exampleName = option == "--log" ? "diff-log.txt" : "diff-report.txt";
         string full;
         try { full = System.IO.Path.GetFullPath(outFile); }
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return $"can't use --out \"{outFile}\": {e.Message} Give --out a file name, for example --out diff-report.txt";
+            return $"can't use {option} \"{outFile}\": {e.Message} Give {option} a file name, for example {example}";
         }
         if (Directory.Exists(full))
-            return $"can't use --out {full}: that is a folder. Give --out a file name, for example --out \"{System.IO.Path.Combine(full, "diff-report.txt")}\"";
+            return $"can't use {option} {full}: that is a folder. Give {option} a file name, for example {option} \"{System.IO.Path.Combine(full, exampleName)}\"";
         var ext = System.IO.Path.GetExtension(full).ToLowerInvariant();
         if (ext is ".esm" or ".esp" or ".esl" or ".ba2" or ".zip" or ".7z" or ".rar" or ".pex")
-            return $"won't write the report to {full}: that name is a plugin, archive or script, and the report would overwrite it. " +
-                   "Give --out a .txt or .json file, for example --out diff-report.txt";
+            return $"won't write {what} to {full}: that name is a plugin, archive or script, and {what} would overwrite it. " +
+                   $"Give {option} a .txt{(option == "--log" ? "" : " or .json")} file, for example {example}";
         foreach (var input in new[] { oldInput, newInput })
         {
             var inFull = System.IO.Path.GetFullPath(input).TrimEnd('\\', '/');
             if (string.Equals(full, inFull, StringComparison.OrdinalIgnoreCase))
-                return $"won't write the report to {full}: that is one of the inputs. Give --out another file.";
+                return $"won't write {what} to {full}: that is one of the inputs. Give {option} another file.";
             if (Directory.Exists(inFull) && full.StartsWith(inFull + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                return $"won't write the report to {full}: it is inside the input folder {inFull}, and diff never writes into its inputs. " +
-                       "Give --out a file outside it.";
+                return $"won't write {what} to {full}: it is inside the input folder {inFull}, and diff never writes into its inputs. " +
+                       $"Give {option} a file outside it.";
         }
         var dir = System.IO.Path.GetDirectoryName(full);
         if (dir != null && !Directory.Exists(dir))
-            return $"can't write the report to {full}: the folder {dir} doesn't exist. Make the folder, or give --out a file in a folder that exists.";
+            return $"can't write {what} to {full}: the folder {dir} doesn't exist. Make the folder, or give {option} a file in a folder that exists.";
         return null;
     }
 
@@ -315,6 +338,7 @@ public static class DiffCommand
         }
         if (!o.Quiet) Console.Error.WriteLine(byline);
         if (o.Verbose) SfModCheck.Log.ToStderr();
+        if (LogProblem(o) is { } logProblem) return CantRun("the log file can't be used", logProblem);
         if (o.Log != null && SfModCheck.Log.ToFile(o.Log) is { } logError) return CantRun("the log file can't be written", logError);
         SfModCheck.Log.Write($"sf-mod-check {version} diff on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
         SfModCheck.Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");

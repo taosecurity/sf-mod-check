@@ -607,7 +607,8 @@ Run it when a mod you use or build on has a new version, to see what changed bet
 - `--all`: list everything in the text report. Without it, long lists stop after a set number of lines (40 cells,
   25 leveled lists, 20 entries per list, 50 base-object swaps, 100 changed records) and say how many were left out.
   With it, each cell's records are listed too.
-- `--quiet`, `--verbose`, `--log <file>`: as for `check`.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`. Like `--out`, the log never goes onto an input, a plugin,
+  an archive or a script, or inside an input folder, and `--out` and `--log` must be different files.
 
 For each plugin the report counts the records added, removed, changed and renumbered per record type, split into the
 plugin's own records and its overrides of master records, lists the changed records with the fields that differ, and
@@ -626,7 +627,7 @@ Three views follow the counts:
 - **Base-object swaps**: placed objects whose base object changed, with the old and the new base.
 
 EditorIDs of records in the masters come from the master files: first a master in the mod itself, then the game's
-Data folder (`--data`). When a master isn't found, its records are shown by FormKey only, and the report says so.
+Data folder (`--data`). When a master isn't found, its records are shown by FormKey only, and the report says so. A damaged master gives the names it can, and the report says the names aren't all shown.
 
 For two mods, three more sections follow the plugins:
 

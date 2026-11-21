@@ -77,7 +77,7 @@ public sealed class FilesDiff
     public bool Differences => Added.Count + Removed.Count + Changed.Count > 0 || Archives.Any(a => a.Status != "same");
 
     /// <summary>For the RESULT line: loose files plus the files inside paired archives; an archive only in one version,
-    /// or one whose files couldn't be listed, counts as one file.</summary>
+    /// one whose files couldn't be listed, or one whose bytes differ while its files are all the same, counts as one file.</summary>
     public (int Added, int Removed, int Changed) FileTotals()
     {
         int a = Added.Count, r = Removed.Count, c = Changed.Count;
@@ -87,6 +87,9 @@ public sealed class FilesDiff
                 case "added": a++; break;
                 case "removed": r++; break;
                 case "changed" when x.Error != null: c++; break;
+                // bytes differ but every file inside is the same (only the layout changed): counts as one changed file,
+                // so the RESULT line never says DIFFERENCES with 0 files changed
+                case "changed" when x.Added.Count + x.Removed.Count + x.Changed.Count == 0: c++; break;
                 default: a += x.Added.Count; r += x.Removed.Count; c += x.Changed.Count; break;
             }
         return (a, r, c);
@@ -475,7 +478,7 @@ public static class PexCompare
             Other(d, "variables", oa.Variables, nb.Variables, v => v.Name, (x, y) => x == y);
             Other(d, "properties", oa.Properties, nb.Properties, p => p.Name,
                   (x, y) => x.Type == y.Type && x.Flags == y.Flags && x.UserFlags == y.UserFlags && x.AutoVar == y.AutoVar);
-            Other(d, "structs", oa.Structs, nb.Structs, s => s.Name, (x, y) => x.Members.SequenceEqual(y.Members));
+            Other(d, "structs", oa.Structs, nb.Structs, s => s.Name, (x, y) => x.Members.Select(m => m with { Doc = "" }).SequenceEqual(y.Members.Select(m => m with { Doc = "" })));   // doc comments aren't code
             if (!oa.Guards.SequenceEqual(nb.Guards, Ci)) d.Other.Add("guards differ");
             if (!Ci.Equals(oa.AutoState, nb.AutoState)) d.Other.Add("the auto state differs");
             if (oa.Const != nb.Const || oa.UserFlags != nb.UserFlags) d.Other.Add("the object's flags differ");

@@ -149,7 +149,7 @@ public static class DiffFields
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            Log.Write($"diff: {c.Old.Sig} {c.Key.Show("")}: entries can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
+            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(System.IO.Path.GetFileName(newPath))}: entries can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
             return;
         }
         if (ea == null || eb == null) return;
@@ -179,7 +179,7 @@ public static class DiffFields
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            Log.Write($"diff: {c.Old.Sig} {c.Key.Show("")}: base object can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
+            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(System.IO.Path.GetFileName(newPath))}: base object can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
         }
     }
 

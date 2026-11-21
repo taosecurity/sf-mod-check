@@ -240,4 +240,57 @@ public class DiffFilesTests
         Assert.Contains("changed  X - Main.ba2: the bytes differ, and its files couldn't be listed:", r.Stdout);
         Assert.EndsWith("files: 0 added, 0 removed, 1 changed)", ExeTests.ResultLine(r.Stdout));
     }
+
+    [Fact]
+    public void An_archive_with_only_its_layout_changed_counts_as_one_changed_file()
+    {
+        // code-review medium (0.11.0): the run said DIFFERENCES with "files: 0 changed"
+        using var s = new Sandbox();
+        string a = s.Sub("a"), b = s.Sub("b");
+        Put(a, "X - Main.ba2", TriageScriptsTests.Ba2(("meshes/a.nif", [1], false), ("meshes/b.nif", [2], false)));
+        Put(b, "X - Main.ba2", TriageScriptsTests.Ba2(("meshes/b.nif", [2], false), ("meshes/a.nif", [1], false)));
+        var r = Run("diff", a, b, "--quiet", "--data", s.Sub("nodata"));
+        Assert.Equal(1, r.Code);
+        Assert.Contains("only the archive's layout differs", r.Stdout);
+        Assert.EndsWith("files: 0 added, 0 removed, 1 changed)", ExeTests.ResultLine(r.Stdout));
+    }
+
+    [Fact]
+    public void Exe_refuses_a_log_on_an_input_and_never_truncates_it()
+    {
+        // code-review medium (0.11.0): --log MyMod-1.0.zip truncated the input before it was read
+        using var s = new Sandbox();
+        var (a, b) = Mods(s);
+        var zip = Path.Combine(s.Dir, "v1.zip");
+        ZipFile.CreateFromDirectory(a, zip);
+        var before = File.ReadAllBytes(zip);
+        var r = Run("diff", zip, b, "--quiet", "--log", zip, "--data", s.Sub("nodata"));
+        Assert.Equal(2, r.Code);
+        Assert.Contains("won't write the log to", r.Stderr);
+        Assert.Equal(before, File.ReadAllBytes(zip));
+
+        var inside = Path.Combine(b, "log.txt");
+        r = Run("diff", zip, b, "--quiet", "--log", inside, "--data", s.Sub("nodata"));
+        Assert.Equal(2, r.Code);
+        Assert.Contains("inside the input folder", r.Stderr);
+        Assert.False(File.Exists(inside));
+
+        var same = Path.Combine(s.Dir, "r.txt");
+        r = Run("diff", zip, b, "--quiet", "--log", same, "--out", same, "--data", s.Sub("nodata"));
+        Assert.Equal(2, r.Code);
+        Assert.Contains("both --out and --log", r.Stderr);
+    }
+
+    [Fact]
+    public void A_struct_member_doc_comment_is_not_a_change()
+    {
+        static byte[] S(string doc) => PexBytes.Build([new PObj("MyMod:S", Structs: [("Pair", [("A", "Int", doc)])])]);
+        using var s = new Sandbox();
+        string a = s.Sub("a"), b = s.Sub("b");
+        Put(a, "Scripts/MyMod/S.pex", S("one"));
+        Put(b, "Scripts/MyMod/S.pex", S("two"));
+        var r = Run("diff", a, b, "--quiet", "--data", s.Sub("nodata"));
+        Assert.DoesNotContain("structs:", r.Stdout);
+        Assert.Contains("the same objects, states and functions", r.Stdout);
+    }
 }

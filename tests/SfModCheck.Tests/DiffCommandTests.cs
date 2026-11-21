@@ -691,7 +691,7 @@ public class DiffCommandTests
         Assert.Equal(["base.esm"], x.Names.MissingMasters);
         var sb = new System.Text.StringBuilder();
         x.Text(sb, "Mod.esm", all: false);
-        Assert.Contains("note: EditorIDs of records in base.esm aren't shown", sb.ToString());
+        Assert.Contains("note: EditorIDs of records in base.esm aren't all shown", sb.ToString());
         Assert.Contains("-> 000900:base.esm", sb.ToString());
     }
 

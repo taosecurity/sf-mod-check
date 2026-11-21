@@ -39,14 +39,24 @@ public sealed class DiffNames
             if (path == null) { n.MissingMasters.Add(file); Log.Write($"diff: EditorIDs: master {file} not found, {locals.Count} record(s) shown by FormKey only"); continue; }
             var found = ReadMaster(path, locals, masterHeader, out var error);
             if (found == null) { n.MissingMasters.Add(file); Log.Write($"diff: EditorIDs: master {file} at {path} can't be read: {error}"); continue; }
-            n.Read.Add((file, path));
-            Log.Write($"diff: EditorIDs: read {path} for {locals.Count} record(s), {found.Count} found");
+            if (error != null)
+            {
+                // the walk stopped early (damaged or cut short): keep what was found, but say the names are incomplete
+                n.MissingMasters.Add(file);
+                Log.Write($"diff: EditorIDs: master {file} at {path} stops early ({error}); {found.Count} of {locals.Count} record(s) found, the rest shown by FormKey only");
+            }
+            else
+            {
+                n.Read.Add((file, path));
+                Log.Write($"diff: EditorIDs: read {path} for {locals.Count} record(s), {found.Count} found");
+            }
             foreach (var l in locals) n.names[new RecKey(file.ToLowerInvariant(), l)] = found.GetValueOrDefault(l);
         }
         return n;
     }
 
-    /// <summary>The EditorIDs of a master's own records with the given local IDs (masked to the master's style).</summary>
+    /// <summary>The EditorIDs of a master's own records with the given local IDs (masked to the master's style). Null with
+    /// error set when the file can't be read; the names found with error set when its walk stopped early.</summary>
     static Dictionary<uint, string?>? ReadMaster(string path, HashSet<uint> locals, Func<string, RawHeader?> masterHeader, out string? error)
     {
         error = null;
@@ -71,6 +81,7 @@ public sealed class DiffNames
                 found[l] = RecordIndex.EditorId(body);
             };
             w.Walk();
+            if (w.StoppedEarly is { } why) error = why;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { error = e.Message; return null; }
         return found;
@@ -164,8 +175,8 @@ public sealed class DiffDetails
     {
         string N(RecKey? k) => Named(k, self);
         if (Names.MissingMasters.Count > 0)
-            sb.AppendLine($"  note: EditorIDs of records in {string.Join(", ", Names.MissingMasters)} aren't shown (not found in the mod or the Data " +
-                          "folder), so those records are shown by FormKey only. Give --data the game's Data folder.");
+            sb.AppendLine($"  note: EditorIDs of records in {string.Join(", ", Names.MissingMasters)} aren't all shown (not found in the mod or the Data " +
+                          "folder, or the file is damaged), so those records are shown by FormKey only. Give --data the game's Data folder.");
         if (Cells.Count > 0)
         {
             int n = Cells.Sum(c => c.Total);
