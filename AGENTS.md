@@ -316,7 +316,8 @@ Its first line is `sf-mod-check 0.9.1 by Richard Bejtlich - GPL-3.0 - https://gi
    values it computes, or whether a record nothing uses is dead weight. Don't report a "bug" or "malware" to a mod's
    author from a triage report alone. Files behind a link (symlink or junction) in a mod folder or beside a plugin
    are never read; the report lists each one as skipped, with one note in Files that anything inside wasn't
-   checked. A missing-script LOOK (Plugins) and the Scripts note also say how many linked items were skipped, since
-   one may hold the script: check what the link points to before calling a script missing. On Windows, the plugin
+   checked. A missing-script LOOK (Plugins) says how many linked items were skipped, since one may hold the script,
+   and so does the Scripts note when it finds no .pex at all: check what the link points to before calling a script
+   missing. On Windows, the plugin
    named on the command line is read even when it is a link; on Linux and macOS it isn't. Other reparse points
    (OneDrive placeholders) are read as normal files. An archive with more than 200,000 entries is refused (exit 2).
