@@ -253,12 +253,31 @@ public class ReleaseCreationsTests
             ("OptionB/Opt - Main.ba2", Ba2("GNRL", "sound/voice/a.wem")),
             ("OptionB/Opt - Main_xbox.ba2", Ba2Stored(("scripts/mymod/quest.pex", pex))));
         var f = Run(s, zip);
-        // OptionA's textures have no twin in OptionA, though OptionB has one
-        Assert.True(Of(f, "creations-xbox", Level.Problem).Count == 1, List(f));
+        // OptionA's textures have no twin in OptionA, though OptionB has one; messages name the folder (round 4)
+        var a = Path.Combine("OptionA", "Opt - Main.ba2");
+        var b = Path.Combine("OptionB", "Opt - Main.ba2");
+        var xbox = Assert.Single(Of(f, "creations-xbox", Level.Problem));
+        Assert.True(xbox.Text.StartsWith($"Opt-0.1.0.zip:{a}: 1 texture and no Opt - Main_xbox.ba2."), List(f));
         // one sound WARNING, for OptionB's PC archive only (its twin holds no sound)
-        Assert.Equal("Opt-0.1.0.zip:Opt - Main.ba2: 1 sound file.", Assert.Single(Of(f, "creations-audio", Level.Warning)).Text.Split(" PC-format")[0]);
-        // OptionB's twin script is read: no PC archive in its folder holds it
-        Assert.Single(Of(f, "creations-debug", Level.Warning));
+        Assert.Equal($"Opt-0.1.0.zip:{b}: 1 sound file.", Assert.Single(Of(f, "creations-audio", Level.Warning)).Text.Split(" PC-format")[0]);
+        // OptionB's twin script is read: no PC archive in its folder holds it; its label names the folder too
+        Assert.StartsWith(Path.Combine("OptionB", "Opt - Main_xbox.ba2") + ":", Assert.Single(Of(f, "creations-debug", Level.Warning)).Text);
+    }
+
+    [Fact]
+    public void An_unreadable_PC_archive_still_needs_its_Xbox_twin()
+    {
+        // 0.10.0 code review round 4: an archive that can't be read got no creations-xbox finding at all
+        using var s = new Sandbox();
+        var zip = MakeZip(s, "Bad-0.1.0.zip", ("Bad.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Bad - Main.ba2", T("not an archive")));
+        var f = Run(s, zip);
+        var w = Assert.Single(Of(f, "creations-xbox", Level.Warning));
+        Assert.True(w.Text.StartsWith("Bad-0.1.0.zip:Bad - Main.ba2: no Bad - Main_xbox.ba2, so Xbox gets no archive"), List(f));
+        // with its twin present there's nothing to say about the pair
+        var twin = MakeZip(s, "Bad2-0.1.0.zip", ("Bad2.esm", ReleaseRulesTests.Plugin("Starfield.esm")),
+            ("Bad2 - Main.ba2", T("not an archive")), ("Bad2 - Main_xbox.ba2", Ba2("GNRL", "meshes/a.nif")));
+        Assert.Empty(Of(Run(s, twin), "creations-xbox", Level.Warning));
     }
 
     [Fact]

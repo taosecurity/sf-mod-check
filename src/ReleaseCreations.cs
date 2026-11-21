@@ -94,6 +94,10 @@ public static class ReleaseCreations
     /// <summary>The full path of an Xbox twin's PC archive, in the same folder.</summary>
     static string PcTwinPath(string xboxArchive) => Path.Combine(Path.GetDirectoryName(xboxArchive) ?? "", PcTwin(xboxArchive));
 
+    /// <summary>An archive as messages name it: its path in the zip ("Opt - Main.ba2" at the top, "OptionA\Opt - Main.ba2"
+    /// in a folder), so archives of the same name in two folders can be told apart (code review round 4).</summary>
+    static string ArchiveLabel(ReleasePackage p, string archive) => Path.GetRelativePath(p.Root, archive);
+
     public static bool IsXbox(string archive) => Path.GetFileNameWithoutExtension(archive).EndsWith("_xbox", StringComparison.OrdinalIgnoreCase);
 
     public static IEnumerable<ReleaseFinding> Run(ReleaseContext c)
@@ -148,31 +152,38 @@ public static class ReleaseCreations
             foreach (var a in p.Archives)
             {
                 try { lists[a] = Ba2Names.Read(a); }
-                catch (Exception e) when (e is InvalidDataException or IOException) { lists[a] = null; Log.Write($"creations: {Path.GetFileName(a)}: not read ({e.Message})"); }
+                catch (Exception e) when (e is InvalidDataException or IOException) { lists[a] = null; Log.Write($"creations: {ArchiveLabel(p, a)}: not read ({e.Message})"); }
             }
             int SoundIn(string path) => lists.GetValueOrDefault(path) is { } l ? l.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal))) : 0;
             foreach (var a in p.Archives)
             {
-                var an = Path.GetFileName(a);
+                var name = Path.GetFileName(a);   // for the twin rules
+                var an = ArchiveLabel(p, a);       // for messages: the path in the zip, so two folders' archives differ (round 4)
                 total += new FileInfo(a).Length;
-                if (lists[a] is not { } inside) continue;
+                if (lists[a] is not { } inside)
+                {
+                    // an unreadable PC archive still needs its Xbox twin (round 4); its textures can't be counted
+                    if (!IsXbox(name) && !paths.Contains(XboxTwinPath(a)))
+                        Add(Level.Warning, "creations-xbox", $"{p.Name}:{an}: no {XboxTwin(name)}, so Xbox gets no archive (the Creation Kit warns \"Creation for XBox that has no archives\"); build the Xbox archive with Archive2's Xbox settings.");
+                    continue;
+                }
                 // sound is counted in every archive, the Xbox one too (code review: copied PC sound there is the case
                 // this rule is for); a PC archive and its Xbox twin that both hold sound share one WARNING (round 2)
                 int sound = inside.Count(n => SoundExts.Any(e => n.EndsWith(e, StringComparison.Ordinal)));
-                bool pairShared = IsXbox(an) ? SoundIn(PcTwinPath(a)) > 0 : SoundIn(XboxTwinPath(a)) > 0;
-                if (sound > 0 && IsXbox(an) && pairShared)
-                    Log.Write($"creations: {an}: {sound} sounds, reported with its PC twin {PcTwin(an)}");
+                bool pairShared = IsXbox(name) ? SoundIn(PcTwinPath(a)) > 0 : SoundIn(XboxTwinPath(a)) > 0;
+                if (sound > 0 && IsXbox(name) && pairShared)
+                    Log.Write($"creations: {an}: {sound} sounds, reported with its PC twin {ArchiveLabel(p, PcTwinPath(a))}");
                 else if (sound > 0 && pairShared)
-                    Add(Level.Warning, "creations-audio", $"{p.Name}:{an} ({Files(sound, "sound file")}) and {XboxTwin(an)} ({Files(SoundIn(XboxTwinPath(a)), "sound file")}). PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
+                    Add(Level.Warning, "creations-audio", $"{p.Name}:{an} ({Files(sound, "sound file")}) and {XboxTwin(name)} ({Files(SoundIn(XboxTwinPath(a)), "sound file")}). PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
                 else if (sound > 0)
                     Add(Level.Warning, "creations-audio", $"{p.Name}:{an}: {Files(sound, "sound file")}. PC-format audio is silent on Xbox and PlayStation; let the Creation Kit make their versions from WAV sources, or use the game's own sounds.");
-                if (IsXbox(an))
+                if (IsXbox(name))
                 {
                     Add(Level.Note, "creations-xbox", $"{p.Name}: Xbox archive present: {an}.");
                     Log.Write($"creations: {an}: {inside.Count} files, {sound} sounds (Xbox archive)");
                     continue;
                 }
-                var twin = XboxTwin(an);
+                var twin = XboxTwin(name);
                 int textures = inside.Count(n => n.EndsWith(".dds", StringComparison.Ordinal));
                 bool hasTwin = paths.Contains(XboxTwinPath(a));
                 if (!hasTwin)
@@ -227,19 +238,20 @@ public static class ReleaseCreations
         var read = new Dictionary<string, Dictionary<string, byte[]>>(StringComparer.OrdinalIgnoreCase);   // PC archive's full path -> entry -> bytes
         foreach (var a in p.Archives.OrderBy(x => IsXbox(Path.GetFileName(x)) ? 1 : 0))   // PC archives first
         {
-            var an = Path.GetFileName(a);
+            var name = Path.GetFileName(a);
+            var an = ArchiveLabel(p, a);   // the path in the zip (round 4)
             List<(string Entry, byte[]? Data, string? Error)> s;
             try { s = TriageScripts.ArchiveScripts(a); }
             catch (Exception e) when (e is InvalidDataException or IOException) { Log.Write($"creations: {an}: scripts not listed ({e.Message})"); continue; }
-            var twin = IsXbox(an) ? read.GetValueOrDefault(PcTwinPath(a)) : null;   // the same folder's PC archive (round 3)
-            if (!IsXbox(an)) read[a] = s.Where(x => x.Data != null).GroupBy(x => x.Entry, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Data!, StringComparer.OrdinalIgnoreCase);
+            var twin = IsXbox(name) ? read.GetValueOrDefault(PcTwinPath(a)) : null;   // the same folder's PC archive (round 3)
+            if (!IsXbox(name)) read[a] = s.Where(x => x.Data != null).GroupBy(x => x.Entry, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Data!, StringComparer.OrdinalIgnoreCase);
             int skipped = 0;
             foreach (var (entry, data, err) in s)
             {
                 if (twin != null && data != null && twin.TryGetValue(entry, out var pc) && pc.AsSpan().SequenceEqual(data)) { skipped++; continue; }
                 yield return ($"{an}:{entry}", data, err);
             }
-            if (skipped > 0) Log.Write($"creations: {an}: {skipped} script{(skipped == 1 ? "" : "s")} also in its PC twin {PcTwin(an)}, read there");
+            if (skipped > 0) Log.Write($"creations: {an}: {skipped} script{(skipped == 1 ? "" : "s")} also in its PC twin {ArchiveLabel(p, PcTwinPath(a))}, read there");
         }
     }
 
