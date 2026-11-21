@@ -12,6 +12,7 @@
 - The same fix for the official-name checks of `check` and `conflict` (ITM and load-order rules).
 - `release --profile creations`: official names now match the same way on every PC language (a Turkish Windows didn't match `BLUEPRINTSHIPS-STARFIELD.ESM`).
 - `release`: the plugin-name rule (names Starfield drops from Plugins.txt), the `BlueprintShips` master rule, the private-file rule (permission records, comparison notes) and the game-script-source rule also match the same way on every PC language. On a Turkish Windows, `MyMod-CONSTELLATION.ESM` and `PERMISSION.md` slipped through.
+- `release --dmmdeps`: the game's own archives (`BLUEPRINTSHIPS-STARFIELD - Main.ba2`, `CONTENTRESOURCES.ZIP`) are also recognized the same way on every PC language.
 - `triage`: script text that ends with a newline (`"MyMod.esm\n"`) is no longer reported as a plugin name, and file names match the same way on every PC language.
 
 ### Example

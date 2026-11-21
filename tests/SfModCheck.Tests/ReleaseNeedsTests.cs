@@ -172,6 +172,8 @@ public class ReleaseNeedsTests
     [InlineData("SFBGS003 - Main.ba2", true)]
     [InlineData("BlueprintShips-Starfield - Localization.ba2", true)]
     [InlineData("ContentResources.zip", true)]
+    [InlineData("BLUEPRINTSHIPS-STARFIELD - Main.ba2", true)]
+    [InlineData("CONTENTRESOURCES.ZIP", true)]
     [InlineData("somemod - main.ba2", false)]
     [InlineData("MyMod-ShatteredSpaceAddon - Main.ba2", false)]
     [InlineData("StarfieldExtended - Main.ba2", false)]

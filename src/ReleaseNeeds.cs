@@ -411,7 +411,7 @@ public static class ReleaseNeeds
     // Archives that belong to the game itself: Starfield's own, the DLC and Creations Bethesda ships (named after an
     // official plugin), and the CK's sources.
     static readonly Regex OfficialArchive = new(@"^(starfield|constellation|oldmars|shatteredspace|sfbgs[0-9a-z]+|sfta0\d|blueprintships-starfield)( - |\.)|^contentresources\.zip$",
-        RegexOptions.IgnoreCase);
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     internal static bool IsOfficialArchive(string archive) => OfficialArchive.IsMatch(Path.GetFileName(archive.Trim()));
 
