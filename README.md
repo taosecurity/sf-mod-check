@@ -627,7 +627,7 @@ Three views follow the counts:
 - **Base-object swaps**: placed objects whose base object changed, with the old and the new base.
 
 EditorIDs of records in the masters come from the master files: first a master in the mod itself, then the game's
-Data folder (`--data`). When a master isn't found, its records are shown by FormKey only, and the report says so. A damaged master gives the names it can, and the report says the names aren't all shown.
+Data folder (`--data`). When a master isn't found, its records are shown by FormKey only, and the report says so. A damaged master gives the names it can, and the report says which master is damaged.
 
 For two mods, three more sections follow the plugins:
 

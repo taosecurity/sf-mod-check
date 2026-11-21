@@ -329,6 +329,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
       `editor_id`, `count`), and `other_entry_changes`.
     - `base_swaps`: each `key`, `type`, `editor_id`, `cell`, and `old` and `new` (each `key`, `editor_id`).
     - `editor_ids_missing`: the masters that weren't found, so their records show as FormKeys.
+    - `editor_ids_damaged`: the masters that were found but stop early (damaged or cut short) before every record
+      asked for, so some of their records show as FormKeys.
   - `files` (null for two plugins): `added` and `removed` (paths), `changed` (each `path`, `old_size`, `new_size`),
     and `same` (a count).
   - `archives` (null for two plugins): each `name`, `status` (same, changed, added or removed), `old`, `new` (paths

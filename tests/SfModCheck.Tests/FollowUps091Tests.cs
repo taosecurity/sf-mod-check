@@ -97,7 +97,7 @@ public class FollowUps091Tests
 
     /// <summary>Makes a link, or returns false where this account can't (Windows without Developer Mode can't make
     /// symlinks; a folder junction needs no rights).</summary>
-    static bool TryLink(string link, string target, bool folder)
+    internal static bool TryLink(string link, string target, bool folder)
     {
         try
         {

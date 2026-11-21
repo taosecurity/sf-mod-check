@@ -102,6 +102,23 @@ public class DiffCommandTests
         Assert.Contains("doesn't exist", DiffCommand.OutProblem(Path.Combine(s.Dir, "nofolder", "r.txt"), a, a));
     }
 
+    [Fact]
+    public void Out_and_log_through_a_link_into_an_input_folder_are_refused()
+    {
+        // code-review medium round 2 (0.11.0): a junction or link to the input folder got past the guard
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var folder = s.Sub("mod");
+        var link = Path.Combine(s.Dir, "link");
+        if (!FollowUps091Tests.TryLink(link, folder, folder: true)) return;   // links can't be made here (no rights)
+        Assert.Equal(DiffCommand.RealPath(folder), DiffCommand.RealPath(link));
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(link, "readme.txt"), folder, a));
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(link, "readme.txt"), folder, a, "--log"));
+        Assert.Contains("both --out and --log", DiffCommand.LogProblem(new DiffOptions
+            { Old = a, New = a, Out = Path.Combine(s.Dir, "r.txt"), Log = Path.Combine(link, "..", "r.txt") }));
+        Assert.Null(DiffCommand.OutProblem(Path.Combine(s.Dir, "report.txt"), folder, a));
+    }
+
     // ---- pairing ----
 
     [Fact]
@@ -162,7 +179,7 @@ public class DiffCommandTests
         // step 4: the detail views and their JSON names
         foreach (var (name, text) in new[] { ("usage", DiffCommand.Usage), ("README.md", readme), ("AGENTS.md", agents), ("CHANGELOG.md", changelog) })
             Assert.True(text.Contains("cell") && text.Contains("leveled") && text.Contains("base-object swap"), $"{name} doesn't describe diff's detail views");
-        foreach (var key in new[] { "`cells`", "`leveled_lists`", "`base_swaps`", "`moved_out`", "`editor_ids_missing`" }) Assert.Contains(key, agents);
+        foreach (var key in new[] { "`cells`", "`leveled_lists`", "`base_swaps`", "`moved_out`", "`editor_ids_missing`", "`editor_ids_damaged`" }) Assert.Contains(key, agents);
         // step 5: files, archives and scripts
         foreach (var (name, text) in new[] { ("usage", DiffCommand.Usage), ("README.md", readme), ("AGENTS.md", agents), ("CHANGELOG.md", changelog) })
             Assert.True(text.Contains("loose files") && text.Contains("archive") && text.Contains("script"), $"{name} doesn't describe diff's file compare");
@@ -691,8 +708,55 @@ public class DiffCommandTests
         Assert.Equal(["base.esm"], x.Names.MissingMasters);
         var sb = new System.Text.StringBuilder();
         x.Text(sb, "Mod.esm", all: false);
-        Assert.Contains("note: EditorIDs of records in base.esm aren't all shown", sb.ToString());
+        Assert.Contains("note: EditorIDs of records in base.esm aren't shown", sb.ToString());
         Assert.Contains("-> 000900:base.esm", sb.ToString());
+
+        // code-review medium round 2 (0.11.0): a master that stops early. Cut inside its first group: the wanted record
+        // is never reached, so the master is damaged (its own note), not missing.
+        var good = File.ReadAllBytes(DiffCommand.InFolder(masters, "Base.esm"));
+        var headerEnd = 24 + BitConverter.ToInt32(good, 4);
+        var cutDir = s.Sub("cut");
+        var cut = Path.Combine(cutDir, "Base.esm");
+        File.WriteAllBytes(cut, good[..(headerEnd + 30)]);
+        x.Names = DiffNames.Resolve(d, x.Keys(), _ => cut, look);
+        Assert.Null(x.Names.Of(swap.New));
+        Assert.Empty(x.Names.MissingMasters);
+        Assert.Equal(["base.esm"], x.Names.DamagedMasters);
+        sb.Clear();
+        x.Text(sb, "Mod.esm", all: false);
+        Assert.Contains("note: base.esm is damaged (the file stops early)", sb.ToString());
+        Assert.DoesNotContain("Give --data", sb.ToString());
+        var json = new System.Text.Json.Nodes.JsonObject();
+        x.Json(json, "Mod.esm");
+        Assert.Equal("base.esm", json["editor_ids_damaged"]![0]!.GetValue<string>());
+
+        // damaged only after the wanted record: every name is found, so no warning
+        var tail = Path.Combine(cutDir, "Tail.esm");
+        File.WriteAllBytes(tail, [.. good, 0x47, 0x52, 0x55, 0x50, 0xff, 0xff, 0xff, 0x7f]);
+        x.Names = DiffNames.Resolve(d, x.Keys(), _ => tail, look);
+        Assert.Equal("BASE_Misc", x.Names.Of(swap.New));
+        Assert.Empty(x.Names.DamagedMasters);
+        Assert.Empty(x.Names.MissingMasters);
+    }
+
+    [Fact]
+    public void A_compressed_record_that_wont_unpack_has_no_editor_id()
+    {
+        // code-review medium (0.11.0): the EditorID was read from the packed bytes
+        using var s = new Sandbox();
+        var path = Build(s, "p", "Mod.esm", PluginStyle.Full, (mod, _) => Misc(mod, 0x800, "MOD_Misc"));
+        var ix = RecordIndex.Build(path, _ => null, out _)!;
+        var rec = ix.Records.Values.Single(r => r.Sig == "MISC");
+        Assert.Equal("MOD_Misc", rec.EditorId);
+        // set the compressed flag on a record that isn't compressed: its body no longer unpacks
+        var bytes = File.ReadAllBytes(path);
+        var flags = BitConverter.ToUInt32(bytes, (int)rec.Offset + 8) | Flags.Compressed;
+        BitConverter.GetBytes(flags).CopyTo(bytes, (int)rec.Offset + 8);
+        var bad = Path.Combine(s.Sub("bad"), "Mod.esm");
+        File.WriteAllBytes(bad, bytes);
+        var ix2 = RecordIndex.Build(bad, _ => null, out _)!;
+        Assert.Equal(1, ix2.Unpackable);
+        Assert.Null(ix2.Records.Values.Single(r => r.Sig == "MISC").EditorId);
     }
 
     [Fact]

@@ -15,6 +15,9 @@ public sealed class DiffNames
     readonly Dictionary<RecKey, string?> names = [];
     /// <summary>Masters whose records were asked for but that weren't found (FormKeys only for those).</summary>
     public SortedSet<string> MissingMasters { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Masters that were found but stop early (damaged or cut short) before every record asked for was
+    /// reached: the names found are shown, the rest by FormKey.</summary>
+    public SortedSet<string> DamagedMasters { get; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Masters that were read for EditorIDs, with where they were found.</summary>
     public List<(string Master, string Path)> Read { get; } = [];
 
@@ -39,17 +42,17 @@ public sealed class DiffNames
             if (path == null) { n.MissingMasters.Add(file); Log.Write($"diff: EditorIDs: master {file} not found, {locals.Count} record(s) shown by FormKey only"); continue; }
             var found = ReadMaster(path, locals, masterHeader, out var error);
             if (found == null) { n.MissingMasters.Add(file); Log.Write($"diff: EditorIDs: master {file} at {path} can't be read: {error}"); continue; }
-            if (error != null)
+            n.Read.Add((file, path));
+            if (error != null && found.Count < locals.Count)
             {
-                // the walk stopped early (damaged or cut short): keep what was found, but say the names are incomplete
-                n.MissingMasters.Add(file);
-                Log.Write($"diff: EditorIDs: master {file} at {path} stops early ({error}); {found.Count} of {locals.Count} record(s) found, the rest shown by FormKey only");
+                // the walk stopped early (damaged or cut short) before every wanted record: keep what was found, and say so
+                n.DamagedMasters.Add(file);
+                Log.Write($"diff: EditorIDs: master {file} at {path} is damaged and stops early ({error}); {found.Count} of {locals.Count} record(s) found, the rest shown by FormKey only");
             }
+            else if (error != null)
+                Log.Write($"diff: EditorIDs: read {path} for {locals.Count} record(s), all found before the file stops early ({error})");
             else
-            {
-                n.Read.Add((file, path));
                 Log.Write($"diff: EditorIDs: read {path} for {locals.Count} record(s), {found.Count} found");
-            }
             foreach (var l in locals) n.names[new RecKey(file.ToLowerInvariant(), l)] = found.GetValueOrDefault(l);
         }
         return n;
@@ -175,8 +178,11 @@ public sealed class DiffDetails
     {
         string N(RecKey? k) => Named(k, self);
         if (Names.MissingMasters.Count > 0)
-            sb.AppendLine($"  note: EditorIDs of records in {string.Join(", ", Names.MissingMasters)} aren't all shown (not found in the mod or the Data " +
-                          "folder, or the file is damaged), so those records are shown by FormKey only. Give --data the game's Data folder.");
+            sb.AppendLine($"  note: EditorIDs of records in {string.Join(", ", Names.MissingMasters)} aren't shown (not found in the mod or the Data " +
+                          "folder), so those records are shown by FormKey only. Give --data the game's Data folder.");
+        if (Names.DamagedMasters.Count > 0)
+            sb.AppendLine($"  note: {string.Join(", ", Names.DamagedMasters)} {(Names.DamagedMasters.Count == 1 ? "is" : "are")} damaged (the file stops early), " +
+                          "so some of its records are shown by FormKey only. Get a good copy of the master (for the game's own files, verify them in Steam).");
         if (Cells.Count > 0)
         {
             int n = Cells.Sum(c => c.Total);
@@ -223,6 +229,7 @@ public sealed class DiffDetails
     public void Json(JsonObject plugin, string self)
     {
         plugin["editor_ids_missing"] = new JsonArray(Names.MissingMasters.Select(m => (JsonNode)m).ToArray());
+        plugin["editor_ids_damaged"] = new JsonArray(Names.DamagedMasters.Select(m => (JsonNode)m).ToArray());
         plugin["cells"] = new JsonArray(Cells.Select(c => (JsonNode)new JsonObject
         {
             ["cell"] = c.Cell.Show(self), ["editor_id"] = Names.Of(c.Cell),

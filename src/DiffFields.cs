@@ -139,7 +139,7 @@ public static class DiffFields
 
     /// <summary>Fills the entries only in the new version and only in the old one (as multisets: an entry listed twice
     /// and then once is one removed).</summary>
-    static void Entries(ChangedRecord c, IMajorRecordGetter a, IMajorRecordGetter b, string oldPath, string newPath)
+    static void Entries(ChangedRecord c, IMajorRecordGetter a, IMajorRecordGetter b, string oldPath, string newPath, string name)
     {
         List<LeveledEntry>? ea, eb;
         try
@@ -149,7 +149,7 @@ public static class DiffFields
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(System.IO.Path.GetFileName(newPath))}: entries can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
+            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(name)}: entries can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
             return;
         }
         if (ea == null || eb == null) return;
@@ -168,7 +168,7 @@ public static class DiffFields
     }
 
     /// <summary>Fills the old and the new base object of a placed object whose Base field differs.</summary>
-    static void BaseSwap(ChangedRecord c, IMajorRecordGetter a, IMajorRecordGetter b, string oldPath, string newPath)
+    static void BaseSwap(ChangedRecord c, IMajorRecordGetter a, IMajorRecordGetter b, string oldPath, string newPath, string name)
     {
         try
         {
@@ -179,15 +179,17 @@ public static class DiffFields
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(System.IO.Path.GetFileName(newPath))}: base object can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
+            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(name)}: base object can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
         }
     }
 
     /// <summary>Compares the fields of every record in d.Changed. A record whose fields are all equal moves to d.Noise
     /// (its type's Changed count goes down and Noise up); the rest keep the fields that differ. When a plugin can't be
     /// read with Mutagen, or a record isn't found there, the record stays changed with NotCompared saying why.</summary>
-    public static void Apply(PluginDiff d)
+    /// <summary>name: the plugin as the rest of the log shows it (its spelling on disk); default the new file's name.</summary>
+    public static void Apply(PluginDiff d, string? name = null)
     {
+        name ??= Path.GetFileName(d.New.Path);
         if (d.Changed.Count == 0) return;
         foreach (var c in d.Changed.Where(c => c.SameBytes)) c.Fields.Add(ParentCell);   // a move only: nothing for Mutagen to compare
         var wanted = d.Changed.Where(c => !c.SameBytes).Select(c => c.Key).ToHashSet();
@@ -208,7 +210,7 @@ public static class DiffFields
             {
                 foreach (var c in d.Changed.Where(c => !c.SameBytes)) c.NotCompared = $"fields not compared: {why}";
                 d.FieldsNote = why;
-                Log.Write($"diff: {Path.GetFileName(d.New.Path)}: fields not compared: {why}");
+                Log.Write($"diff: {name}: fields not compared: {why}");
                 return;
             }
             var keep = new List<ChangedRecord>();
@@ -223,8 +225,8 @@ public static class DiffFields
                 }
                 c.Fields.AddRange(Differ(a, b));
                 if (c.Moved) c.Fields.Add(ParentCell);
-                if (c.Fields.Contains("Entries")) Entries(c, a, b, d.Old.Path, d.New.Path);
-                if (c.Fields.Contains("Base")) BaseSwap(c, a, b, d.Old.Path, d.New.Path);
+                if (c.Fields.Contains("Entries")) Entries(c, a, b, d.Old.Path, d.New.Path, name);
+                if (c.Fields.Contains("Base")) BaseSwap(c, a, b, d.Old.Path, d.New.Path, name);
                 if (c.Fields.Count > 0) { keep.Add(c); continue; }
                 var counts = d.CountsOf(c.Old.Sig, c.Key.Own);
                 counts.Changed--; counts.Noise++;

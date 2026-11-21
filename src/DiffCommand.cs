@@ -176,6 +176,41 @@ public static class DiffCommand
         return null;
     }
 
+    /// <summary>File names ignore case on Windows (and on the default macOS volumes) and not on Linux.</summary>
+    static StringComparison PathCase => OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+    /// <summary>The full path with every link or junction on the way followed (the parts that exist); the full path as it
+    /// is when a link can't be read. Used only to compare paths, never to open them.</summary>
+    public static string RealPath(string path)
+    {
+        var full = System.IO.Path.GetFullPath(path);
+        try
+        {
+            var root = System.IO.Path.GetPathRoot(full) ?? "";
+            var cur = root;
+            var parts = full[root.Length..].Split(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var next = System.IO.Path.Combine(cur, parts[i]);
+                FileSystemInfo info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
+                if (!info.Exists) return System.IO.Path.Combine([next, .. parts[(i + 1)..]]);
+                // LinkTarget by hand, not ResolveLinkTarget: Windows refuses to follow a junction that way ("untrusted mount
+                // point"). A chain of links is followed up to 40 times; a link to a link resolves on the next pass.
+                for (int hops = 0; hops < 40 && info.LinkTarget is { } target; hops++)
+                {
+                    next = System.IO.Path.GetFullPath(target, System.IO.Path.GetDirectoryName(next) ?? root);
+                    info = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
+                }
+                cur = next;
+            }
+            return cur;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return full;
+        }
+    }
+
     /// <summary>Why --log can't be used, or null. Checked before the log file is opened, so a bad --log never truncates an
     /// input: the same rules as --out, and --out and --log must be different files.</summary>
     public static string? LogProblem(DiffOptions o)
@@ -186,8 +221,7 @@ public static class DiffCommand
         {
             try
             {
-                var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-                if (string.Equals(System.IO.Path.GetFullPath(o.Out), System.IO.Path.GetFullPath(o.Log), cmp))
+                if (string.Equals(RealPath(o.Out), RealPath(o.Log), PathCase))
                     return $"can't use one file for both --out and --log ({System.IO.Path.GetFullPath(o.Out)}). Give them different files, " +
                            "for example --out diff-report.txt --log diff-log.txt";
             }
@@ -215,12 +249,14 @@ public static class DiffCommand
         if (ext is ".esm" or ".esp" or ".esl" or ".ba2" or ".zip" or ".7z" or ".rar" or ".pex")
             return $"won't write {what} to {full}: that name is a plugin, archive or script, and {what} would overwrite it. " +
                    $"Give {option} a .txt{(option == "--log" ? "" : " or .json")} file, for example {example}";
+        // links and junctions are followed on both sides, so a path through a link to an input folder is refused too
+        var real = RealPath(full);
         foreach (var input in new[] { oldInput, newInput })
         {
-            var inFull = System.IO.Path.GetFullPath(input).TrimEnd('\\', '/');
-            if (string.Equals(full, inFull, StringComparison.OrdinalIgnoreCase))
+            var inFull = RealPath(input).TrimEnd('\\', '/');
+            if (string.Equals(real, inFull, PathCase))
                 return $"won't write {what} to {full}: that is one of the inputs. Give {option} another file.";
-            if (Directory.Exists(inFull) && full.StartsWith(inFull + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (Directory.Exists(inFull) && real.StartsWith(inFull + System.IO.Path.DirectorySeparatorChar, PathCase))
                 return $"won't write {what} to {full}: it is inside the input folder {inFull}, and diff never writes into its inputs. " +
                        $"Give {option} a file outside it.";
         }
@@ -397,7 +433,7 @@ public static class DiffCommand
                     SfModCheck.Log.Write($"{pp.Name}: renumbered {orec.Sig} {orec.EditorId}: {ok.Show(pp.Name)} -> {nk.Show(pp.Name)} (same type and EditorID)");
                 var byBytes = d.Changed.Count;
                 SfModCheck.Log.Write($"{pp.Name}: {byBytes} records changed by bytes; reading them with Mutagen to compare their fields ({sw.Elapsed.TotalSeconds:F1} s)");
-                DiffFields.Apply(d);
+                DiffFields.Apply(d, pp.Name);
                 foreach (var c in d.Changed)
                     SfModCheck.Log.Write($"{pp.Name}: changed {c.Old.Sig} {c.Key.Show(pp.Name)} {c.New.EditorId ?? "(no EditorID)"}: " +
                                          (c.NotCompared ?? string.Join(", ", c.Fields)));
@@ -409,7 +445,8 @@ public static class DiffCommand
                 d.Details.Names = DiffNames.Resolve(d, d.Details.Keys(), m => newPaths(m) ?? oldPaths(m), m => newHeaders(m) ?? oldHeaders(m));
                 SfModCheck.Log.Write($"{pp.Name}: details: {d.Details.Cells.Count} cells with changes, {d.Details.LeveledLists.Count} leveled lists with changed entries, " +
                                      $"{d.Details.BaseSwaps.Count} base-object swaps; EditorIDs read from {(d.Details.Names.Read.Count == 0 ? "no master" : string.Join(", ", d.Details.Names.Read.Select(r => r.Master)))}" +
-                                     (d.Details.Names.MissingMasters.Count > 0 ? $"; masters not found for EditorIDs: {string.Join(", ", d.Details.Names.MissingMasters)}" : ""));
+                                     (d.Details.Names.MissingMasters.Count > 0 ? $"; masters not found for EditorIDs: {string.Join(", ", d.Details.Names.MissingMasters)}" : "") +
+                                     (d.Details.Names.DamagedMasters.Count > 0 ? $"; damaged masters (some EditorIDs missing): {string.Join(", ", d.Details.Names.DamagedMasters)}" : ""));
                 report.Plugins.Add(new(pp, d.Differences ? "changed" : "same", d));
                 var own = d.Total(true); var ovr = d.Total(false);
                 SfModCheck.Log.Write($"{pp.Name}: {(d.Differences ? "changed" : "same")}; own records {own.Added} added, {own.Removed} removed, {own.Changed} changed, " +
