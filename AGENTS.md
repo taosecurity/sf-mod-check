@@ -207,7 +207,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     texture archives with no `_xbox.ba2` twin, and a zip over 2 GB (each zip is checked on its own). It warns about other archives with no twin, PC-format sound, and
     `Debug.Notification` or `Debug.MessageBox` calls players would see (they show nothing on consoles). A script that
     calls an SFSE plugin and also calls `Game.IsPluginInstalled` is a WARNING, not a failure: confirm the guard. If that
-    script tests only official plugins (Starfield, the DLC, `SFBGS*`, `SFTA*`), it stays a failure (0.10.1). A master by
+    script tests only official plugins (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS*`, `SFTA*`), it stays a failure (0.10.1). A master by
     another author that the user has seen on Creations for every platform: `--creations-master OtherMod.esm`. Never add
     one on your own judgement; ask the user.
 

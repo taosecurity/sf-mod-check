@@ -77,7 +77,9 @@ public static class ReleaseCreations
 
     static readonly Lazy<List<Regex>> OfficialPatterns = new(() => List.Official.Select(Wildcard).ToList(), LazyThreadSafetyMode.PublicationOnly);
 
-    static Regex Wildcard(string p) => new("^" + Regex.Escape(p).Replace("\\*", ".*") + "$", RegexOptions.IgnoreCase);
+    // \z, not $: in .NET $ also matches before a final newline, so "Starfield.esm\n" would count as official
+    // (0.10.1 code review).
+    static Regex Wildcard(string p) => new("^" + Regex.Escape(p).Replace("\\*", ".*") + "\\z", RegexOptions.IgnoreCase);
 
     /// <summary>The Xbox twin's file name of a PC archive: "MyMod - Main.ba2" gives "MyMod - Main_xbox.ba2".</summary>
     public static string XboxTwin(string archive) => Path.GetFileNameWithoutExtension(archive) + "_xbox.ba2";
@@ -223,7 +225,9 @@ public static class ReleaseCreations
                     // user, 2026-11-21: a script that checks Game.IsPluginInstalled may use the framework only when
                     // it's there (optional in code), so a WARNING to confirm the guard. The text names what the script
                     // tests, so a check for an unrelated plugin is easy to spot (code review round 7). creations-check.py
-                    // has the same levels but matches the name anywhere in the script's bytes, not only a real call.
+                    // is coarser: it reads plugin names anywhere in the script's bytes, not only a real call's
+                    // argument, and can't see a name held in a variable, so its level can differ from this one for
+                    // the same script (0.10.1 code review).
                     Add(Level.Warning, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins, and also calls Game.IsPluginInstalled (testing {string.Join(", ", tested)}). Creations can't run SFSE; make sure every framework call runs only when that check finds the framework's plugin.");
                 else if (fw.Count > 0)
                     Add(Level.Problem, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins. Creations can't run SFSE, so those calls fail; remove them, guard them with Game.IsPluginInstalled in this script (a guard in another script isn't seen), or keep the mod on PC (Nexus).");

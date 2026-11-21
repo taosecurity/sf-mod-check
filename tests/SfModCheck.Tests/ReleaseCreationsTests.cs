@@ -65,6 +65,9 @@ public class ReleaseCreationsTests
         Assert.True(ReleaseCreations.Allowed("ShatteredSpace.esm", []));
         Assert.False(ReleaseCreations.Allowed("OtherMod.esm", []));
         Assert.True(ReleaseCreations.Allowed("othermod.esm", ["OtherMod.esm"]));
+        // 0.10.1 code review: the patterns end with \z, so a trailing newline doesn't match.
+        Assert.False(ReleaseCreations.IsOfficial("Starfield.esm\n"));
+        Assert.False(ReleaseCreations.IsOfficial("SFBGS050.esm\n"));
         Assert.Contains("ConsoleAPI", ReleaseCreations.List.Frameworks);
         Assert.Equal("MyMod - Main_xbox.ba2", ReleaseCreations.XboxTwin("MyMod - Main.ba2"));
     }

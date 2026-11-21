@@ -4,7 +4,11 @@
 
 ### Changed
 
-- `release --profile creations`: a script that names an SFSE plugin's script and calls `Game.IsPluginInstalled` only for official plugins (Starfield, the DLC, `SFBGS*` and `SFTA*` plugins) is a PROBLEM again, not a WARNING. A check for an official plugin doesn't guard the framework, so the framework calls still fail on consoles. The PROBLEM names the plugins the script tests. A script that tests any other plugin, or a name held in a variable, is still a WARNING.
+- `release --profile creations`: a script that names an SFSE plugin's script and calls `Game.IsPluginInstalled` only for official plugins (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS*` and `SFTA*` plugins) is a PROBLEM again, not a WARNING. A check for an official plugin doesn't guard the framework, so the framework calls still fail on consoles. The PROBLEM names the plugins the script tests. A script that tests any other plugin, or a name held in a variable, is still a WARNING.
+
+### Fixed
+
+- `release --profile creations`: a name that ends with a newline (`"Starfield.esm\n"`) no longer matches an official plugin's name.
 
 ### Example
 
