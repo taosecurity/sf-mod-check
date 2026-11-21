@@ -40,7 +40,9 @@ public sealed class LinksFactAttribute : FactAttribute
             Directory.CreateDirectory(Path.Combine(dir, "t"));
             return FollowUps091Tests.TryLink(Path.Combine(dir, "l"), Path.Combine(dir, "t"), folder: true);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+        // any failure (cmd.exe can't start: Win32Exception) means "can't link here", never a type-initializer error that
+        // turns every [LinksFact] test into a discovery error (code-review round 4)
+        catch (Exception) { return false; }
         finally
         {
             try { if (Directory.Exists(Path.Combine(dir, "l"))) Directory.Delete(Path.Combine(dir, "l")); Directory.Delete(dir, true); }

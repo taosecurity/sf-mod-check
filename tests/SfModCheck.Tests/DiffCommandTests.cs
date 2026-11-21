@@ -155,6 +155,81 @@ public class DiffCommandTests
         Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(s.Dir, "moda", "r.txt"), folder, a));
     }
 
+    [WindowsFact]
+    public void On_windows_dot_dot_after_a_link_is_applied_by_text()
+    {
+        // code-review medium round 4 (0.11.0): Windows applies link\.. by text, so link\..\r.txt is <dir>\r.txt
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var folder = s.Sub("mod");
+        var sub = Directory.CreateDirectory(Path.Combine(folder, "sub")).FullName;
+        var link = Path.Combine(s.Dir, "link");
+        if (!FollowUps091Tests.TryLink(link, sub, folder: true)) return;   // LinksFact can't be combined with WindowsFact
+        Assert.Contains("both --out and --log", DiffCommand.LogProblem(new DiffOptions
+            { Old = a, New = a, Out = Path.Combine(s.Dir, "r.txt"), Log = Path.Combine(link, "..", "r.txt") }));
+        Assert.Null(DiffCommand.OutProblem(Path.Combine(link, "..", "r.txt"), folder, a));
+    }
+
+    [WindowsFact]
+    public void On_windows_a_stream_name_and_a_long_path_prefix_are_caught()
+    {
+        // code-review medium round 4 (0.11.0): A.esm:r.txt writes a stream into A.esm; \\?\C:\x is C:\x
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var b = Path.Combine(s.Dir, "B.esm"); File.WriteAllText(b, "y");
+        Assert.Contains("NTFS stream", DiffCommand.OutProblem(a + ":r.txt", a, b));
+        Assert.Contains("NTFS stream", DiffCommand.OutProblem(a + ":r.txt", a, b, "--log"));
+        var folder = s.Sub("mod");
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(folder, "r.txt"), @"\\?\" + folder, a));
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(@"\\?\" + Path.Combine(folder, "r.txt"), folder, a));
+        Assert.Equal(@"C:\x", DiffCommand.NoPrefix(@"\\?\C:\x"));
+        Assert.Equal(@"\\server\share\x", DiffCommand.NoPrefix(@"\\?\UNC\server\share\x"));
+        Assert.Equal(@"\\?\Volume{1234}\x", DiffCommand.NoPrefix(@"\\?\Volume{1234}\x"));
+        Assert.True(DiffCommand.IsVolumeTarget(@"\??\Volume{1234}\"));
+        Assert.False(DiffCommand.IsVolumeTarget(@"C:\Volume{backup}"));
+    }
+
+    [UnixFact]
+    public void On_linux_a_link_to_a_plugin_and_a_folder_named_volume_are_handled()
+    {
+        // code-review medium round 4 (0.11.0): report.txt -> Other.esm would overwrite a plugin; "Volume{" is an
+        // ordinary folder name outside Windows
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        var other = Path.Combine(s.Dir, "Other.esm"); File.WriteAllText(other, "keep");
+        var report = Path.Combine(s.Dir, "report.txt");
+        File.CreateSymbolicLink(report, other);
+        Assert.Contains("a plugin, archive or script", DiffCommand.OutProblem(report, a, a));
+        Assert.Equal("keep", File.ReadAllText(other));
+        Assert.False(DiffCommand.IsVolumeTarget("/data/Volume{backup}/reports"));
+        var vol = s.Sub("Volume{backup}");
+        var link = Path.Combine(s.Dir, "vlink");
+        Directory.CreateSymbolicLink(link, vol);
+        Assert.Null(DiffCommand.OutProblem(Path.Combine(link, "r.txt"), a, a));
+    }
+
+    [LinksFact]
+    public void A_path_with_many_separate_links_is_not_refused()
+    {
+        // code-review medium round 4 (0.11.0): the 40-link limit is per chain, not per path
+        using var s = new Sandbox();
+        var a = Path.Combine(s.Dir, "A.esm"); File.WriteAllText(a, "x");
+        const int n = 42;
+        var dirs = Enumerable.Range(0, n + 1).Select(i => s.Sub("d" + i)).ToArray();
+        for (int i = 0; i < n; i++) Assert.True(FollowUps091Tests.TryLink(Path.Combine(dirs[i], "n"), dirs[i + 1], folder: true));
+        var deep = Path.Combine(new[] { dirs[0] }.Concat(Enumerable.Repeat("n", n)).Append("r.txt").ToArray());
+        Assert.EndsWith(Path.Combine("d" + n, "r.txt"), DiffCommand.RealPath(deep));
+        // (OutProblem(deep, a, a) isn't null on Windows: Windows itself won't open a path through 42 junctions, so the
+        // "folder doesn't exist" check refuses it. The link guard doesn't, which is what this test is about.)
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(deep, dirs[n], a));
+
+        // found while writing this test: Split(char, char, options) bound to Split(char, int count, options), so the
+        // parts after the 47th were never checked and a link there wasn't followed
+        var plain = Directory.CreateDirectory(Path.Combine(new[] { s.Dir }.Concat(Enumerable.Repeat("p", 50)).ToArray())).FullName;
+        Assert.True(FollowUps091Tests.TryLink(Path.Combine(plain, "into"), dirs[n], folder: true));
+        Assert.Contains("inside the input folder", DiffCommand.OutProblem(Path.Combine(plain, "into", "r.txt"), dirs[n], a));
+    }
+
     // ---- pairing ----
 
     [Fact]

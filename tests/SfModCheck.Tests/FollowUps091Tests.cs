@@ -112,7 +112,7 @@ public class FollowUps091Tests
             else File.CreateSymbolicLink(link, target);
             return true;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception) { return false; }
     }
 
     [Fact]
