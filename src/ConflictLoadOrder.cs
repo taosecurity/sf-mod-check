@@ -79,17 +79,24 @@ public class LoadOrderSetup
     /// <summary>The order the game gives the official BlueprintShips files it loads: after every other plugin, oldest
     /// file first by modified time, then by name (LOOT's and libloadorder's rule; sf-load-order uses the same one).
     /// A file whose time can't be read goes after the dated ones, by name.</summary>
-    public static List<string> BlueprintShipsLast(IEnumerable<string> names, Func<string, string> pathOf)
+    /// <param name="times">if given, gets each file's modified time as used for the order (null: unknown)</param>
+    public static List<string> BlueprintShipsLast(IEnumerable<string> names, Func<string, string> pathOf, IDictionary<string, DateTime?>? times = null)
     {
         static (int, DateTime) Age(string path)
         {
             try { return File.Exists(path) ? (0, File.GetLastWriteTimeUtc(path)) : (1, DateTime.MinValue); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (1, DateTime.MinValue); }
         }
-        return names.Select(n => (Name: n, Age: Age(pathOf(n))))
+        var aged = names.Select(n => (Name: n, Age: Age(pathOf(n)))).ToList();
+        if (times is not null) foreach (var x in aged) times[x.Name] = x.Age.Item1 == 0 ? x.Age.Item2 : null;
+        return aged
             .OrderBy(x => x.Age.Item1).ThenBy(x => x.Age.Item2).ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .Select(x => x.Name).ToList();
     }
+
+    /// <summary>The words in the load-order problem for a mod with a BlueprintShips master. That mod is still loaded
+    /// and compared, so `triage` doesn't call it left out (0.12.0 code review).</summary>
+    public const string JudgedInGameOrder = "its records were judged in the game's order";
 
     public List<PluginInfo> Plugins { get; } = new();
     // Read-only outside: AddProblem is the only writer, so every problem is cleaned to one line (0.5.1).
@@ -164,11 +171,14 @@ public class LoadOrderSetup
                 Log.Write($"load order: {f} left out: its plugin {owner} is turned off in Plugins.txt");
             else blueprintFiles.Add(f);
         }
-        var blueprintLast = BlueprintShipsLast(blueprintFiles, f => fullPath[f]);
+        var blueprintTimes = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
+        var blueprintLast = BlueprintShipsLast(blueprintFiles, f => fullPath[f], blueprintTimes);
         foreach (var n in blueprintLast) Add(n);
         for (int i = 0; i < blueprintLast.Count; i++)
         {
-            var when = File.Exists(fullPath[blueprintLast[i]]) ? File.GetLastWriteTimeUtc(fullPath[blueprintLast[i]]).ToString("yyyy-MM-dd HH:mm:ss") + " UTC" : "time unknown";
+            // the time the order was made from (read once, with BlueprintShipsLast's guard; 0.12.0 code review)
+            var t = blueprintTimes.GetValueOrDefault(blueprintLast[i]);
+            var when = t is { } d ? d.ToString("yyyy-MM-dd HH:mm:ss") + " UTC" : "time unknown";
             Log.Write($"load order: {blueprintLast[i]} goes after every plugin (BlueprintShips file {i + 1} of {blueprintLast.Count}, " +
                       $"modified {when}): the game loads BlueprintShips files last, oldest file first");
         }
@@ -204,8 +214,18 @@ public class LoadOrderSetup
                 if (blueprintSet.Contains(m) && !blueprintSet.Contains(name))
                 {
                     // Not pulled forward: its records are judged in the game's order, with the BlueprintShips file last.
-                    setup.AddProblem($"{name}: has the master {m}, but the game loads BlueprintShips files after every mod, so this plugin loads before its master; its records were judged in the game's order");
+                    setup.AddProblem($"{name}: has the master {m}, but the game loads BlueprintShips files after every mod, so this plugin loads before its master; {JudgedInGameOrder}");
                     Log.Write($"load order: {name} has the BlueprintShips master {m}; {m} stays after every plugin");
+                }
+                else if (blueprintSet.Contains(m))
+                {
+                    // Two BlueprintShips files: they keep their oldest-first order, even when the master is the newer one
+                    // (0.12.0 code review).
+                    if (blueprintLast.FindIndex(b => b.Equals(m, StringComparison.OrdinalIgnoreCase)) > blueprintLast.FindIndex(b => b.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        setup.AddProblem($"{name}: has the master {m}, a newer BlueprintShips file; the game loads BlueprintShips files oldest first, so this file loads before its master; {JudgedInGameOrder}");
+                        Log.Write($"load order: BlueprintShips file {name} has the newer BlueprintShips master {m}; both keep the oldest-first order");
+                    }
                 }
                 else if (wanted.FindIndex(w => w.Equals(m, StringComparison.OrdinalIgnoreCase)) > wanted.FindIndex(w => w.Equals(name, StringComparison.OrdinalIgnoreCase)))
                     setup.AddProblem($"{name}: listed before its master {m}; the game would fail to load it, so it was analyzed after {m}");

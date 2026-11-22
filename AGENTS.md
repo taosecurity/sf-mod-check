@@ -356,6 +356,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   record under "Not built" (counted in the RESULT line's records not built) instead of building it. The report's
   Kind column says `Lost` for such a field. The navmesh info map (`NavigationMeshInfoMap`) is the exception: it
   keeps its own note and its own "Not built" reason, because each plugin's copy lists only its own navmeshes.
+  A mod with a BlueprintShips master gets a `loadOrderProblems` line but is still loaded and compared, judged
+  against that master's version; `triage` reports that line as a load-order note, not as "left out". A patch whose
+  copied values point into a BlueprintShips file gets it as a master and says so in the report's Notes.
 - **conflict output:** a report folder (`--out`, default `sf-mod-check-conflict`) with `report.html` (to read),
   `report.md` and `conflicts.json` (for scripts: `lost`, `itms`, `loadOrderProblems`, `typeChanges`, `Errors`, and
   since 0.6.0 `assetsChecked` (false with `--no-assets`), `archivesRead`, `inheritedAssetUses` (missing-path uses

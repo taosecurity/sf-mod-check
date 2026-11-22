@@ -901,6 +901,15 @@ public static class PatchCommand
         var missing = masterSet.Where(m => !index.ContainsKey(m)).ToList();
         if (missing.Count > 0) throw new InvalidOperationException($"the patch would need masters that aren't loaded: {string.Join(", ", missing.Select(Impact.OneLine))}");
         var masters = masterSet.OrderBy(m => index[m]).Select(m => lo.Plugins[index[m]].FileName).ToList();
+        // A copied value can point at a record a BlueprintShips file defines. That file still loads after the patch,
+        // as after every plugin, so say so in the report (0.12.0 code review).
+        foreach (var m in masters.Where(LoadOrderSetup.IsBlueprint))
+        {
+            plan.Notes.Add($"the patch has the master {m}, because a value it copies points at a record that file defines; " +
+                           "the game loads BlueprintShips files after every plugin, so the patch loads before this master, " +
+                           "as a mod with such a master does");
+            Log.Write($"patch: master {m} is a BlueprintShips file, which loads after the patch");
+        }
 
         using var game = new GameData(dataDir, extraDir != null ? [extraDir] : null);
         foreach (var m in masters) game.Open(m);

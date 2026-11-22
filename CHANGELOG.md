@@ -5,9 +5,11 @@
 ### Changed
 
 - `conflict`, `patch` and `triage` load the official `BlueprintShips-*.esm` files (Bethesda's ship blueprints) where the game does: after every plugin, oldest file first (by the file's modified time, then by name). Earlier versions loaded them with Bethesda's other files, before every mod, so a mod's change to a ship that a BlueprintShips file also changes was shown as winning when the game undoes it. A Plugins.txt line for a BlueprintShips file doesn't move it, as in the game.
-- A mod that has a BlueprintShips file as a master gets a load-order problem ("the game loads BlueprintShips files after every mod, so this plugin loads before its master"). Its records are judged in the game's order; the master isn't moved forward for it.
+- A mod that has a BlueprintShips file as a master gets a load-order problem ("the game loads BlueprintShips files after every mod, so this plugin loads before its master"). Its records are judged in the game's order; the master isn't moved forward for it. What it changes is judged against that master's version, which its author saw, so a change it makes to a base game ship the BlueprintShips file also changes is listed as lost, and a copy of the BlueprintShips file's values is an ITM. `triage` reports that line as a load-order note, not as "left out of the comparison".
+- A BlueprintShips file whose master is a newer BlueprintShips file keeps the oldest-first order and gets a load-order problem that says so.
+- `patch`: when a copied value points at a record a BlueprintShips file defines, the patch gets that file as a master, and the report's Notes say that the game still loads it after the patch.
 - `--verbose` and `--log` record where each BlueprintShips file went and why, and each one left out because its plugin is turned off.
-- `conflict`: a mod's change lost to a BlueprintShips file gets its own recommendation: the file loads after every mod, so no load order or patch brings the change back, and the mod's edit to that ship or cell doesn't reach the game. No move or patch is offered for it.
+- `conflict`: a mod's change lost to a BlueprintShips file gets its own recommendation: the file loads after every mod, so no load order or patch brings the change back, and the mod's edit to that ship doesn't reach the game (the advice names the record type when it isn't a ship). No move or patch is offered for it.
 - `conflict`: a mod's edit of a record that a BlueprintShips file adds itself (the mod has that file as a master) is now listed as lost to that file, judged against the file's own version. Before, the mod's copy loaded first and was taken as the original, so the lost edit wasn't listed.
 - `patch`: a record whose change is lost to a BlueprintShips file isn't built, because the patch loads before that file too. It is listed under "Not built" with the reason and counted in the RESULT line's records not built. The "Not built" heading no longer says every entry can be done in xEdit.
 - `conflict`: a field lost to a BlueprintShips file is labeled **Lost** in the report tables (not Choice or Forwardable), and its summary line says there is nothing to do, instead of calling it a choice. The Forwardable and Choice counts leave such fields out.
@@ -31,7 +33,7 @@ What it prints (a real run, with the first three lines left out):
 
 The report loads `BlueprintShips-Starfield.esm` last, after `ModA.esm`, and gives this recommendation:
 
-    Medium: BlueprintShips-Starfield.esm (base game ship blueprints) loads after every mod, so no load order or patch brings this change back; the edit ModA.esm makes to this ship or cell doesn't reach the game.
+    Medium: BlueprintShips-Starfield.esm (base game ship blueprints) loads after every mod, so no load order or patch brings this change back; the edit ModA.esm makes to this ship doesn't reach the game.
 
 The ship's changed field is labeled **Lost** in the report's table. On the same files, 0.11.0 loaded the BlueprintShips file first and reported the opposite: `ModA.esm` winning, and the official change undone (`1 official, 0 mod vs mod`).
 

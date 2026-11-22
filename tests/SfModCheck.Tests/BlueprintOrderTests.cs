@@ -38,12 +38,18 @@ public class BlueprintOrderTests
         /// <summary>Writes a light mod.</summary>
         public void Mod(string name, Action<StarfieldMod, Func<string, IStarfieldModGetter>> build) => Write(name, PluginStyle.Light, build);
 
-        void Write(string name, PluginStyle style, Action<StarfieldMod, Func<string, IStarfieldModGetter>> build)
+        /// <summary>Writes a light mod with these masters, in this order (a master it needn't have for its records).</summary>
+        public void ModWithMasters(string name, string[] masters, Action<StarfieldMod, Func<string, IStarfieldModGetter>> build) =>
+            Write(name, PluginStyle.Light, build, masters);
+
+        public void Write(string name, PluginStyle style, Action<StarfieldMod, Func<string, IStarfieldModGetter>> build, string[]? masters = null)
         {
             var mod = Plugin.New(name, style, "test", "made-up plugin");
             using var g = new GameData(Data);
             build(mod, n => g.Open(n));
-            PluginWriter.Write(mod, Data, g, NoGap);
+            if (masters is not null) foreach (var m in masters) g.Open(m);
+            PluginWriter.Write(mod, Data, g, masters is null ? NoGap
+                : new WriteOptions { GapCheck = false, FixEffects = false, Masters = masters.Select(m => ModKey.FromFileName(m)).ToList() });
         }
 
         public void Age(string name, DateTime utc) => File.SetLastWriteTimeUtc(Path.Combine(Data, name), utc);
@@ -114,13 +120,13 @@ public class BlueprintOrderTests
         Assert.Empty(Problems(json));
         // Step 3: the advice says nothing can bring the change back, and offers no move or patch.
         var report = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
-        Assert.Contains("loads after every mod, so no load order or patch brings this change back; the edit ModA.esm makes to this ship or cell doesn't reach the game.", report);
+        Assert.Contains("loads after every mod, so no load order or patch brings this change back; the edit ModA.esm makes to this ship doesn't reach the game.", report);
         Assert.Contains("No load order or patch brings this change back.", report);
         Assert.DoesNotContain("Move ModA.esm", report);
         Assert.DoesNotContain("A small local patch", report);
         Assert.DoesNotContain("A patch can restore it", report);
         Assert.Equal("BlueprintShips-Starfield.esm (base game ship blueprints) loads after every mod, so no load order or patch brings this change back; " +
-                     "the edit ModA.esm makes to these 2 ships or cells doesn't reach the game.",
+                     "the edit ModA.esm makes to these 2 ships doesn't reach the game.",
             Recommend.BlueprintAdvice("BlueprintShips-Starfield.esm", "ModA.esm", 2));
         // Step 4b (SWG's StarStationPolvo row): both plugins changed the field, but nothing can be chosen, so it is
         // "Lost" with nothing to do, never a "choice".
@@ -282,6 +288,97 @@ public class BlueprintOrderTests
         Assert.False(field.GetProperty("WinnerChangedToo").GetBoolean());
         Assert.Empty(json.GetProperty("itms").EnumerateArray());
         var report = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
-        Assert.Contains("the edit ModM.esm makes to this ship or cell doesn't reach the game.", report);
+        Assert.Contains("the edit ModM.esm makes to this ship doesn't reach the game.", report);
+    }
+
+    static readonly string[] BaseAndBlueprint = ["Starfield.esm", "BlueprintShips-Starfield.esm"];
+
+    [Fact]
+    public void A_mod_with_a_BlueprintShips_master_is_judged_against_that_files_version_of_a_base_game_ship()
+    {
+        // 0.12.0 code review: the base game's ship (K0), the BlueprintShips file changes it (K2). ModR, with that file as
+        // a master, puts K0 back: a change of its own, lost to the BlueprintShips file. ModI carries the BlueprintShips
+        // value unchanged: an ITM.
+        using var game = new Game();
+        game.Full("BlueprintShips-Starfield.esm", (m, open) => Ship(m, open("Starfield.esm"), 2));
+        game.ModWithMasters("ModR.esm", BaseAndBlueprint, (m, open) => Ship(m, open("Starfield.esm"), 0));
+        game.ModWithMasters("ModI.esm", BaseAndBlueprint, (m, open) => Ship(m, open("Starfield.esm"), 2));
+        Assert.Contains("BlueprintShips-Starfield.esm", LoadOrderSetup.ModHeaderMasters(Path.Combine(game.Data, "ModR.esm")));
+        var txt = game.PluginsTxt("*ModR.esm", "*ModI.esm");
+        var (code, stdout, stderr, json) = game.Conflict(txt);
+        Assert.True(code == 0, stdout + stderr);
+        var lost = Assert.Single(json.GetProperty("lost").EnumerateArray());
+        Assert.Equal(("ModR.esm", "BlueprintShips-Starfield.esm", "GenericBaseForm"),
+            (lost.GetProperty("Loser").GetString(), lost.GetProperty("Winner").GetString(), lost.GetProperty("RecordType").GetString()));
+        var itm = Assert.Single(json.GetProperty("itms").EnumerateArray());
+        Assert.Equal("ModI.esm", itm.GetProperty("Plugin").GetString());
+    }
+
+    [Fact]
+    public void Triage_doesnt_call_a_mod_with_a_BlueprintShips_master_left_out()
+    {
+        using var game = new Game();
+        game.Full("BlueprintShips-Starfield.esm", (m, open) =>
+            m.GenericBaseForms.AddNew("BP_Ship").Components.Add(Keywords(open("Starfield.esm").Keywords.First())));
+        game.Mod("ModM.esm", (m, open) =>
+        {
+            var s = m.GenericBaseForms.GetOrAddAsOverride(open("BlueprintShips-Starfield.esm").GenericBaseForms.First());
+            s.Components.Clear();
+            s.Components.Add(Keywords(open("Starfield.esm").Keywords.Skip(1).First()));
+        });
+        using var apart = new Sandbox();   // the mod's own folder, outside the game's
+        var mod = apart.Sub("mod");
+        File.Move(Path.Combine(game.Data, "ModM.esm"), Path.Combine(mod, "ModM.esm"));
+        var out_ = Path.Combine(apart.Dir, "triage");
+        var (code, stdout, stderr) = ExeTests.RunSplit("triage", mod, "--game", game.Dir, "--out", out_, "--quiet");
+        Assert.True(code == 0, stdout + stderr);
+        var text = File.ReadAllText(Path.Combine(out_, "mod-triage.txt"));
+        Assert.Contains("load order: has the master BlueprintShips-Starfield.esm, but the game loads BlueprintShips files after every mod", text);
+        Assert.DoesNotContain("left out of the comparison", text);
+    }
+
+    [Fact]
+    public void A_BlueprintShips_file_with_a_newer_BlueprintShips_master_keeps_the_oldest_first_order()
+    {
+        using var game = new Game();
+        game.Full("BlueprintShips-Starfield.esm", (m, open) => Ship(m, open("Starfield.esm"), 2));
+        game.Write("BlueprintShips-SFBGS050.esm", PluginStyle.Full, (m, open) => m.Keywords.AddNew("BP050_K"),
+            ["Starfield.esm", "SFBGS050.esm", "BlueprintShips-Starfield.esm"]);
+        game.Age("BlueprintShips-SFBGS050.esm", new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+        game.Age("BlueprintShips-Starfield.esm", new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+        var txt = game.PluginsTxt();
+        var (code, stdout, stderr, json) = game.Conflict(txt);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Equal(["Starfield.esm", "SFBGS050.esm", "BlueprintShips-SFBGS050.esm", "BlueprintShips-Starfield.esm"], Order(json));
+        var problem = Assert.Single(Problems(json));
+        Assert.Equal("BlueprintShips-SFBGS050.esm: has the master BlueprintShips-Starfield.esm, a newer BlueprintShips file; the game loads " +
+                     "BlueprintShips files oldest first, so this file loads before its master; its records were judged in the game's order", problem);
+        Assert.DoesNotContain("analyzed after", problem);
+    }
+
+    [Fact]
+    public void A_patch_that_copies_a_link_into_a_BlueprintShips_file_says_so()
+    {
+        using var game = new Game();
+        // the base game gets a form list after the fact (Game() wrote Starfield.esm already)
+        var b = Plugin.New("Starfield.esm", PluginStyle.Full, "test", "made-up base game");
+        b.Keywords.AddNew("B_K0"); b.Keywords.AddNew("B_K1"); b.Keywords.AddNew("B_K2");
+        b.GenericBaseForms.AddNew("B_Ship");
+        b.FormLists.AddNew("B_List").Items.Add(b.Keywords.First().ToLink<IKeywordGetter>());
+        using (var g = new GameData(game.Data)) PluginWriter.Write(b, game.Data, g, NoGap);
+        game.Full("SFBGS050.esm", (m, open) => m.Keywords.AddNew("TA_K"));
+        game.Full("BlueprintShips-Starfield.esm", (m, open) => m.Keywords.AddNew("BP_K"));
+        // ModA adds the BlueprintShips file's keyword to the list, ModB one of the base game's: the patch merges both.
+        game.Mod("ModA.esm", (m, open) => m.FormLists.GetOrAddAsOverride(open("Starfield.esm").FormLists.First())
+            .Items.Add(open("BlueprintShips-Starfield.esm").Keywords.First().ToLink<IKeywordGetter>()));
+        game.Mod("ModB.esm", (m, open) => m.FormLists.GetOrAddAsOverride(open("Starfield.esm").FormLists.First())
+            .Items.Add(open("Starfield.esm").Keywords.Skip(1).First().ToLink<IKeywordGetter>()));
+        var txt = game.PluginsTxt("*ModA.esm", "*ModB.esm");
+        var outDir = Path.Combine(game.Dir, "patch");
+        var (code, stdout, stderr) = ExeTests.RunSplit("patch", "--data", game.Data, "--plugins", txt, "--out", outDir, "--quiet");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("BlueprintShips-Starfield.esm", LoadOrderSetup.ModHeaderMasters(Path.Combine(outDir, "ConflictPatch.esm")));
+        var report = File.ReadAllText(Path.Combine(outDir, "patch-report.md"));
+        Assert.Contains("the patch has the master BlueprintShips-Starfield.esm, because a value it copies points at a record that file defines", report);
     }
 }

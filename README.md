@@ -255,11 +255,15 @@ order (each plugin after its masters), then the official `BlueprintShips-*.esm` 
 after every plugin, oldest file first (by the file's modified time, then by name). That last rule is new in 0.12.0;
 earlier versions put the BlueprintShips files with Bethesda's other files. A Plugins.txt line for a BlueprintShips
 file doesn't move it, and a BlueprintShips file is left out when its plugin is turned off. A mod that has a
-BlueprintShips file as a master gets a load-order problem, because the game loads that master after the mod.
+BlueprintShips file as a master gets a load-order problem, because the game loads that master after the mod. It is
+still loaded and compared (`triage` says so too), and what it changes is judged against that master's version, which
+its author saw. A BlueprintShips file whose master is a newer BlueprintShips file gets a load-order problem as well:
+the files keep their oldest-first order.
 A mod's change that a BlueprintShips file undoes is listed among the lost changes, with that file as the winner,
 and its recommendation says so plainly: the file loads after every mod, so no load order or patch brings the change
-back, and the mod's edit to that ship or cell doesn't reach the game. This includes a mod's edit of a ship the
-BlueprintShips file adds itself (the mod has that file as a master), judged against the file's own version.
+back, and the mod's edit to that ship doesn't reach the game (the advice names the record type when it isn't a
+ship). This includes a mod's edit of a ship the BlueprintShips file adds itself (the mod has that file as a master),
+judged against the file's own version.
 The navmesh info map is the exception: the BlueprintShips files carry a copy of it too, so they have its last copy,
 but each plugin's copy lists only its own navmeshes. It isn't a record one plugin wins whole, so it keeps its own
 note (it isn't patched, and shouldn't be copied by hand) instead of the "doesn't reach the game" advice.
@@ -444,7 +448,9 @@ How it builds each record:
 A record whose change is lost to an official `BlueprintShips-*.esm` file isn't built (0.12.0): the game loads those
 files after every plugin, the patch too, so their version would still win. The report lists it under "Not built"
 with that reason, and the RESULT line counts it among the records not built. There is nothing to do by hand for it
-either. The navmesh info map keeps its own reason even when a BlueprintShips file has its last copy.
+either. The navmesh info map keeps its own reason even when a BlueprintShips file has its last copy. When a value
+the patch copies points at a record a BlueprintShips file defines, the patch gets that file as a master, and the
+report's Notes say so: the game still loads that master after the patch, as it does for a mod with such a master.
 
     sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
                        [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]] [--pick <FormKey>[:<Field>]=<plugin>]...

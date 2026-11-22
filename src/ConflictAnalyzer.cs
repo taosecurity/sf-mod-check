@@ -580,7 +580,8 @@ public static class Analyzer
                 if (versions[j].Plugin.Mod.ModKey == formKey.ModKey && versions[0].Plugin.Mod.ModKey != formKey.ModKey
                     && LoadOrderSetup.IsBlueprint(versions[j].Plugin.FileName)) origin = j;
             // What each version meant to change: fields that differ from the latest earlier value among its own masters
-            // (for a version before `origin`, the origin's value: its master that loads after it).
+            // (for a version before `origin`, the origin's value; for a version with a BlueprintShips master that loads
+            // after it, that master's value).
             var intended = new HashSet<int>[n];
             for (int i = 0; i < n; i++)
             {
@@ -593,8 +594,15 @@ public static class Analyzer
                     int b = -1;
                     if (i < origin) { if (prov[origin, f]) b = origin; }
                     else
-                    for (int j = i - 1; j >= 0 && b < 0; j--)
-                        if (prov[j, f] && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
+                    {
+                        // A version whose master is a BlueprintShips file that loads after it (it overrides a record that
+                        // file also overrides): its author saw that file's value, so it is the base (0.12.0 code review).
+                        // Of several such masters, the one that loads last.
+                        for (int j = n - 1; j > i && b < 0; j--)
+                            if (prov[j, f] && LoadOrderSetup.IsBlueprint(versions[j].Plugin.FileName) && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
+                        for (int j = i - 1; j >= 0 && b < 0; j--)
+                            if (prov[j, f] && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
+                    }
                     var baseVal = b >= 0 ? vals[b, f] : null;
                     bool same;
                     try { same = FieldCompare.DeepEq(vals[i, f], baseVal, 0); }

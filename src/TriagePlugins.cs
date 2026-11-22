@@ -526,7 +526,10 @@ public static class TriagePlugins
             {
                 Log.Write($"triage plugins: load order: {pr}");
                 if (plugins.FirstOrDefault(p => pr.StartsWith(p.Name + ":", StringComparison.OrdinalIgnoreCase)) is { } who)
-                    note(who.Rel, $"left out of the comparison with the game:{pr[(who.Name.Length + 1)..]}");
+                    // A plugin with a BlueprintShips master is still loaded and compared, in the game's order (0.12.0 code review).
+                    note(who.Rel, pr.EndsWith(LoadOrderSetup.JudgedInGameOrder, StringComparison.Ordinal)
+                        ? $"load order:{pr[(who.Name.Length + 1)..]}"
+                        : $"left out of the comparison with the game:{pr[(who.Name.Length + 1)..]}");
                 else if (pr.StartsWith("Starfield.esm:", StringComparison.OrdinalIgnoreCase))
                     note("", $"the game's Starfield.esm couldn't be opened ({pr}), so nothing was compared with the game");
             }

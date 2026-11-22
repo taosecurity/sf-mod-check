@@ -60,8 +60,9 @@ public static class Recommend
         // note of its own, not the "doesn't reach the game" advice (step 4b).
         if (LoadOrderSetup.IsBlueprint(winner))
         {
-            var ships = real.Where(x => !Impact.IsNavi(x.l.RecordType)).Select(x => x.l.FormKey).Distinct().Count();
-            if (ships > 0) Add(2, BlueprintAdvice(winner, loser, ships));
+            var lostRecs = real.Where(x => !Impact.IsNavi(x.l.RecordType)).Select(x => x.l).DistinctBy(l => l.FormKey).ToList();
+            var types = lostRecs.Select(l => l.RecordType).Distinct().ToList();
+            if (lostRecs.Count > 0) Add(2, BlueprintAdvice(winner, loser, lostRecs.Count, types.Count == 1 ? types[0] : null));
             if (real.Any(x => Impact.IsNavi(x.l.RecordType))) Add(3, Impact.NaviBlueprintNote(winner));
             return recs;
         }
@@ -209,9 +210,19 @@ public static class Recommend
     }
 
     /// <summary>The advice for a change lost to an official BlueprintShips file (0.12.0): no load order or patch helps.</summary>
-    public static string BlueprintAdvice(string winner, string loser, int records) =>
-        $"{D(winner)} loads after every mod, so no load order or patch brings this change back; " +
-        $"the edit {loser} makes to {(records == 1 ? "this ship or cell" : $"these {records} ships or cells")} doesn't reach the game.";
+    /// <param name="recordType">the records' type when they all have one (a GenericBaseForm in such a file is a ship
+    /// blueprint), else null: then they are called records (0.12.0 code review)</param>
+    public static string BlueprintAdvice(string winner, string loser, int records, string? recordType = "GenericBaseForm")
+    {
+        string what = recordType switch
+        {
+            "GenericBaseForm" => records == 1 ? "ship" : "ships",
+            null => records == 1 ? "record" : "records",
+            _ => Impact.TypeName(recordType, records),
+        };
+        return $"{D(winner)} loads after every mod, so no load order or patch brings this change back; " +
+               $"the edit {loser} makes to {(records == 1 ? $"this {what}" : $"these {records} {what}")} doesn't reach the game.";
+    }
 
     static string OfficialShort(string file) => LoadOrderSetup.OfficialName(file) ?? file;
 
