@@ -58,6 +58,29 @@ public sealed class DeepCompare
 
     bool Skipped(string name) => (IgnoreUnknown && name.StartsWith("Unknown")) || (IgnorePadding && IsPadding(name));
 
+    /// <summary>Rule 8 (diff, 0.11.0). Compare a list of scripts, or of script properties, by name instead of by
+    /// position: Papyrus finds scripts and properties by name, so a resave that only reorders them changes nothing in
+    /// game (the user's decision, 2026-11-21). Both lists are put in name order (case ignored, then exact spelling;
+    /// entries with one name keep their order) and then compared entry by entry as usual, so a changed name, flag or
+    /// value, or a script or property added or removed, is still a difference.</summary>
+    public bool ScriptsByName { get; init; }
+
+    /// <summary>The list in name order when every entry is a script or every entry is a script property (rule 8),
+    /// else the list as it is.</summary>
+    public static List<object?> ByName(List<object?> l)
+    {
+        static string? NameOf(object? o) => o switch
+        {
+            IScriptEntryGetter s => s.Name ?? "",
+            IScriptPropertyGetter p => p.Name ?? "",
+            _ => null,
+        };
+        if (l.Count < 2) return l;
+        bool scripts = l.All(o => o is IScriptEntryGetter), properties = l.All(o => o is IScriptPropertyGetter);
+        if (!scripts && !properties) return l;
+        return l.OrderBy(o => NameOf(o)!, StringComparer.OrdinalIgnoreCase).ThenBy(o => NameOf(o)!, StringComparer.Ordinal).ToList();
+    }
+
     readonly ConcurrentDictionary<Type, PropertyInfo[]> props = new();
     readonly ConcurrentDictionary<Type, FieldInfo[]> fields = new();
 
@@ -96,6 +119,7 @@ public sealed class DeepCompare
         {
             var la = ((IEnumerable)a).Cast<object?>().ToList(); var lb = ((IEnumerable)b).Cast<object?>().ToList();
             if (la.Count != lb.Count) return false;
+            if (ScriptsByName) { la = ByName(la); lb = ByName(lb); }
             for (int i = 0; i < la.Count; i++) if (!Eq(la[i], lb[i], depth + 1)) return false;
             return true;
         }
@@ -126,7 +150,7 @@ public sealed class DeepCompare
         {
             if (v is IEnumerable e)
             {
-                foreach (var x in e) h.Add(Hash(x, depth + 1));
+                foreach (var x in ScriptsByName ? ByName(e.Cast<object?>().ToList()) : e.Cast<object?>()) h.Add(Hash(x, depth + 1));
                 return h.ToHashCode();
             }
             foreach (var p in Properties(t)) h.Add(Hash(p.GetValue(v), depth + 1));
@@ -153,11 +177,12 @@ public sealed class DeepCompare
         SelectProperties = SfModCheck.Conflict.FieldCompare.NestedProperties,
     };
 
-    /// <summary>diff's noise test: conflict's rules, leaving out Mutagen's padding members (rule 7). Undocumented
-    /// "Unknown*" members stay compared: they may hold real data.</summary>
+    /// <summary>diff's noise test: conflict's rules, leaving out Mutagen's padding members (rule 7) and comparing
+    /// scripts and script properties by name, not by position (rule 8). Undocumented "Unknown*" members stay
+    /// compared: they may hold real data.</summary>
     public static readonly DeepCompare DiffIgnoringPadding = new()
     {
-        EqualsFirst = true, WalkValueTypeLists = true, TypesByEquals = false, EmptyByEquals = false, IgnorePadding = true,
+        EqualsFirst = true, WalkValueTypeLists = true, TypesByEquals = false, EmptyByEquals = false, IgnorePadding = true, ScriptsByName = true,
         SelectProperties = SfModCheck.Conflict.FieldCompare.NestedProperties,
     };
 

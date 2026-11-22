@@ -264,7 +264,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `RESULT: DIFFERENCES (1 plugin compared, 1 changed, 0 added, 0 removed; records: 2 added, 1 removed, 3 changed, 0 renumbered, 0 noise; files: 1 added, 0 removed, 3 changed)`.
     For the details, read the JSON (`--json --out diff.json`; its shape is in section 6 under `diff`).
     Exit 0 means no differences, 1 differences, 2 bad input. Records whose bytes differ but whose fields are all
-    equal are counted as noise, which is no difference (exit 0 when only noise differs). `--data` gives the game's Data folder (default: Steam's
+    equal are counted as noise, which is no difference (exit 0 when only noise differs); scripts and script properties
+    are matched by name, so a new order alone is noise. `--data` gives the game's Data folder (default: Steam's
     usual one, for master EditorIDs), `--quiet`, `--verbose` and `--log <file>` work as for `check`. `--out` and `--log` never take a plugin, archive
     or script name, an input, or a path inside an input folder, and they must be different files. The report groups placed objects by cell and lists leveled-list
     entries added and removed and base-object swaps. For two mods it also compares the loose files (SHA-256), each

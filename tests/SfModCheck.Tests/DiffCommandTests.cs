@@ -637,6 +637,75 @@ public class DiffCommandTests
         Assert.Equal(0, real.Total(true).Noise);
     }
 
+    // ---- plan step 9a: scripts and script properties are compared by name (order is noise) ----
+
+    /// <summary>Mod.esm with one misc item carrying two scripts; the first has three properties. reorder writes the
+    /// scripts and the properties in the opposite order; the other options make one real change each.</summary>
+    static string Scripted(Sandbox s, string sub, bool reorder = false, int value = 5, bool extra = false, bool flag = false, string name = "HavokOnZKey") =>
+        Build(s, sub, "Mod.esm", PluginStyle.Full, (mod, _) =>
+        {
+            var misc = Misc(mod, 0x800, "MOD_Misc");
+            var props = new List<ScriptProperty>
+            {
+                new ScriptBoolProperty { Name = "HavokOnActivate", Data = true },
+                new ScriptIntProperty { Name = name, Data = value, Flags = flag ? ScriptProperty.Flag.Removed : ScriptProperty.Flag.Edited },
+                new ScriptFloatProperty { Name = "HavokOnHit", Data = 1.5f },
+            };
+            if (extra) props.Add(new ScriptIntProperty { Name = "Added", Data = 1 });
+            if (reorder) props.Reverse();
+            var scripts = new List<ScriptEntry>
+            {
+                new() { Name = "SfmTest:Havok", Properties = [.. props] },
+                new() { Name = "SfmTest:Other", Properties = [new ScriptIntProperty { Name = "Count", Data = 2 }] },
+            };
+            if (reorder) scripts.Reverse();
+            misc.VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = [.. scripts] };
+        });
+
+    [Fact]
+    public void Script_and_property_order_is_noise_but_names_flags_values_and_additions_are_changes()
+    {
+        using var s = new Sandbox();
+        var plain = Scripted(s, "plain");
+        var reordered = Scripted(s, "reordered", reorder: true);
+        Assert.False(File.ReadAllBytes(plain).AsSpan().SequenceEqual(File.ReadAllBytes(reordered)));   // the bytes do differ
+
+        var noise = CompareFields(plain, reordered);
+        Assert.False(noise.Differences);
+        Assert.Empty(noise.Changed);
+        Assert.Equal(0x800u, Assert.Single(noise.Noise).Key.Local);
+        Assert.Equal((0, 1), (noise.Types["MISC"].Own.Changed, noise.Types["MISC"].Own.Noise));
+
+        foreach (var (sub, other) in new[]
+        {
+            ("value", Scripted(s, "value", reorder: true, value: 6)),
+            ("added", Scripted(s, "added", reorder: true, extra: true)),
+            ("flag", Scripted(s, "flag", reorder: true, flag: true)),
+            ("renamed", Scripted(s, "renamed", reorder: true, name: "HavokOnZKey2")),
+            ("case", Scripted(s, "case", name: "havokonzkey")),
+        })
+        {
+            var real = CompareFields(plain, other);
+            Assert.True(real.Differences, sub);
+            Assert.Equal(["VirtualMachineAdapter"], Assert.Single(real.Changed).Fields);
+            Assert.Empty(real.Noise);
+        }
+    }
+
+    [Fact]
+    public void Only_diff_compares_scripts_by_name()
+    {
+        var a = new List<ScriptEntry> { new() { Name = "B" }, new() { Name = "a" } };
+        var b = new List<ScriptEntry> { new() { Name = "a" }, new() { Name = "B" } };
+        Assert.True(DeepCompare.DiffIgnoringPadding.Eq(a, b, 0));
+        Assert.Equal(DeepCompare.DiffIgnoringPadding.Hash(a, 0), DeepCompare.DiffIgnoringPadding.Hash(b, 0));
+        Assert.False(DeepCompare.Conflict.Eq(a, b, 0));   // conflict and check keep comparing by position
+        Assert.False(DeepCompare.Itm.Eq(a, b, 0));
+        // a list that isn't all scripts or all properties keeps its order
+        var mixed = new List<object?> { new ScriptEntry { Name = "B" }, "x" };
+        Assert.Same(mixed, DeepCompare.ByName(mixed));
+    }
+
     [Fact]
     public void Overrides_are_compared_by_fields_with_the_masters_styles()
     {

@@ -82,6 +82,7 @@ public static class DiffCommand
         "         --out       write the report to this file (stdout then gets only the RESULT line)\n" +
         "         --all       list everything in the text report (long lists are cut short otherwise), and each cell's records\n" +
         "         Records whose bytes differ but whose fields are all equal count as noise, which is no difference.\n" +
+        "         Scripts and script properties are matched by name, so a new order alone is noise.\n" +
         "         exit 0 = no real differences (noise only counts as none), 1 = differences, 2 = bad input or setup";
 
     public const string Example = "sf-mod-check diff \"C:\\Mods\\MyMod-1.0.zip\" \"C:\\Mods\\MyMod-1.1.zip\"";

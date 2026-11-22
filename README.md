@@ -617,6 +617,10 @@ A record whose bytes differ but whose fields are all equal (padding bytes, field
 Creation Kit or xEdit leaves them) is counted as noise. Noise is no difference: it is shown, but it never makes the
 result DIFFERENCES.
 
+Scripts attached to a record, and each script's properties, are matched by name, because the game
+finds them by name: scripts or properties that only moved to another place in the list are noise, while a changed
+name, flag or value, or a script or property added or removed, is a change.
+
 Three views follow the counts:
 
 - **By cell**: placed objects, navmeshes and the other records that sit in a cell, grouped by their cell, with the
