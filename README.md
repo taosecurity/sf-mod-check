@@ -257,8 +257,8 @@ earlier versions put the BlueprintShips files with Bethesda's other files. A Plu
 file doesn't move it, and a BlueprintShips file is left out when its plugin is turned off. A mod that has a
 BlueprintShips file as a master gets a load-order problem, because the game loads that master after the mod. It is
 still loaded and compared (`triage` says so too), and what it changes is judged against that master's version, which
-its author saw. A BlueprintShips file whose master is a newer BlueprintShips file gets a load-order problem as well:
-the files keep their oldest-first order.
+its author saw. A BlueprintShips file whose master is a BlueprintShips file that loads after it gets a load-order
+problem as well: the files keep their order (oldest first, then by name).
 A mod's change that a BlueprintShips file undoes is listed among the lost changes, with that file as the winner,
 and its recommendation says so plainly: the file loads after every mod, so no load order or patch brings the change
 back, and the mod's edit to that ship doesn't reach the game (the advice names the record type when it isn't a

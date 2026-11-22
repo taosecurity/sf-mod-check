@@ -201,6 +201,9 @@ public class LoadOrderSetup
                 return false;
             }
             chain.Push(name);
+            // Problems about a plugin that still loads are added once it has opened, so a plugin skipped for a later
+            // master never gets both "judged" and "skipped" (0.12.0 code review round 2).
+            var ifLoaded = new List<string>();
             foreach (var m in masters)
             {
                 var inOrder = wanted.Contains(m, StringComparer.OrdinalIgnoreCase);
@@ -214,21 +217,21 @@ public class LoadOrderSetup
                 if (blueprintSet.Contains(m) && !blueprintSet.Contains(name))
                 {
                     // Not pulled forward: its records are judged in the game's order, with the BlueprintShips file last.
-                    setup.AddProblem($"{name}: has the master {m}, but the game loads BlueprintShips files after every mod, so this plugin loads before its master; {JudgedInGameOrder}");
+                    ifLoaded.Add($"{name}: has the master {m}, but the game loads BlueprintShips files after every mod, so this plugin loads before its master; {JudgedInGameOrder}");
                     Log.Write($"load order: {name} has the BlueprintShips master {m}; {m} stays after every plugin");
                 }
                 else if (blueprintSet.Contains(m))
                 {
-                    // Two BlueprintShips files: they keep their oldest-first order, even when the master is the newer one
-                    // (0.12.0 code review).
+                    // Two BlueprintShips files: they keep their own order (oldest first, then by name, a file whose time
+                    // can't be read last), even when the master comes later in it (0.12.0 code review).
                     if (blueprintLast.FindIndex(b => b.Equals(m, StringComparison.OrdinalIgnoreCase)) > blueprintLast.FindIndex(b => b.Equals(name, StringComparison.OrdinalIgnoreCase)))
                     {
-                        setup.AddProblem($"{name}: has the master {m}, a newer BlueprintShips file; the game loads BlueprintShips files oldest first, so this file loads before its master; {JudgedInGameOrder}");
-                        Log.Write($"load order: BlueprintShips file {name} has the newer BlueprintShips master {m}; both keep the oldest-first order");
+                        ifLoaded.Add($"{name}: has the master {m}, a BlueprintShips file the game loads after it (BlueprintShips files load oldest first, then by name), so this file loads before its master; {JudgedInGameOrder}");
+                        Log.Write($"load order: BlueprintShips file {name} has the BlueprintShips master {m}, which loads after it; both keep the BlueprintShips order");
                     }
                 }
                 else if (wanted.FindIndex(w => w.Equals(m, StringComparison.OrdinalIgnoreCase)) > wanted.FindIndex(w => w.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                    setup.AddProblem($"{name}: listed before its master {m}; the game would fail to load it, so it was analyzed after {m}");
+                    ifLoaded.Add($"{name}: listed before its master {m}; the game would fail to load it, so it was analyzed after {m}");
             }
             chain.Pop();
             IStarfieldModDisposableGetter mod;
@@ -246,6 +249,7 @@ public class LoadOrderSetup
             var info = new PluginInfo(opened.Count, name, IsOfficial(name), masters, mod) { Path = path };
             opened[name] = info;
             setup.Plugins.Add(info);
+            foreach (var pr in ifLoaded) setup.AddProblem(pr);
             return true;
         }
         foreach (var n in wanted) Open(n, new Stack<string>());

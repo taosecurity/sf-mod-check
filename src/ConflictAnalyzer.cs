@@ -592,17 +592,15 @@ public static class Analyzer
                 {
                     if (!prov[i, f]) continue;
                     int b = -1;
-                    if (i < origin) { if (prov[origin, f]) b = origin; }
+                    // A version whose master is a BlueprintShips file that loads after it (it overrides a record that file
+                    // also overrides, or one that file adds): its author saw that file's value, so it is the base (0.12.0
+                    // code review). Of several such masters, the one that loads last.
+                    for (int j = n - 1; j > i && b < 0; j--)
+                        if (prov[j, f] && LoadOrderSetup.IsBlueprint(versions[j].Plugin.FileName) && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
+                    if (b < 0 && i < origin) { if (prov[origin, f]) b = origin; }
                     else
-                    {
-                        // A version whose master is a BlueprintShips file that loads after it (it overrides a record that
-                        // file also overrides): its author saw that file's value, so it is the base (0.12.0 code review).
-                        // Of several such masters, the one that loads last.
-                        for (int j = n - 1; j > i && b < 0; j--)
-                            if (prov[j, f] && LoadOrderSetup.IsBlueprint(versions[j].Plugin.FileName) && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
                         for (int j = i - 1; j >= 0 && b < 0; j--)
                             if (prov[j, f] && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
-                    }
                     var baseVal = b >= 0 ? vals[b, f] : null;
                     bool same;
                     try { same = FieldCompare.DeepEq(vals[i, f], baseVal, 0); }

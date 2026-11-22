@@ -351,9 +351,24 @@ public class BlueprintOrderTests
         Assert.True(code == 0, stdout + stderr);
         Assert.Equal(["Starfield.esm", "SFBGS050.esm", "BlueprintShips-SFBGS050.esm", "BlueprintShips-Starfield.esm"], Order(json));
         var problem = Assert.Single(Problems(json));
-        Assert.Equal("BlueprintShips-SFBGS050.esm: has the master BlueprintShips-Starfield.esm, a newer BlueprintShips file; the game loads " +
-                     "BlueprintShips files oldest first, so this file loads before its master; its records were judged in the game's order", problem);
+        Assert.Equal("BlueprintShips-SFBGS050.esm: has the master BlueprintShips-Starfield.esm, a BlueprintShips file the game loads after it " +
+                     "(BlueprintShips files load oldest first, then by name), so this file loads before its master; its records were judged in the game's order", problem);
         Assert.DoesNotContain("analyzed after", problem);
+    }
+
+    [Fact]
+    public void A_plugin_skipped_for_a_missing_master_gets_only_that_problem()
+    {
+        // code review round 2: a BlueprintShips master first, then a missing one. Only "plugin skipped" is said.
+        using var game = new Game();
+        game.Full("BlueprintShips-Starfield.esm", (m, open) => Ship(m, open("Starfield.esm"), 2));
+        game.Mod("Missing.esm", (m, open) => m.Keywords.AddNew("Missing_K"));
+        game.ModWithMasters("ModX.esm", ["Starfield.esm", "BlueprintShips-Starfield.esm", "Missing.esm"], (m, open) => m.Keywords.AddNew("ModX_K"));
+        File.Delete(Path.Combine(game.Data, "Missing.esm"));
+        var txt = game.PluginsTxt("*ModX.esm");
+        var (code, stdout, stderr, json) = game.Conflict(txt);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Equal("ModX.esm: master Missing.esm is missing or inactive, plugin skipped", Assert.Single(Problems(json)));
     }
 
     [Fact]
@@ -379,6 +394,6 @@ public class BlueprintOrderTests
         Assert.True(code == 0, stdout + stderr);
         Assert.Contains("BlueprintShips-Starfield.esm", LoadOrderSetup.ModHeaderMasters(Path.Combine(outDir, "ConflictPatch.esm")));
         var report = File.ReadAllText(Path.Combine(outDir, "patch-report.md"));
-        Assert.Contains("the patch has the master BlueprintShips-Starfield.esm, because a value it copies points at a record that file defines", report);
+        Assert.Contains("the patch has the master BlueprintShips-Starfield.esm, because a value the patch copies points at a record that file defines;", report);
     }
 }
