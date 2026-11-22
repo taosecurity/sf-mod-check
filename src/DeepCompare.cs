@@ -87,15 +87,25 @@ public sealed class DeepCompare
         l.Count >= 2 && (l.All(o => o is IScriptEntryGetter) || l.All(o => o is IScriptPropertyGetter));
 
     /// <summary>Rule 8 for two lists of one length: every entry of la has its own equal entry of the same name in lb.
-    /// Greedy matching is enough because Eq is an equivalence (equal values are interchangeable).</summary>
+    /// Greedy matching is enough because Eq is an equivalence (equal values are interchangeable). In a name group of
+    /// several entries, only entries with the same Hash are compared (equal values hash alike under the walking
+    /// options rule 8 runs with), so many entries sharing one name cost one hash each instead of a compare per pair;
+    /// an entry whose hash is 2 (a part couldn't be read) is compared with every free entry of its name.</summary>
     bool NamedEq(List<object?> la, List<object?> lb, int depth)
     {
-        var free = new Dictionary<string, List<object?>>(StringComparer.Ordinal);
-        foreach (var y in lb) (free.TryGetValue(NameOf(y)!, out var c) ? c : free[NameOf(y)!] = []).Add(y);
+        var free = new Dictionary<string, List<(object? Value, int? Hash)>>(StringComparer.Ordinal);
+        foreach (var y in lb) (free.TryGetValue(NameOf(y)!, out var c) ? c : free[NameOf(y)!] = []).Add((y, null));
         foreach (var x in la)
         {
-            if (!free.TryGetValue(NameOf(x)!, out var c)) return false;
-            int i = c.FindIndex(y => Eq(x, y, depth + 1));
+            if (!free.TryGetValue(NameOf(x)!, out var c) || c.Count == 0) return false;
+            int i;
+            if (c.Count == 1) i = Eq(x, c[0].Value, depth + 1) ? 0 : -1;
+            else
+            {
+                for (int k = 0; k < c.Count; k++) c[k] = (c[k].Value, c[k].Hash ?? Hash(c[k].Value, depth + 1));
+                int hx = Hash(x, depth + 1);
+                i = c.FindIndex(y => (hx == 2 || y.Hash == 2 || y.Hash == hx) && Eq(x, y.Value, depth + 1));
+            }
             if (i < 0) return false;
             c.RemoveAt(i);
         }
@@ -115,7 +125,7 @@ public sealed class DeepCompare
     public bool Eq(object? a, object? b, int depth) => Eq(a, b, depth, false);
 
     /// <summary>As <see cref="Eq(object?, object?, int)"/>; <paramref name="named"/>: a and b are held by a member whose
-    /// list rule 8 may put in name order.</summary>
+    /// list rule 8 matches by name (<see cref="NamedList"/>).</summary>
     bool Eq(object? a, object? b, int depth, bool named)
     {
         if (EqualsFirst && Equals(a, b)) return true;

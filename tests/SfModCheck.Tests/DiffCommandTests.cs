@@ -705,6 +705,48 @@ public class DiffCommandTests
         Assert.False(DeepCompare.DiffIgnoringPadding.Eq(a.Scripts, b.Scripts, 0));
     }
 
+    /// <summary>A holder whose member is called Scripts but whose list isn't only scripts (code-review round 3).</summary>
+    public sealed class MixedHolder { public List<object> Scripts { get; init; } = []; }
+
+    [Fact]
+    public void A_list_that_mixes_scripts_with_other_entries_keeps_its_order()
+    {
+        // code-review (0.11.0 VMAD order) round 3: rule 8 applies only when every entry is a script (or every entry a
+        // script property); a mixed list is compared by position, and never crashes on an entry without a name
+        var d = DeepCompare.DiffIgnoringPadding;
+        MixedHolder Mixed(bool swap)
+        {
+            object s = new ScriptEntry { Name = "S" }, t = "text";
+            return new() { Scripts = swap ? [t, s] : [s, t] };
+        }
+        Assert.False(d.Eq(Mixed(false), Mixed(true), 0));
+        Assert.True(d.Eq(Mixed(false), Mixed(false), 0));
+        Assert.Equal(d.Hash(Mixed(false), 0), d.Hash(Mixed(false), 0));
+        // a script and a script property in one list are mixed too
+        MixedHolder Kinds(bool swap)
+        {
+            object s = new ScriptEntry { Name = "a" }, p = new ScriptIntProperty { Name = "b", Data = 1 };
+            return new() { Scripts = swap ? [p, s] : [s, p] };
+        }
+        Assert.False(d.Eq(Kinds(false), Kinds(true), 0));
+    }
+
+    [Fact]
+    public void Many_entries_that_share_a_name_are_matched_by_value()
+    {
+        // code-review (0.11.0 VMAD order) round 3: a name group is matched through hash buckets, so 300 copies of one
+        // script in reverse order are noise and one changed copy is still a change
+        static VirtualMachineAdapter Many(bool reverse, int changed = -1)
+        {
+            var v = Enumerable.Range(0, 300).Select(i => i == changed ? 9999 : i).ToList();
+            if (reverse) v.Reverse();
+            return new() { Scripts = [.. v.Select(x => new ScriptEntry { Name = "S", Properties = [new ScriptIntProperty { Name = "x", Data = x }] })] };
+        }
+        var d = DeepCompare.DiffIgnoringPadding;
+        Assert.True(d.Eq(Many(false), Many(true), 0));
+        Assert.False(d.Eq(Many(false), Many(true, changed: 150), 0));
+    }
+
     [Fact]
     public void Entries_that_share_a_name_and_only_swapped_places_are_noise()
     {
