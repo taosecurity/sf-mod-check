@@ -96,6 +96,11 @@ public static class PatchCommand
             : "records that live inside a cell, worldspace, quest or dialogue topic are not built by this version; copy the fields in xEdit";
     }
 
+    /// <summary>Why a record that loses to an official BlueprintShips file isn't built (0.12.0).</summary>
+    public static string BlueprintNotBuilt(string blueprint) =>
+        $"{LoadOrderSetup.Display(blueprint)} loads after every mod, this patch too, so no patch or load order brings this change back; " +
+        "nothing to do by hand either";
+
     static Type? GetterOf(string className)
     {
         var asm = typeof(StarfieldMod).Assembly;
@@ -394,7 +399,11 @@ public static class PatchCommand
     /// <param name="Forward">two losing plugins changed a field the winner left alone: the later one's value is used
     /// (not the winner's), unless a --pick names the other</param>
     public sealed record ChoiceField(FormKey FormKey, string RecordType, string? EditorID, string Field, string Winner, string Other, bool Picked, string Text, bool Merged = false, bool Forward = false);
-    public sealed record NotBuiltRecord(FormKey FormKey, string RecordType, string? EditorID, string Why, List<string> Fields);
+    public sealed record NotBuiltRecord(FormKey FormKey, string RecordType, string? EditorID, string Why, List<string> Fields)
+    {
+        /// <summary>It loses to an official BlueprintShips file, so no patch can bring it back (0.12.0).</summary>
+        public bool Blueprint { get; init; }
+    }
     /// <param name="Sources">for each field copied whole, the plugin's version of the record its value came from</param>
     /// <param name="Merged">for each list field merged entry by entry, its entries as the plugins hold them</param>
     public sealed record PatchRecord(FormKey FormKey, string RecordType, string? EditorID, IMajorRecord Record, List<ForwardedField> Fields, List<string> Plugins,
@@ -428,6 +437,15 @@ public static class PatchCommand
             var cls = g.First().RecordType;
             var getter = GetterOf(cls);
             var fwdFields = g.SelectMany(l => l.Fields.Where(f => !Impact.IsMinor(f)).Select(f => f.Field)).Distinct().ToList();
+            // 0.12.0: a change lost to an official BlueprintShips file can't be patched. The game loads those files
+            // after every plugin, the patch too, so their version would still win. The navmesh info map keeps its own
+            // reason (WhyNotBuilt below), as it always has (step 4b).
+            if (!Impact.IsNavi(cls) && g.Select(l => l.Winner).FirstOrDefault(LoadOrderSetup.IsBlueprint) is { } blueprint)
+            {
+                plan.NotBuilt.Add(new(g.Key, cls, g.First().EditorID, BlueprintNotBuilt(blueprint), fwdFields) { Blueprint = true });
+                Log.Write($"patch: {g.Key} not built: it loses to {blueprint}, which the game loads after every plugin");
+                continue;
+            }
             if (getter is null)
             {
                 plan.NotBuilt.Add(new(g.Key, cls, g.First().EditorID, $"sf-mod-check doesn't know the record type {cls}", fwdFields));
@@ -1017,7 +1035,10 @@ public static class PatchCommand
         }
         if (plan.NotBuilt.Count > 0)
         {
-            sb.AppendLine($"## Not built ({plan.NotBuilt.Count}): do these by hand in xEdit");
+            // 0.12.0: records lost to a BlueprintShips file can't be done in xEdit either; their reason says so
+            sb.AppendLine(plan.NotBuilt.All(n => n.Blueprint)
+                ? $"## Not built ({plan.NotBuilt.Count}): no patch can restore these"
+                : $"## Not built ({plan.NotBuilt.Count}): do these by hand in xEdit, except where the reason says otherwise");
             sb.AppendLine();
             foreach (var n in plan.NotBuilt)
                 sb.AppendLine($"- {Md(n.RecordType)} {Md(n.EditorID)} [{Md(n.FormKey)}]{(n.Fields.Count > 0 ? $" ({string.Join(", ", n.Fields.Select(f => Md(f)))})" : "")}: {Md(n.Why)}");

@@ -36,7 +36,7 @@ public static class Report
         md.AppendLine($"| Missing scripts and models | {AssetsCount(a)} |");
         if (a.ArchivesCounted) md.AppendLine($"| Archives loaded (general / texture; {AssetIndex.ArchiveSlots} slots each) | {ArchiveCountText(a)} |");
         md.AppendLine();
-        md.AppendLine("How to read the tables: **Forwardable** means the winning plugin did not mean to change that field; it just carries an older value, so a patch can copy the lost value forward safely. **Choice** means both plugins changed the same field, so someone has to pick. **No effect** means the versions differ only in list order, letter case or undocumented fields.");
+        md.AppendLine("How to read the tables: **Forwardable** means the winning plugin did not mean to change that field; it just carries an older value, so a patch can copy the lost value forward safely. **Choice** means both plugins changed the same field, so someone has to pick. **No effect** means the versions differ only in list order, letter case or undocumented fields. **Lost** means an official BlueprintShips file wins: the game loads it after every mod, so no load order or patch brings the change back, and there is nothing to choose.");
         md.AppendLine();
 
         var allGroups = a.Lost.GroupBy(l => (l.Winner, l.Loser)).ToList();
@@ -397,7 +397,7 @@ public static class Report
         md.AppendLine("|---|---|---|---|---|---|");
         var groups = items.GroupBy(l => (l.Winner, l.Loser)).OrderByDescending(g => g.Count()).ToList();
         foreach (var g in groups)
-            md.AppendLine($"| {Md(LoadOrderSetup.Display(g.Key.Winner))} | {Md(LoadOrderSetup.Display(g.Key.Loser))} | {g.Count()} | {g.Sum(l => l.Fields.Count(f => !f.WinnerChangedToo && !Impact.IsMinor(f)))} | {g.Sum(l => l.Fields.Count(f => f.WinnerChangedToo && !Impact.IsMinor(f)))} | {g.Sum(l => l.Fields.Count(Impact.IsMinor))} |");
+            md.AppendLine($"| {Md(LoadOrderSetup.Display(g.Key.Winner))} | {Md(LoadOrderSetup.Display(g.Key.Loser))} | {g.Count()} | {g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Forwardable"))} | {g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Choice"))} | {g.Sum(l => l.Fields.Count(Impact.IsMinor))} |");
         md.AppendLine();
         foreach (var g in groups)
         {
@@ -419,7 +419,7 @@ public static class Report
             md.AppendLine("|---|---|---|---|---|---|");
             foreach (var l in g.Take(RowsPerGroup))
                 foreach (var f in l.Fields)
-                    md.AppendLine($"| {Md(l.RecordType)} {Md(Impact.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(f.Field)} | {(Impact.IsMinor(f) ? "No effect" : f.WinnerChangedToo ? "Choice" : "Forwardable")} | {(a.CriticalFields.Contains(f) ? CriticalNote : "")}{Md(Impact.Flat(Impact.ForField(l, f)))} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
+                    md.AppendLine($"| {Md(l.RecordType)} {Md(Impact.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(f.Field)} | {Impact.Kind(l, f)} | {(a.CriticalFields.Contains(f) ? CriticalNote : "")}{Md(Impact.Flat(Impact.ForField(l, f)))} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
             if (g.Count() > RowsPerGroup) md.AppendLine($"\n… {g.Count() - RowsPerGroup} more records in conflicts.json");
             md.AppendLine();
         }

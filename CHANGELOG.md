@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.12.0
+
+### Changed
+
+- `conflict`, `patch` and `triage` load the official `BlueprintShips-*.esm` files (Bethesda's ship blueprints) where the game does: after every plugin, oldest file first (by the file's modified time, then by name). Earlier versions loaded them with Bethesda's other files, before every mod, so a mod's change to a ship that a BlueprintShips file also changes was shown as winning when the game undoes it. A Plugins.txt line for a BlueprintShips file doesn't move it, as in the game.
+- A mod that has a BlueprintShips file as a master gets a load-order problem ("the game loads BlueprintShips files after every mod, so this plugin loads before its master"). Its records are judged in the game's order; the master isn't moved forward for it.
+- `--verbose` and `--log` record where each BlueprintShips file went and why, and each one left out because its plugin is turned off.
+- `conflict`: a mod's change lost to a BlueprintShips file gets its own recommendation: the file loads after every mod, so no load order or patch brings the change back, and the mod's edit to that ship or cell doesn't reach the game. No move or patch is offered for it.
+- `conflict`: a mod's edit of a record that a BlueprintShips file adds itself (the mod has that file as a master) is now listed as lost to that file, judged against the file's own version. Before, the mod's copy loaded first and was taken as the original, so the lost edit wasn't listed.
+- `patch`: a record whose change is lost to a BlueprintShips file isn't built, because the patch loads before that file too. It is listed under "Not built" with the reason and counted in the RESULT line's records not built. The "Not built" heading no longer says every entry can be done in xEdit.
+- `conflict`: a field lost to a BlueprintShips file is labeled **Lost** in the report tables (not Choice or Forwardable), and its summary line says there is nothing to do, instead of calling it a choice. The Forwardable and Choice counts leave such fields out.
+- The navmesh info map (NAVI) keeps its own handling when a BlueprintShips file has its last copy: each plugin's copy lists only its own navmeshes, so `conflict` gives it the navmesh info map's note (not patched, don't copy it by hand) instead of the "doesn't reach the game" advice, and `patch` gives it the navmesh info map's reason.
+- The RESULT line keeps its shape. Its "official" count is still the official changes undone by mods, so a mod's change lost to a BlueprintShips file is counted with the "mod vs mod" entries.
+- `--version` says 0.12.0.
+
+### Example
+
+Check a made-up load order in which a mod changes a ship that `BlueprintShips-Starfield.esm` also changes (the tests build these files; the Plugins.txt even lists the BlueprintShips file before the mod):
+
+    sf-mod-check conflict --data Data --plugins Plugins.txt --out report
+
+What it prints (a real run, with the first three lines left out):
+
+    Loaded 4 plugins (0 load-order problems) in 0 s
+    1 records overridden by mods
+    Checked scripts and models: 0 missing, 0 archives read
+    sf-mod-check 0.12.0 conflict: 4 plugins (3 official, 1 mods), 1 records overridden by mods
+    RESULT: OK, 1 lost-change entries (0 official, 1 mod vs mod), 0 benign entries shown apart, 0 ITMs, 0 load-order problems (report: ...\report\report.html; 1 s)
+
+The report loads `BlueprintShips-Starfield.esm` last, after `ModA.esm`, and gives this recommendation:
+
+    Medium: BlueprintShips-Starfield.esm (base game ship blueprints) loads after every mod, so no load order or patch brings this change back; the edit ModA.esm makes to this ship or cell doesn't reach the game.
+
+The ship's changed field is labeled **Lost** in the report's table. On the same files, 0.11.0 loaded the BlueprintShips file first and reported the opposite: `ModA.esm` winning, and the official change undone (`1 official, 0 mod vs mod`).
+
 ## 0.11.0 (2026-11-21)
 
 ### Added

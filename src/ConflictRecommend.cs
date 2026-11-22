@@ -55,6 +55,16 @@ public static class Recommend
         var records = real.Select(x => x.l.FormKey).Distinct().Count();
         void Add(int p, string text, string? prompt = null) => recs.Add(new(p, winner, loser, text, prompt));
 
+        // 0.12.0: the game loads the official BlueprintShips files after every plugin, so nothing can load after them.
+        // The navmesh info map keeps its own rule (each copy lists only its own navmeshes; never patched), so it gets a
+        // note of its own, not the "doesn't reach the game" advice (step 4b).
+        if (LoadOrderSetup.IsBlueprint(winner))
+        {
+            var ships = real.Where(x => !Impact.IsNavi(x.l.RecordType)).Select(x => x.l.FormKey).Distinct().Count();
+            if (ships > 0) Add(2, BlueprintAdvice(winner, loser, ships));
+            if (real.Any(x => Impact.IsNavi(x.l.RecordType))) Add(3, Impact.NaviBlueprintNote(winner));
+            return recs;
+        }
         if (g.First().LoserOfficial)
         {
             Add(fwd.Count > 0 ? 1 : 2,
@@ -197,6 +207,11 @@ public static class Recommend
         static string Part(string f) => System.Text.RegularExpressions.Regex.Replace(Base(f), "[^A-Za-z0-9_]+", "");
         return $"ConflictPatch-{Part(winner)}-{Part(loser)}-Patch.esm";
     }
+
+    /// <summary>The advice for a change lost to an official BlueprintShips file (0.12.0): no load order or patch helps.</summary>
+    public static string BlueprintAdvice(string winner, string loser, int records) =>
+        $"{D(winner)} loads after every mod, so no load order or patch brings this change back; " +
+        $"the edit {loser} makes to {(records == 1 ? "this ship or cell" : $"these {records} ships or cells")} doesn't reach the game.";
 
     static string OfficialShort(string file) => LoadOrderSetup.OfficialName(file) ?? file;
 

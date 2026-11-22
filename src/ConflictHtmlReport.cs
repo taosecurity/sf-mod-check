@@ -123,7 +123,8 @@ public static class HtmlReport
             <div class="explain">Each lost change is labeled
             <span class="badge fwd">Forwardable</span>: the winning plugin did not mean to change that field, it only carries an older value, so a patch can restore the lost value safely; or
             <span class="badge choice">Choice</span>: both plugins changed the same field, so you have to pick one; or
-            <span class="badge minor">No effect</span>: the versions differ only in list order, letter case or undocumented fields.</div>
+            <span class="badge minor">No effect</span>: the versions differ only in list order, letter case or undocumented fields; or
+            <span class="badge minor">Lost</span>: an official BlueprintShips file wins; the game loads it after every mod, so no load order or patch brings the change back.</div>
             <p><input type="search" id="filter" placeholder="Filter by plugin, record, EditorID or field…" aria-label="Filter"></p>
             """);
 
@@ -355,6 +356,14 @@ public static class HtmlReport
         return "c-" + System.Text.RegularExpressions.Regex.Replace(winner + "-" + loser, "[^A-Za-z0-9]+", "-") + "-" + h.ToString("x8");
     }
 
+    // The Kind column's badge (Impact.Kind; "Lost" since 0.12.0 for a BlueprintShips winner).
+    static string KindBadge(string kind) => kind switch
+    {
+        "Forwardable" => "<span class=\"badge fwd\">Forwardable</span>",
+        "Choice" => "<span class=\"badge choice\">Choice</span>",
+        _ => $"<span class=\"badge minor\">{kind}</span>",
+    };
+
     static void Groups(StringBuilder h, List<LostChange> items, LoadOrderSetup lo, Analysis a)
     {
         if (items.Count == 0) { h.Append("<p>None found.</p>"); return; }
@@ -362,12 +371,12 @@ public static class HtmlReport
         h.Append("<div class=\"scroll\"><table><tr><th>Winning plugin</th><th>Loses changes from</th><th>Records</th><th>Forwardable fields</th><th>Choice fields</th><th>No effect</th></tr>");
         foreach (var g in groups)
             h.Append($"<tr class=\"f\"><td>{HtmlEncode(LoadOrderSetup.Display(g.Key.Winner))}</td><td>{HtmlEncode(LoadOrderSetup.Display(g.Key.Loser))}</td><td class=\"num\">{g.Count()}</td>" +
-                     $"<td class=\"num\">{g.Sum(l => l.Fields.Count(f => !f.WinnerChangedToo && !Impact.IsMinor(f)))}</td><td class=\"num\">{g.Sum(l => l.Fields.Count(f => f.WinnerChangedToo && !Impact.IsMinor(f)))}</td><td class=\"num\">{g.Sum(l => l.Fields.Count(Impact.IsMinor))}</td></tr>");
+                     $"<td class=\"num\">{g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Forwardable"))}</td><td class=\"num\">{g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Choice"))}</td><td class=\"num\">{g.Sum(l => l.Fields.Count(Impact.IsMinor))}</td></tr>");
         h.Append("</table></div>");
         foreach (var g in groups)
         {
-            var fwd = g.Sum(l => l.Fields.Count(f => !f.WinnerChangedToo && !Impact.IsMinor(f)));
-            var choice = g.Sum(l => l.Fields.Count(f => f.WinnerChangedToo && !Impact.IsMinor(f)));
+            var fwd = g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Forwardable"));
+            var choice = g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Choice"));
             var minor = g.Sum(l => l.Fields.Count(Impact.IsMinor));
             h.Append($"<details class=\"pair\" data-pair id=\"{Anchor(g.Key.Winner, g.Key.Loser)}\"><summary>{HtmlEncode(LoadOrderSetup.Display(g.Key.Winner))} overrides {HtmlEncode(LoadOrderSetup.Display(g.Key.Loser))} · {g.Count()} record{(g.Count() == 1 ? "" : "s")}");
             if (fwd > 0) h.Append($" <span class=\"badge fwd\">{fwd} forwardable</span>");
@@ -390,7 +399,7 @@ public static class HtmlReport
             {
                 h.Append($"<tbody class=\"rec-block\"><tr class=\"rec\"><td colspan=\"4\">{HtmlEncode(l.RecordType)} {HtmlEncode(l.EditorID ?? "")} <code>{HtmlEncode(l.FormKey.ToString())}</code></td></tr>");
                 foreach (var f in l.Fields)
-                    h.Append($"<tr><td>{HtmlEncode(f.Field)}</td><td>{(Impact.IsMinor(f) ? "<span class=\"badge minor\">No effect</span>" : f.WinnerChangedToo ? "<span class=\"badge choice\">Choice</span>" : "<span class=\"badge fwd\">Forwardable</span>")}" +
+                    h.Append($"<tr><td>{HtmlEncode(f.Field)}</td><td>{KindBadge(Impact.Kind(l, f))}" +
                              $"{(a.CriticalFields.Contains(f) ? " <span class=\"badge p1\">Critical</span>" : "")}</td>" +
                              $"<td class=\"val\">{Value(f.LoserValue)}</td><td class=\"val\">{Value(f.WinnerValue)}</td></tr>" +
                              ImpactRow(Impact.ForField(l, f), l));

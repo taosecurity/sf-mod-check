@@ -570,17 +570,29 @@ public static class Analyzer
                 }
             }
 
-            // What each version meant to change: fields that differ from the latest earlier value among its own masters.
+            // The version the record starts from: its own plugin's, normally versions[0]. A record that a BlueprintShips
+            // file adds loads after the mods that edit it (they have that file as a master, but the game loads it after
+            // every mod; 0.12.0), so the earliest copy is a mod's. Then the BlueprintShips file's version is the base,
+            // and the mods before it are judged against it (0.12.0 step 3). Elsewhere a master always loads before its
+            // plugin, so `origin` is 0 and nothing changes.
+            int origin = 0;
+            for (int j = 1; j < n && origin == 0; j++)
+                if (versions[j].Plugin.Mod.ModKey == formKey.ModKey && versions[0].Plugin.Mod.ModKey != formKey.ModKey
+                    && LoadOrderSetup.IsBlueprint(versions[j].Plugin.FileName)) origin = j;
+            // What each version meant to change: fields that differ from the latest earlier value among its own masters
+            // (for a version before `origin`, the origin's value: its master that loads after it).
             var intended = new HashSet<int>[n];
-            intended[0] = new();
-            for (int i = 1; i < n; i++)
+            for (int i = 0; i < n; i++)
             {
                 intended[i] = new();
+                if (i == origin) continue;
                 var masters = MastersOf(versions[i].Plugin);
                 for (int f = 0; f < nf; f++)
                 {
                     if (!prov[i, f]) continue;
                     int b = -1;
+                    if (i < origin) { if (prov[origin, f]) b = origin; }
+                    else
                     for (int j = i - 1; j >= 0 && b < 0; j--)
                         if (prov[j, f] && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
                     var baseVal = b >= 0 ? vals[b, f] : null;
@@ -592,7 +604,7 @@ public static class Analyzer
                     {
                         var r = versions[i].Rec;
                         recChanges.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, Impact.OneLine(r.EditorID),
-                            versions[0].Plugin.FileName, b >= 0 ? versions[b].Plugin.FileName : "", fields[f].Name,
+                            versions[origin].Plugin.FileName, b >= 0 ? versions[b].Plugin.FileName : "", fields[f].Name,
                             b >= 0 ? FieldCompare.Show(versions[b].Rec, fields[f].Name, 160) : "(not set)", FieldCompare.Show(r, fields[f].Name, 160)));
                     }
                 }
@@ -633,8 +645,10 @@ public static class Analyzer
                     if (same) continue;
                     lostByPair.TryAdd((i, k), new());
                     // The base game value: the first version that supplies this field (normally the defining plugin).
+                    // A record a BlueprintShips file adds: that file's own value (0.12.0).
                     int o = 0;
-                    while (o < n - 1 && !prov[o, f]) o++;
+                    if (origin > 0 && prov[origin, f]) o = origin;
+                    else while (o < n - 1 && !prov[o, f]) o++;
                     var field = fields[f].Name;
                     // A part of the value that can't be read while it is described is counted once in Tool limits
                     // (0.5.1), not dropped silently.
@@ -667,7 +681,7 @@ public static class Analyzer
             {
                 var owner = formKey.ModKey;
                 injected = Injection(
-                    versions[0].Plugin.Mod.ModKey == owner || (firstHolder.TryGetValue(formKey, out var holder) && holder.Plugin.Mod.ModKey == owner),
+                    origin > 0 || versions[0].Plugin.Mod.ModKey == owner || (firstHolder.TryGetValue(formKey, out var holder) && holder.Plugin.Mod.ModKey == owner),
                     partly.Any(p => p.Mod.ModKey == owner) || typeUnread.Any(t => t.Plugin.Mod.ModKey == owner));
             }
             foreach (var ((i, k), lost) in lostByPair)
@@ -676,7 +690,7 @@ public static class Analyzer
                 string? recName = null;
                 try { recName = versions.Select(v => (v.Rec as ITranslatedNamedGetter)?.Name?.String).LastOrDefault(s => !string.IsNullOrEmpty(s)); recName = recName is null ? null : Impact.OneLine(recName); } catch (Exception err) when (Fatal.Recoverable(err)) { }
                 recLost.Add(new(formKey, loseRec.Registration.ClassType.Name, Impact.OneLine(winRec.EditorID ?? loseRec.EditorID), recName,
-                    versions[0].Plugin.FileName, versions[i].Plugin.FileName, versions[i].Plugin.Official,
+                    versions[origin].Plugin.FileName, versions[i].Plugin.FileName, versions[i].Plugin.Official,
                     versions[k].Plugin.FileName, versions[k].Plugin.Official, lost) { Injected = injected });
             }
 

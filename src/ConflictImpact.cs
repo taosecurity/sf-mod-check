@@ -199,8 +199,12 @@ public static class Impact
         else
         {
             var lost = f.Differences.Count == 0 ? "" : " Compared with what " + D(l.Loser) + " wanted: " + string.Join("; ", f.Differences.Select(d => d.Text)) + ".";
-            result = f.WinnerChangedToo
-                ? $"{D(l.Winner)} loads later, so its version is used and the change from {D(l.Loser)} does not happen.{lost} Keep it as is if you prefer the {D(l.Winner)} version; otherwise a patch has to combine the two."
+            result = LoadOrderSetup.IsBlueprint(l.Winner) && IsNavi(l.RecordType)
+                ? NaviBlueprintNote(l.Winner)
+                : LostToBlueprint(l)
+                ? $"{D(l.Winner)} loads after every mod, so its version is used and the change from {D(l.Loser)} does not happen.{lost} No load order or patch brings this change back."
+                : f.WinnerChangedToo
+                ?$"{D(l.Winner)} loads later, so its version is used and the change from {D(l.Loser)} does not happen.{lost} Keep it as is if you prefer the {D(l.Winner)} version; otherwise a patch has to combine the two."
                 : $"{D(l.Winner)} loads later but did not mean to change this; it carries the older value, so the change from {D(l.Loser)} does not happen.{lost} A patch can restore it without affecting the rest of {D(l.Winner)}.";
             if (l.LoserOfficial) result += $" This undoes part of the official {D(l.Loser)}.";
         }
@@ -208,6 +212,24 @@ public static class Impact
     }
 
     // Losing this field costs nothing visible: the loser only reordered or touched undocumented data, or the versions differ only that way.
+    /// <summary>The navmesh info map (NAVI): each plugin's copy lists only its own navmeshes, so it isn't a record one
+    /// plugin wins whole and is never patched (0.9.0 rule). It keeps that handling even when a BlueprintShips file wins it.</summary>
+    public static bool IsNavi(string recordType) => recordType.Equals("NavigationMeshInfoMap", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A change lost to an official BlueprintShips file, which loads after every mod: nothing brings it back
+    /// (0.12.0). The navmesh info map is left out (see IsNavi).</summary>
+    public static bool LostToBlueprint(LostChange l) => LoadOrderSetup.IsBlueprint(l.Winner) && !IsNavi(l.RecordType);
+
+    /// <summary>A lost field's label in the report tables: No effect, Lost (to a BlueprintShips file), Choice or Forwardable.</summary>
+    public static string Kind(LostChange l, LostField f) =>
+        IsMinor(f) ? "No effect" : LostToBlueprint(l) ? "Lost" : f.WinnerChangedToo ? "Choice" : "Forwardable";
+
+    /// <summary>The navmesh info map's note when a BlueprintShips file has the last copy (0.12.0).</summary>
+    public static string NaviBlueprintNote(string winner) =>
+        $"{LoadOrderSetup.Display(winner)} loads after every mod, so its copy of the navmesh info map loads last. " +
+        "Each plugin's copy lists only its own navmeshes, so this isn't a record one plugin wins whole: it isn't patched, " +
+        "and don't copy it by hand either (the Creation Kit rebuilds it when a navmesh is finalized).";
+
     public static bool IsMinor(LostField f) =>
         (f.LoserChanges.Count > 0 && f.LoserChanges.All(d => d.Minor)) ||
         (f.Differences.Count > 0 && f.Differences.All(d => d.Minor));
@@ -231,6 +253,11 @@ public static class Impact
             var line = $"{n} {TypeName(fg.Key.RecordType, n)}: the game uses the {Noun(fg.Key.Field)} from {D(g.Key.Winner)} instead of the version from {D(g.Key.Loser)}";
             if (example is not null && !fg.All(x => IsMinor(x.f))) line += $", so this change from {D(g.Key.Loser)} does not happen: it {example.Text}";
             if (fg.All(x => IsMinor(x.f))) line += ". The difference is only list order, letter case or undocumented fields, so this probably has no visible effect. No action needed.";
+            // 0.12.0: nothing loads after a BlueprintShips file, so its losses are neither forwardable nor a choice
+            else if (LoadOrderSetup.IsBlueprint(g.Key.Winner) && IsNavi(fg.Key.RecordType))
+                line += ". Each plugin's copy of the navmesh info map lists only its own navmeshes, so it isn't patched.";
+            else if (LoadOrderSetup.IsBlueprint(g.Key.Winner))
+                line += $". {D(g.Key.Winner)} loads after every mod, so no load order or patch brings this back; there is nothing to do.";
             else line += fwd == n ? ". A patch can restore these." : fwd == 0 ? ". Both plugins changed this, so it is a choice." : $". {fwd} can be restored by a patch; the rest are a choice.";
             lines.Add(line);
         }

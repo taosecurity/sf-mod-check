@@ -1,5 +1,6 @@
 // Moved from StarfieldConflictCheck (LoadOrderSetup.cs, commit d336108) into sfmodcheck on 2026-11-16.
-// Builds the load order: official files first, then Plugins.txt order, with every plugin after its masters.
+// Builds the load order: official files first, then Plugins.txt order, with every plugin after its masters, then the
+// official BlueprintShips-*.esm files, oldest first, as the game loads them (0.12.0).
 using System.Text;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -19,9 +20,10 @@ public record PluginInfo(int Index, string FileName, bool Official, List<string>
 public class LoadOrderSetup
 {
     // Bethesda's own files. Starfield.esm always loads first; the rest follow in this order unless Plugins.txt lists them.
+    // BlueprintShips-*.esm files aren't here: the game loads them after every plugin (0.12.0; see BlueprintShipsLast).
     static readonly string[] OfficialOrder =
     [
-        "Starfield.esm", "Constellation.esm", "OldMars.esm", "BlueprintShips-Starfield.esm",
+        "Starfield.esm", "Constellation.esm", "OldMars.esm",
         "SFBGS007.esm", "SFBGS008.esm", "SFBGS006.esm", "SFBGS003.esm", "SFBGS004.esm", "ShatteredSpace.esm",
     ];
 
@@ -68,6 +70,26 @@ public class LoadOrderSetup
 
     public static bool IsOfficial(string name) =>
         OfficialOrder.Contains(name, StringComparer.OrdinalIgnoreCase) || OfficialPattern.IsMatch(name);
+
+    /// <summary>An official ship-blueprint file (BlueprintShips-Starfield.esm, BlueprintShips-SFBGS050.esm and the
+    /// like). The game loads these after every plugin, oldest file first (0.12.0).</summary>
+    public static bool IsBlueprint(string name) =>
+        IsOfficial(name) && name.StartsWith("BlueprintShips-", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The order the game gives the official BlueprintShips files it loads: after every other plugin, oldest
+    /// file first by modified time, then by name (LOOT's and libloadorder's rule; sf-load-order uses the same one).
+    /// A file whose time can't be read goes after the dated ones, by name.</summary>
+    public static List<string> BlueprintShipsLast(IEnumerable<string> names, Func<string, string> pathOf)
+    {
+        static (int, DateTime) Age(string path)
+        {
+            try { return File.Exists(path) ? (0, File.GetLastWriteTimeUtc(path)) : (1, DateTime.MinValue); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (1, DateTime.MinValue); }
+        }
+        return names.Select(n => (Name: n, Age: Age(pathOf(n))))
+            .OrderBy(x => x.Age.Item1).ThenBy(x => x.Age.Item2).ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Name).ToList();
+    }
 
     public List<PluginInfo> Plugins { get; } = new();
     // Read-only outside: AddProblem is the only writer, so every problem is cleaned to one line (0.5.1).
@@ -124,14 +146,33 @@ public class LoadOrderSetup
         }
         // The game loads Bethesda's files whether or not Plugins.txt lists them (SFBGS00D etc. usually are not listed).
         foreach (var o in OfficialOrder) if (onDisk.ContainsKey(o)) Add(o);
-        foreach (var n in listed.Where(IsOfficial)) Add(n);
+        // A listed BlueprintShips line doesn't move the file: the game places those files itself (below).
+        foreach (var n in listed.Where(n => IsOfficial(n) && !IsBlueprint(n))) Add(n);
         // Other Bethesda files in Data load too, unless Plugins.txt lists them turned off (a Creation switched off in
-        // the game's Creations menu keeps its file in Data; a ship-blueprint file goes with its Creation; 0.5.0).
-        foreach (var n in onDisk.Keys.Where(f => IsOfficial(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)
-                                               && !turnedOff.Contains(f.StartsWith("BlueprintShips-", StringComparison.OrdinalIgnoreCase) ? f["BlueprintShips-".Length..] : f))
-                     .OrderBy(f => f.StartsWith("BlueprintShips-", StringComparison.OrdinalIgnoreCase))  // ship blueprints need their SFBGS master first
-                     .ThenBy(f => f, StringComparer.OrdinalIgnoreCase)) Add(n);
+        // the game's Creations menu keeps its file in Data; 0.5.0).
+        foreach (var n in onDisk.Keys.Where(f => IsOfficial(f) && !IsBlueprint(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)
+                                               && !turnedOff.Contains(f))
+                     .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)) Add(n);
         foreach (var n in listed.Where(n => !IsOfficial(n))) Add(n);
+        // The official BlueprintShips files load after every plugin, oldest file first (0.12.0; C13: 26 DeepScan runs,
+        // LOOT, libloadorder). A ship-blueprint file goes with its plugin: left out when Plugins.txt turns that off.
+        var blueprintFiles = new List<string>();
+        foreach (var f in onDisk.Keys.Where(f => IsBlueprint(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)))
+        {
+            var owner = f["BlueprintShips-".Length..];
+            if (turnedOff.Contains(owner))
+                Log.Write($"load order: {f} left out: its plugin {owner} is turned off in Plugins.txt");
+            else blueprintFiles.Add(f);
+        }
+        var blueprintLast = BlueprintShipsLast(blueprintFiles, f => fullPath[f]);
+        foreach (var n in blueprintLast) Add(n);
+        for (int i = 0; i < blueprintLast.Count; i++)
+        {
+            var when = File.Exists(fullPath[blueprintLast[i]]) ? File.GetLastWriteTimeUtc(fullPath[blueprintLast[i]]).ToString("yyyy-MM-dd HH:mm:ss") + " UTC" : "time unknown";
+            Log.Write($"load order: {blueprintLast[i]} goes after every plugin (BlueprintShips file {i + 1} of {blueprintLast.Count}, " +
+                      $"modified {when}): the game loads BlueprintShips files last, oldest file first");
+        }
+        var blueprintSet = new HashSet<string>(blueprintLast, StringComparer.OrdinalIgnoreCase);
 
         // Open in order, pulling any master forward if it is listed later; plugins with missing masters are skipped.
         var opened = new Dictionary<string, PluginInfo>(StringComparer.OrdinalIgnoreCase);
@@ -160,7 +201,13 @@ public class LoadOrderSetup
                     chain.Pop();
                     return false;
                 }
-                if (wanted.FindIndex(w => w.Equals(m, StringComparison.OrdinalIgnoreCase)) > wanted.FindIndex(w => w.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                if (blueprintSet.Contains(m) && !blueprintSet.Contains(name))
+                {
+                    // Not pulled forward: its records are judged in the game's order, with the BlueprintShips file last.
+                    setup.AddProblem($"{name}: has the master {m}, but the game loads BlueprintShips files after every mod, so this plugin loads before its master; its records were judged in the game's order");
+                    Log.Write($"load order: {name} has the BlueprintShips master {m}; {m} stays after every plugin");
+                }
+                else if (wanted.FindIndex(w => w.Equals(m, StringComparison.OrdinalIgnoreCase)) > wanted.FindIndex(w => w.Equals(name, StringComparison.OrdinalIgnoreCase)))
                     setup.AddProblem($"{name}: listed before its master {m}; the game would fail to load it, so it was analyzed after {m}");
             }
             chain.Pop();
@@ -182,6 +229,13 @@ public class LoadOrderSetup
             return true;
         }
         foreach (var n in wanted) Open(n, new Stack<string>());
+        // A mod with a BlueprintShips master opened that file early (Mutagen needs its masters to read it). Put the
+        // BlueprintShips files back at the end, in their order, and number the plugins again.
+        var ordered = setup.Plugins.Where(p => !blueprintSet.Contains(p.FileName))
+            .Concat(blueprintLast.Select(b => setup.Plugins.FirstOrDefault(p => p.FileName.Equals(b, StringComparison.OrdinalIgnoreCase))).OfType<PluginInfo>())
+            .Select((p, i) => p.Index == i ? p : p with { Index = i }).ToList();
+        setup.Plugins.Clear();
+        setup.Plugins.AddRange(ordered);
         return setup;
     }
 

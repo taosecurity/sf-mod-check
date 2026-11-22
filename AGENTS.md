@@ -349,7 +349,13 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   the full error. It names folders on your PC: read it before posting it anywhere.
 - **conflict input:** the active (`*`) lines of a Plugins.txt (`--plugins`, else the game's own
   `%LOCALAPPDATA%\Starfield\Plugins.txt`; with neither it stops with exit code 2), the plugins themselves from
-  `--extra-data` and then the Data folder (`--data`, else Steam's usual one). Bethesda's own files load first.
+  `--extra-data` and then the Data folder (`--data`, else Steam's usual one). Bethesda's own files load first,
+  except the official `BlueprintShips-*.esm` files, which load after every plugin, oldest file first (since 0.12.0,
+  as the game does; a Plugins.txt line for one doesn't move it). A change lost to one of them is a `lost` entry
+  with that file as `Winner`; its recommendation says no load order or patch brings it back, and `patch` lists the
+  record under "Not built" (counted in the RESULT line's records not built) instead of building it. The report's
+  Kind column says `Lost` for such a field. The navmesh info map (`NavigationMeshInfoMap`) is the exception: it
+  keeps its own note and its own "Not built" reason, because each plugin's copy lists only its own navmeshes.
 - **conflict output:** a report folder (`--out`, default `sf-mod-check-conflict`) with `report.html` (to read),
   `report.md` and `conflicts.json` (for scripts: `lost`, `itms`, `loadOrderProblems`, `typeChanges`, `Errors`, and
   since 0.6.0 `assetsChecked` (false with `--no-assets`), `archivesRead`, `inheritedAssetUses` (missing-path uses

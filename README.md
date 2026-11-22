@@ -235,7 +235,7 @@ Scripts should read the exit code and the lines that start with `ERROR `, `WARNI
 - **one mod's changes lost to another:** two mods change the same record and the later one doesn't have the earlier
   one as a master;
 - **ITMs** (overrides identical to the record they override) and **load-order problems** (missing masters, plugins
-  listed before their masters, files it can't read);
+  listed before their masters, a mod with a `BlueprintShips-*.esm` master, files it can't read);
 - **overrides that change a record's type** (since 0.5.2): a mod's record has the FormID of an earlier record of
   another type, for example an armor record on a Shattered Space cell's ID. The game keeps whichever record loads
   first and silently drops the other (armor and armor addon records may replace each other, so that swap isn't listed); for placed objects in
@@ -243,11 +243,29 @@ Scripts should read the exit code and the lines that start with `ERROR `, `WARNI
   between plugins: <first plugin> has a CELL, <mod> an ARMO".
 
 Each lost field is labeled **Forwardable** (the winner didn't mean to change it, so a patch can copy the lost value
-forward safely), **Choice** (both changed it, so you pick) or **No effect** (they differ only in list order, letter
-case or undocumented fields). Each conflict gets a recommendation: load-order moves when one is safe, an update to
+forward safely), **Choice** (both changed it, so you pick), **No effect** (they differ only in list order, letter
+case or undocumented fields) or, since 0.12.0, **Lost** (an official `BlueprintShips-*.esm` file wins, and nothing
+can bring the change back, so there is nothing to choose). Each conflict gets a recommendation: load-order moves when one is safe, an update to
 look for, or a small local patch. [`sf-mod-check patch`](#build-a-conflict-patch-sf-mod-check-patch) builds that
 patch for you (0.9.0); the report also gives the steps for xEdit and a prompt you can give to an AI coding assistant.
 `conflict` only reads plugins: it never changes one, and it never changes your load order.
+
+**The load order it uses** is the game's: `Starfield.esm` and Bethesda's other files first, then your Plugins.txt
+order (each plugin after its masters), then the official `BlueprintShips-*.esm` files (Bethesda's ship blueprints)
+after every plugin, oldest file first (by the file's modified time, then by name). That last rule is new in 0.12.0;
+earlier versions put the BlueprintShips files with Bethesda's other files. A Plugins.txt line for a BlueprintShips
+file doesn't move it, and a BlueprintShips file is left out when its plugin is turned off. A mod that has a
+BlueprintShips file as a master gets a load-order problem, because the game loads that master after the mod.
+A mod's change that a BlueprintShips file undoes is listed among the lost changes, with that file as the winner,
+and its recommendation says so plainly: the file loads after every mod, so no load order or patch brings the change
+back, and the mod's edit to that ship or cell doesn't reach the game. This includes a mod's edit of a ship the
+BlueprintShips file adds itself (the mod has that file as a master), judged against the file's own version.
+The navmesh info map is the exception: the BlueprintShips files carry a copy of it too, so they have its last copy,
+but each plugin's copy lists only its own navmeshes. It isn't a record one plugin wins whole, so it keeps its own
+note (it isn't patched, and shouldn't be copied by hand) instead of the "doesn't reach the game" advice.
+
+The RESULT line's "official" count is the official changes undone by mods. A mod's change lost to a BlueprintShips
+file is a mod's loss, so it is counted with the "mod vs mod" entries (the line keeps its 0.11.0 shape for scripts).
 
 **First command** (Steam, with the game's own load order):
 
@@ -422,6 +440,11 @@ How it builds each record:
    field of that record).
 4. A record that would end up the same as today's is left out (no "identical to master" records).
 5. It writes the patch, then reads it back and compares every field with the plugin it was copied from.
+
+A record whose change is lost to an official `BlueprintShips-*.esm` file isn't built (0.12.0): the game loads those
+files after every plugin, the patch too, so their version would still win. The report lists it under "Not built"
+with that reason, and the RESULT line counts it among the records not built. There is nothing to do by hand for it
+either. The navmesh info map keeps its own reason even when a BlueprintShips file has its last copy.
 
     sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
                        [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]] [--pick <FormKey>[:<Field>]=<plugin>]...
@@ -903,6 +926,10 @@ filter.
 - **Mutagen 0.54.4's link-type lists are incomplete** for Starfield, so "wrong type" also accepts any type the
   official masters themselves link to (`data\link-types-seen.txt`). After a game update that list can be out of date
   until a new sf-mod-check release relearns it.
+- **BlueprintShips files load last** (0.12.0): the game loads the official `BlueprintShips-*.esm` files after every
+  plugin, whatever Plugins.txt says, oldest file first. A mod's edit of a ship that such a file also holds never
+  reaches the game, and no patch can fix that. sf-mod-check 0.11.0 and earlier put those files before every mod and
+  showed such a mod as the winner; `conflict` now lists the change as lost and `patch` leaves it out.
 - **An add-on's masters:** without `--masters-dir`, an add-on is checked against the main plugin installed in Data,
   which may be an older build than the one you just made.
 
