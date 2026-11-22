@@ -309,16 +309,33 @@ public class DiffCommandTests
     [Fact]
     public void The_input_hint_matches_the_reason()
     {
-        // code-review medium round 6 (0.11.0)
-        Assert.Contains("drive letter", DiffCommand.InputHint("it goes through a mounted volume"));
-        Assert.Contains("not a device path", DiffCommand.InputHint(@"it is a device path (\\?\GLOBALROOT\x)"));
-        Assert.Contains("without the links", DiffCommand.InputHint("it goes through more than 400 links"));
-        Assert.Contains("without the links", DiffCommand.InputHint("it goes through a chain of more than 40 links"));
-        Assert.Contains("can read every folder", DiffCommand.InputHint("/x/y on the way can't be read, so diff can't tell whether it is a link (denied)"));
-        Assert.DoesNotContain("mounted volume", DiffCommand.InputHint("a link on the way can't be read (x)"));
+        // code-review medium rounds 6 and 7 (0.11.0): picked by the cause's code, never by the text
+        Assert.Contains("drive letter", DiffCommand.PathHint(PathProblem.MountedVolume, "the input"));
+        Assert.Contains("not a device path", DiffCommand.PathHint(PathProblem.DevicePath, "the input"));
+        Assert.Contains("without the links", DiffCommand.PathHint(PathProblem.TooManyLinks, "the input"));
+        Assert.Contains("typing mistake", DiffCommand.PathHint(PathProblem.Invalid, "--out"));
+        Assert.Contains("can read every folder", DiffCommand.PathHint(PathProblem.NoAccess, "the input"));
+        var linkError = DiffCommand.PathHint(PathProblem.LinkError, "--log");
+        Assert.Contains("broken link", linkError);
+        Assert.Contains("--log", linkError);
+        Assert.DoesNotContain("can read every folder", linkError);
+        Assert.DoesNotContain("mounted volume", linkError);
     }
 
-    [UnixFact]
+    [Fact]
+    public void A_path_named_links_doesnt_change_the_hint()
+    {
+        // code-review medium round 7 (0.11.0): a folder called "symlinks" on an invalid input got the links advice
+        using var s = new Sandbox();
+        var b = Path.Combine(s.Dir, "B.esm"); File.WriteAllText(b, "x");
+        // the folder exists, so the walk reaches the bad part on Linux too (parts after a missing one aren't read)
+        var e = DiffCommand.OutProblem(Path.Combine(s.Dir, "r.txt"), Path.Combine(s.Sub("symlinks"), "bad\0path"), b);
+        Assert.NotNull(e);
+        Assert.Contains("typing mistake", e);
+        Assert.DoesNotContain("without the links", e);
+    }
+
+    [UnixNotRootFact]
     public void On_linux_a_folder_that_cant_be_read_is_refused_by_name()
     {
         // code-review medium round 6 (0.11.0): a part whose attributes can't be read may be a link, so the path is refused,
@@ -330,14 +347,20 @@ public class DiffCommandTests
         File.SetUnixFileMode(locked, UnixFileMode.None);
         try
         {
-            // root reads everything, so there is nothing to test there
-            try { Directory.GetFileSystemEntries(locked); return; } catch (UnauthorizedAccessException) { }
-            Assert.Null(DiffCommand.RealPath(Path.Combine(locked, "sub", "r.txt"), out var why));
+            // root reads everything; UnixNotRootFact skips the test there, with the reason
+            Assert.Throws<UnauthorizedAccessException>(() => Directory.GetFileSystemEntries(locked));
+            Assert.Null(DiffCommand.RealPath(Path.Combine(locked, "sub", "r.txt"), out var why, out var kind));
+            Assert.Equal(PathProblem.NoAccess, kind);
             Assert.Contains(Path.Combine(locked, "sub"), why);
             Assert.Contains("can't tell whether it is a link", why);
+            // code-review round 7: the path is named once, not again inside the system's message
+            Assert.Equal(1, why!.Split(Path.Combine(locked, "sub")).Length - 1);
             var e = DiffCommand.OutProblem(Path.Combine(locked, "sub", "r.txt"), a, a);
             Assert.NotNull(e);
             Assert.Contains("can't tell whether it is a link", e);
+            // code-review round 7: the advice fits the cause (a plain path is no fix for a folder that can't be read)
+            Assert.Contains("can read every folder", e);
+            Assert.DoesNotContain("plain path", e);
         }
         finally { File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); }
     }

@@ -53,6 +53,10 @@ public sealed class DiffInput
 /// (Removed: NewRel null). Rel paths are the inputs' Files entries; Name is the file name both share.</summary>
 public sealed record PluginPair(string Name, string? OldRel, string? NewRel);
 
+/// <summary>Why <see cref="DiffCommand.RealPath(string, out string?, out PathProblem)"/> couldn't work out a path, so a
+/// message can give the advice that fits (code-review round 7).</summary>
+public enum PathProblem { None, Invalid, NoAccess, LinkError, MountedVolume, DevicePath, TooManyLinks }
+
 public sealed class DiffPairing
 {
     public List<PluginPair> Paired { get; } = [];
@@ -188,34 +192,45 @@ public static class DiffCommand
     /// more than 40 links or more than 400 links in all, an invalid path, a part whose attributes can't be read (so it may
     /// be a link), or an error reading a link. A \\?\, \??\ or \\.\
     /// prefix is dropped on Windows. A link whose target doesn't exist yet is followed too. Hard links and 8.3 short names aren't detected.</summary>
-    public static string? RealPath(string path) => RealPath(path, out _);
+    public static string? RealPath(string path) => RealPath(path, out _, out _);
     /// <summary>As <see cref="RealPath(string)"/>; when it returns null, <paramref name="why"/> says why, for the error
     /// message (code-review round 4: one fixed message named the wrong cause for an access error).</summary>
-    public static string? RealPath(string path, out string? why)
+    public static string? RealPath(string path, out string? why) => RealPath(path, out why, out _);
+    /// <summary>As <see cref="RealPath(string, out string?)"/>, with the cause also as a code, so the advice in a message
+    /// is picked by the code, never by the text (code-review round 7: the text holds paths and system messages).</summary>
+    public static string? RealPath(string path, out string? why, out PathProblem kind)
     {
         string? reason = null;
+        var reasonKind = PathProblem.None;
         int links = 0;   // code-review round 5: a budget for the whole call, so links whose targets repeat links can't run for ever
         try
         {
             var r = Walk(OperatingSystem.IsWindows() ? NoPrefix(System.IO.Path.GetFullPath(path)) : Absolute(path), 0);
             why = reason;
+            kind = reasonKind;
             return r;
         }
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
         {
             why = $"the path isn't valid ({e.Message})";
+            kind = PathProblem.Invalid;
             return null;
         }
-        catch (UnauthorizedAccessException e)
+        catch (UnauthorizedAccessException)
         {
-            why = $"a folder or link on the way can't be read ({e.Message})";
+            // the system's message only repeats the path
+            why = "a folder or link on the way can't be read (access denied)";
+            kind = PathProblem.NoAccess;
             return null;
         }
         catch (IOException e)
         {
             why = $"a link on the way can't be read ({e.Message})";
+            kind = PathProblem.LinkError;
             return null;
         }
+
+        string? Fail(PathProblem k, string text) { reasonKind = k; reason = text; return null; }
 
         static string Absolute(string p) => System.IO.Path.IsPathRooted(p) ? p : System.IO.Path.Combine(Environment.CurrentDirectory, p);
 
@@ -224,10 +239,8 @@ public static class DiffCommand
             // code-review round 5: \\?\GLOBALROOT, \\.\PhysicalDrive0 and other device paths that NoPrefix can't turn into
             // a drive letter never match one, so they can't be checked
             if (OperatingSystem.IsWindows() && IsDevicePath(p))
-            {
-                reason = IsVolumeTarget(p) ? "it goes through a mounted volume" : $"it is a device path ({p})";
-                return null;
-            }
+                return IsVolumeTarget(p) ? Fail(PathProblem.MountedVolume, "it goes through a mounted volume")
+                                         : Fail(PathProblem.DevicePath, $"it is a device path ({p})");
             var root = System.IO.Path.GetPathRoot(p) ?? "";
             var cur = root;
             bool exists = true;   // once a part doesn't exist, nothing after it can be a link
@@ -247,10 +260,14 @@ public static class DiffCommand
                     // told apart from a link, so the path is refused, naming that part (a wrong refusal only costs a message)
                     FileAttributes attrs;
                     try { attrs = info.Attributes; }
-                    catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+                    // code-review round 7: the system's access message only repeats the path; an I/O error keeps its text
+                    catch (UnauthorizedAccessException)
                     {
-                        reason = $"{next} on the way can't be read, so diff can't tell whether it is a link ({e.Message})";
-                        return null;
+                        return Fail(PathProblem.NoAccess, $"{next} on the way can't be read (access denied), so diff can't tell whether it is a link");
+                    }
+                    catch (IOException e)
+                    {
+                        return Fail(PathProblem.LinkError, $"{next} on the way can't be read ({e.Message}), so diff can't tell whether it is a link");
                     }
                     bool isLink = (int)attrs != -1 && attrs.HasFlag(FileAttributes.ReparsePoint);
                     // LinkTarget by hand, not ResolveLinkTarget: Windows refuses to follow a junction that way ("untrusted
@@ -259,9 +276,9 @@ public static class DiffCommand
                     {
                         // the depth limit is per chain (a link whose target holds a link, and so on), so loops end and a
                         // long path with many separate links still passes; the total budget stops targets that repeat links
-                        if (depth >= 40) { reason = "it goes through a chain of more than 40 links"; return null; }
-                        if (++links > 400) { reason = "it goes through more than 400 links"; return null; }
-                        if (IsVolumeTarget(target)) { reason = "it goes through a mounted volume"; return null; }
+                        if (depth >= 40) return Fail(PathProblem.TooManyLinks, "it goes through a chain of more than 40 links");
+                        if (++links > 400) return Fail(PathProblem.TooManyLinks, "it goes through more than 400 links");
+                        if (IsVolumeTarget(target)) return Fail(PathProblem.MountedVolume, "it goes through a mounted volume");
                         var t = System.IO.Path.IsPathRooted(target) ? target : System.IO.Path.Combine(cur, target);
                         if (Walk(OperatingSystem.IsWindows() ? NoPrefix(System.IO.Path.GetFullPath(t)) : t, depth + 1) is not { } resolved) return null;
                         next = resolved;
@@ -303,16 +320,18 @@ public static class DiffCommand
     internal static bool HasStreamColon(string full) =>
         full[(System.IO.Path.GetPathRoot(full) ?? "").Length..].Contains(':');
 
-    /// <summary>What to do about an input <see cref="RealPath(string, out string?)"/> couldn't resolve, matched to its
-    /// reason (code-review round 6: the mounted-volume advice was given for every cause).</summary>
-    internal static string InputHint(string? why) => why switch
+    /// <summary>What to do about a path <see cref="RealPath(string, out string?, out PathProblem)"/> couldn't resolve,
+    /// picked by its cause (code-review round 6: the mounted-volume advice was given for every cause; round 7: by the
+    /// code, not the text, and for --out and --log too). <paramref name="who"/> is "the input", "--out" or "--log".</summary>
+    internal static string PathHint(PathProblem kind, string who) => kind switch
     {
-        null => "Give the input by a plain path",
-        _ when why.Contains("mounted volume") => "Give the input by a drive-letter path (a mounted volume needs a drive letter for that)",
-        _ when why.Contains("device path") => "Give the input by a drive-letter path, not a device path",
-        _ when why.Contains("links") => "Give the input by its real path, without the links",
-        _ when why.Contains("isn't valid") => "Check the input's path for a typing mistake",
-        _ => "Make sure this account can read every folder on the input's path, or give the input by another path",
+        PathProblem.MountedVolume => $"Use a drive-letter path for {who} (a mounted volume needs a drive letter for that)",
+        PathProblem.DevicePath => $"Use a drive-letter path for {who}, not a device path",
+        PathProblem.TooManyLinks => $"Use the real path for {who}, without the links",
+        PathProblem.Invalid => $"Check the path given for {who} for a typing mistake",
+        PathProblem.NoAccess => $"Make sure this account can read every folder on the path for {who}, or use another path",
+        PathProblem.LinkError => $"Check the links and the drive on the path for {who} (a broken link, or a drive that can't be reached), or use another path",
+        _ => $"Use a plain path for {who}",
     };
 
     /// <summary>The full path for a message, or the typed text when the system rejects it (never throws).</summary>
@@ -367,9 +386,9 @@ public static class DiffCommand
             return $"won't write {what} to {full}: that name is a plugin, archive or script, and {what} would overwrite it. " +
                    $"Give {option} a .txt{(option == "--log" ? "" : " or .json")} file, for example {example}";
         // symbolic links and junctions are followed on both sides, so a path through a link to an input folder is refused too
-        if (RealPath(outFile, out var whyNot) is not { } real)
+        if (RealPath(outFile, out var whyNot, out var notKind) is not { } real)
             return $"can't use {option} {full}: {whyNot}, so diff can't check that it stays out of its inputs. " +
-                   $"Give {option} a plain path, for example {example}";
+                   $"{PathHint(notKind, option)}, for example {example}";
         if (WriteProtectedName(real))
             return $"won't write {what} to {full}: its real path is {real}, a plugin, archive or script, and {what} would overwrite it. " +
                    $"Give {option} a .txt{(option == "--log" ? "" : " or .json")} file, for example {example}";
@@ -380,9 +399,9 @@ public static class DiffCommand
         {
             // code-review round 4: an input that can't be resolved (a mounted volume on its way) is refused, not compared
             // by its typed path, which an output reaching the same folder by a drive letter would never match
-            if (RealPath(input, out var whyInput) is not { } inReal)
+            if (RealPath(input, out var whyInput, out var inKind) is not { } inReal)
                 return $"can't use {option} {full}: the input {SafeFull(input)} can't be checked ({whyInput}), so diff " +
-                       $"can't make sure {what} stays out of it. {InputHint(whyInput)}, or leave out {option}.";
+                       $"can't make sure {what} stays out of it. {PathHint(inKind, "the input")}, or leave out {option}.";
             // code-review round 5: never trim a root (C:\ would become C:, the current folder on drive C; / would become "")
             var inRoot = System.IO.Path.GetPathRoot(inReal) ?? "";
             var inFull = inReal.Length > inRoot.Length ? inReal.TrimEnd('\\', '/') : inReal;

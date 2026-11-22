@@ -21,6 +21,20 @@ public sealed class UnixFactAttribute : FactAttribute
     }
 }
 
+/// <summary>Linux and macOS, not as root: for tests of folders the account can't read, which root reads anyway
+/// (0.11.0 code-review round 7: an early return showed as passed in root containers).</summary>
+public sealed class UnixNotRootFactAttribute : FactAttribute
+{
+    public UnixNotRootFactAttribute()
+    {
+        if (OperatingSystem.IsWindows()) Skip = "Linux and macOS only";
+        else if (geteuid() == 0) Skip = "running as root, which can read every folder";
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc")]
+    static extern uint geteuid();
+}
+
 /// <summary>Needs folder links (a junction on Windows, a symbolic link elsewhere): skipped, with the reason, where they
 /// can't be made (0.11.0 code-review round 3: a test that returned early showed as passed).</summary>
 public sealed class LinksFactAttribute : FactAttribute
