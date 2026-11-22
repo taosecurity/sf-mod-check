@@ -219,7 +219,7 @@ public static class DiffCommand
         }
         catch (UnauthorizedAccessException)
         {
-            // the system's message only repeats the path
+            // a last resort: the parts and links are caught where they're read, with their names
             why = "a folder or link on the way can't be read (access denied)";
             kind = PathProblem.NoAccess;
             return null;
@@ -273,7 +273,21 @@ public static class DiffCommand
                     bool isLink = (int)attrs != -1 && attrs.HasFlag(FileAttributes.ReparsePoint);
                     // LinkTarget by hand, not ResolveLinkTarget: Windows refuses to follow a junction that way ("untrusted
                     // mount point"). The target is walked again, so links inside it are followed too.
-                    if (isLink && info.LinkTarget is { } target)
+                    string? target = null;
+                    // code-review (0.11.0 VMAD order): a link whose target can't be read is named, like a part above
+                    if (isLink)
+                    {
+                        try { target = info.LinkTarget; }
+                        catch (UnauthorizedAccessException)
+                        {
+                            return Fail(PathProblem.NoAccess, $"the link {next} on the way can't be read (access denied)");
+                        }
+                        catch (IOException e)
+                        {
+                            return Fail(PathProblem.LinkError, $"the link {next} on the way can't be read ({e.Message})");
+                        }
+                    }
+                    if (target is not null)
                     {
                         // the depth limit is per chain (a link whose target holds a link, and so on), so loops end and a
                         // long path with many separate links still passes; the total budget stops targets that repeat links

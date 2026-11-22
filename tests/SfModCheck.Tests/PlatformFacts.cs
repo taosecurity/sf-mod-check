@@ -22,17 +22,38 @@ public sealed class UnixFactAttribute : FactAttribute
 }
 
 /// <summary>Linux and macOS, not as root: for tests of folders the account can't read, which root reads anyway
-/// (0.11.0 code-review round 7: an early return showed as passed in root containers).</summary>
+/// (0.11.0 code-review round 7: an early return showed as passed in root containers). Code-review, 0.11.0 VMAD order:
+/// no P/Invoke (a "libc" import can miss on glibc systems), and a probe folder with no permissions is tried, so an
+/// account that reads it anyway (CAP_DAC_OVERRIDE in a container) skips too instead of failing.</summary>
 public sealed class UnixNotRootFactAttribute : FactAttribute
 {
+    static readonly string? why = OperatingSystem.IsWindows() ? "Linux and macOS only"
+        : Environment.IsPrivilegedProcess ? "running as root, which can read every folder"
+        : ReadsLockedFolders() ? "this account can read folders it has no permission for (a capability such as CAP_DAC_OVERRIDE)"
+        : null;
+
     public UnixNotRootFactAttribute()
     {
-        if (OperatingSystem.IsWindows()) Skip = "Linux and macOS only";
-        else if (geteuid() == 0) Skip = "running as root, which can read every folder";
+        if (why is not null) Skip = why;
     }
 
-    [System.Runtime.InteropServices.DllImport("libc")]
-    static extern uint geteuid();
+    static bool ReadsLockedFolders()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "sf-mod-check-lockprobe-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(dir);
+            File.SetUnixFileMode(dir, UnixFileMode.None);
+            try { Directory.GetFileSystemEntries(dir); return true; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+        catch (Exception) { return true; }   // the probe itself failed: skip rather than fail
+        finally
+        {
+            try { File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); Directory.Delete(dir, true); }
+            catch (Exception) { /* a temp folder left behind */ }
+        }
+    }
 }
 
 /// <summary>Needs folder links (a junction on Windows, a symbolic link elsewhere): skipped, with the reason, where they

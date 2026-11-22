@@ -60,14 +60,21 @@ public sealed class DeepCompare
 
     /// <summary>Rule 8 (diff, 0.11.0). Compare a list of scripts, or of script properties, by name instead of by
     /// position: Papyrus finds scripts and properties by name, so a resave that only reorders them changes nothing in
-    /// game (the user's decision, 2026-11-21). Both lists are put in name order (case ignored, then exact spelling;
-    /// entries with one name keep their order) and then compared entry by entry as usual, so a changed name, flag or
-    /// value, or a script or property added or removed, is still a difference.</summary>
+    /// game (the user's decision, 2026-11-21). Both lists are put in name order (case ignored, then exact spelling,
+    /// then the entry's hash, so entries that share a name and only swapped places line up too) and then compared
+    /// entry by entry as usual, so a changed name, flag or value, or a script or property added or removed, is still a
+    /// difference. Names are compared exactly: a change of letter case alone counts as a change, although the game
+    /// ignores case (a careful choice, recorded in NOTES). Only the lists held by a member named Scripts, Properties or
+    /// Members are sorted (a record's or an alias's scripts, a script's properties, a struct's members), never an
+    /// array property's elements (Objects, Structs), whose order is the array's order (code-review, 0.11.0 VMAD order).</summary>
     public bool ScriptsByName { get; init; }
 
+    /// <summary>Whether a member's list may be put in name order (rule 8): its name is one of the script lists'.</summary>
+    static bool NamedList(string member) => member is "Scripts" or "Properties" or "Members";
+
     /// <summary>The list in name order when every entry is a script or every entry is a script property (rule 8),
-    /// else the list as it is.</summary>
-    public static List<object?> ByName(List<object?> l)
+    /// else the list as it is. Ties (one name) are ordered by <see cref="Hash"/>, so equal entries line up.</summary>
+    public List<object?> ByName(List<object?> l, int depth)
     {
         static string? NameOf(object? o) => o switch
         {
@@ -78,7 +85,8 @@ public sealed class DeepCompare
         if (l.Count < 2) return l;
         bool scripts = l.All(o => o is IScriptEntryGetter), properties = l.All(o => o is IScriptPropertyGetter);
         if (!scripts && !properties) return l;
-        return l.OrderBy(o => NameOf(o)!, StringComparer.OrdinalIgnoreCase).ThenBy(o => NameOf(o)!, StringComparer.Ordinal).ToList();
+        return l.OrderBy(o => NameOf(o)!, StringComparer.OrdinalIgnoreCase).ThenBy(o => NameOf(o)!, StringComparer.Ordinal)
+            .ThenBy(o => Hash(o, depth + 1)).ToList();
     }
 
     readonly ConcurrentDictionary<Type, PropertyInfo[]> props = new();
@@ -91,7 +99,11 @@ public sealed class DeepCompare
         .Where(f => !Skipped(f.Name)).ToArray());
 
     /// <summary>Whether a and b hold the same value. depth: how deep the walk is (0 for a record's field).</summary>
-    public bool Eq(object? a, object? b, int depth)
+    public bool Eq(object? a, object? b, int depth) => Eq(a, b, depth, false);
+
+    /// <summary>As <see cref="Eq(object?, object?, int)"/>; <paramref name="named"/>: a and b are held by a member whose
+    /// list rule 8 may put in name order.</summary>
+    bool Eq(object? a, object? b, int depth, bool named)
     {
         if (EqualsFirst && Equals(a, b)) return true;
         if (a is null || b is null) return a is null && b is null;
@@ -119,15 +131,15 @@ public sealed class DeepCompare
         {
             var la = ((IEnumerable)a).Cast<object?>().ToList(); var lb = ((IEnumerable)b).Cast<object?>().ToList();
             if (la.Count != lb.Count) return false;
-            if (ScriptsByName) { la = ByName(la); lb = ByName(lb); }
+            if (named) { la = ByName(la, depth); lb = ByName(lb, depth); }
             for (int i = 0; i < la.Count; i++) if (!Eq(la[i], lb[i], depth + 1)) return false;
             return true;
         }
         var ps = Properties(t);
         var fs = Fields(t);
         if (ps.Length == 0 && fs.Length == 0) return !EmptyByEquals || Equals(a, b);
-        foreach (var p in ps) if (!Eq(p.GetValue(a), p.GetValue(b), depth + 1)) return false;
-        foreach (var f in fs) if (!Eq(f.GetValue(a), f.GetValue(b), depth + 1)) return false;
+        foreach (var p in ps) if (!Eq(p.GetValue(a), p.GetValue(b), depth + 1, ScriptsByName && NamedList(p.Name))) return false;
+        foreach (var f in fs) if (!Eq(f.GetValue(a), f.GetValue(b), depth + 1, ScriptsByName && NamedList(f.Name))) return false;
         return true;
     }
 
@@ -135,7 +147,9 @@ public sealed class DeepCompare
     /// lists: values Eq finds equal by walking get the same hash. Meant for the walking options (conflict's): with
     /// EmptyByEquals or TypesByEquals two equal values may still hash apart, which only costs a slower search.
     /// 0 = null, 1 = past the depth limit, 2 = a part couldn't be read.</summary>
-    public int Hash(object? v, int depth)
+    public int Hash(object? v, int depth) => Hash(v, depth, false);
+
+    int Hash(object? v, int depth, bool named)
     {
         if (v is null) return 0;
         if (depth > MaxDepth) return 1;
@@ -150,11 +164,11 @@ public sealed class DeepCompare
         {
             if (v is IEnumerable e)
             {
-                foreach (var x in ScriptsByName ? ByName(e.Cast<object?>().ToList()) : e.Cast<object?>()) h.Add(Hash(x, depth + 1));
+                foreach (var x in named ? ByName(e.Cast<object?>().ToList(), depth) : e.Cast<object?>()) h.Add(Hash(x, depth + 1));
                 return h.ToHashCode();
             }
-            foreach (var p in Properties(t)) h.Add(Hash(p.GetValue(v), depth + 1));
-            foreach (var f in Fields(t)) h.Add(Hash(f.GetValue(v), depth + 1));
+            foreach (var p in Properties(t)) h.Add(Hash(p.GetValue(v), depth + 1, ScriptsByName && NamedList(p.Name)));
+            foreach (var f in Fields(t)) h.Add(Hash(f.GetValue(v), depth + 1, ScriptsByName && NamedList(f.Name)));
         }
         catch (Exception e) when (Fatal.Recoverable(e)) { return 2; }
         return h.ToHashCode();

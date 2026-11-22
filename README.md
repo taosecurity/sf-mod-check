@@ -619,7 +619,9 @@ result DIFFERENCES.
 
 Scripts attached to a record, and each script's properties, are matched by name, because the game
 finds them by name: scripts or properties that only moved to another place in the list are noise, while a changed
-name, flag or value, or a script or property added or removed, is a change.
+name, flag or value, or a script or property added or removed, is a change. Names are compared exactly, so a name
+whose letter case alone changed counts as a change, although the game ignores case. The elements of an array
+property keep their order: a reordered array is a change.
 
 Three views follow the counts:
 

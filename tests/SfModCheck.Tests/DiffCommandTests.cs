@@ -347,7 +347,7 @@ public class DiffCommandTests
         File.SetUnixFileMode(locked, UnixFileMode.None);
         try
         {
-            // root reads everything; UnixNotRootFact skips the test there, with the reason
+            // root (or an account with CAP_DAC_OVERRIDE) reads everything; UnixNotRootFact probes and skips the test there
             Assert.Throws<UnauthorizedAccessException>(() => Directory.GetFileSystemEntries(locked));
             Assert.Null(DiffCommand.RealPath(Path.Combine(locked, "sub", "r.txt"), out var why, out var kind));
             Assert.Equal(PathProblem.NoAccess, kind);
@@ -695,15 +695,66 @@ public class DiffCommandTests
     [Fact]
     public void Only_diff_compares_scripts_by_name()
     {
-        var a = new List<ScriptEntry> { new() { Name = "B" }, new() { Name = "a" } };
-        var b = new List<ScriptEntry> { new() { Name = "a" }, new() { Name = "B" } };
+        var a = new VirtualMachineAdapter { Scripts = [new() { Name = "B" }, new() { Name = "a" }] };
+        var b = new VirtualMachineAdapter { Scripts = [new() { Name = "a" }, new() { Name = "B" }] };
         Assert.True(DeepCompare.DiffIgnoringPadding.Eq(a, b, 0));
         Assert.Equal(DeepCompare.DiffIgnoringPadding.Hash(a, 0), DeepCompare.DiffIgnoringPadding.Hash(b, 0));
         Assert.False(DeepCompare.Conflict.Eq(a, b, 0));   // conflict and check keep comparing by position
         Assert.False(DeepCompare.Itm.Eq(a, b, 0));
         // a list that isn't all scripts or all properties keeps its order
         var mixed = new List<object?> { new ScriptEntry { Name = "B" }, "x" };
-        Assert.Same(mixed, DeepCompare.ByName(mixed));
+        Assert.Same(mixed, DeepCompare.DiffIgnoringPadding.ByName(mixed, 0));
+        // code-review (0.11.0 VMAD order): a bare list has no owner, so it keeps its order
+        Assert.False(DeepCompare.DiffIgnoringPadding.Eq(a.Scripts, b.Scripts, 0));
+    }
+
+    [Fact]
+    public void Entries_that_share_a_name_and_only_swapped_places_are_noise()
+    {
+        // code-review (0.11.0 VMAD order): one script attached twice, its two copies swapped
+        static VirtualMachineAdapter Twice(int first, int second) => new()
+        {
+            Scripts =
+            [
+                new() { Name = "S", Properties = [new ScriptIntProperty { Name = "x", Data = first }] },
+                new() { Name = "S", Properties = [new ScriptIntProperty { Name = "x", Data = second }] },
+            ],
+        };
+        var d = DeepCompare.DiffIgnoringPadding;
+        Assert.True(d.Eq(Twice(1, 2), Twice(2, 1), 0));
+        Assert.Equal(d.Hash(Twice(1, 2), 0), d.Hash(Twice(2, 1), 0));
+        Assert.False(d.Eq(Twice(1, 2), Twice(1, 3), 0));
+    }
+
+    [Fact]
+    public void An_object_array_keeps_its_order_even_when_its_elements_have_names()
+    {
+        // code-review (0.11.0 VMAD order): an array property's elements are script properties too, but their order is
+        // the array's order, so only the Scripts, Properties and Members lists are put in name order
+        static VirtualMachineAdapter Array(string first, string second) => new()
+        {
+            Scripts =
+            [
+                new()
+                {
+                    Name = "S",
+                    Properties =
+                    [
+                        new ScriptObjectListProperty
+                        {
+                            Name = "Refs",
+                            Objects =
+                            [
+                                new ScriptObjectProperty { Name = first, Alias = (short)(first == "a" ? 1 : 2) },
+                                new ScriptObjectProperty { Name = second, Alias = (short)(second == "a" ? 1 : 2) },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+        Assert.False(DeepCompare.DiffIgnoringPadding.Eq(Array("a", "b"), Array("b", "a"), 0));
+        Assert.True(DeepCompare.DiffIgnoringPadding.Eq(Array("a", "b"), Array("a", "b"), 0));
     }
 
     [Fact]
