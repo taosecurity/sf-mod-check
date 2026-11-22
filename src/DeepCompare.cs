@@ -60,33 +60,46 @@ public sealed class DeepCompare
 
     /// <summary>Rule 8 (diff, 0.11.0). Compare a list of scripts, or of script properties, by name instead of by
     /// position: Papyrus finds scripts and properties by name, so a resave that only reorders them changes nothing in
-    /// game (the user's decision, 2026-11-21). Both lists are put in name order (case ignored, then exact spelling,
-    /// then the entry's hash, so entries that share a name and only swapped places line up too) and then compared
-    /// entry by entry as usual, so a changed name, flag or value, or a script or property added or removed, is still a
-    /// difference. Names are compared exactly: a change of letter case alone counts as a change, although the game
-    /// ignores case (a careful choice, recorded in NOTES). Only the lists held by a member named Scripts, Properties or
-    /// Members are sorted (a record's or an alias's scripts, a script's properties, a struct's members), never an
-    /// array property's elements (Objects, Structs), whose order is the array's order (code-review, 0.11.0 VMAD order).</summary>
+    /// game (the user's decision, 2026-11-21). Each entry of one list is matched with an equal entry of the same name
+    /// in the other (entries that share a name, such as one script attached twice, are matched by value), so a
+    /// changed name, flag or value, or a script or property added or removed, is still a difference. Names are
+    /// compared exactly: a change of letter case alone counts as a change, although the game ignores case (a careful
+    /// choice, stated in the README and CHANGELOG). Only these lists are matched by name: a record's or an alias's
+    /// Scripts, a script's Properties, and the Members of one element of a struct array. Never an array property's
+    /// elements (Objects, Structs), whose order is the array's order, nor a struct property's Members, which Mutagen
+    /// reads as one entry (code-review, 0.11.0 VMAD order).</summary>
     public bool ScriptsByName { get; init; }
 
-    /// <summary>Whether a member's list may be put in name order (rule 8): its name is one of the script lists'.</summary>
-    static bool NamedList(string member) => member is "Scripts" or "Properties" or "Members";
+    /// <summary>Whether a member's list is matched by name (rule 8); holder: the type that holds the member.</summary>
+    static bool NamedList(Type holder, string member) => member is "Scripts" or "Properties"
+        || (member == "Members" && typeof(IScriptEntryStructsGetter).IsAssignableFrom(holder));
 
-    /// <summary>The list in name order when every entry is a script or every entry is a script property (rule 8),
-    /// else the list as it is. Ties (one name) are ordered by <see cref="Hash"/>, so equal entries line up.</summary>
-    public List<object?> ByName(List<object?> l, int depth)
+    /// <summary>A script's or script property's name; null for anything else.</summary>
+    static string? NameOf(object? o) => o switch
     {
-        static string? NameOf(object? o) => o switch
+        IScriptEntryGetter s => s.Name ?? "",
+        IScriptPropertyGetter p => p.Name ?? "",
+        _ => null,
+    };
+
+    /// <summary>Whether rule 8 applies to a list: two or more entries, all scripts or all script properties.</summary>
+    static bool AllNamed(List<object?> l) =>
+        l.Count >= 2 && (l.All(o => o is IScriptEntryGetter) || l.All(o => o is IScriptPropertyGetter));
+
+    /// <summary>Rule 8 for two lists of one length: every entry of la has its own equal entry of the same name in lb.
+    /// Greedy matching is enough because Eq is an equivalence (equal values are interchangeable).</summary>
+    bool NamedEq(List<object?> la, List<object?> lb, int depth)
+    {
+        var free = new Dictionary<string, List<object?>>(StringComparer.Ordinal);
+        foreach (var y in lb) (free.TryGetValue(NameOf(y)!, out var c) ? c : free[NameOf(y)!] = []).Add(y);
+        foreach (var x in la)
         {
-            IScriptEntryGetter s => s.Name ?? "",
-            IScriptPropertyGetter p => p.Name ?? "",
-            _ => null,
-        };
-        if (l.Count < 2) return l;
-        bool scripts = l.All(o => o is IScriptEntryGetter), properties = l.All(o => o is IScriptPropertyGetter);
-        if (!scripts && !properties) return l;
-        return l.OrderBy(o => NameOf(o)!, StringComparer.OrdinalIgnoreCase).ThenBy(o => NameOf(o)!, StringComparer.Ordinal)
-            .ThenBy(o => Hash(o, depth + 1)).ToList();
+            if (!free.TryGetValue(NameOf(x)!, out var c)) return false;
+            int i = c.FindIndex(y => Eq(x, y, depth + 1));
+            if (i < 0) return false;
+            c.RemoveAt(i);
+        }
+        return true;
     }
 
     readonly ConcurrentDictionary<Type, PropertyInfo[]> props = new();
@@ -131,15 +144,15 @@ public sealed class DeepCompare
         {
             var la = ((IEnumerable)a).Cast<object?>().ToList(); var lb = ((IEnumerable)b).Cast<object?>().ToList();
             if (la.Count != lb.Count) return false;
-            if (named) { la = ByName(la, depth); lb = ByName(lb, depth); }
+            if (named && AllNamed(la) && AllNamed(lb)) return NamedEq(la, lb, depth);
             for (int i = 0; i < la.Count; i++) if (!Eq(la[i], lb[i], depth + 1)) return false;
             return true;
         }
         var ps = Properties(t);
         var fs = Fields(t);
         if (ps.Length == 0 && fs.Length == 0) return !EmptyByEquals || Equals(a, b);
-        foreach (var p in ps) if (!Eq(p.GetValue(a), p.GetValue(b), depth + 1, ScriptsByName && NamedList(p.Name))) return false;
-        foreach (var f in fs) if (!Eq(f.GetValue(a), f.GetValue(b), depth + 1, ScriptsByName && NamedList(f.Name))) return false;
+        foreach (var p in ps) if (!Eq(p.GetValue(a), p.GetValue(b), depth + 1, ScriptsByName && NamedList(t, p.Name))) return false;
+        foreach (var f in fs) if (!Eq(f.GetValue(a), f.GetValue(b), depth + 1, ScriptsByName && NamedList(t, f.Name))) return false;
         return true;
     }
 
@@ -164,11 +177,19 @@ public sealed class DeepCompare
         {
             if (v is IEnumerable e)
             {
-                foreach (var x in named ? ByName(e.Cast<object?>().ToList(), depth) : e.Cast<object?>()) h.Add(Hash(x, depth + 1));
+                var l = e.Cast<object?>().ToList();
+                if (named && AllNamed(l))
+                {
+                    // rule 8: the same (name, hash) pairs in any order give one hash; each entry is hashed once
+                    foreach (var (n, x) in l.Select(x => (NameOf(x)!, Hash(x, depth + 1)))
+                        .OrderBy(p => p.Item1, StringComparer.Ordinal).ThenBy(p => p.Item2))
+                    { h.Add(n, StringComparer.Ordinal); h.Add(x); }
+                }
+                else foreach (var x in l) h.Add(Hash(x, depth + 1));
                 return h.ToHashCode();
             }
-            foreach (var p in Properties(t)) h.Add(Hash(p.GetValue(v), depth + 1, ScriptsByName && NamedList(p.Name)));
-            foreach (var f in Fields(t)) h.Add(Hash(f.GetValue(v), depth + 1, ScriptsByName && NamedList(f.Name)));
+            foreach (var p in Properties(t)) h.Add(Hash(p.GetValue(v), depth + 1, ScriptsByName && NamedList(t, p.Name)));
+            foreach (var f in Fields(t)) h.Add(Hash(f.GetValue(v), depth + 1, ScriptsByName && NamedList(t, f.Name)));
         }
         catch (Exception e) when (Fatal.Recoverable(e)) { return 2; }
         return h.ToHashCode();

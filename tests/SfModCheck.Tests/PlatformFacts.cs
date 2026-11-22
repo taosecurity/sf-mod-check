@@ -29,25 +29,26 @@ public sealed class UnixNotRootFactAttribute : FactAttribute
 {
     static readonly string? why = OperatingSystem.IsWindows() ? "Linux and macOS only"
         : Environment.IsPrivilegedProcess ? "running as root, which can read every folder"
-        : ReadsLockedFolders() ? "this account can read folders it has no permission for (a capability such as CAP_DAC_OVERRIDE)"
-        : null;
+        : LockedFolderProbe();
 
     public UnixNotRootFactAttribute()
     {
         if (why is not null) Skip = why;
     }
 
-    static bool ReadsLockedFolders()
+    /// <summary>Null when a folder with no permissions can't be read (the tests can run), else why they skip.</summary>
+    static string? LockedFolderProbe()
     {
         var dir = Path.Combine(Path.GetTempPath(), "sf-mod-check-lockprobe-" + Guid.NewGuid().ToString("N"));
         try
         {
             Directory.CreateDirectory(dir);
             File.SetUnixFileMode(dir, UnixFileMode.None);
-            try { Directory.GetFileSystemEntries(dir); return true; }
-            catch (UnauthorizedAccessException) { return false; }
+            try { Directory.GetFileSystemEntries(dir); return "this account can read folders it has no permission for (a capability such as CAP_DAC_OVERRIDE)"; }
+            catch (UnauthorizedAccessException) { return null; }
         }
-        catch (Exception) { return true; }   // the probe itself failed: skip rather than fail
+        // the probe itself failed (code-review, 0.11.0 VMAD order round 2: say so, not the capability reason)
+        catch (Exception e) { return $"the permission probe in {Path.GetTempPath()} failed ({e.GetType().Name}: {e.Message})"; }
         finally
         {
             try { File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); Directory.Delete(dir, true); }

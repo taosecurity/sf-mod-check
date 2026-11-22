@@ -701,9 +701,6 @@ public class DiffCommandTests
         Assert.Equal(DeepCompare.DiffIgnoringPadding.Hash(a, 0), DeepCompare.DiffIgnoringPadding.Hash(b, 0));
         Assert.False(DeepCompare.Conflict.Eq(a, b, 0));   // conflict and check keep comparing by position
         Assert.False(DeepCompare.Itm.Eq(a, b, 0));
-        // a list that isn't all scripts or all properties keeps its order
-        var mixed = new List<object?> { new ScriptEntry { Name = "B" }, "x" };
-        Assert.Same(mixed, DeepCompare.DiffIgnoringPadding.ByName(mixed, 0));
         // code-review (0.11.0 VMAD order): a bare list has no owner, so it keeps its order
         Assert.False(DeepCompare.DiffIgnoringPadding.Eq(a.Scripts, b.Scripts, 0));
     }
@@ -724,6 +721,43 @@ public class DiffCommandTests
         Assert.True(d.Eq(Twice(1, 2), Twice(2, 1), 0));
         Assert.Equal(d.Hash(Twice(1, 2), 0), d.Hash(Twice(2, 1), 0));
         Assert.False(d.Eq(Twice(1, 2), Twice(1, 3), 0));
+
+        // round 2: three copies, two of them equal, matched by value rather than by hash order
+        static VirtualMachineAdapter Thrice(params int[] v) => new()
+        {
+            Scripts = [.. v.Select(x => new ScriptEntry { Name = "S", Properties = [new ScriptIntProperty { Name = "x", Data = x }] })],
+        };
+        Assert.True(d.Eq(Thrice(1, 2, 1), Thrice(2, 1, 1), 0));
+        Assert.Equal(d.Hash(Thrice(1, 2, 1), 0), d.Hash(Thrice(1, 1, 2), 0));
+        Assert.False(d.Eq(Thrice(1, 2, 1), Thrice(2, 2, 1), 0));
+    }
+
+    [Fact]
+    public void A_struct_property_keeps_its_members_order_but_a_struct_arrays_members_go_by_name()
+    {
+        // code-review (0.11.0 VMAD order) round 2: ScriptStructProperty.Members is a list of ScriptEntry (Mutagen reads
+        // one); only the Members of a struct array's element (script properties) are matched by name
+        static VirtualMachineAdapter Struct(bool swap)
+        {
+            ScriptEntry e1 = new() { Name = "", Properties = [new ScriptIntProperty { Name = "a", Data = 1 }] };
+            ScriptEntry e2 = new() { Name = "", Properties = [new ScriptIntProperty { Name = "a", Data = 2 }] };
+            return new()
+            {
+                Scripts = [new() { Name = "S", Properties = [new ScriptStructProperty { Name = "P", Members = swap ? [e2, e1] : [e1, e2] }] }],
+            };
+        }
+        static VirtualMachineAdapter StructList(bool swap)
+        {
+            ScriptProperty a = new ScriptIntProperty { Name = "a", Data = 1 }, b = new ScriptFloatProperty { Name = "b", Data = 2f };
+            return new()
+            {
+                Scripts = [new() { Name = "S", Properties = [new ScriptStructListProperty { Name = "L", Structs = [new ScriptEntryStructs { Members = swap ? [b, a] : [a, b] }] }] }],
+            };
+        }
+        var d = DeepCompare.DiffIgnoringPadding;
+        Assert.False(d.Eq(Struct(false), Struct(true), 0));
+        Assert.True(d.Eq(StructList(false), StructList(true), 0));
+        Assert.Equal(d.Hash(StructList(false), 0), d.Hash(StructList(true), 0));
     }
 
     [Fact]
