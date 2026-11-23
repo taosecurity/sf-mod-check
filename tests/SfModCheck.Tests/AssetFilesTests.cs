@@ -680,4 +680,13 @@ public class AssetFilesTests
         Assert.StartsWith("1 missing material, 1 missing texture and 1 missing sound; those surfaces look wrong and those sounds are silent.", act.Text);
         Assert.DoesNotContain("model", act.Text);
     }
+
+    [Fact]
+    public void Conflict_action_for_an_unlisted_kind_is_never_blank()
+    {
+        var a = new Conflict.Analysis { AssetsChecked = true };
+        a.MissingAssets.Add(new Conflict.AssetFinding("x.esm", new MissingAsset("WARNING", "face", @"meshes\a.nif", null, ["A"])));
+        var act = Assert.Single(Conflict.Report.AssetActions(a));
+        Assert.StartsWith("1 other missing file; the game can't find those files.", act.Text);
+    }
 }

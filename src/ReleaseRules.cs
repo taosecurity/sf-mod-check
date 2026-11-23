@@ -291,8 +291,8 @@ public static class ReleaseRules
         foreach (var f in p.Files)
         {
             var d = InData(f);
-            // files the game never loads: the installer's fomod folder, and documents beside the plugin (a README, an
-            // image) rather than in a game folder (code review 0.14.0)
+            // files the game never loads: the zip's fomod folder, and files at the top of Data that aren't plugins,
+            // archives or INI files (a README, an image); files in any other folder are checked (code review 0.14.0)
             if (d.StartsWith("fomod\\", StringComparison.Ordinal) ||
                 !d.Contains('\\') && !GameRootExts.Contains(Path.GetExtension(d))) continue;
             if (d.Any(ch => ch > 0x7E))

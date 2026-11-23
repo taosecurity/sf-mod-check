@@ -101,7 +101,8 @@ public static class ReleaseNeeds
                 IMajorRecordGetter? Original(IMajorRecordGetter rec) =>
                     game.LinkCache.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
                 // names in the game's and --masters-dir archives count as found, and materials are looked up in every
-                // material database those archives and the zips hold (0.14.0)
+                // material database those archives and the zips hold (0.14.0). Like the archive names, the databases
+                // pool across the plugins of one run: a later plugin also sees an earlier plugin's masters' databases.
                 index.Fallback = external.Has;
                 foreach (var (ba2, entry) in external.Cdbs) index.AddCdb(ba2, entry);
                 // the loose sound banks of this plugin's own zip are its own, so each is reported under the plugin it

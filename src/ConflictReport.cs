@@ -374,6 +374,12 @@ public static class Report
     static string Join(List<string> items) =>
         items.Count <= 1 ? string.Join("", items) : string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1];
 
+    static readonly (string Kind, string Effect)[] KindEffects =
+    {
+        ("script", "those records' scripts never run"), ("model", "those records show an empty or error mesh"),
+        ("material", "those surfaces look wrong"), ("texture", "those surfaces look wrong"), ("sound", "those sounds are silent"),
+    };
+
     public static List<Recommendation> AssetActions(Analysis a)
     {
         var list = new List<Recommendation>();
@@ -384,16 +390,19 @@ public static class Report
             // each kind counted and its effect named (code review 0.14.0: textures, materials and sounds aren't models)
             var parts = new List<string>();
             var effects = new List<string>();
-            foreach (var (kind, effect) in new[]
-                     {
-                         ("script", "those records' scripts never run"), ("model", "those records show an empty or error mesh"),
-                         ("material", "those surfaces look wrong"), ("texture", "those surfaces look wrong"), ("sound", "those sounds are silent"),
-                     })
+            foreach (var (kind, effect) in KindEffects)
             {
                 var n = g.Count(f => f.Kind == kind);
                 if (n == 0) continue;
                 parts.Add($"{n} missing {kind}{(n == 1 ? "" : "s")}");
                 if (!effects.Contains(effect)) effects.Add(effect);
+            }
+            // any other kind still gets a count and an effect, never a blank action
+            var other = g.Count(f => !KindEffects.Any(k => k.Kind == f.Kind));
+            if (other > 0)
+            {
+                parts.Add($"{other} other missing file{(other == 1 ? "" : "s")}");
+                effects.Add("the game can't find those files");
             }
             var s = g.Count(f => f.Kind == "script");
             list.Add(new Recommendation(s > 0 ? 2 : 3, g.Key, "",

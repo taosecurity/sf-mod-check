@@ -23,13 +23,15 @@
 - `check` and `conflict` don't look for face data.
 - `release` has a new rule, `archive-name` (PROBLEM). A `.ba2` that isn't named `<plugin> - <part>.ba2` beside a plugin in the zips, the Data folder or a `--masters-dir` folder never loads. The Xbox twin `<plugin> - <part>_xbox.ba2` passes.
 - It is a WARNING instead in a zip that holds no plugin, or when an INI in the zip lists the archive.
-- `release` has a new rule, `file-name` (WARNING): a file or a name inside an archive with a non-ASCII character, or a loose path inside Data over 200 characters (Windows' 260-character limit under Steam's usual Data folder). The `fomod` folder and documents beside the plugin are skipped. Up to 5 are named per zip, then one line counts the rest.
+- `release` has a new rule, `file-name` (WARNING): a file or a name inside an archive with a non-ASCII character, or a loose path inside Data over 200 characters (Windows' 260-character limit under Steam's usual Data folder). The zip's `fomod` folder is skipped, and so are the files at the top of Data other than plugins, archives and INI files (a README or an image there). Files in any other folder are checked. Up to 5 are named per zip, then one line counts the rest.
 - `conflict`: the RESULT line and the report's summary add textures, materials and sounds to the missing-asset count when there are some. conflicts.json lists these in a new top-level key, `missingFiles` (the same item keys as `missingAssets`; `kind` is `material`, `texture` or `sound`). `missingAssets` keeps only scripts and models, so tools that read it, such as sf-load-order 0.1.3, count as before.
 
 ### Changed
 
 - A texture link with no `.dds` or `.png` ending is a name, not a file, so it isn't looked up. Perks name their icon that way.
 - `release`'s NOTE when `--dmmdeps` isn't given, and the conflict report's "What this report does not check" line, now name what the assets check covers.
+- `conflict`: the summary row "Missing scripts and models" in report.md is now "Missing assets", like the HTML report's card and section.
+- `conflict`: a missing-asset action names each kind and what it does in the game, for example "2 missing models and 1 missing material; those records show an empty or error mesh and those surfaces look wrong".
 - `--version` says 0.14.0.
 
 ### Example
