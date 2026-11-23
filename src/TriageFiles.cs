@@ -1,7 +1,8 @@
 // Triage sections "Files" and "Replaces vanilla" (0.8.0, chunk C1).
 // Files: every file with its size and SHA-256, the contents of each archive (.ba2), version numbers in names, which
 // archives load with which plugin, archives inside the mod that triage doesn't open, and files outside the usual Data
-// layout (program files at the top, FOMOD installers, folders the game doesn't read).
+// layout (program files at the top, FOMOD installers, folders the game doesn't read), and (0.15.0) the `release` rule
+// file-name as LOOKs: non-ASCII names and loose paths inside Data over 200 characters.
 // Replaces vanilla: the mod's loose files and archive entries whose path is also in the game's own archives. The game's
 // paths come from VanillaIndex (below), built from the official archives' name tables and cached under
 // LearnedCache.Root\vanilla-index, keyed by each archive's name, size and modified time, so a game update rebuilds it.
@@ -311,6 +312,8 @@ public static class TriageFiles
         foreach (var (plugin, list) in paired.OrderBy(p => p.Key, StringComparer.Ordinal))
             Note(plugin, $"comes with {list.Count} archive{(list.Count == 1 ? "" : "s")} the game loads with it: {string.Join(", ", list.Order(StringComparer.Ordinal))}");
 
+        FileNames(c, archives, Look);
+
         // archives inside the mod
         foreach (var rel in c.Files.Where(f => NestedExts.Contains(RelPath.Extension(f))))
             Note(rel, "an archive inside the mod: triage didn't open it, so what it holds isn't in this report");
@@ -367,6 +370,46 @@ public static class TriageFiles
         foreach (var (folder, n) in oddFolders.OrderBy(p => p.Key, StringComparer.Ordinal))
             Note(folder + "\\", $"a folder the game doesn't read from Data ({n} file{(n == 1 ? "" : "s")}): it may hold documents, sources or " +
                                 "installer options, or the mod may be packed one folder too deep");
+    }
+
+    static readonly HashSet<string> GameRootExts = new(StringComparer.Ordinal) { ".esm", ".esp", ".esl", ".ba2", ".ini" };
+
+    /// <summary>The `release` rule file-name in triage (0.15.0): a path the game would see under Data (a loose file, or a
+    /// name inside one of the mod's archives) with a character outside plain ASCII, and a loose path inside Data over
+    /// ReleaseRules.MaxLoosePath characters. Skipped as in `release`: the fomod folder and files at the top that aren't
+    /// plugins, archives or INI files. A LOOK each, up to ReleaseRules.MaxNamed, then one LOOK counts the rest.</summary>
+    static void FileNames(TriageContext c, Dictionary<string, ArchiveListing> archives, Action<string, string> look)
+    {
+        var hits = new List<(string File, string Text)>();
+        foreach (var rel in c.Files)
+        {
+            var gp = GamePath(c, rel);
+            if (gp.StartsWith("fomod\\", StringComparison.Ordinal) || rel.StartsWith("fomod\\", StringComparison.Ordinal) ||
+                !gp.Contains('\\') && !GameRootExts.Contains(RelPath.Extension(gp))) continue;
+            if (gp.Any(ch => ch > 0x7E))
+            {
+                Log.Write($"triage file-name: {c.Shown(rel)}: non-ASCII character");
+                hits.Add((rel, "its name has a character outside plain ASCII (letters with accents, other scripts, symbols); archive tools " +
+                               "and the game may not find it. Plain letters, digits and - _ . are safe"));
+            }
+            if (gp.Length > ReleaseRules.MaxLoosePath)
+            {
+                Log.Write($"triage file-name: {c.Shown(rel)}: {gp.Length} characters");
+                hits.Add((rel, $"its path inside Data is {gp.Length} characters long, more than {ReleaseRules.MaxLoosePath}: installed under " +
+                               "Steam's usual Data folder it passes Windows' 260-character path limit (a longer install path lowers the limit), " +
+                               "and some tools won't copy it"));
+            }
+        }
+        foreach (var (rel, a) in archives.OrderBy(p => p.Key, StringComparer.Ordinal))
+            foreach (var e in a.Entries.Where(e => e.Name.Any(ch => ch > 0x7E)))
+            {
+                Log.Write($"triage file-name: {rel}: {e.Name}: non-ASCII character");
+                hits.Add((rel, $"holds {e.Name}, whose name has a character outside plain ASCII (letters with accents, other scripts, symbols); " +
+                               "the game may not find it. Plain letters, digits and - _ . are safe"));
+            }
+        foreach (var (file, text) in hits.Take(ReleaseRules.MaxNamed)) look(file, text);
+        if (hits.Count > ReleaseRules.MaxNamed)
+            look("", $"and {hits.Count - ReleaseRules.MaxNamed} more file names like these (--verbose lists them all)");
     }
 
     /// <summary>The text of the mod's .ini files (small ones only), to see whether one lists an archive.</summary>

@@ -19,6 +19,7 @@
 //   root-md           a .md at the zip's root without a hyphenated mod name (README.md lands in Data and overwrites
 //                     another mod's copy)
 //   private-file      permission records and screenshots, private comparison notes
+// 0.15.0: a folder or the run's loose files (not a zip) skip one-plugin and root-md, with one NOTE [not-a-zip].
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -156,8 +157,16 @@ public static class ReleaseRules
                         RuleKind.House));
             }
 
+            // ---- 0.15.0: a folder or the loose files aren't a zip, so the zip-only rules skip them ----
+            if (!p.IsZip)
+            {
+                Log.Write($"zip-only rules (one-plugin, root-md) skipped for {zip}: not a zip");
+                o.Add(new(Level.Note, "not-a-zip",
+                    $"{zip}: not a zip, so the zip-only rules (one-plugin, root-md) were skipped; run release on the zip you upload to check them"));
+            }
+
             // ---- house: one plugin per zip ----
-            if (p.Plugins.Count > 1)
+            if (p.IsZip && p.Plugins.Count > 1)
                 o.Add(new(Level.Problem, "one-plugin",
                     $"{zip}: {p.Plugins.Count} plugins in one zip ({string.Join(", ", p.Plugins.Select(Rel))}); " +
                     "put each plugin in its own zip, such as <ModName>-<Part>-<version>.zip, so each one installs as its own mod",
@@ -172,7 +181,7 @@ public static class ReleaseRules
                     RuleKind.House));
 
             // ---- house: root .md names ----
-            foreach (var f in p.Files.Where(GenericRootMd))
+            foreach (var f in p.Files.Where(f => p.IsZip && GenericRootMd(f)))
                 o.Add(new(Level.Problem, "root-md",
                     $"{zip}: root .md without the mod's name (overwrites other mods' copy in Data): {Show(f)}; rename it, e.g. README-<ModName>.md",
                     RuleKind.House));

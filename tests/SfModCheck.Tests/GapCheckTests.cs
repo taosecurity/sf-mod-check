@@ -205,4 +205,112 @@ public class GapCheckTests
         Assert.Equal("GapP.esm: MISC 00000800 (GapM.esm GAP_Misc800): fields the master has but this plugin lacks: FULL", f[1].Text);
         Assert.Equal("GapP.esm: 0 own records, 3 overrides, 3 compared with their master's copy", f[2].Text);
     }
+
+    // ---- the documented command, "sf-mod-check gap" (0.15.0) ----
+
+    static List<string> Out(string stdout) => stdout.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l != "").ToList();
+
+    [Fact]
+    public void Gap_command_clean_plugin_is_ok_with_exit_0()
+    {
+        var (s, dir) = Setup();
+        using var _ = s;
+        var plugDir = s.Sub("build");
+        var p = Write(plugDir, "GapP.esm", Flags.Master, ["GapM.esm"], null, Top("MISC", Misc(M800, 0, withFull: false)));
+        var (code, stdout, stderr) = ExeTests.RunSplit("gap", p, "--data", s.Sub("nodata"), "--masters-dir", dir);
+        Assert.Equal(0, code);
+        Assert.Equal([
+            "GapP.esm: 0 own records, 1 overrides, 1 compared with their master's copy",
+            "  WARNING MISC 00000800 (GapM.esm GAP_Misc800): fields the master has but this plugin lacks: FULL",
+            "  0 error(s), 1 warning(s)",
+            "RESULT: OK (0 errors, 1 warning)",
+        ], Out(stdout));
+        Assert.Contains("sf-mod-check ", stderr);   // the byline
+    }
+
+    [Fact]
+    public void Gap_command_error_is_fail_with_exit_1_and_quiet_drops_warnings()
+    {
+        var (s, dir) = Setup();
+        using var _ = s;
+        var p = Write(dir, "GapP.esm", Flags.Master, ["GapM.esm"], null,
+            Top("MISC", Misc(M800, 0, withFull: false)), CellWithTemp(CellRec, 0x803, RefRec));
+        var (code, stdout, _) = ExeTests.RunSplit("gap", p, "--data", s.Sub("nodata"));
+        Assert.Equal(1, code);
+        var lines = Out(stdout);
+        Assert.Contains(lines, l => l.StartsWith("  ERROR   ONAM: 1 overridden temporary reference(s)"));
+        Assert.Contains(lines, l => l.StartsWith("  WARNING MISC 00000800"));
+        Assert.Equal("RESULT: FAIL (1 error, 1 warning)", lines[^1]);
+
+        var (qcode, qout, qerr) = ExeTests.RunSplit("gap", p, "--data", s.Sub("nodata"), "--quiet");
+        Assert.Equal(1, qcode);
+        Assert.DoesNotContain(Out(qout), l => l.StartsWith("  WARNING "));
+        Assert.Equal("RESULT: FAIL (1 error, 1 warning)", Out(qout)[^1]);
+        Assert.DoesNotContain("sf-mod-check ", qerr);
+    }
+
+    [Fact]
+    public void Gap_command_missing_master_cannot_check_with_exit_2()
+    {
+        using var s = new Sandbox();
+        var p = Write(s.Sub("zip"), "GapP.esm", Flags.Master, ["NoSuch.esm"], null, Top("MISC", Misc(M800, 0)));
+        var (code, stdout, stderr) = ExeTests.RunSplit("gap", p, "--data", s.Sub("nodata"));
+        Assert.Equal(2, code);
+        var lines = Out(stdout);
+        Assert.StartsWith("master NoSuch.esm not found in ", lines[0]);   // the line tools\gap_parity.py looks for
+        Assert.Equal("RESULT: CANNOT CHECK (master NoSuch.esm not found)", lines[^1]);
+        Assert.Contains("--masters-dir", stderr);
+    }
+
+    [Theory]
+    [InlineData("RESULT: CANNOT CHECK (the plugin doesn't exist)", "doesn't exist", "gap", "no-such-plugin.esm")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "give the plugin to check", "gap")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "unknown option --nope", "gap", "a.esm", "--nope")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "one plugin per run", "gap", "a.esm", "b.esm")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "--masters-dir needs a folder", "gap", "a.esm", "--masters-dir")]
+    public void Gap_command_bad_input_exits_2(string result, string message, params string[] args)
+    {
+        var (code, stdout, stderr) = ExeTests.RunSplit(args);
+        Assert.Equal(2, code);
+        Assert.Equal(result, ExeTests.ResultLine(stdout));
+        Assert.Contains(message, stderr);
+    }
+
+    [Fact]
+    public void Gap_command_help_exits_0_with_no_result_line()
+    {
+        foreach (var h in new[] { "--help", "-h" })
+        {
+            var (code, stdout, _) = ExeTests.RunSplit("gap", h);
+            Assert.Equal(0, code);
+            Assert.StartsWith("usage: sf-mod-check gap <plugin>", stdout);
+            Assert.Empty(stdout.Split('\n').Where(l => l.StartsWith("RESULT: ")));
+        }
+        Assert.Contains("sf-mod-check gap <plugin>", ExeTests.RunSplit("--help").Stdout);   // listed in the top-level usage
+    }
+
+    [Fact]
+    public void Every_gap_option_is_in_the_usage_readme_agents_and_changelog()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "GapCheck.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\GapCheck.cs not found above " + AppContext.BaseDirectory);
+        var options = System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(Path.Combine(dir!.FullName, "src", "GapCheck.cs")), @"case ""(--[a-z-]+)"":")
+            .Select(m => m.Groups[1].Value).Where(o => o != "--help").ToHashSet();
+        Assert.Equal(new[] { "--data", "--log", "--masters-dir", "--quiet", "--verbose" }, options.Order());
+        var readme = File.ReadAllText(Path.Combine(dir.FullName, "README.md"));
+        var agents = File.ReadAllText(Path.Combine(dir.FullName, "AGENTS.md"));
+        var changelog = File.ReadAllText(Path.Combine(dir.FullName, "CHANGELOG.md"));
+        Assert.Contains("## Check a plugin for Mutagen losses: `sf-mod-check gap`", readme);
+        Assert.Contains("sf-mod-check gap ", agents);
+        Assert.Contains("`sf-mod-check gap <plugin>`", changelog);
+        foreach (var text in new[] { readme, agents })
+            Assert.Contains("`RESULT: OK (0 errors, n warnings)`", text.ReplaceLineEndings(" "));
+        foreach (var o in options)
+        {
+            Assert.Contains(o, GapCheck.Usage);
+            Assert.True(readme.Contains("`" + o), $"README.md doesn't mention gap's {o}");
+            Assert.True(agents.Contains("`" + o) || agents.Contains(" " + o + " "), $"AGENTS.md doesn't mention gap's {o}");
+        }
+    }
 }

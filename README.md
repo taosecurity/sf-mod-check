@@ -3,7 +3,7 @@
 sf-mod-check finds problems in a Starfield plugin before you play it or release it. It only reads files and never
 changes a plugin, and it checks a typical mod in about 4 seconds.
 
-Download the exe zip from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it. It has five
+Download the exe zip from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it. It has seven
 commands:
 
 - [`check`](#run-it) reads one plugin (`.esm`) and reports problems that would break it in the game: damaged files,
@@ -14,12 +14,19 @@ commands:
 - [`conflict`](#conflicts-between-mods-sf-mod-check-conflict) reads your whole load order and reports which changes
   it throws away (official changes undone by mods, one mod's changes lost to another) and what to do about each.
 - [`patch`](#build-a-conflict-patch-sf-mod-check-patch) builds a local patch that brings back the changes `conflict`
-  found lost, without xEdit or an AI assistant.
-- [`release`](#check-a-release-zip-sf-mod-check-release) checks the zip you are about to upload: plugin names the
-  game drops, missing scripts and files, sounds packed so they play silent, and every plugin inside.
+  found lost, without xEdit or an AI assistant. [`patch check`](#is-the-patch-still-up-to-date-sf-mod-check-patch-check)
+  then tells you when that patch is out of date because a mod was added, removed, moved or updated.
+- [`release`](#check-a-release-zip-sf-mod-check-release) checks the zip (or the stage folder) you are about to
+  upload: plugin names the game drops, archives it never loads, missing scripts, models, `.mesh` geometry, materials,
+  textures and sounds, sounds packed so they play silent, file names archive tools can't handle, scripts or plugins
+  that differ from the build you tested, staged files left out of the archives, Creations rules, and every plugin
+  inside.
+- [`gap`](#check-a-plugin-for-mutagen-losses-sf-mod-check-gap) checks a plugin written with the Mutagen library for
+  the data Mutagen is known to lose.
 - [`triage`](#look-over-a-downloaded-mod-sf-mod-check-triage) looks over someone else's mod before you install or
   rebuild it: its files, what it replaces in the game, its plugins, scripts and DLLs, in one offline report. It is
   triage, not a verdict: it shows a person where to start reading.
+- [`diff`](#compare-two-versions-of-a-mod-sf-mod-check-diff) compares two versions of a mod and lists what changed.
 
 **First command:** drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
 
@@ -276,6 +283,11 @@ judged against the file's own version.
 The navmesh info map is the exception: the BlueprintShips files carry a copy of it too, so they have its last copy,
 but each plugin's copy lists only its own navmeshes. It isn't a record one plugin wins whole, so it keeps its own
 note (it isn't patched, and shouldn't be copied by hand) instead of the "doesn't reach the game" advice.
+Since 0.15.0 the pair tables (one row per winner and loser in report.md and report.html) have a **Lost fields**
+column next to Choice fields, and a pair's heading in report.html gets an "n lost" badge, so a pair whose changes a
+BlueprintShips file takes back stands out. Before, those fields were counted in no column. conflicts.json is
+unchanged. A BlueprintShips file that a runtime tool (such as an SFSE load-order dump) lists as touching a mod's own
+new ship isn't a lost change: it doesn't override that ship's record, so no row counts it.
 
 The RESULT line's "official" count is the official changes undone by mods. A mod's change lost to a BlueprintShips
 file is a mod's loss, so it is counted with the "mod vs mod" entries (the line keeps its 0.11.0 shape for scripts).
@@ -404,7 +416,7 @@ limits hit" section lists the plugin, the record type and, where Mutagen names i
 line then adds "read problems (records not compared ...)". Run `sf-mod-check check` on that plugin to see the record.
 
 **What it doesn't check:** the scripts' code and assets other than attached scripts, model paths, materials,
-textures and the sounds of the mods' own sound banks (face data, which only `release` looks for, voice files, music, `.mesh` geometry; see the
+textures, the `.mesh` geometry of the mods' own models and the sounds of the mods' own sound banks (face data, which only `release` looks for, voice files, music; see the
 `assets` entry under `check`). Fields
 that are bookkeeping or that the Creation Kit regenerates are skipped (the report lists them). A patch it suggests is
 for your own game: it holds other authors' data, so don't publish it. To see its working for one record, set the
@@ -501,7 +513,12 @@ report's Notes say so: the game still loads that master after the patch, as it d
 from which plugin, the Choice fields with their `--pick` lines, the records it didn't build, and the next steps; a
 list both plugins changed is listed under Choices too, as "merged entry by entry", with no `--pick` line, though
 `--pick <FormKey>:<Field>=<plugin>` still takes that plugin's whole list if you prefer it); and
-`Plugins-with-patch.txt`, your load order with the patch at the end. To check the patch before installing it:
+`Plugins-with-patch.txt`, your load order with the patch at the end; and `patch-sources.json`, a record of what the
+patch was built from (the load order by file name, each master's size, date and SHA-256, and for each patched record
+the plugins whose copies it used, each with a short hash of that copy, so a later check can tell whether a mod update
+really changed a patched record; saving a plugin again without changes keeps its hashes). When there is nothing to
+patch, an old patch, its `Plugins-with-patch.txt` and its `patch-sources.json` are removed. To check the patch before
+installing it:
 
     sf-mod-check conflict --plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch
     sf-mod-check check sf-mod-check-patch\ConflictPatch.esm
@@ -549,7 +566,57 @@ The navmesh info map (NAVI) is never patched: each plugin's copy lists only its 
 hide entries.
 
 **Rebuild it when your mods change.** The patch lists every plugin it took values from as a master. After you add,
-remove or update one of them, run the same command again (the old patch is replaced).
+remove or update one of them, run the same command again (the old patch is replaced). `patch check` (below) tells you
+when that is needed.
+
+### Is the patch still up to date? `sf-mod-check patch check`
+
+Since 0.15.0, `patch check` reads the `patch-sources.json` beside a patch and compares it with your load order as it
+is now. It reads files only and changes nothing.
+
+    sf-mod-check patch check sf-mod-check-patch\ConflictPatch.esm --plugins "%LOCALAPPDATA%\Starfield\Plugins.txt"
+
+**Example** (made-up mods: NewModA.esm was updated and changed a record the patch holds, and NewModC.esm was added):
+
+    > sf-mod-check patch check sf-mod-check-patch\ConflictPatch.esm
+    sf-mod-check 0.15.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
+    Loaded 160 plugins (0 load-order problems) in 1 s
+    REVIEW [updated] master NewModA.esm changed since the build (size 48211 -> 48390) and changed 1 record ConflictPatch.esm holds (00E39C:Starfield.esm): rebuild ConflictPatch.esm.
+    REVIEW [new-editor] new plugin NewModC.esm changes 2 records ConflictPatch.esm holds (00E39C:Starfield.esm, 0012AB:Starfield.esm): rebuild ConflictPatch.esm to include it.
+    RESULT: REBUILD (2 reasons)
+
+    sf-mod-check patch check <patch.esm> [--manifest <patch-sources.json>] [--plugins <Plugins.txt>] [--data <Data folder>]
+                             [--extra-data <folder>] [--json <file>] [--quiet] [--verbose] [--log <file>]
+
+- `--plugins`, `--data`, `--extra-data`: the load order to check against, as for `patch`. Before you install the
+  patch, use `--plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch`.
+- `--manifest`: the `patch-sources.json` to read (default: the one beside the patch).
+- `--json <file>`: also writes the findings as JSON: `patch`, `state` (`up to date`, `rebuild`, `not active` or
+  `cannot check`), `result` (the RESULT line), and `findings`, each with `level`, `rule`, `plugin`, `text` and
+  `records` (every FormKey, where the text shows up to 5).
+
+What it reports (each line names the plugin and what to do):
+
+- PROBLEM `[removed]`: a master of the patch isn't in the Data folder, isn't active, or can't be loaded. The patch
+  won't load without it: rebuild.
+- REVIEW `[moved]`: a master now loads after the patch (the game won't load a plugin before its master), or a plugin
+  that loaded before the patch when it was built now loads after it and changes a record the patch holds. Move the
+  patch last, or rebuild. Official `BlueprintShips-*.esm` files always load last and are never "moved".
+- REVIEW `[updated]`: a master's file changed (size or SHA-256) and its copy of at least one patched record changed
+  too: rebuild. NOTE `[updated]` when the file changed but none of the patched records did. The record hashes in
+  `patch-sources.json` tell the two apart, with no old copy of the mod needed.
+- REVIEW `[new-editor]`: an active plugin that isn't a master of the patch now changes a record the patch holds (a new
+  mod, or an update to one that didn't touch it before): rebuild to include it.
+- REVIEW `[duplicate]`: another spelling of the patch's name (differing only in spaces or letter case, another build of
+  it) is active too: keep only one.
+- REVIEW `[patch-changed]`: the patch file in the load order isn't the build the manifest describes, so the other
+  findings judge the manifest's build: make the patch again with `patch`.
+- NOTE `[patch-off]`: the patch isn't in the load order, so nothing else is checked.
+
+The last line is `RESULT: UP TO DATE`, `RESULT: REBUILD (n reasons)` (the PROBLEM and REVIEW lines) or
+`RESULT: CANNOT CHECK (...)`. **Exit codes:** 0 = up to date (NOTE lines only, or the patch isn't active), 1 =
+something to rebuild or review, 2 = couldn't check (no `patch-sources.json`, a schema this version doesn't know, a
+patch or load order that can't be read, a bad argument). `--help` prints the usage and exits 0.
 
 **For your own game only:** the patch holds other authors' data, so don't publish it.
 
@@ -564,18 +631,27 @@ always the RESULT line, for example:
 
 Run it on the zip you are about to upload to Nexus, Bethesda Creations or a friend. It unpacks the zip into a temp
 folder (always removed afterwards) and says OK or FAIL for what would break the mod for a player: a plugin name the
-game drops, a script or file the mod needs that isn't in the zip, sound files packed so the game plays them silent,
-and everything `check` finds in each plugin.
+game drops, an archive the game never loads, a script or file the mod needs that isn't in the zip, sound files packed
+so the game plays them silent, and everything `check` finds in each plugin.
 
     sf-mod-check release MyMod-1.0.0.zip
 
-    sf-mod-check release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]...
-                                [--dmmdeps <exe>] [--papyrus <exe> --ck-sources <ContentResources.zip>]
-                                [--profile basic|house|creations] [--creations-master <plugin>]...
+    sf-mod-check release <zip|folder|ba2|plugin>... [--data <Data folder>] [--masters-dir <folder>]...
+                                [--master-archive <ba2>]... [--dmmdeps <exe>]
+                                [--papyrus <exe> --ck-sources <ContentResources.zip>]
+                                [--psc <folder>]... [--psc-import <folder>]...
+                                [--profile basic|house|creations] [--creations-master <plugin>]... [--size-total]
+                                [--tested <zip|ba2>]... [--stage <folder>]
                                 [--quiet] [--verbose] [--log <file>]
 
 - `<zip>`: the release zip. Give an add-on's zip together with its main mod's zip, so the add-on's plugin finds
   the main plugin and its scripts.
+- `<folder>`, `<ba2>`, `<plugin>` (0.15.0): to check a build before you zip it, give its stage folder (laid out like
+  Data), or its `.ba2` and plugin files, instead of a zip. A folder is read where it is, and nothing is written into
+  it. The loose `.ba2` and plugin files of one run are checked together as one package named `loose files`, so an
+  archive and its plugin find each other wherever they sit; two loose files of the same name stop the check (exit 2).
+  The zip-only rules (`one-plugin`, `root-md`) skip a folder or the loose files, and one NOTE (rule `not-a-zip`) says
+  so; everything else runs as for a zip. You can mix zips, folders and loose files in one run.
 - `--data`, `--masters-dir`: as for `check`. Masters and archives of mods the zip builds on go in a `--masters-dir`
   folder.
 - `--master-archive <ba2>`: the archive of the mod your plugin patches. Scripts, models, materials, textures and
@@ -585,26 +661,73 @@ and everything `check` finds in each plugin.
   that the zip lacks. sf-mod-check runs only the reviewed v0.4.1 build and refuses any other, by its SHA-256
   (`8a5367865ef21e29b17301a3341b2195fdacbf163c151678c0c420747ff9e6f8`). DMMDeps has gaps (its issues #175 to #177:
   base scripts, face files, some models), so what it can't see is a REVIEW line and never "not needed". Without it,
-  one NOTE says that only sf-mod-check's own check of the files the plugins need ran (scripts, models, materials,
-  textures, NPC face data and the sounds of the mod's own sound banks). DMMDeps runs on a copy in the temp folder and takes a
+  one NOTE says that only sf-mod-check's own check of the files the plugins need ran (scripts, models, the `.mesh`
+  geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks)
+  and that voice files were not checked. DMMDeps runs on a copy in the temp folder and takes a
   minute or more on big mods (15 minutes at most).
 - `--papyrus <exe>` with `--ck-sources <ContentResources.zip>`: lint the `.psc` sources a zip ships under
   `Scripts\Source`, with papyrus-tools v0.16.3 (SHA-256 `954ec6d7559713c8cdf6aaaf20bde5d9feedf52a6404a90cfca5b2107559c4fa`)
   and the vanilla sources from the Creation Kit's `Tools\ContentResources.zip`. Every finding is a WARNING. Without
   the vanilla sources the lint is skipped with a WARNING (it would only report noise).
+- `--psc <folder>` (0.15.0): a script source folder to lint instead of the zips' `Scripts\Source`, so a release that
+  ships no sources can still be linted. Give the folder above the namespace folders (the one that holds `MyMod\` for
+  `MyMod:Quest`). A finding's path is shown relative to this folder. Can be given more than once.
+- `--psc-import <folder>` (0.15.0): sources of another mod your scripts extend or call, added to the lint's imports
+  after the vanilla sources, so its names are known. Can be given more than once.
+- Both need `--papyrus` and `--ck-sources`; without them one NOTE says the folders were not used. A `--psc` or
+  `--psc-import` folder that doesn't exist stops the check (exit 2) and names the option and the path.
 - `--profile basic` (default): only what breaks the mod in the game makes it FAIL. `--profile house`: also fails on
   packaging rules (below), which `basic` only shows as WARNING lines.
 - `--profile creations` (0.10.0): the `basic` rules plus Bethesda Creations' rules for PC, Xbox and PlayStation (the
   `creations-` rules below). Use it before you upload a Creation. Packaging rules stay WARNING lines, as in `basic`.
 - `--creations-master <plugin>`: with `--profile creations`, a master by another author that you have seen on
   Creations for every platform your Creation targets. It is then allowed for this run. Can be given more than once.
-- `--quiet`, `--verbose`, `--log <file>`: as for `check`.
+- `--size-total` (0.15.0): with `--profile creations`, count every input of the run as one Creation for the 2 GB
+  rule, for a Creation you check in parts (a stage folder and its archives, say):
+  `sf-mod-check release C:\Build\MyMod\Data "C:\Build\MyMod - Textures.ba2" --profile creations --size-total`.
+  Without it each input is its own Creation. Without `--profile creations` it is a bad argument (exit 2).
+- `--tested <zip|ba2>` (0.15.0): the zip, or one of the `.ba2` archives, of the build you tested in the game. Each
+  compiled script of the release (loose or in its archives) is compared with the tested build's copy by meaning, not
+  by bytes: two builds of the same source never match byte for byte, so the comparison leaves out what changes on
+  every build (the string table's order, the order of variables, properties, functions and locals, the names of
+  temporary variables, the compile time, and the user and machine that built it) and keeps the code itself. Each
+  plugin is compared byte for byte with the tested plugin of the same file name (a `.ba2` alone has no plugin, so
+  plugins are compared only when a zip is given). A difference is a REVIEW line, since it is expected only where you
+  changed something after the test. Can be given more than once (a zip and its archives, or several archives).
+- `--stage <folder>` (0.15.0): the folder the release was built from, laid out like Data. Every file in it must be in
+  one of the release's archives or shipped loose in the zip; one that isn't is a PROBLEM, since the game won't see it.
+  Archives, `.achlist` files, DMMDeps output (`*_deps.csv`, `*_deps.json`), plugins and `Scripts\Source` are left
+  out, since they never go in an archive. A file in an archive that isn't staged is a REVIEW line (an archive left
+  over from an older build?). A release with no archive gets one NOTE that this check was skipped.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`. With `--verbose` the log names each script compared and,
+  for a script that differs, the first line of the listing where the two builds differ.
 
 Output is PROBLEM lines (fail), REVIEW lines (look at them), WARNING and NOTE lines, each with its rule in brackets,
 then `RESULT: OK|FAIL (n problems, n to review, n warnings)`, or `RESULT: CANNOT CHECK (...)` when it can't check
-(exit 2). Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments, a zip that can't be unpacked or sits inside the
-game folder, a missing file, or an error that stops the check). It never writes into the zip, the game folder or the
+(exit 2). Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments, a zip, input folder, `--tested` file or `--stage`
+folder that sits inside the game folder, two loose inputs of the same name, a zip that can't be unpacked, a missing file or folder such as a `--psc` folder, or an error that stops the
+check). It never writes into the zip, an input folder, the game folder or the
 Data folder.
+
+**Example** (a made-up mod). `MyMod-0.1.0.zip` holds `MyMod.esm`, `MyMod - Main.ba2`, a second archive named
+`MyMod_Extra.ba2` and a loose texture `textures\mymod\café.dds`:
+
+    > sf-mod-check release MyMod-0.1.0.zip
+    sf-mod-check 0.15.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
+    sf-mod-check 0.15.0 release (basic profile): MyMod-0.1.0.zip (4 files, 1 plugins, 2 archives)
+    PROBLEM  [archive-name] MyMod-0.1.0.zip: archive MyMod_Extra.ba2: its name has no " - " part, so the game never loads it. The game loads an archive only when it is named "<plugin> - <part>.ba2" (with spaces around the dash) beside a plugin of that name, or when an INI lists it; rename it, for example MyMod - Main.ba2 for MyMod.esm
+    WARNING  [file-name] MyMod-0.1.0.zip: textures\mymod\café.dds has a character outside plain ASCII (letters with accents, other scripts, symbols); archive tools and the game may not find it. Rename it with plain letters, digits and - _ .
+    NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked.
+    NOTE     [plugin-check] MyMod.esm: OK, 0 errors, 0 warnings (full master, 0 masters, 0 records, 0 overrides (0 ITM), 0 links)
+    NOTE     [mutagen-gap] MyMod.esm: 0 own records, 0 overrides, 0 compared with their master's copy
+    RESULT: FAIL (1 problems, 0 to review, 1 warnings)
+
+The exit code is 1: the game would never load `MyMod_Extra.ba2`. Renaming it `MyMod - Main01.ba2` fixes the PROBLEM
+(beside `MyMod - Main.ba2`, the game also loads `MyMod - Main01.ba2` to `MyMod - Main99.ba2` and
+`MyMod - Textures.ba2`),
+and renaming the texture (and the material that names it) to plain ASCII clears the WARNING. A missing material,
+texture, `.mesh` geometry or sound shows the same way, as a WARNING line that names the file and the record, `.nif`,
+`.mat` or sound bank that needs it.
 
 | Rule | Fails in | What it means |
 |---|---|---|
@@ -615,20 +738,50 @@ Data folder.
 | `file-name` | never (WARNING) | 0.14.0: a file in the zip, or a name inside one of its archives, with a character outside plain ASCII (accented letters, other scripts, symbols), which archive tools and the game may not find; or a loose file whose path inside Data is over 200 characters, which passes Windows' 260-character limit under Steam's usual Data folder (a longer install path lowers the limit). Two kinds of files the game never loads are skipped: the zip's `fomod` folder, and the files at the top of Data other than plugins, archives and INI files (a README or an image there). Files in any other folder are checked. Up to 5 files are named per zip, then one line counts the rest; `--verbose` lists them all. |
 | `script-missing`, `model-missing` | basic, house (models: WARNING) | A script a plugin attaches, or a model it names, is in none of the zip's files and archives, the `--masters-dir` mods' archives or the game's archives. |
 | `material-missing`, `texture-missing` | basic, house (WARNING) | 0.14.0: a material or texture the plugin's records, or its own `.nif` and `.mat` files, name is in none of those places (a material may also be one of the game's own, in its material database). A `.nif` or `.mat` that can't be read is a NOTE. Left out with `--dmmdeps`, which reports these files itself. |
+| `mesh-missing` | basic, house (WARNING) | 0.15.0: a geometry file (`geometries\...\<name>.mesh`) that one of the plugin's own `.nif` files names is in none of those places, so that part of the model doesn't show. Runs with `--dmmdeps` too, since DMMDeps doesn't follow the geometry a `.nif` names. |
 | `sound-missing` | basic, house (WARNING) | 0.14.0: a sound that one of the mod's own sound banks (`sound\soundbanks\*.bnk`, loose in the zip or in its archives) streams, `sound\soundbanks\<id>.wem`, is in none of those places, so that sound is silent. A bank that can't be read, or of a Wwise version the tool doesn't know (it knows version 140, the game's own), is a NOTE. Runs with `--dmmdeps` too, since DMMDeps doesn't read sound banks. |
-| `face-missing` | basic, house (NOTE) | 0.14.0: an NPC a plugin adds with its own face (head parts, tints, face morphs or morph blends), or an override that changes another plugin's NPC face, has none of its five baked face files: `meshes\actors\character\facegendata\facegeom\<plugin>\<id>.nif` and the `_ao`, `_color`, `_normal` and `_rough` `.dds` under `textures\actors\character\facecustomization\<plugin>\`. `<plugin>` is the file name of the plugin that defines the NPC and `<id>` its local ID in 8 hex digits. An NPC whose template gives its Traits isn't looked at. It is a NOTE, not a WARNING, because some of Bethesda's own NPCs have no baked face data either, and others only part of it, so one file is enough to count. Runs with `--dmmdeps` too, since DMMDeps can't see face files. |
+| `face-missing` | basic, house (NOTE) | 0.14.0: an NPC a plugin adds with its own face (head parts, tints, face morphs or morph blends), or an override that changes another plugin's NPC face, has none of its five baked face files: `meshes\actors\character\facegendata\facegeom\<plugin>\<id>.nif` and the `_ao`, `_color`, `_normal` and `_rough` `.dds` under `textures\actors\character\facecustomization\<plugin>\`. `<plugin>` is the file name of the plugin that defines the NPC and `<id>` its local ID in 8 hex digits. An NPC whose template gives its Traits isn't looked at. It is a NOTE, not a WARNING, because some of Bethesda's own NPCs have no baked face data either, and others only part of it, so one file is enough to count. Runs with `--dmmdeps` too, since DMMDeps can't see face files. Since 0.15.0, an override that changes an NPC's face, where every face file found is outside the zips (the defining plugin's own), gets a NOTE that the baked face is stale: the game shows the master's old face. |
 | `dmmdeps` | basic, house | With `--dmmdeps`: a file the plugin needs isn't in the zip (PROBLEM), a file is referenced but found nowhere (PROBLEM), a file in the zip is not used (REVIEW), or also in the game's archives (REVIEW). |
 | `plugin-check` | basic, house | An ERROR from the same checks as `check`, run on every plugin in the zips, or a plugin that can't be checked. |
 | `mutagen-gap` | basic, house | Data the Mutagen library 0.54.4 loses when it writes a plugin, and a missing ONAM list (the game ignores edits to the master's placed references). |
 | `master`, `one-plugin`, `script-source`, `root-md`, `private-file` | house only | A `BlueprintShips` master; more than one plugin in a zip; `.psc` sources in the zip; a root `.md` such as `README.md` with no mod name in it (it overwrites another mod's copy in Data; use `README-<ModName>.md`); a file such as `PERMISSION.md` that should never ship. |
-| `papyrus-lint` | never | Lint findings (WARNING only). |
+| `not-a-zip` | never (NOTE) | 0.15.0: an input that is a folder or the run's loose files, not a zip, so the zip-only rules `one-plugin` and `root-md` were skipped. Run `release` on the zip you upload to check them. |
+| `tested` | basic, house | 0.15.0, with `--tested`: a compiled script that can't be read for the comparison (PROBLEM). A script that differs from the tested build, is missing now or is new since the test, a plugin that differs, and a plugin with no namesake in the tested zip are REVIEW lines; a script the same as the tested build and a byte-identical plugin are NOTE lines. |
+| `stage` | basic, house | 0.15.0, with `--stage`: a staged file in none of the release's archives and not loose in the zip (PROBLEM; the game won't see it). A file in an archive that isn't staged is a REVIEW line; a stage that matches is one NOTE. |
+| `papyrus-lint` | never | Lint findings (WARNING only). A NOTE when a zip or `--psc` folder holds no sources, and when `--psc` or `--psc-import` is given without `--papyrus` and `--ck-sources`. |
 | `creations-ini`, `creations-sfse` | creations | An INI file, or a DLL, EXE, ASI or file in an `SFSE` folder: Creations take none of them on any platform. A mod that needs SFSE stays a PC (Nexus) mod. |
 | `creations-framework` | creations | A compiled script that names a script from an SFSE plugin (ConsoleAPI, PapyrusUtil and others in `data\creations-masters.txt`). Consoles can't run SFSE, so those calls fail. A WARNING instead when the same script calls `Game.IsPluginInstalled`, so it may use the plugin only when it's there; the WARNING names the plugins the script tests, and a guard in another script isn't seen. Since 0.10.1 it stays a PROBLEM when every name the script tests is an official plugin's (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS###` and `sftaNN` plugins and their `BlueprintShips-` files: the `[official]` list in `data\creations-masters.txt`), since such a check doesn't guard the framework; a name held in a variable still counts as a guard. |
 | `creations-master` | creations | A master that isn't Bethesda's (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS###` and `sftaNN` plugins and their `BlueprintShips-` files, by exact name, so `SFBGS003Fixes.esm` isn't one) and isn't known to be on Creations. Make it optional in code (`Game.IsPluginInstalled`), or allow it with `--creations-master` once you have seen it there. |
 | `creations-xbox` | creations | A PC archive with textures and no `<name>_xbox.ba2` twin (the Creation Kit's Xbox pack refuses PC textures). Any other archive with no twin is a WARNING (Xbox gets no archive). |
-| `creations-size` | creations | A zip whose plugins and archives come to over 2 GB, the most a Creation may hold. Each zip is checked on its own, since each one becomes its own Creation. |
+| `creations-size` | creations | A zip whose plugins and archives come to over 2 GB, the most a Creation may hold. Each zip (or folder) is checked on its own, since each one becomes its own Creation; with `--size-total` (0.15.0) all the inputs of the run are added up as one Creation. |
 | `creations-audio` | never | `.wem` or `.bnk` sound in an archive or loose (WARNING): PC-format audio is silent on Xbox and PlayStation until the Creation Kit makes their versions from WAV sources. |
 | `creations-debug` | never | `Debug.Notification` or `Debug.MessageBox` that the player would see (WARNING), read from the compiled scripts. The Debug script does nothing on Xbox and PlayStation; show a Message record with `Show()` instead. A call counts as debug-only, and isn't reported, when its function's name mentions debug, trace or verbose, or when it sits inside an `If` that tests a debug switch (something so named) without negating it. |
+
+## Check a plugin for Mutagen losses: `sf-mod-check gap`
+
+Run it on a plugin you wrote with a tool built on the Mutagen library (0.54.4), before you test or ship it. It
+compares every record the plugin overrides with its master's copy, field by field, and says what Mutagen is known to
+lose when it writes a plugin. It is the same check as the `release` command's `mutagen-gap` rule, on one plugin
+without a zip (0.15.0).
+
+    sf-mod-check gap out\MyMod.esm --masters-dir out
+
+    sf-mod-check gap <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [--verbose] [--log <file>]
+
+- `<plugin>`: one `.esm`, `.esp` or `.esl` file.
+- `--data`: the game's Data folder (default: Steam's usual one). `--masters-dir <folder>`: another folder to look for
+  masters in; can be given more than once. Masters are looked for in the plugin's own folder, then each
+  `--masters-dir` in order, then the Data folder.
+- `--quiet`: no byline on stderr, and no WARNING lines when there are errors. `--verbose`, `--log <file>`: as for `check`.
+
+Output is a summary line (own records, overrides, how many were compared), then `ERROR` lines for what Mutagen
+0.54.4 is known to lose (a hazard's OPDS, material swap entries, a dialogue response's TROI, traversal flags, SFTR
+fields the master leaves out, and overridden placed references of full masters missing from the ONAM list, whose
+edits the game ignores) and `WARNING` lines for any other field the master's copy has and the plugin's lacks (it may
+be on purpose; at most 200 are shown). A count line follows, then `RESULT: OK (0 errors, n warnings)`,
+`RESULT: FAIL (n errors, n warnings)` or `RESULT: CANNOT CHECK (...)`. Exit codes: 0 no errors (warnings allowed),
+1 errors, 2 can't check (a missing plugin, a master in none of the folders searched, a file that isn't a plugin, or
+a bad argument). It only reads the plugin and its masters.
 
 ## Look over a downloaded mod: `sf-mod-check triage`
 
@@ -664,7 +817,7 @@ setup or an error that stops the run. There is no "fail" exit.
 
 | Section | What it lists | LOOK when |
 |---|---|---|
-| Files | every file with its size and SHA-256 (a skipped file is listed with "link" or "same name" in place of its size, and a file whose hash couldn't be read with "?"); each `.ba2`'s contents; version numbers in names; which archives load with which plugin; archives inside the mod (not opened); FOMOD installers; files outside the usual Data layout | an archive no plugin loads; an archive that can't be read |
+| Files | every file with its size and SHA-256 (a skipped file is listed with "link" or "same name" in place of its size, and a file whose hash couldn't be read with "?"); each `.ba2`'s contents; version numbers in names; which archives load with which plugin; archives inside the mod (not opened); FOMOD installers; files outside the usual Data layout | an archive no plugin loads; an archive that can't be read; a file name (loose, or inside one of the mod's archives) with a character outside plain ASCII, or a loose path inside Data over 200 characters (the `release` rule `file-name`, since 0.15.0; up to 5 named, then one LOOK counts the rest) |
 | Replaces vanilla | loose files and archive entries whose path is also in the game's own archives | the mod replaces a game script (every quest and mod that uses it gets the mod's copy); a plugin or archive with the game's own name |
 | Plugins | masters (missing, unused), light/medium/full flag, FormID range, text that isn't valid UTF-8; records added, overridden and deleted by type and origin; changed fields in official records; ONAM; attached scripts; `check`'s own findings | a missing master; ITMs; deleted official records; official changes the mod undoes (it overrides a record a later official master changed, without that master); temporary references missing from ONAM; scripts that aren't there; `check` ERRORs |
 | Scripts | each `.pex` (loose or in an archive) read from its bytecode: name, parent, every function it calls, whether it logs with `Debug.Trace` | console commands; INI changes; calls to scripts in neither the mod nor the game; timers that restart themselves or start from frequent events; `GetFormFromFile` or text naming another mod's plugin; file paths that run or point outside Data |
@@ -949,6 +1102,12 @@ Each finding names its check in brackets.
     `check` or `conflict`, since every mod shares that folder (`release` reads the zip's loose banks). A bank that
     can't be read, or whose Wwise version isn't 140 (the version of every bank the game ships), is one WARNING
     naming the file. Voice files and music aren't checked.
+  - **Geometry** (0.15.0, WARNING): each of the plugin's own `.nif` files (as above) names the `.mesh` files that hold
+    its shapes' geometry, and each must be a `geometries\...\<name>.mesh` file in the places below, else that part of
+    the model doesn't show in the game. The game's own models give the name without the folder and extension
+    (`<folder>\<file>`), and some mods give the whole path; both mean the same file. A shape whose geometry is stored
+    inside the `.nif` names no file. A `.nif` whose shapes can't be read is one WARNING naming the file (its materials
+    are still checked). Geometry that only other mods' or the game's `.nif` files name isn't checked.
   - **Face data** isn't checked here: `release` looks for it (rule `face-missing`, a NOTE), since some of the game's
     own NPCs have no baked face files either.
   - **Where a file can be:** a file counts when it is loose in the Data folder (or a `--masters-dir` folder) or inside
@@ -963,7 +1122,7 @@ Each finding names its check in brackets.
     file, the finding is a WARNING that says the game may load it on Windows but not once the file is packed into a
     `.ba2` (a script too, not an ERROR). Otherwise the path is missing as usual, and the finding names the trimmed
     path.
-  - **Not checked yet:** `.mesh` geometry a `.nif` names, files the game finds by name (voice,
+  - **Not checked yet:** `.mesh` geometry that only another mod's or the game's `.nif` names, files the game finds by name (voice,
   lip and face animation, `.af`/`.hkx` animations, LOD, Wwise sounds), a script's parent and imports, whether an SFSE
   plugin a native script needs is installed, and which copy of a file wins. Tested on Steam installs only.
 
@@ -987,7 +1146,7 @@ What each check's findings mean and how to fix them. These are the same lines sf
 - **itm**: Identical to Master (ITM) records change nothing but can undo other mods' edits to the same record. xEdit: right-click the plugin > Remove "Identical to Master" records (or run QuickAutoClean). In the CK they come from opening a form and pressing OK without changes.
 - **trees**: The plugin edits an official Story Manager or Planet Content Manager node. Every mod that edits the same node conflicts, and the last one loaded wins. CK: make your own node under the official branch (Story Manager: set its parent and previous sibling) and revert your edits to the official one. xEdit: remove the override (right-click > Remove) once your own node does the job. Keep the edit only if you mean to.
 - **ships**: A ship the plugin adds has a cockpit but lacks a system every official player ship has (cockpit, reactor, grav drive, engine, fuel tank, landing gear, docker, landing bay). CK: open the ship in the Spaceship Editor, add a module for each missing system and run its flight check. xEdit: add the module to the ship's Blueprint component. A ship only NPCs fly (an enemy or a quest ship) can ignore this.
-- **assets**: A missing script means the record's script never runs; a missing model shows as an empty or error mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file comes from another mod, make that mod a master or a requirement. A folder or file name in the path that ends in a dot or a space works only as a loose file on Windows: remove the dot or space in the record. A missing material or texture makes a surface look wrong in the game: pack the .mat or .dds file with the mod (textures go in <plugin name> - Textures.ba2) or fix the path in the .nif or .mat that names it. A missing sound is silent in the game: pack the .wem file the sound bank streams (sound\soundbanks\<id>.wem) with the mod, or generate the bank again in Wwise. Run with --verbose to see which archives were read.
+- **assets**: A missing script means the record's script never runs; a missing model shows as an empty or error mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file comes from another mod, make that mod a master or a requirement. A folder or file name in the path that ends in a dot or a space works only as a loose file on Windows: remove the dot or space in the record. A missing material or texture makes a surface look wrong in the game: pack the .mat or .dds file with the mod (textures go in <plugin name> - Textures.ba2) or fix the path in the .nif or .mat that names it. A missing mesh means that part of the model doesn't show: pack the .mesh file (under geometries) with the mod, or export the model again with its geometry. A missing sound is silent in the game: pack the .wem file the sound bank streams (sound\soundbanks\<id>.wem) with the mod, or generate the bank again in Wwise. Run with --verbose to see which archives were read.
 - **records**: Deleted records can crash the game when the game or another mod still uses them. xEdit: on placed references (REFR, ACHR) use right-click > Undelete and Disable References. For other types, remove the deleting override in xEdit (right-click > Remove) unless you really mean it. In the CK, disable instead of deleting vanilla objects.
 
 Each finding names the record by its EditorID (where it has one) and `[TYPE:FormID:Plugin]`, where FormID is the
@@ -1040,15 +1199,18 @@ filter.
   the game needs it.
 - Face data is looked for only by `release` (rule `face-missing`, a NOTE), and only whether any of an NPC's five
   baked files is there, not whether it matches the face in the plugin. For an override that changes another plugin's
-  NPC, that plugin's own face files count, so a face left over from the master isn't noticed. The file names follow
+  NPC face, a NOTE says the baked face is stale when every face file found comes from outside the zips (the master's),
+  but a face file the zip ships is taken as the new face without being compared. The file names follow
   the installed mods: a light plugin's files use the 12-bit local ID, and a medium plugin's textures the 16-bit one.
-- `archive-name` and `file-name` run only in `release`, not in `triage`. `archive-name` doesn't read INI settings
+- `archive-name` runs only in `release`; `triage` has its own archive LOOKs (Files section). `file-name` runs in
+  both (in `triage` as LOOKs, since 0.15.0). `archive-name` doesn't read INI settings
   outside the zip, so an archive that the user's own `StarfieldCustom.ini` lists still counts as not loading.
   The 200-character limit assumes Steam's usual install folder; a deeper one lowers it.
 - Not checked: voice files (matched to dialogue lines), music tracks and the Wwise events records name,
-  and what is inside loose files or BA2 archives beyond the material and texture names in a mod's own `.nif` and
+  and what is inside loose files or BA2 archives beyond the material, texture and `.mesh` names in a mod's own `.nif` and
   `.mat` files and the streamed sounds in its own sound banks (the `assets` check looks up names; it doesn't read
-  geometry, texture or sound data).
+  geometry, texture or sound data). The `.mesh` names are read from the `.nif` layout of the game's current
+  version (Bethesda stream 172 and up); a shape of another layout is reported as unreadable, not as missing.
 - LOD isn't checked: a `.nif` under `meshes\lod\` in a plugin's own archive is read for its materials only when a
   record names it. Generated LOD meshes name composite materials that no file or database holds.
 - Sound banks are read only for Wwise bank version 140, the version of every bank in the game's own archives and of

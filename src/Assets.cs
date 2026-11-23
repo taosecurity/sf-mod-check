@@ -1,8 +1,9 @@
 // The assets check (0.6.0, PLAN-ASSETS.md): every script a record attaches must have its .pex, and every model path a
 // record names must have its file, in a loose file or in an archive the game loads. A missing script is an ERROR (the
 // record's behavior silently doesn't run); a missing model is a WARNING. Since 0.14.0 materials, textures and the
-// streamed sounds of the plugin's own sound banks are checked too (WARNINGs; 0.14.0 design D1 to D6).
-// .mesh geometry, voice and animation files, music and script parents are not (README "Known gaps").
+// streamed sounds of the plugin's own sound banks are checked too (WARNINGs; 0.14.0 design D1 to D6), and since
+// 0.15.0 the .mesh geometry files its own .nif files name (a WARNING). Voice and animation files, music and script
+// parents are not (README "Known gaps").
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Assets;
@@ -317,11 +318,17 @@ public sealed class AssetIndex
     }
 
     /// <summary>Whether the game can find this data-relative file ("scripts\foo.pex", "meshes\a\b.nif").</summary>
-    public bool Has(string relPath)
+    public bool Has(string relPath) => Has(relPath, true);
+
+    /// <summary>Has without Fallback: only this index's own loose folders and archives (in `release`, the zips' own
+    /// files; 0.15.0, for the stale-face note).</summary>
+    public bool HasOwn(string relPath) => Has(relPath, false);
+
+    bool Has(string relPath, bool fallback)
     {
         var p = Ba2Names.Normalize(relPath);
         if (inArchives.Contains(p)) return true;
-        if (Fallback?.Invoke(p) == true) return true;
+        if (fallback && Fallback?.Invoke(p) == true) return true;
         if (looseSeen.TryGetValue(p, out var known)) return known;
         // A rooted path ("c:\x\a.nif") or one with ".." points outside Data: the game won't load it, so a file that
         // happens to be there on this machine doesn't count (code review 0.6.0)
@@ -570,17 +577,18 @@ public static class Assets
             var (s, m, missing, inherited) = Find(p.Mod, index, Checker.Name, rec => Original(p, rec), uses);
             scripts += s; models += m; inheritedAll += inherited;
             analysis.AssetTextureUses += uses.Textures; analysis.AssetMaterialUses += uses.Materials; analysis.AssetSoundUses += uses.Sounds;
+            analysis.AssetMeshUses += uses.Meshes;
             foreach (var f in missing) analysis.MissingAssets.Add(new Conflict.AssetFinding(p.FileName, f));
             // a file it couldn't read, or materials it couldn't check, goes to "Tool limits hit" (0.14.0)
             foreach (var n in uses.Notes.Concat(uses.SoundNotes)) { analysis.Errors.Add($"assets: {p.FileName}: {n}"); analysis.AssetNotes++; }
             if (missing.Count > 0 || inherited > 0)
-                Log.Write($"assets: {p.FileName}: {missing.Count} missing ({s} script uses, {m} model uses, {uses.Textures} textures, {uses.Materials} materials, {uses.Sounds} sounds)" +
+                Log.Write($"assets: {p.FileName}: {missing.Count} missing ({s} script uses, {m} model uses, {uses.Textures} textures, {uses.Materials} materials, {uses.Meshes} meshes, {uses.Sounds} sounds)" +
                           (inherited > 0 ? $"; {inherited} missing path use(s) not reported: the original record already names them" : ""));
         }
         caches.Clear();   // the masters' link caches aren't needed for the report
         analysis.AssetScriptUses = scripts; analysis.AssetModelUses = models; analysis.AssetsInherited = inheritedAll;
         Log.Write($"assets: {checkedPlugins} mod plugins checked, {scripts} script uses, {models} model uses, " +
-                  $"{analysis.AssetTextureUses} texture paths, {analysis.AssetMaterialUses} material paths, {analysis.AssetSoundUses} streamed sounds, " +
+                  $"{analysis.AssetTextureUses} texture paths, {analysis.AssetMaterialUses} material paths, {analysis.AssetMeshUses} mesh paths, {analysis.AssetSoundUses} streamed sounds, " +
                   $"{analysis.MissingAssets.Count} missing ({analysis.MissingAssets.Count(f => f.Asset.Kind == "script")} scripts), " +
                   $"{index.Unreadable.Count} unreadable archives");
     }
@@ -753,9 +761,12 @@ public static class Assets
             if (data == null) continue;
             try
             {
-                var mats = AssetFiles.NifMaterials(data);
-                Log.Write($"assets: {nif} (from {where}): {mats.Count} material(s)");
+                var (mats, meshes, meshProblem) = AssetFiles.NifLinks(data);
+                Log.Write($"assets: {nif} (from {where}): {mats.Count} material(s), {meshes.Count} geometry file(s)");
                 foreach (var m in mats) wanted.Add(("material", m, nif, null));
+                // 0.15.0: the .mesh files its BSGeometry blocks name, looked up by name (kind "mesh", a WARNING)
+                foreach (var m in meshes) wanted.Add(("mesh", m, nif, null));
+                if (meshProblem != null) uses.Notes.Add($"couldn't read the geometry names in {nif} ({meshProblem}), so the .mesh files it names weren't checked");
             }
             catch (Exception e) when (Fatal.Recoverable(e)) { uses.Notes.Add(Unread(nif, e)); }
         }
@@ -766,7 +777,7 @@ public static class Assets
             var (kind, path, user, rec) = wanted[i];
             if (seen.Add((kind, path)))
             {
-                if (kind == "texture") uses.Textures++; else uses.Materials++;
+                if (kind == "texture") uses.Textures++; else if (kind == "mesh") uses.Meshes++; else uses.Materials++;
             }
             bool found;
             string how;
@@ -900,6 +911,13 @@ public static class Assets
                 Log.Write($"assets: face of {who} ({(added ? "added" : "changed by the override")}): " +
                           (found.Count > 0 ? $"{found.Count} face file(s) found, for example {found[0]}" : $"no face files (looked for {nif} and its textures)"));
                 if (found.Count == 0) list.Add(new MissingAsset("NOTE", "face", nif, null, [who]));
+                // 0.15.0: an override that changes the face, while every face file found comes from outside this index's
+                // own files (in release: none is in the zips, so they are the master's), shows the master's old face
+                else if (!added && index.Fallback != null && !found.Any(index.HasOwn))
+                {
+                    Log.Write($"assets: face of {who}: the override changes the face, but none of the {found.Count} face file(s) found is the mod's own: the baked face is stale");
+                    list.Add(new MissingAsset("NOTE", "face-stale", found[0], null, [who]));
+                }
             }
             catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"assets: face of {npc.FormKey}: could not be checked ({e.GetType().Name}: {e.Message})"); }
         }
@@ -963,7 +981,7 @@ public static class Assets
 /// when no material database could be read).</summary>
 public sealed class AssetUses
 {
-    public int Textures, Materials, Sounds, Faces, FilesRead;
+    public int Textures, Materials, Meshes, Sounds, Faces, FilesRead;
     public readonly List<string> Notes = new();
     /// <summary>Sound banks it couldn't read or whose version isn't a known one (kept apart: release reports them under
     /// sound-missing, which runs with --dmmdeps too).</summary>
@@ -972,8 +990,8 @@ public sealed class AssetUses
 }
 
 /// <summary>A path no loose file or loaded archive provides. Kind: "script" (an ERROR), "model", "texture",
-/// "material" or "sound" (a WARNING; textures, materials and sounds since 0.14.0; a sound's Users are the banks that
-/// stream it). Path is data-relative and lower case; Script is the script name as the record gives it; Users are the
+/// "material", "mesh" or "sound" (a WARNING; textures, materials and sounds since 0.14.0, mesh since 0.15.0; a
+/// sound's Users are the banks that stream it, a mesh's the .nif files that name it). Path is data-relative and lower case; Script is the script name as the record gives it; Users are the
 /// records that use it, each once, in the order found.</summary>
 public sealed record MissingAsset(string Severity, string Kind, string Path, string? Script, IReadOnlyList<string> Users)
 {
@@ -989,7 +1007,14 @@ public sealed record MissingAsset(string Severity, string Kind, string Path, str
         "(_ao, _color, _normal and _rough .dds) are in a loose file or a loaded archive. Some of Bethesda's own NPCs have none either, so this may be " +
         "intended; if the face should look the way you made it, bake it in the Creation Kit (BakeFCT and Bake Char Gen Mesh Geometry) and pack the files with the mod";
 
-    public string Text => Kind == "face" ? FaceText : Trimmed == null
+    /// <summary>The stale-face text (0.15.0, kind "face-stale", a NOTE in release): an override changes another plugin's
+    /// NPC face, but the baked face files found (Path is one of them) are only the master's, not the mod's own.</summary>
+    public string StaleFaceText =>
+        $"the override of NPC {Assets.Users(Users)} changes its face, but the baked face files found (such as {Path}) are only the ones the " +
+        "plugin that defines the NPC ships, not the mod's own, so the game shows the old face. If the face should look the way you made it, bake " +
+        "it in the Creation Kit (BakeFCT and Bake Char Gen Mesh Geometry) and pack the files, under the defining plugin's name, with the mod";
+
+    public string Text => Kind == "face" ? FaceText : Kind == "face-stale" ? StaleFaceText : Trimmed == null
         ? $"{What} is in no loose file or loaded archive; used by {Assets.Users(Users)}"
         : TrimmedFound
             ? $"{What} has a part that ends in a dot or a space. Windows trims it and opens the loose file {Trimmed}, so the game may load it on Windows, but an archive lookup uses the exact name, so the file goes missing once it is packed into a .ba2. Fix the path in the record; used by {Assets.Users(Users)}"

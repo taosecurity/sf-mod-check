@@ -28,6 +28,8 @@ public static class Cli
         "--max" => "20",
         "--max-memory" => "8",
         "--log" => "sf-mod-check-log.txt",
+        "--manifest" => "\"C:\\MyPatch\\patch-sources.json\"",
+        "--json" => "patch-check.json",
         _ => "<value>",
     };
 }

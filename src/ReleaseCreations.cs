@@ -12,7 +12,8 @@
 //                                 pack refuses PC textures); WARNING for any other archive with no twin
 //   creations-audio      WARNING  .wem or .bnk sound, in an archive or loose: PC-format audio is silent on consoles
 //                                 until the Creation Kit makes their versions from WAV sources
-//   creations-size       PROBLEM  a zip's plugins and archives over 2 GB (each zip is its own Creation)
+//   creations-size       PROBLEM  a zip's plugins and archives over 2 GB (each zip is its own Creation); with
+//                                 --size-total (0.15.0) every input of the run together, as one Creation
 //   creations-debug      WARNING  Debug.Notification or Debug.MessageBox the player would see: the Debug script does
 //                                 nothing on Xbox and PlayStation. Read from the compiled scripts (never the source). A
 //                                 call counts as debug-only when its function's name mentions debug, trace or verbose,
@@ -24,7 +25,8 @@ namespace SfModCheck;
 
 public static class ReleaseCreations
 {
-    public const long SizeLimit = 2L * 1024 * 1024 * 1024;
+    /// <summary>The most a Creation may hold. A field, not a constant, so tests can lower it.</summary>
+    public static long SizeLimit = 2L * 1024 * 1024 * 1024;
     static readonly string[] SoundExts = [".wem", ".bnk"];
     // programs and loaders no console runs (.asi: a plugin loader's DLL; code review)
     static readonly string[] ProgramExts = [".dll", ".exe", ".asi"];
@@ -168,6 +170,7 @@ public static class ReleaseCreations
     {
         if (c.Options.Profile != "creations") return [];
         var f = new List<ReleaseFinding>();
+        long runTotal = 0;
         void Add(Level l, string rule, string text) { text = SafeText.OneLine(text); f.Add(new(l, rule, text)); Log.Write($"creations: {ReleaseCommand.Label(l).Trim()} [{rule}] {text}"); }
 
         foreach (var p in c.Packages)
@@ -294,13 +297,25 @@ public static class ReleaseCreations
                 foreach (var (obj, fn) in PlayerDebugCalls(pex))
                     Add(Level.Warning, "creations-debug", $"{label}: {obj}.{fn} calls Debug.Notification or Debug.MessageBox outside debug-only code. The Debug script does nothing on Xbox and PlayStation, so players there see nothing; show a Message record with Show() instead.");
             }
-            if (total > SizeLimit)
-                Add(Level.Problem, "creations-size", $"{p.Name}: the plugins and archives total {total / (1024.0 * 1024 * 1024):F2} GB, over the 2 GB a Creation may hold.");
-            else
-                Add(Level.Note, "creations-size", $"{p.Name}: plugins and archives: {(total < 1024 * 1024 ? $"{total / 1024.0:F1} KB" : $"{total / (1024.0 * 1024):F1} MB")} (a Creation may hold 2 GB).");
+            if (c.Options.SizeTotal) { runTotal += total; Log.Write($"creations: {p.Name}: plugins and archives {total} bytes (counted in the run's total, --size-total)"); }
+            else Size(p.Name, total);
         }
+        // --size-total (0.15.0): the whole run is one Creation, as creations-check.py counts it
+        if (c.Options.SizeTotal) Size($"all {c.Packages.Count} input{(c.Packages.Count == 1 ? "" : "s")} together (--size-total)", runTotal);
         return f;
+
+        void Size(string what, long bytes)
+        {
+            if (bytes > SizeLimit)
+                Add(Level.Problem, "creations-size", $"{what}: the plugins and archives total {bytes / (1024.0 * 1024 * 1024):F2} GB, over the {SizeText(SizeLimit)} a Creation may hold.");
+            else
+                Add(Level.Note, "creations-size", $"{what}: plugins and archives: {SizeText(bytes)} (a Creation may hold {SizeText(SizeLimit)}).");
+        }
     }
+
+    static string SizeText(long bytes) =>
+        bytes >= 1024L * 1024 * 1024 && bytes % (1024L * 1024 * 1024) == 0 ? $"{bytes / (1024L * 1024 * 1024)} GB"
+        : bytes < 1024 * 1024 ? $"{bytes / 1024.0:F1} KB" : $"{bytes / (1024.0 * 1024):F1} MB";
 
     /// <summary>Every compiled script in the zip: loose .pex files and the .pex entries of its general archives.</summary>
     static IEnumerable<(string Label, byte[]? Data, string? Error)> Scripts(ReleasePackage p)

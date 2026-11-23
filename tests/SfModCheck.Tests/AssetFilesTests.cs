@@ -1,6 +1,7 @@
 // The 0.14.0 texture and material checks: the .nif string table, the .mat links, the material database IDs, and the
 // check on fixture plugins with made-up .nif, .mat and archive files built here.
 using System.Text;
+using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins.Assets;
 using Mutagen.Bethesda.Starfield;
 using Mutagen.Bethesda.Starfield.Assets;
@@ -561,6 +562,38 @@ public class AssetFilesTests
     }
 
     [Fact]
+    public void A_changed_override_face_found_only_outside_the_mod_is_a_stale_face_note()
+    {
+        // release's index: the mod's own files, with the game's and --masters-dir archives behind Fallback (0.15.0)
+        var master = new StarfieldMod(Mutagen.Bethesda.Plugins.ModKey.FromFileName("SfmMaster.esm"), StarfieldRelease.Starfield);
+        var orig = FaceNpc(master, "M_Npc");
+        orig.Tints = null;
+        var mod = new StarfieldMod(Mutagen.Bethesda.Plugins.ModKey.FromFileName("SfmOver.esm"), StarfieldRelease.Starfield);
+        var ov = orig.DeepCopy();
+        ov.HeadParts.Add(Mutagen.Bethesda.Plugins.FormKey.Factory("000802:TestFull.esm").ToLink<IHeadPartGetter>());   // a changed face
+        mod.Npcs.Add(ov);
+        var cache = master.ToImmutableLinkCache();
+        Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter? Orig(Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter r) =>
+            cache.TryResolve(r.FormKey, r.Registration.GetterType, out var o) ? o : null;
+        var masterNif = Assets.FaceNif("sfmmaster.esm", orig.FormKey.ID);
+        using var s = new Sandbox();
+        AssetIndex WithMaster() { var i = Index(s); i.Fallback = p => p == masterNif; return i; }
+
+        var f = Assert.Single(Assets.Find(mod, WithMaster(), r => r.EditorID ?? "", Orig, faces: true).Missing);
+        Assert.Equal(("NOTE", "face-stale", masterNif), (f.Severity, f.Kind, f.Path));
+        Assert.StartsWith("the override of NPC M_Npc changes its face, but the baked face files found (such as " + masterNif + ")", f.Text);
+        // an unchanged face with only the master's files: nothing to say
+        var same = new StarfieldMod(Mutagen.Bethesda.Plugins.ModKey.FromFileName("SfmSame.esm"), StarfieldRelease.Starfield);
+        same.Npcs.Add(orig.DeepCopy());
+        Assert.Empty(Assets.Find(same, WithMaster(), r => r.EditorID ?? "", Orig, faces: true).Missing);
+        // without a Fallback (check, conflict) nothing tells the mod's own files from others: no stale note
+        PutFace(s.Dir, "sfmmaster.esm", orig.FormKey.ID, "_color");
+        Assert.Empty(Assets.Find(mod, Index(s), r => r.EditorID ?? "", Orig, faces: true).Missing);
+        // the mod ships one face file of its own: quiet
+        Assert.Empty(Assets.Find(mod, WithMaster(), r => r.EditorID ?? "", Orig, faces: true).Missing);
+    }
+
+    [Fact]
     public void Face_files_of_a_medium_plugin_count_by_their_16_bit_or_24_bit_names()
     {
         // installed medium creations name their textures by the 16-bit local ID and their .nif by a 24-bit one with a
@@ -619,6 +652,35 @@ public class AssetFilesTests
         ReleaseNeedsTests.Write(pkg2, "RnFace.esm", (m, _) => FaceNpc(m, "RN_Face"));
         PutFace(pkg2, "rnface.esm", id & 0xFFF, ".nif", "_ao", "_color", "_normal", "_rough");
         Assert.DoesNotContain(ReleaseNeeds.Run(ReleaseNeedsTests.Context(s2, pkg2, data2)), x => x.Rule == "face-missing");
+    }
+
+    [Fact]
+    public void Release_notes_a_changed_override_face_whose_baked_files_are_only_the_masters()
+    {
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        ReleaseNeedsTests.Write(data, "Starfield.esm", (_, _) => { });
+        var masters = s.Sub("masters");
+        var master = BuildKit.Plugin.New("RnFaceMaster.esm", BuildKit.PluginStyle.Full, "test", "a master with a baked NPC");
+        var h1 = master.HeadParts.AddNew("RNM_Head1");
+        var h2 = master.HeadParts.AddNew("RNM_Head2");
+        var npc = master.Npcs.AddNew("RNM_Npc");
+        npc.HeadParts.Add(h1.ToLink<IHeadPartGetter>());
+        using (var g = new BuildKit.GameData(masters)) BuildKit.PluginWriter.Write(master, masters, g, new BuildKit.WriteOptions { GapCheck = false });
+        var nif = Assets.FaceNif("rnfacemaster.esm", npc.FormKey.ID & 0xFFFFFF);
+        File.WriteAllBytes(Path.Combine(masters, "RnFaceMaster - Main.ba2"), AssetsTests.Ba2("GNRL", nif));
+
+        var pkg = s.Sub("RnFaceOver");
+        var mod = BuildKit.Plugin.New("RnFaceOver.esm", BuildKit.PluginStyle.Light, "test", "changes the master's NPC face");
+        var ov = mod.Npcs.GetOrAddAsOverride(npc);
+        ov.HeadParts.Add(h2.ToLink<IHeadPartGetter>());
+        using (var g = new BuildKit.GameData(masters)) { g.Open("RnFaceMaster.esm"); BuildKit.PluginWriter.Write(mod, pkg, g, new BuildKit.WriteOptions { GapCheck = false }); }
+
+        var f = ReleaseNeeds.Run(ReleaseNeedsTests.Context(s, pkg, data, o => o.MastersDirs.Add(masters))).ToList();
+        var face = Assert.Single(f, x => x.Rule == "face-missing");
+        Assert.Equal(Level.Note, face.Level);
+        Assert.StartsWith("RnFaceOver.esm: the override of NPC RNM_Npc", face.Text);
+        Assert.Contains($"(such as {nif}) are only the ones the plugin that defines the NPC ships", face.Text);
     }
 
     [Fact]

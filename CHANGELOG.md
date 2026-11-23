@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.15.0
+
+### What's new
+
+- A new command, `sf-mod-check gap <plugin>`, runs the Mutagen gap check (the `release` command's `mutagen-gap` rule) on one plugin without a zip. It prints the same lines as before and then a RESULT line: `RESULT: OK (0 errors, n warnings)`, `RESULT: FAIL (n errors, n warnings)` or `RESULT: CANNOT CHECK (...)`. Exit codes are 0 for no errors, 1 for errors and 2 when it can't check, such as a missing master.
+- Masters are looked for in the plugin's own folder, then each `--masters-dir` in order, then `--data`. The other options are `--quiet`, `--verbose` and `--log <file>`.
+- `release --tested <zip|ba2>` compares the release with the build you tested in the game (rule `tested`). Compiled scripts are compared by meaning, leaving out what changes on every build (the string table's order, the order of variables, properties, functions and locals, temporary variable names, the compile time, the user and machine). Plugins are compared byte for byte. A difference is a REVIEW line; a script that can't be read is a PROBLEM.
+- `release --stage <folder>` checks the folder the release was built from against its archives (rule `stage`). A staged file in no archive and not loose in the zip is a PROBLEM, and a file in an archive that isn't staged is a REVIEW line.
+- `release --psc <folder>` lints script sources that don't ship in the zip: the folder is linted instead of the zips' `Scripts\Source`, and a finding's path is shown relative to it. `release --psc-import <folder>` adds another mod's sources to the lint's imports, after the vanilla sources. Both can be given more than once and need `--papyrus` and `--ck-sources`; without them one NOTE says the folders were not used. A folder that doesn't exist stops the check with exit 2.
+- `release <zip|folder|ba2|plugin>...` takes a stage folder, a `.ba2` or a plugin as well as zips, so you can check a build before you zip it. A folder is read where it is and nothing is written into it. The loose `.ba2` and plugin files of one run are checked together as one package named `loose files`. The zip-only rules (`one-plugin`, `root-md`) skip a folder or the loose files, and one NOTE (rule `not-a-zip`) says so. A folder inside the game folder is refused (exit 2), as is a run with two loose files of the same name.
+- `patch` also writes `patch-sources.json` beside the patch: what the patch was built from. It holds the patch's size and SHA-256, the load order by file name (never paths), each master's position, size, date and SHA-256, and for each patched record the plugins whose copies it used, each with a 16-digit hash of that copy. A plugin saved again without changes keeps its hashes, and any changed field changes them, so a later check can tell which patched records a mod update really changed. With nothing to patch, an old `patch-sources.json` is removed with the old patch.
+- A new command, `sf-mod-check patch check <patch.esm>`, tells you whether a conflict patch is still up to date. It reads the `patch-sources.json` beside the patch and the load order as it is now, and changes nothing. It reports a master that is gone or off (PROBLEM `[removed]`), a master or plugin that now loads after the patch (`[moved]`), a master whose update changed a patched record (`[updated]`; a NOTE when the update left those records alone), a plugin that now changes a patched record (`[new-editor]`), another spelling of the patch that is active too (`[duplicate]`), a patch file that isn't the manifest's build (`[patch-changed]`) and a patch that isn't active (NOTE `[patch-off]`). It ends with `RESULT: UP TO DATE`, `RESULT: REBUILD (n reasons)` or `RESULT: CANNOT CHECK (...)`, exits 0, 1 or 2, and writes the findings as JSON with `--json <file>`. `patch --help` names it.
+- `release --profile creations --size-total` counts every input of the run as one Creation for the 2 GB rule (`creations-size`), for a Creation you build from several parts. Without it, each input is its own Creation, as before. `--size-total` without `--profile creations` is a bad argument (exit 2).
+- The `conflict` report's pair tables (report.md and report.html) have a new **Lost fields** column: the fields a mod loses to an official `BlueprintShips-*.esm` file, which no load order or patch brings back. Before, those fields were counted in no column. In report.html such a pair's heading also gets an "n lost" badge. conflicts.json is unchanged, so sf-load-order reads it as before.
+- The `assets` check (in `check`, `conflict` and `release`) now looks for the `.mesh` geometry files that a mod's own `.nif` files name, each a WARNING when missing, because that part of the model doesn't show in the game. The names come from the `.nif` file's shapes, and both the game's short form (`<folder>\<file>`) and a full `geometries\...\<name>.mesh` path are understood. A shape whose geometry is inside the `.nif` names no file. A `.nif` whose shapes can't be read is one WARNING (a NOTE in `release`) naming the file.
+- `release` has a new rule, `mesh-missing` (WARNING). It runs with `--dmmdeps` too, since DMMDeps doesn't follow the geometry a `.nif` names. The NOTE shown when `--dmmdeps` isn't given now lists the `.mesh` geometry among what was checked.
+- `conflict`: a missing mesh counts in the RESULT line and the report's summary ("1 mesh"), and its action says "parts of those models don't show". conflicts.json lists it under `missingFiles` with `kind` `mesh`; `missingAssets` keeps only scripts and models, so sf-load-order counts as before. The report's "What this report does not check" line no longer lists the mods' own `.mesh` geometry.
+- `triage` reports the `release` rule `file-name` too, as LOOKs in its Files section: a file name, loose or inside one of the mod's archives, with a character outside plain ASCII, and a loose path inside Data over 200 characters. The same files are skipped as in `release` (the `fomod` folder, and files at the top of Data other than plugins, archives and INI files). Up to 5 are named, then one LOOK counts the rest; `--verbose` logs each one.
+- `release` rule `face-missing` has a second NOTE: an override that changes another plugin's NPC face, while every baked face file found comes from outside the zips (the defining plugin's own), shows the old face in the game, so the NOTE says the baked face is stale and how to bake it again.
+
+### Example
+
+Check a made-up release against the build you tested and the folder you built it from. `MyMod-0.1.0.zip` is the build you tested in the game. `MyMod-0.1.1.zip` is the release: its `MyMod.esm` was saved again after the test, and its `MyMod - Main.ba2` holds `misc\mymod\notes.txt`. The `Stage` folder holds that file and `misc\mymod\ranks.txt`, which was left out of the archive:
+
+    sf-mod-check release MyMod-0.1.1.zip --tested MyMod-0.1.0.zip --stage Stage
+
+What it prints (a real run, with the first line left out):
+
+    sf-mod-check 0.15.0 release (basic profile): MyMod-0.1.1.zip (2 files, 1 plugins, 1 archives)
+    PROBLEM  [stage] staged, missing from the archives: misc\mymod\ranks.txt (the game won't see it; pack it again, or ship it loose in the zip)
+    REVIEW   [tested] plugin differs from the tested build (expected only if its records changed): MyMod.esm
+    NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked.
+    NOTE     [plugin-check] MyMod.esm: OK, 0 errors, 0 warnings (full master, 0 masters, 0 records, 0 overrides (0 ITM), 0 links)
+    NOTE     [mutagen-gap] MyMod.esm: 0 own records, 0 overrides, 0 compared with their master's copy
+    RESULT: FAIL (1 problems, 1 to review, 0 warnings)
+
+The exit code is 1. 0.14.0 had neither option, and on the release zip alone it said OK.
+
+### Changed
+
+- The README's opening list now names all seven commands and what `release` checks, and its `release` section has a worked example of the `archive-name` and `file-name` rules.
+- `--version` says 0.15.0.
+
 ## 0.14.0 (2026-11-23)
 
 ### Added

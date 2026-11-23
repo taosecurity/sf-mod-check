@@ -51,7 +51,7 @@ public static class ReleaseNeeds
         var scripts = Scripts(c, plugins, findings);
         if (c.Options.DmmDeps is { } exe) DmmDeps(c, exe, scripts, findings);
         else findings.Add(new(Level.Note, "dmmdeps", "DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the " +
-                                                     "plugins need ran: attached scripts, models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files and .mesh geometry were not checked."));
+                                                     "plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked."));
         PluginCheck(c, plugins, findings);
         return findings;
     }
@@ -136,6 +136,15 @@ public static class ReleaseNeeds
                             "a --masters-dir mod's archives or the game's archives, so that sound is silent in the game. Put the .wem file in the zip " +
                             "or its archive (under sound\\soundbanks), or generate the bank again in Wwise with its media."));
                     }
+                    else if (m.Kind == "mesh")
+                    {
+                        // DMMDeps can't see geometry a .nif names (KnownGaps), so mesh-missing runs with --dmmdeps too (0.15.0)
+                        reported.Add(m.Path);
+                        findings.Add(new(Level.Warning, "mesh-missing",
+                            $"{name}: the model {Assets.Users(m.Users)} names the geometry file {m.Path}, which is in none of {Zips(c)} loose files or archives, " +
+                            "a --masters-dir mod's archives or the game's archives, so that part of the model doesn't show in the game. Put the .mesh file in " +
+                            "the zip or its archive (under geometries), or export the model again with its geometry."));
+                    }
                     else if (m.Kind == "face")
                     {
                         // a NOTE (P3 in the baton: Bethesda's own NPCs aren't always baked); DMMDeps can't see face files
@@ -143,6 +152,12 @@ public static class ReleaseNeeds
                         reported.Add(m.Path);
                         findings.Add(new(Level.Note, "face-missing", $"{name}: {m.FaceText}. Looked in {Zips(c)} loose files and archives, " +
                                                                      "a --masters-dir mod's archives and the game's archives."));
+                    }
+                    else if (m.Kind == "face-stale")
+                    {
+                        // 0.15.0: found, but only outside the zips; a NOTE like face-missing, and with --dmmdeps too
+                        // (not added to reported: the files were found)
+                        findings.Add(new(Level.Note, "face-missing", $"{name}: {m.StaleFaceText}. Looked in {Zips(c)} loose files and archives."));
                     }
                     else if (c.Options.DmmDeps != null) { }   // DMMDeps reports models, materials and textures itself
                     else if (m.Kind is "texture" or "material")
@@ -215,7 +230,7 @@ public static class ReleaseNeeds
 
     /// <summary>The names in archives outside the zips that load with the mod: each plugin's "&lt;name&gt; - *.ba2" in a
     /// --masters-dir folder, and in the Data folder the official masters' archives, Starfield.ini's archive lists and the
-    /// archives of masters installed there. Only scripts, models, materials, textures and streamed sounds are kept (memory), and every
+    /// archives of masters installed there. Only scripts, models, geometry (.mesh), materials, textures and streamed sounds are kept (memory), and every
     /// material database (.cdb) in a general archive is remembered (0.14.0).</summary>
     sealed class ExternalArchives
     {
@@ -270,6 +285,7 @@ public static class ReleaseNeeds
                     if (type == "GNRL" && name.EndsWith(".cdb", StringComparison.Ordinal)) Cdbs.Add((ba2, name));
                     if (name.EndsWith(".pex", StringComparison.Ordinal) || name.StartsWith("meshes\\", StringComparison.Ordinal) ||
                         name.StartsWith("textures\\", StringComparison.Ordinal) || name.StartsWith("materials\\", StringComparison.Ordinal) ||
+                        name.StartsWith("geometries\\", StringComparison.Ordinal) ||
                         name.StartsWith("sound\\soundbanks\\", StringComparison.Ordinal)) { names.Add(name); n++; }
                 }
                 Log.Write($"needs: archive {ba2}: {n} scripts, models, materials, textures and sound-bank files");

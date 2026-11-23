@@ -31,6 +31,8 @@ public static class Hints
             "ends in a dot or a space works only as a loose file on Windows: remove the dot or space in the record. " +
             "A missing material or texture makes a surface look wrong in the game: pack the .mat or .dds file with the mod " +
             "(textures go in <plugin name> - Textures.ba2) or fix the path in the .nif or .mat that names it. " +
+            "A missing mesh means that part of the model doesn't show: pack the .mesh file (under geometries) with the mod, " +
+            "or export the model again with its geometry. " +
             "A missing sound is silent in the game: pack the .wem file the sound bank streams (sound\\soundbanks\\<id>.wem) " +
             "with the mod, or generate the bank again in Wwise. " +
             "Run with --verbose to see which archives " +

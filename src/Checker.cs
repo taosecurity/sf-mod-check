@@ -549,7 +549,7 @@ public static class Checker
             var uses = new AssetUses();
             var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache, uses);
             r.Scripts = scriptCount; r.Models = modelCount;
-            Stage($"assets: {scriptCount} script uses, {modelCount} model uses, {uses.Textures} textures, {uses.Materials} materials " +
+            Stage($"assets: {scriptCount} script uses, {modelCount} model uses, {uses.Textures} textures, {uses.Materials} materials, {uses.Meshes} meshes " +
                   $"({uses.FilesRead} of the plugin's own .nif, .mat and .bnk files read), {index.Loaded.Count} archives read");
         }
         catch (Exception e) when (Fatal.Recoverable(e))

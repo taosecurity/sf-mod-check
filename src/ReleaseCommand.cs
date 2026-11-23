@@ -1,6 +1,7 @@
 // Command "release" (0.7.0): one OK or FAIL on a mod's release zip(s).
 //   sfmodcheck release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]... [--dmmdeps <exe>]
-//                      [--papyrus <exe> --ck-sources <ContentResources.zip>] [--profile basic|house|creations] [--creations-master <plugin>]...
+//                      [--papyrus <exe> --ck-sources <ContentResources.zip>] [--psc <folder>]... [--psc-import <folder>]...
+//                      [--profile basic|house|creations] [--creations-master <plugin>]... [--tested <zip|ba2>]... [--stage <folder>]
 //                      [--quiet] [--verbose] [--log <file>]
 // Each zip is unpacked into a temp folder that is always removed; nothing else is written. Zips inside a game install
 // are refused. Output: PROBLEM / REVIEW / WARNING / NOTE lines, then "RESULT: OK|FAIL (n problems, n to review, n
@@ -37,12 +38,25 @@ public sealed class ReleaseOptions
     public string Profile { get; set; } = "basic";
     /// <summary>--creations-master: other authors' plugins the user has seen on Creations (creations profile).</summary>
     public List<string> CreationsMasters { get; } = new();
+    /// <summary>--tested: zips or .ba2 archives of the build that was tested in game (ReleaseTested).</summary>
+    public List<string> Tested { get; } = new();
+    /// <summary>--stage: the folder the release was built from, checked against its archives (ReleaseTested).</summary>
+    public string? Stage { get; set; }
+    /// <summary>--psc: script source roots linted instead of each zip's Scripts\Source (ReleaseLint).</summary>
+    public List<string> Psc { get; } = new();
+    /// <summary>--psc-import: extra import folders for the lint, after the vanilla sources (ReleaseLint).</summary>
+    public List<string> PscImport { get; } = new();
+    /// <summary>--size-total (creations profile): every input of the run counts as one Creation for the 2 GB rule.</summary>
+    public bool SizeTotal { get; set; }
 }
 
-/// <summary>One unpacked zip.</summary>
+/// <summary>One input: an unpacked zip, a folder used in place, or the run's loose .ba2 and plugin files.</summary>
 public sealed class ReleasePackage
 {
+    /// <summary>The zip's path; for a folder, the folder's path; for loose files, "loose files".</summary>
     public required string ZipPath { get; init; }
+    /// <summary>False for a folder or the loose files: the zip-only rules (one plugin per zip, root .md names) skip it.</summary>
+    public bool IsZip { get; init; } = true;
     /// <summary>The folder the zip was unpacked into (maps to the game's Data folder).</summary>
     public required string Root { get; init; }
     /// <summary>Every file in the zip, as Ba2Names.Normalize paths relative to Root ("scripts\foo\bar.pex").</summary>
@@ -51,7 +65,7 @@ public sealed class ReleasePackage
     public required List<string> Plugins { get; init; }
     /// <summary>Full paths of the archives (.ba2) in the zip, at any depth.</summary>
     public required List<string> Archives { get; init; }
-    public string Name => Path.GetFileName(ZipPath);
+    public string Name => Path.GetFileName(ZipPath.TrimEnd('\\', '/'));
 }
 
 public sealed class ReleaseContext
@@ -67,9 +81,11 @@ public sealed class ReleaseContext
 public static class ReleaseCommand
 {
     public const string Usage =
-        "usage: sf-mod-check release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]... [--dmmdeps <exe>]\n" +
-        "                          [--papyrus <exe> --ck-sources <ContentResources.zip>] [--profile basic|house|creations]\n" +
-        "                          [--creations-master <plugin>]... [--quiet] [--verbose] [--log <file>]";
+        "usage: sf-mod-check release <zip|folder|ba2|plugin>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]... [--dmmdeps <exe>]\n" +
+        "                          [--papyrus <exe> --ck-sources <ContentResources.zip>] [--psc <folder>]... [--psc-import <folder>]...\n" +
+        "                          [--profile basic|house|creations] [--creations-master <plugin>]... [--size-total]\n" +
+        "                          [--tested <zip|ba2>]... [--stage <folder>]\n" +
+        "                          [--quiet] [--verbose] [--log <file>]";
 
     static readonly string[] PluginExts = [".esm", ".esp", ".esl"];
 
@@ -89,7 +105,7 @@ public static class ReleaseCommand
 
     /// <summary>The steps, in report order. Tests can swap them.</summary>
     public static List<Func<ReleaseContext, IEnumerable<ReleaseFinding>>> Steps { get; } =
-        [ReleaseRules.Run, ReleaseNeeds.Run, GapCheck.Run, ReleaseLint.Run, ReleaseCreations.Run];
+        [ReleaseRules.Run, ReleaseNeeds.Run, GapCheck.Run, ReleaseTested.Run, ReleaseLint.Run, ReleaseCreations.Run];
 
     public static int Run(string[] a, string version, string byline)
     {
@@ -151,6 +167,12 @@ public static class ReleaseCommand
                 case "--ck-sources":
                     if (Value(ref i, "the Creation Kit's Tools\\ContentResources.zip") is not { } ck) return BadArgs();
                     o.CkSources = ck; break;
+                case "--psc":
+                    if (Value(ref i, "a script source folder (the one above the namespace folders)") is not { } ps) return BadArgs();
+                    o.Psc.Add(ps); break;
+                case "--psc-import":
+                    if (Value(ref i, "a folder of other scripts' sources to import") is not { } pi) return BadArgs();
+                    o.PscImport.Add(pi); break;
                 case "--profile":
                     if (Value(ref i, "basic, house or creations") is not { } pr) return BadArgs();
                     if (pr is not ("basic" or "house" or "creations"))
@@ -162,6 +184,23 @@ public static class ReleaseCommand
                 case "--creations-master":
                     if (Value(ref i, "a plugin's file name, for example OtherMod.esm") is not { } cm) return BadArgs();
                     o.CreationsMasters.Add(cm); break;
+                case "--tested":
+                    if (Value(ref i, "the zip or .ba2 of the build you tested") is not { } te) return BadArgs();
+                    if (!te.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && !te.EndsWith(".ba2", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.Error.WriteLine($"--tested takes the .zip or a .ba2 of the build you tested, not \"{te}\"");
+                        return BadArgs();
+                    }
+                    o.Tested.Add(te); break;
+                case "--stage":
+                    if (Value(ref i, "the folder the release was built from") is not { } st) return BadArgs();
+                    if (o.Stage != null)
+                    {
+                        Console.Error.WriteLine("--stage is given twice: give the one folder the release was built from");
+                        return BadArgs();
+                    }
+                    o.Stage = st; break;
+                case "--size-total": o.SizeTotal = true; break;
                 case "--log":
                     if (Value(ref i, "a file name") is not { } lf) return BadArgs();
                     logFile = lf; break;
@@ -190,6 +229,11 @@ public static class ReleaseCommand
             Console.Error.WriteLine("To check a mod before you upload it, run: sf-mod-check release MyMod-1.0.0.zip");
             return BadArgs();
         }
+        if (o.SizeTotal && o.Profile != "creations")
+        {
+            Console.Error.WriteLine("--size-total works only with --profile creations (it counts every input as one Creation for the 2 GB rule); add --profile creations or leave --size-total out");
+            return BadArgs();
+        }
         if (!quiet) Console.Error.WriteLine(byline);
         if (verbose) Log.ToStderr();
         if (logFile != null && Log.ToFile(logFile) is { } logError) return CantRun("the log file can't be written", logError);
@@ -198,17 +242,29 @@ public static class ReleaseCommand
         Log.Write($"profile: {o.Profile}");
 
         // ---- inputs ----
+        // 0.15.0: a folder is used in place, a .ba2 or a plugin goes into the run's "loose files" package, anything
+        // else is opened as a zip
+        var zips = new List<string>();
+        var folders = new List<string>();
+        var loose = new List<string>();
         foreach (var z in o.Zips)
         {
             var full = Path.GetFullPath(z);
-            if (!File.Exists(full))
+            bool isDir = Directory.Exists(full);
+            if (!isDir && !File.Exists(full))
                 return CantRun($"{Path.GetFileName(full)}: no such file",
-                    $"can't check {full}: {(Directory.Exists(full) ? "that is a folder, not a zip" : "no such file")}. Check the path (a path with spaces needs quotes around it).");
-            if (InsideGameInstall(full, o.DataDir))
-                return CantRun($"{Path.GetFileName(full)} is inside the game install",
-                    $"won't check {full}: it is inside the game's install folder. Check the zip you are about to upload, from your build or download folder.");
-            Log.Write($"zip: {Log.Describe(full)}");
+                    $"can't check {full}: no such file or folder. Give a release zip, a stage folder, a .ba2 or a plugin; a path with spaces needs quotes around it.");
+            if (InsideGameInstall(isDir ? full.TrimEnd('\\', '/') + Path.DirectorySeparatorChar : full, o.DataDir))   // the install folder itself too
+                return CantRun($"{Path.GetFileName(full.TrimEnd('\\', '/'))} is inside the game install",
+                    $"won't check {full}: it is inside the game's install folder. Check the files you are about to upload, from your build or download folder.");
+            if (isDir) { folders.Add(full); Log.Write($"folder (used in place, read only): {full}"); }
+            else if (IsLoose(full)) { loose.Add(full); Log.Write($"loose file: {Log.Describe(full)}"); }
+            else { zips.Add(full); Log.Write($"zip: {Log.Describe(full)}"); }
         }
+        var looseNames = loose.GroupBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1);
+        if (looseNames != null)
+            return CantRun($"two loose files are named {looseNames.Key}",
+                $"can't check {string.Join(" and ", looseNames)}: loose .ba2 and plugin files of one run go into one package, so two of the same name would clash. Check them in separate runs, or give the folder each one is in.");
         if (!Directory.Exists(o.DataDir))
             return CantRun("no Data folder",
                 o.DataGiven ? $"can't use the Data folder {Path.GetFullPath(o.DataDir)}: it doesn't exist. Give --data the game's Data folder, the one that holds Starfield.esm."
@@ -223,6 +279,39 @@ public static class ReleaseCommand
                      .Concat(o.MasterArchives.Select(m => ("--master-archive", (string?)m))))
             if (path != null && !File.Exists(path))
                 return CantRun($"{opt} file not found", $"can't use {opt} {Path.GetFullPath(path)}: no such file.");
+        foreach (var (opt, dir) in o.Psc.Select(p => ("--psc", p)).Concat(o.PscImport.Select(p => ("--psc-import", p))))
+        {
+            var full = Path.GetFullPath(dir);
+            if (!Directory.Exists(full))
+                return CantRun($"the {opt} folder {full} doesn't exist",
+                    $"can't use {opt} {full}: {(File.Exists(full) ? "that is a file, not a folder" : "that folder doesn't exist")}. " +
+                    (opt == "--psc" ? "Give --psc the script source folder, the one above the namespace folders (for example Scripts\\Source)."
+                                    : "Give --psc-import a folder of the other mod's script sources.") +
+                    " A path with spaces needs quotes around it.");
+            Log.Write($"{opt}: {full}");
+        }
+        foreach (var t in o.Tested)
+        {
+            var full = Path.GetFullPath(t);
+            if (!File.Exists(full))
+                return CantRun($"--tested {Path.GetFileName(full)}: no such file",
+                    $"can't use --tested {full}: no such file. Give the zip (or a .ba2) of the build you tested in game.");
+            if (InsideGameInstall(full, o.DataDir))
+                return CantRun($"--tested {Path.GetFileName(full)} is inside the game install",
+                    $"won't use --tested {full}: it is inside the game's install folder. Give the copy of the tested build from your build or download folder.");
+            Log.Write($"tested: {Log.Describe(full)}");
+        }
+        if (o.Stage != null)
+        {
+            var full = Path.GetFullPath(o.Stage);
+            if (!Directory.Exists(full))
+                return CantRun("the --stage folder doesn't exist",
+                    $"can't use --stage {full}: {(File.Exists(full) ? "that is a file, not a folder" : "that folder doesn't exist")}. Give the folder the release was built from (the one that maps to Data).");
+            if (InsideGameInstall(full.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, o.DataDir))   // the install folder itself too
+                return CantRun("the --stage folder is inside the game install",
+                    $"won't use --stage {full}: it is inside the game's install folder. Give the build folder the release was made from.");
+            Log.Write($"stage: {full}");
+        }
         if ((o.Papyrus == null) != (o.CkSources == null))
             Console.Error.WriteLine("note: the Papyrus lint needs both --papyrus and --ck-sources; it is skipped.");
 
@@ -232,9 +321,9 @@ public static class ReleaseCommand
         try
         {
             var packages = new List<ReleasePackage>();
-            for (int i = 0; i < o.Zips.Count; i++)
+            for (int i = 0; i < zips.Count; i++)
             {
-                var full = Path.GetFullPath(o.Zips[i]);
+                var full = zips[i];
                 try { packages.Add(Unpack(full, Path.Combine(work, $"zip{i}"))); }
                 catch (InvalidDataException e)
                 {
@@ -258,6 +347,38 @@ public static class ReleaseCommand
                         "shorten the folder names in the zip.");
                 }
                 Log.Write($"unpacked {packages[^1].Name}: {packages[^1].Files.Count} files, {packages[^1].Plugins.Count} plugins, {packages[^1].Archives.Count} archives");
+            }
+            foreach (var dir in folders)
+            {
+                ReleasePackage pkg;
+                try { pkg = FromFolder(dir); }
+                catch (InvalidDataException e) { return CantRun($"the folder {Path.GetFileName(dir.TrimEnd('\\', '/'))} can't be checked", $"can't check the folder {dir}: {e.Message}"); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    Log.Write($"reading the folder {dir} stopped: {e}");
+                    return CantRun($"the folder {Path.GetFileName(dir.TrimEnd('\\', '/'))} couldn't be read",
+                        $"couldn't read the folder {dir}: {e.Message} Check that you can open every file in it and that no program has one locked, then run again.");
+                }
+                packages.Add(pkg);
+                Log.Write($"folder {pkg.Name}: {pkg.Files.Count} files, {pkg.Plugins.Count} plugins, {pkg.Archives.Count} archives");
+            }
+            if (loose.Count > 0)
+            {
+                var into = Path.Combine(work, "loose");
+                try
+                {
+                    Directory.CreateDirectory(into);
+                    foreach (var f in loose) File.Copy(f, Path.Combine(into, Path.GetFileName(f)));
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    Log.Write($"copying the loose files stopped: {e}");
+                    return CantRun("the loose files couldn't be copied",
+                        $"couldn't copy the loose files into the temp folder {into}: {e.Message} Close any program that has them open and free space in {Path.GetTempPath()}, then run again.");
+                }
+                var pkg = FromFolder(into, LooseName);
+                packages.Add(pkg);
+                Log.Write($"{LooseName}: {pkg.Plugins.Count} plugins, {pkg.Archives.Count} archives (copied into the work folder)");
             }
             var ctx = new ReleaseContext { Options = o, Packages = packages, Work = work };
 
@@ -382,6 +503,48 @@ public static class ReleaseCommand
     {
         using var s = e.Open();
         return s.ReadByte() >= 0;
+    }
+
+    /// <summary>The package name of a run's loose .ba2 and plugin inputs (0.15.0).</summary>
+    public const string LooseName = "loose files";
+
+    /// <summary>A .ba2 or a plugin given as an input (0.15.0): it goes into the run's loose-files package.</summary>
+    public static bool IsLoose(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() is ".ba2" or ".esm" or ".esp" or ".esl";
+
+    /// <summary>A folder as a package, used in place (0.15.0): nothing is written into it. Every release step writes only
+    /// into the run's work folder (DMMDeps, the lint and --tested copy what they need there). Refuses a folder with more
+    /// than MaxEntries files, as for a zip (InvalidDataException).</summary>
+    public static ReleasePackage FromFolder(string dir, string? name = null)
+    {
+        var root = Path.GetFullPath(dir).TrimEnd('\\', '/');
+        var files = new List<string>();
+        var plugins = new List<string>();
+        var archives = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            if (files.Count >= MaxEntries)
+                throw new InvalidDataException($"it holds more than the {MaxEntries:N0} files this check allows; a mod's stage folder holds far fewer. " +
+                                               "Give the folder that holds only this mod's files (not a whole Data folder)");
+            var norm = Ba2Names.Normalize(Path.GetRelativePath(root, f));
+            if (!seen.Add(norm)) continue;   // two names that differ only in case (Linux): the game sees one
+            files.Add(norm);
+            if (PluginExts.Contains(Path.GetExtension(norm))) plugins.Add(f);
+            else if (norm.EndsWith(".ba2", StringComparison.Ordinal)) archives.Add(f);
+        }
+        files.Sort(StringComparer.Ordinal);
+        plugins.Sort(StringComparer.OrdinalIgnoreCase);
+        archives.Sort(StringComparer.OrdinalIgnoreCase);
+        return new ReleasePackage
+        {
+            ZipPath = name ?? root,
+            IsZip = false,
+            Root = root,
+            Files = files,
+            Plugins = plugins,
+            Archives = archives,
+        };
     }
 
     /// <summary>Unpacks a zip into dest. Refuses entries that would land outside dest (".." or a rooted path), empty

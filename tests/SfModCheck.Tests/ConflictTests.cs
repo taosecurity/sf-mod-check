@@ -1150,6 +1150,26 @@ public partial class ConflictTests
         Assert.All(ma, f => Assert.Contains(S(f, "kind"), new[] { "script", "model" }));
     }
 
+    // 0.15.0 (plan step 12): a .mesh a mod's own .nif names goes to missingFiles too, never missingAssets.
+    [Fact]
+    public void A_missing_mesh_goes_to_missing_files_only()
+    {
+        using var game = new Game();
+        game.Mod("ModM.esm", (m, _) =>
+            m.MiscItems.AddNew("M_Thing").Model = new Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>("SfmTest\\Thing.nif") });
+        File.WriteAllBytes(Path.Combine(game.Data, "Base - Materials.ba2"), AssetFilesTests.Gnrl((AssetFiles.CdbPath, AssetFilesTests.Cdb())));
+        var nif = Path.Combine(game.Data, "Meshes", "SfmTest", "Thing.nif");
+        Directory.CreateDirectory(Path.GetDirectoryName(nif)!);
+        File.WriteAllBytes(nif, MeshFilesTests.Nif([("BSGeometry", MeshFilesTests.Geometry(0, 0, @"sfmtest\gone"))]));
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModM.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Contains(", 1 missing asset (0 scripts, 0 models, 1 mesh)", ExeTests.ResultLine(stdout));
+        Assert.Empty(json.GetProperty("missingAssets").EnumerateArray());
+        var mf = Assert.Single(json.GetProperty("missingFiles").EnumerateArray());
+        Assert.Equal("mesh", S(mf, "kind"));
+        Assert.Equal(@"geometries\sfmtest\gone.mesh", S(mf, "path"));
+    }
+
     // 0.6.0 part 2 item 2: the game has 256 slots per archive registry (general GNRL, texture DX10). 256 is fine, the
     // 257th is a WARNING in the RESULT line, all three reports and a High action; --no-assets still counts.
     [Fact]

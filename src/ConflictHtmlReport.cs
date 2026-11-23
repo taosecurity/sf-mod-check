@@ -368,19 +368,22 @@ public static class HtmlReport
     {
         if (items.Count == 0) { h.Append("<p>None found.</p>"); return; }
         var groups = items.GroupBy(l => (l.Winner, l.Loser)).OrderByDescending(g => g.Count()).ToList();
-        h.Append("<div class=\"scroll\"><table><tr><th>Winning plugin</th><th>Loses changes from</th><th>Records</th><th>Forwardable fields</th><th>Choice fields</th><th>No effect</th></tr>");
+        h.Append("<div class=\"scroll\"><table><tr><th>Winning plugin</th><th>Loses changes from</th><th>Records</th><th>Forwardable fields</th><th>Choice fields</th><th>Lost fields</th><th>No effect</th></tr>");
         foreach (var g in groups)
             h.Append($"<tr class=\"f\"><td>{HtmlEncode(LoadOrderSetup.Display(g.Key.Winner))}</td><td>{HtmlEncode(LoadOrderSetup.Display(g.Key.Loser))}</td><td class=\"num\">{g.Count()}</td>" +
-                     $"<td class=\"num\">{g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Forwardable"))}</td><td class=\"num\">{g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Choice"))}</td><td class=\"num\">{g.Sum(l => l.Fields.Count(Impact.IsMinor))}</td></tr>");
+                     $"<td class=\"num\">{Impact.CountKind(g, "Forwardable")}</td><td class=\"num\">{Impact.CountKind(g, "Choice")}</td><td class=\"num\">{Impact.CountKind(g, "Lost")}</td><td class=\"num\">{Impact.CountKind(g, "No effect")}</td></tr>");
         h.Append("</table></div>");
         foreach (var g in groups)
         {
-            var fwd = g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Forwardable"));
-            var choice = g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Choice"));
-            var minor = g.Sum(l => l.Fields.Count(Impact.IsMinor));
+            var fwd = Impact.CountKind(g, "Forwardable");
+            var choice = Impact.CountKind(g, "Choice");
+            var lostToBlueprint = Impact.CountKind(g, "Lost");
+            var minor = Impact.CountKind(g, "No effect");
             h.Append($"<details class=\"pair\" data-pair id=\"{Anchor(g.Key.Winner, g.Key.Loser)}\"><summary>{HtmlEncode(LoadOrderSetup.Display(g.Key.Winner))} overrides {HtmlEncode(LoadOrderSetup.Display(g.Key.Loser))} · {g.Count()} record{(g.Count() == 1 ? "" : "s")}");
             if (fwd > 0) h.Append($" <span class=\"badge fwd\">{fwd} forwardable</span>");
             if (choice > 0) h.Append($" <span class=\"badge choice\">{choice} choice</span>");
+            // 0.15.0: fields an official BlueprintShips file takes back (nothing brings them back)
+            if (lostToBlueprint > 0) h.Append($" <span class=\"badge minor\">{lostToBlueprint} lost</span>");
             if (minor > 0) h.Append($" <span class=\"badge minor\">{minor} no effect</span>");
             h.Append($"</summary><div><p class=\"muted\">{HtmlEncode(LoadOrderSetup.Display(g.Key.Winner))} loads later and does not have {HtmlEncode(LoadOrderSetup.Display(g.Key.Loser))} as a master, so these changes from {HtmlEncode(LoadOrderSetup.Display(g.Key.Loser))} do not reach the game.</p>");
             h.Append("<div class=\"impact-box\"><strong>Impact</strong><ul>");

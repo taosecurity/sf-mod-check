@@ -380,4 +380,56 @@ public class TriageFilesTests
         Assert.Contains("-- Every file (2 rows) --", text);
         Assert.Contains("-- Game files this mod replaces (1 rows) --", text);
     }
+
+    [Fact]
+    public void File_names_with_non_ascii_or_long_paths_are_looks()
+    {
+        using var s = new Sandbox();
+        var data = Game(s);
+        var mod = s.Sub("mod");
+        const string E = "\u00e9";   // \u00e9
+        Put(mod, "Data/Mod.esm", "x");
+        Put(mod, "Data/Mod - Main.ba2", Names("meshes/caf" + E + ".nif", "meshes/plain.nif"));
+        Put(mod, "Data/Textures/na" + E + "ve.dds", "t");
+        Put(mod, "Data/readm" + E + ".txt", "skipped: a document at the top");
+        Put(mod, "fomod/" + E + ".png", "skipped: the installer");
+        // inside Data: "meshes" + separator (7) + name; 200 characters is quiet, 201 is a LOOK; the Data prefix isn't counted
+        Put(mod, "Data/meshes/" + new string('a', 189) + ".nif", "ok");
+        Put(mod, "Data/meshes/" + new string('b', 190) + ".nif", "long");
+        var c = Context(s, mod, data);
+        var f = Run(c);
+        const string F = TriageSections.Files;
+        One(f, TriageLevel.Look, F, @"data\mod - main.ba2", @"holds meshes\caf" + E + ".nif, whose name has a character outside plain ASCII");
+        One(f, TriageLevel.Look, F, @"data\textures\na" + E + "ve.dds", "character outside plain ASCII");
+        One(f, TriageLevel.Look, F, @"data\meshes\" + new string('b', 190) + ".nif", "201 characters long, more than 200");
+        Assert.DoesNotContain(f, x => x.Level == TriageLevel.Look && (x.File.Contains("readm") || x.File.StartsWith("fomod") || x.File.Contains(new string('a', 189))));
+        Assert.DoesNotContain(f, x => x.Text.Contains("plain.nif"));
+
+        // more than five: five named, then one LOOK counts the rest
+        var many = s.Sub("many");
+        for (int i = 0; i < 8; i++) Put(many, $"Textures/{E}{i}.dds", "t");
+        var f2 = Run(Context(s, many, data));
+        Assert.Equal(5, f2.Count(x => x.Level == TriageLevel.Look && x.Text.Contains("outside plain ASCII")));
+        One(f2, TriageLevel.Look, F, "", "and 3 more file names like these");
+    }
+
+    [Fact]
+    public void Docs_name_the_triage_file_names_and_the_stale_face_note()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "TriageFiles.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src/TriageFiles.cs not found above " + AppContext.BaseDirectory);
+        string Doc(string n) => File.ReadAllText(Path.Combine(dir!.FullName, n));
+        var readme = Doc("README.md");
+        Assert.DoesNotContain("`archive-name` and `file-name` run only in `release`, not in `triage`", readme);
+        Assert.Contains("(the `release` rule `file-name`, since 0.15.0;", readme);
+        Assert.DoesNotContain("so a face left over from the master isn't noticed", readme);
+        Assert.Contains("the baked face is stale", readme);
+        var changes = Doc("CHANGELOG.md").Split("\n## 0.14.0")[0];
+        Assert.Contains("`triage` reports the `release` rule `file-name` too", changes);
+        Assert.Contains("the baked face is stale", changes);
+        var agents = Doc("AGENTS.md");
+        Assert.Contains("`triage` reports the same file names as LOOKs", agents);
+        Assert.Contains("the face is stale", agents);
+    }
 }

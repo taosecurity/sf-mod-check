@@ -38,7 +38,9 @@ const string Usage =
     "       sf-mod-check release <zip>... [--profile basic|house|creations] [--dmmdeps <exe>] [...]   (sf-mod-check release --help)\n" +
     "       sf-mod-check triage <mod.zip | .7z | .rar | folder | plugin> [--game <folder>] [--out <folder>] [...]   (sf-mod-check triage --help)\n" +
     "       sf-mod-check patch [--plugins <Plugins.txt>] [--only <a.esm>,<b.esm>] [--pick <FormKey>=<plugin>]... [--out <folder>] [...]   (sf-mod-check patch --help)\n" +
+    "       sf-mod-check patch check <patch.esm> [--plugins <Plugins.txt>] [--json <file>] [...]   (sf-mod-check patch check --help)\n" +
     "       sf-mod-check diff <old> <new> [--data <Data folder>] [--json] [--out <file>] [...]   (sf-mod-check diff --help)\n" +
+    "       sf-mod-check gap <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [...]   (sf-mod-check gap --help)\n" +
     "       sf-mod-check --version";
 // A plugin past this many records (the header's count) gets the memory note on stderr. Mods stay far below it; the
 // official Starfield.esm has about 3.8 million and needs over 30 GB of memory to check.
@@ -133,6 +135,7 @@ int Dispatch(string[] args)
     if (args.Length > 0 && args[0] == "triage") return TriageCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     if (args.Length > 0 && args[0] == "patch") return PatchCommand.Run(args.Skip(1).ToArray(), Version, Byline);
     if (args.Length > 0 && args[0] == "diff") return DiffCommand.Run(args.Skip(1).ToArray(), Version, Byline);
+    if (args.Length > 0 && args[0] == "gap") return GapCheck.Command(args.Skip(1).ToArray(), Version, Byline);   // 0.15.0
     var rest = args.Length > 0 && args[0] == "check" ? args.Skip(1).ToArray() : args;
     return Check(rest);
 }

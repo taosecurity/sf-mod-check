@@ -29,7 +29,19 @@ public static class AssetFiles
     /// The header layout is the Gamebryo one nifxml describes: the version line, version, endian, user version, block
     /// count, the Bethesda stream header, the block types, the block indexes and sizes, then the strings. Throws
     /// InvalidDataException when the header doesn't add up.</summary>
-    public static List<string> NifMaterials(byte[] d)
+    public static List<string> NifMaterials(byte[] d) => NifLinks(d).Materials;
+
+    /// <summary>What a .nif names (0.15.0): its materials (as NifMaterials) and the geometry files of its BSGeometry
+    /// blocks ("geometries\a\b.mesh", data-relative). MeshProblem is set (and Meshes may be partial) when a
+    /// BSGeometry block doesn't have the layout below; the materials are still returned. The layout (nifly and
+    /// nifxml, Bethesda stream 172 and up; proven on 2026-11-23 against 400 of the game's .nif files and 13 mods'
+    /// archives, every block read to its exact end): NiObjectNET (name index, extra data count and refs,
+    /// controller), NiAVObject (flags, translation, rotation, scale, collision), the bounding sphere, bound min and
+    /// max, skin, shader and alpha refs, then four slots of a has-mesh byte and, when set, the triangle size, vertex
+    /// count, flags and a length-prefixed name. Flag 0x200 on the object means the geometry is inside the .nif, so
+    /// that block names no file. The game's files give the name as "&lt;folder&gt;\&lt;file&gt;" with no folder
+    /// or extension; some mods give "geometries\...\x.mesh"; both mean the same file.</summary>
+    public static (List<string> Materials, List<string> Meshes, string? MeshProblem) NifLinks(byte[] d)
     {
         var r = new Reader(d);
         int nl = Array.IndexOf(d, (byte)'\n', 0, Math.Min(d.Length, 64));
@@ -48,8 +60,13 @@ public static class AssetFiles
         r.Short();                                     // export script
         if (bs >= 103) r.Short();                      // max filepath
         int types = r.U16();
-        for (int i = 0; i < types; i++) r.Skip(r.U32());
-        r.Skip(6L * blocks);                           // a u16 type index and a u32 size per block
+        var typeNames = new List<string>(types);
+        for (int i = 0; i < types; i++) typeNames.Add(System.Text.Encoding.ASCII.GetString(r.Take(r.U32())));
+        r.Need(6L * blocks);
+        var typeOf = new ushort[blocks];
+        for (uint i = 0; i < blocks; i++) typeOf[i] = r.U16();
+        var sizes = new uint[blocks];
+        for (uint i = 0; i < blocks; i++) sizes[i] = r.U32();
         var strings = r.U32();
         r.U32();                                       // longest string
         var list = new List<string>();
@@ -59,13 +76,69 @@ public static class AssetFiles
             var s = System.Text.Encoding.UTF8.GetString(r.Take(n));
             if (s.EndsWith(".mat", StringComparison.OrdinalIgnoreCase) && s.Trim().Length > 4) list.Add(DataRel(s, "materials"));
         }
-        return list.Distinct().ToList();
+        var materials = list.Distinct().ToList();
+        var meshes = new List<string>();
+        if (bs < 172) return (materials, meshes, null);   // before Starfield's stream there is no BSGeometry
+        try
+        {
+            r.Skip(4L * r.U32());                      // groups
+            for (uint i = 0; i < blocks; i++)
+            {
+                var start = r.Pos;
+                r.Skip(sizes[i]);
+                if (typeOf[i] >= typeNames.Count) throw new InvalidDataException($"block {i} has type number {typeOf[i]}, but the file lists only {typeNames.Count} types");
+                if (typeNames[typeOf[i]] == "BSGeometry") GeometryNames(d, start, sizes[i], i, meshes);
+            }
+        }
+        catch (InvalidDataException e) { return (materials, meshes.Distinct().ToList(), e.Message); }
+        return (materials, meshes.Distinct().ToList(), null);
+    }
+
+    /// <summary>The geometry file names of one BSGeometry block (layout: NifLinks). Throws InvalidDataException when
+    /// the block doesn't read to its exact end.</summary>
+    static void GeometryNames(byte[] d, long start, uint size, uint index, List<string> meshes)
+    {
+        var block = new byte[size];
+        Array.Copy(d, start, block, 0, size);
+        var r = new Reader(block);
+        var bad = $"its BSGeometry block {index} doesn't have the layout sf-mod-check knows";
+        var found = new List<string>();   // kept only when the block reads to its exact end
+        try
+        {
+            r.U32();                                   // name
+            r.Skip(4L * r.U32());                      // extra data refs
+            r.U32();                                   // controller
+            var flags = r.U32();
+            r.Skip(12 + 36 + 4 + 4);                   // translation, rotation, scale, collision
+            r.Skip(16 + 24 + 12);                      // bounding sphere, bound min and max, skin, shader, alpha
+            for (int slot = 0; slot < 4; slot++)
+            {
+                var has = r.Take(1)[0];
+                if (has == 0) continue;
+                if (has != 1) throw new InvalidDataException(bad);
+                r.Skip(12);                            // triangle size, vertex count, flags
+                var name = System.Text.Encoding.UTF8.GetString(r.Take(r.U32())).Trim();
+                if ((flags & 0x200) != 0) return;      // the geometry is inside the .nif
+                if (name.Length > 0) found.Add(MeshRel(name));
+            }
+        }
+        catch (InvalidDataException) { throw new InvalidDataException(bad); }
+        if (r.Pos != size) throw new InvalidDataException(bad);
+        meshes.AddRange(found);
+    }
+
+    /// <summary>A BSGeometry name as a data-relative geometry file: "ab12\cd34" and "Data\Geometries\ab12\cd34.mesh"
+    /// both become "geometries\ab12\cd34.mesh".</summary>
+    public static string MeshRel(string name)
+    {
+        var p = DataRel(name, "geometries");
+        return p.EndsWith(".mesh", StringComparison.Ordinal) ? p : p + ".mesh";
     }
 
     sealed class Reader(byte[] d)
     {
         public long Pos;
-        void Need(long n) { if (n < 0 || Pos + n > d.Length) throw new InvalidDataException($"its header ends early (at byte {Pos} of {d.Length})"); }
+        public void Need(long n) { if (n < 0 || Pos + n > d.Length) throw new InvalidDataException($"its header ends early (at byte {Pos} of {d.Length})"); }
         public uint U32() { Need(4); var v = BitConverter.ToUInt32(d, (int)Pos); Pos += 4; return v; }
         public ushort U16() { Need(2); var v = BitConverter.ToUInt16(d, (int)Pos); Pos += 2; return v; }
         public void Skip(long n) { Need(n); Pos += n; }

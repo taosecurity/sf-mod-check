@@ -119,6 +119,126 @@ public static class GapCheck
         return r.Errors.Count > 0 ? 1 : 0;
     }
 
+    // ---------------------------------------------------------------- the documented command (0.15.0)
+
+    public const string Usage =
+        "usage: sf-mod-check gap <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [--verbose] [--log <file>]\n" +
+        "         Compares every record the plugin overrides with its master's copy and reports what the Mutagen library\n" +
+        "         0.54.4 is known to lose when it writes a plugin (ERROR), any other field the master has and the plugin\n" +
+        "         lacks (WARNING; it may be on purpose), and overridden placed references missing from the ONAM list.\n" +
+        "         Masters are looked for in the plugin's own folder, then each --masters-dir in order, then --data.\n" +
+        "         --data         the game's Data folder (default: Steam's usual folder)\n" +
+        "         --masters-dir  another folder to look for masters in (can be given more than once)\n" +
+        "         --quiet        no byline, and no WARNING lines when there are errors\n" +
+        "         --verbose, --log <file>  the troubleshooting log on stderr, or in that file\n" +
+        "         The last line is RESULT: OK (0 errors, n warnings), RESULT: FAIL (n errors, n warnings) or RESULT: CANNOT CHECK (...).\n" +
+        "         exit 0 = no errors (warnings allowed), 1 = errors, 2 = can't check (a missing plugin or master, a bad argument)";
+
+    /// <summary>"sf-mod-check gap": the gap check on one plugin, with the --gap-check lines and a RESULT line.</summary>
+    public static int Command(string[] a, string version, string byline)
+    {
+        try { return CommandLogged(a, version, byline); }
+        catch (Exception e)
+        {
+            Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK ({e.GetType().Name}: {SafeText.OneLine(e.Message)})"));
+            Fatal.AfterResult(() =>
+            {
+                Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");
+                Log.Write($"stopped: {e}");
+            });
+            return 2;
+        }
+        finally { Log.Close(); }
+    }
+
+    static int CantCheck(string why, string detail)
+    {
+        Console.Error.WriteLine(detail);
+        Log.Write($"stopped: {detail}");
+        Console.WriteLine($"RESULT: CANNOT CHECK ({why})");
+        return 2;
+    }
+
+    static int CommandLogged(string[] a, string version, string byline)
+    {
+        string data = SfModCheck.Cli.SteamData;
+        var mastersDirs = new List<string>();
+        string? plugin = null, logFile = null;
+        bool quiet = false, verbose = false;
+        int BadArgs(string message)
+        {
+            Console.Error.WriteLine(message);
+            Console.Error.WriteLine(Usage);
+            Console.WriteLine("RESULT: CANNOT CHECK (bad arguments; see the message above)");
+            return 2;
+        }
+        for (int i = 0; i < a.Length; i++)
+        {
+            string? Value(string what)
+            {
+                if (i + 1 < a.Length && !a[i + 1].StartsWith("--") && a[i + 1].Trim().Length > 0) return a[++i];
+                return null;
+            }
+            string Needs(string what) =>
+                $"{a[i]} needs {what} after it, for example: {a[i]} {SfModCheck.Cli.Example(a[i])}";
+            switch (a[i])
+            {
+                case "--data":
+                    if (Value("the game's Data folder") is not { } d) return BadArgs(Needs("the game's Data folder"));
+                    data = d; break;
+                case "--masters-dir":
+                    if (Value("a folder") is not { } m) return BadArgs(Needs("a folder"));
+                    mastersDirs.Add(m); break;
+                case "--log":
+                    if (Value("a file name") is not { } l) return BadArgs(Needs("a file name"));
+                    logFile = l; break;
+                case "--quiet": quiet = true; break;
+                case "--verbose": verbose = true; break;
+                case "-h": case "--help": Console.WriteLine(Usage); return 0;   // asked-for help: stdout, exit 0, no RESULT line
+                default:
+                    if (a[i].StartsWith('-')) return BadArgs($"unknown option {a[i]}");
+                    if (a[i].Trim().Length == 0) return BadArgs("the plugin name is empty: give a plugin, for example: sf-mod-check gap MyMod.esm");
+                    if (plugin != null) return BadArgs($"gap checks one plugin per run, not {plugin} and {a[i]} (a path with spaces needs quotes around it)");
+                    plugin = a[i]; break;
+            }
+        }
+        if (plugin == null) return BadArgs("give the plugin to check, for example: sf-mod-check gap MyMod.esm --masters-dir out");
+        if (!quiet) Console.Error.WriteLine(byline);
+        if (verbose) Log.ToStderr();
+        if (logFile != null && Log.ToFile(logFile) is { } logError) return CantCheck("the log file can't be written", logError);
+        Log.Write($"sf-mod-check {version} gap on {System.Runtime.InteropServices.RuntimeInformation.OSDescription}, .NET {Environment.Version}");
+        Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");
+        if (!File.Exists(plugin))
+            return CantCheck("the plugin doesn't exist",
+                $"{plugin} doesn't exist. Give the path of a plugin (.esm, .esp or .esl), with quotes around it if it has spaces.");
+        foreach (var m in mastersDirs.Where(m => !Directory.Exists(m)))
+            return CantCheck("a --masters-dir folder doesn't exist", $"--masters-dir {m} doesn't exist. Give a folder that holds the plugin's masters.");
+        var full = Path.GetFullPath(plugin);
+        var dirs = new[] { Path.GetDirectoryName(full)! }.Concat(mastersDirs.Select(Path.GetFullPath)).Append(data)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        Log.Write($"gap check {Log.Describe(full)}: masters searched in {string.Join(" | ", dirs)}");
+        Result r;
+        try { r = Check(full, dirs); }
+        catch (MasterNotFoundException e)
+        {
+            Console.WriteLine(e.Message);   // the same line as --gap-check prints (tools\gap_parity.py looks for it)
+            return CantCheck($"master {e.Master} not found",
+                $"Put {e.Master} in the plugin's folder, or give its folder with --masters-dir, or the game's Data folder with --data.");
+        }
+        catch (InvalidDataException e)
+        {
+            return CantCheck("not a readable plugin", $"can't check {plugin}: {e.Message}. Give a plugin file (.esm, .esp or .esl).");
+        }
+        var lines = r.Lines();
+        if (quiet && r.Errors.Count > 0) lines = lines.Where(l => !l.StartsWith("  WARNING ") && !l.StartsWith("  ... ")).ToList();
+        foreach (var l in lines) Console.WriteLine(l);
+        foreach (var w in r.Warnings.Skip(MaxWarnings)) Log.Write($"gap check: WARNING {w}");
+        Log.Write($"gap check {r.Summary}: {r.Errors.Count} errors, {r.Warnings.Count} warnings");
+        var counts = $"{r.Errors.Count} error{(r.Errors.Count == 1 ? "" : "s")}, {r.Warnings.Count} warning{(r.Warnings.Count == 1 ? "" : "s")}";
+        Console.WriteLine(r.Errors.Count > 0 ? $"RESULT: FAIL ({counts})" : $"RESULT: OK ({counts})");
+        return r.Errors.Count > 0 ? 1 : 0;
+    }
+
     // ---------------------------------------------------------------- the check
 
     sealed record Rec(uint FormId, string Sig, uint Flags, List<(string Type, byte[] Data)> Fields);

@@ -171,6 +171,144 @@ public class ReleaseLintTests
 
     static string JsonEsc(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
+    /// <summary>Runs the lint with a stand-in papyrus.exe: the hash pin is set to the stand-in's hash and the runner
+    /// records the project folder (papyrus.toml and the copied sources) and answers with one finding in the first
+    /// source copy. Restores both statics.</summary>
+    static (List<ReleaseFinding> Findings, string Toml, List<string> Copied) RunFake(Sandbox s, ReleaseOptions o, params string[] zips)
+    {
+        var exe = Path.Combine(s.Dir, "papyrus.exe");
+        File.WriteAllText(exe, "stand-in papyrus");
+        o.Papyrus ??= exe;
+        string toml = "";
+        var copied = new List<string>();
+        var (pin, runner) = (ReleaseLint.ExpectedSha256, ReleaseLint.Runner);
+        ReleaseLint.ExpectedSha256 = ReleaseLint.Sha256(exe);
+        ReleaseLint.Runner = (_, proj) =>
+        {
+            toml = File.ReadAllText(Path.Combine(proj, "papyrus.toml"));
+            copied.AddRange(Directory.EnumerateFiles(proj, "*.psc", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(proj, f).Replace('\\', '/')).Order(StringComparer.Ordinal));
+            var json = $"[{{\"code\": \"PAP008\", \"line\": 3, \"message\": \"`Missing` is not declared\", \"name\": \"members/unknown\", " +
+                       $"\"path\": \"{JsonEsc(Path.Combine(proj, "Source0", "ZZT", "Foo.psc"))}\", \"severity\": \"error\"}}]";
+            return (1, json, "checked 1 file: 1 error", false);
+        };
+        try { return (ReleaseLint.Run(Ctx(s, o, zips)).ToList(), toml, copied); }
+        finally { (ReleaseLint.ExpectedSha256, ReleaseLint.Runner) = (pin, runner); }
+    }
+
+    static string CkZip(Sandbox s) => MakeZip(s.Sub("ck"), "ContentResources.zip", ("Scripts/Source/Quest.psc", "ScriptName Quest\n"));
+
+    [Fact]
+    public void Psc_folders_replace_the_zips_sources_and_imports_follow_the_vanilla_sources()
+    {
+        using var s = new Sandbox();
+        var zip = MakeZip(s.Sub("zips"), "Mod-1.0.0.zip", ("Scripts/Source/ZZT/Shipped.psc", ModScript), ("Mod.esm", "x"));
+        var src = s.Sub(Path.Combine("My Build", "Source"));
+        Directory.CreateDirectory(Path.Combine(src, "ZZT"));
+        File.WriteAllText(Path.Combine(src, "ZZT", "Foo.psc"), ModScript);
+        File.WriteAllText(Path.Combine(src, "ZZT", "Foo.pex"), "compiled");
+        var imp1 = s.Sub("OtherModSource");
+        var imp2 = s.Sub("ThirdModSource");
+        var ck = CkZip(s);
+        var o = new ReleaseOptions { CkSources = ck };
+        o.Psc.Add(src);
+        o.PscImport.Add(imp1);
+        o.PscImport.Add(imp2);
+
+        var (f, toml, copied) = RunFake(s, o, zip);
+        Assert.Equal(["Source0/ZZT/Foo.psc"], copied);   // the --psc folder, not the zip's Shipped.psc
+        var vanilla = ReleaseLint.VanillaSources(ck);
+        string T(string p) => "\"" + p.Replace('\\', '/') + "\"";
+        Assert.Contains($"imports = [{T(vanilla)}, {T(imp1)}, {T(imp2)}]\n", toml);
+        Assert.Contains("sources = [\"Source0\"]\n", toml);
+        var sep = Path.DirectorySeparatorChar;
+        Assert.Contains(f, x => x.Level == Level.Warning && x.Text.StartsWith($"papyrus error PAP008 members/unknown: ZZT{sep}Foo.psc:3: "));
+        Assert.Contains(f, x => x.Level == Level.Note && x.Text == "papyrus lint: checked 1 file: 1 error");
+        Assert.DoesNotContain(f, x => x.Text.Contains("no script sources"));
+        Assert.Equal(2, f.Count);
+    }
+
+    [Fact]
+    public void Without_psc_the_zips_sources_are_linted_with_the_vanilla_import_only()
+    {
+        using var s = new Sandbox();
+        var zip = MakeZip(s.Sub("zips"), "Mod-1.0.0.zip", ("Scripts/Source/ZZT/Foo.psc", ModScript));
+        var ck = CkZip(s);
+        var (f, toml, copied) = RunFake(s, new ReleaseOptions { CkSources = ck }, zip);
+        Assert.Equal(["Source0/ZZT/Foo.psc"], copied);
+        Assert.Contains($"imports = [\"{ReleaseLint.VanillaSources(ck).Replace('\\', '/')}\"]\n", toml);
+        Assert.Equal(2, f.Count);
+    }
+
+    [Fact]
+    public void A_psc_folder_without_sources_gets_a_note()
+    {
+        using var s = new Sandbox();
+        var zip = MakeZip(s.Sub("zips"), "Mod-1.0.0.zip", ("Scripts/Source/ZZT/Foo.psc", ModScript));
+        var empty = s.Sub("EmptySource");
+        var o = new ReleaseOptions { CkSources = CkZip(s) };
+        o.Psc.Add(empty);
+        var (f, toml, _) = RunFake(s, o, zip);
+        var one = Assert.Single(f);
+        Assert.Equal(Level.Note, one.Level);
+        Assert.Equal($"no .psc files in --psc {Path.GetFullPath(empty)}; Papyrus lint skipped for it", one.Text);
+        Assert.Equal("", toml);   // papyrus never ran (the zip's own sources are not used either)
+    }
+
+    [Fact]
+    public void Psc_folders_without_papyrus_and_ck_sources_get_a_note()
+    {
+        using var s = new Sandbox();
+        var zip = MakeZip(s.Sub("zips"), "Mod-1.0.0.zip", ("Mod.esm", "x"));
+        var o = new ReleaseOptions { CkSources = CkZip(s) };   // no --papyrus
+        o.PscImport.Add(s.Sub("Imports"));
+        var one = Assert.Single(ReleaseLint.Run(Ctx(s, o, zip)).ToList());
+        Assert.Equal(Level.Note, one.Level);
+        Assert.Contains("--psc and --psc-import folders were not used", one.Text);
+        Assert.Contains("both --papyrus and --ck-sources", one.Text);
+    }
+
+    [Fact]
+    public void A_missing_psc_or_psc_import_folder_is_exit_2_naming_the_option_and_path()
+    {
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        var zip = MakeZip(s.Sub("zips"), "Mod-1.0.0.zip", ("Mod.esm", "x"));
+        foreach (var opt in new[] { "--psc", "--psc-import" })
+        {
+            var missing = Path.Combine(s.Dir, "No Such", opt.TrimStart('-'));
+            var (code, stdout, stderr) = ExeTests.RunSplit("release", zip, "--data", data, opt, missing);
+            Assert.Equal(2, code);
+            Assert.Contains($"RESULT: CANNOT CHECK (the {opt} folder {Path.GetFullPath(missing)} doesn't exist)", stdout);
+            Assert.Contains($"can't use {opt} {Path.GetFullPath(missing)}: that folder doesn't exist", stderr);
+        }
+        var file = Path.Combine(s.Dir, "a-file.psc");
+        File.WriteAllText(file, ModScript);
+        Assert.Contains("that is a file, not a folder", ExeTests.RunSplit("release", zip, "--data", data, "--psc", file).Stderr);
+        Assert.Equal(2, ExeTests.RunSplit("release", zip, "--psc").Code);   // no value
+    }
+
+    [Fact]
+    public void Psc_options_are_in_the_usage_readme_agents_and_changelog()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "ReleaseLint.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\ReleaseLint.cs not found above " + AppContext.BaseDirectory);
+        var readme = File.ReadAllText(Path.Combine(dir!.FullName, "README.md"));
+        var agents = File.ReadAllText(Path.Combine(dir.FullName, "AGENTS.md"));
+        var changelog = File.ReadAllText(Path.Combine(dir.FullName, "CHANGELOG.md"));
+        var help = ExeTests.RunSplit("release", "--help");
+        Assert.Equal(0, help.Code);
+        foreach (var o in new[] { "--psc <folder>", "--psc-import <folder>" })
+        {
+            Assert.Contains($"[{o}]...", ReleaseCommand.Usage);
+            Assert.Contains($"[{o}]...", help.Stdout);
+            Assert.Contains($"[{o}]...", readme);
+            Assert.Contains("`" + o + "`", agents);
+            Assert.Contains("`release " + o + "`", changelog);
+        }
+    }
+
     // Manual check against the earlier Python check (not a unit test): set SFMODCHECK_PAPYRUS_REAL to an output file and
     // SFMODCHECK_PAPYRUS_REAL_SRC to a mod's Scripts\Source folder. The test zips that folder, lints it with the real
     // papyrus.exe (papyrus-tools) and ContentResources.zip (Steam CK), and writes the report lines to the file.

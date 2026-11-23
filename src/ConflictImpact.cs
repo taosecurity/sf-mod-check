@@ -224,6 +224,10 @@ public static class Impact
     public static string Kind(LostChange l, LostField f) =>
         IsMinor(f) ? "No effect" : LostToBlueprint(l) ? "Lost" : f.WinnerChangedToo ? "Choice" : "Forwardable";
 
+    /// <summary>How many fields of these lost changes have this Kind label (the pair tables' count columns).</summary>
+    public static int CountKind(IEnumerable<LostChange> changes, string kind) =>
+        changes.Sum(l => l.Fields.Count(f => Kind(l, f) == kind));
+
     /// <summary>The navmesh info map's note when a BlueprintShips file has the last copy (0.12.0).</summary>
     public static string NaviBlueprintNote(string winner) =>
         $"{LoadOrderSetup.Display(winner)} loads after every mod, so its copy of the navmesh info map loads last. " +

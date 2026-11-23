@@ -321,15 +321,16 @@ public static class Report
         var parts = new List<string> { One(s, "script"), One(N("model"), "model") };
         if (N("texture") is var t and > 0) parts.Add(One(t, "texture"));
         if (N("material") is var m and > 0) parts.Add(One(m, "material"));
+        if (N("mesh") is var me and > 0) parts.Add($"{me} mesh{(me == 1 ? "" : "es")}");
         if (N("sound") is var so and > 0) parts.Add(One(so, "sound"));
         // any other kind still counts, so the parts add up to the total (as AssetActions does); a guard only:
-        // conflict makes no kind beyond these five today (face data is looked for only in release)
-        var other = a.MissingAssets.Count(f => KindOrder(f.Asset.Kind) == 5);
+        // conflict makes no kind beyond these six today (face data is looked for only in release)
+        var other = a.MissingAssets.Count(f => KindOrder(f.Asset.Kind) == 6);
         if (other > 0) parts.Add($"{other} other");
         return string.Join(", ", parts);
     }
 
-    static int KindOrder(string kind) => kind switch { "script" => 0, "model" => 1, "material" => 2, "texture" => 3, "sound" => 4, _ => 5 };
+    static int KindOrder(string kind) => kind switch { "script" => 0, "model" => 1, "mesh" => 2, "material" => 3, "texture" => 4, "sound" => 5, _ => 6 };
 
     /// <summary>The section's first paragraph: what was checked, or that the check was off.</summary>
     public static string AssetsIntro(Analysis a) => !a.AssetsChecked
@@ -340,10 +341,11 @@ public static class Report
           $"game's INI lists). Checked {a.AssetScriptUses} script use{(a.AssetScriptUses == 1 ? "" : "s")} and {a.AssetModelUses} " +
           $"model use{(a.AssetModelUses == 1 ? "" : "s")}, and {a.AssetMaterialUses} material and {a.AssetTextureUses} texture path{(a.AssetTextureUses == 1 ? "" : "s")} " +
           "(named by records, by the mods' own .nif files and by their .mat files), " +
+          (a.AssetMeshUses > 0 ? $"{a.AssetMeshUses} geometry (.mesh) file{(a.AssetMeshUses == 1 ? "" : "s")} named by the mods' own .nif files, " : "") +
           (a.AssetSoundUses > 0 ? $"and {a.AssetSoundUses} streamed sound{(a.AssetSoundUses == 1 ? "" : "s")} of the mods' own sound banks, " : "") +
           $"in the mod plugins against {a.ArchivesRead} archive{(a.ArchivesRead == 1 ? "" : "s")} " +
-          "and the loose files; a material also counts when a loaded material database (the game's or a plugin's own .cdb) holds it. A missing script is an ERROR (that record's script never runs); a missing model, material, texture or sound is a WARNING " +
-          "(an empty or error mesh, a wrong-looking surface, or silence, in game). Official plugins are not checked, and neither is a missing path an override " +
+          "and the loose files; a material also counts when a loaded material database (the game's or a plugin's own .cdb) holds it. A missing script is an ERROR (that record's script never runs); a missing model, mesh, material, texture or sound is a WARNING " +
+          "(an empty or error mesh, a missing part of a model, a wrong-looking surface, or silence, in game). Official plugins are not checked, and neither is a missing path an override " +
           "inherits: when the version it overrides names the same path, the mistake isn't the override's" +
           (a.AssetsInherited > 0 ? $" ({a.AssetsInherited} such use{(a.AssetsInherited == 1 ? "" : "s")} left out; --verbose lists them)." : ".");
 
@@ -364,7 +366,7 @@ public static class Report
 
     /// <summary>The "What this report does not check" line about assets.</summary>
     public static string AssetsNotChecked(Analysis a) => a.AssetsChecked
-        ? ".mesh geometry, voice and animation files, music, sounds outside the mods' own sound banks, and script parents are not checked, and neither are official plugins' assets."
+        ? "Voice and animation files, .mesh geometry that only other mods' or the game's .nif files name, music, sounds outside the mods' own sound banks, and script parents are not checked, and neither are official plugins' assets."
         : a.AssetsFailed != null
             ? $"Scripts, models and other assets are not checked: the step stopped ({a.AssetsFailed})."
             : "Scripts, models and other assets are not checked (--no-assets); only plugin records.";
@@ -381,6 +383,7 @@ public static class Report
     static readonly (string Kind, string Effect)[] KindEffects =
     {
         ("script", "those records' scripts never run"), ("model", "those records show an empty or error mesh"),
+        ("mesh", "parts of those models don't show"),
         ("material", "those surfaces look wrong"), ("texture", "those surfaces look wrong"), ("sound", "those sounds are silent"),
     };
 
@@ -398,7 +401,7 @@ public static class Report
             {
                 var n = g.Count(f => f.Kind == kind);
                 if (n == 0) continue;
-                parts.Add($"{n} missing {kind}{(n == 1 ? "" : "s")}");
+                parts.Add($"{n} missing {kind}{(n == 1 ? "" : kind == "mesh" ? "es" : "s")}");
                 if (!effects.Contains(effect)) effects.Add(effect);
             }
             // any other kind still gets a count and an effect, never a blank action
@@ -446,11 +449,13 @@ public static class Report
     static void WriteGroups(StringBuilder md, List<LostChange> items, LoadOrderSetup lo, Analysis a)
     {
         if (items.Count == 0) { md.AppendLine("None found."); md.AppendLine(); return; }
-        md.AppendLine("| Winning plugin | Loses changes from | Records | Forwardable fields | Choice fields | No effect |");
-        md.AppendLine("|---|---|---|---|---|---|");
+        // 0.15.0: a Lost column (fields lost to an official BlueprintShips file, Impact.Kind "Lost"), which before
+        // counted in none of the columns
+        md.AppendLine("| Winning plugin | Loses changes from | Records | Forwardable fields | Choice fields | Lost fields | No effect |");
+        md.AppendLine("|---|---|---|---|---|---|---|");
         var groups = items.GroupBy(l => (l.Winner, l.Loser)).OrderByDescending(g => g.Count()).ToList();
         foreach (var g in groups)
-            md.AppendLine($"| {Md(LoadOrderSetup.Display(g.Key.Winner))} | {Md(LoadOrderSetup.Display(g.Key.Loser))} | {g.Count()} | {g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Forwardable"))} | {g.Sum(l => l.Fields.Count(f => Impact.Kind(l, f) == "Choice"))} | {g.Sum(l => l.Fields.Count(Impact.IsMinor))} |");
+            md.AppendLine($"| {Md(LoadOrderSetup.Display(g.Key.Winner))} | {Md(LoadOrderSetup.Display(g.Key.Loser))} | {g.Count()} | {Impact.CountKind(g, "Forwardable")} | {Impact.CountKind(g, "Choice")} | {Impact.CountKind(g, "Lost")} | {Impact.CountKind(g, "No effect")} |");
         md.AppendLine();
         foreach (var g in groups)
         {

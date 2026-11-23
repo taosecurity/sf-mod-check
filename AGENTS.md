@@ -208,6 +208,25 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     that the zip lacks, give the reviewed DMMDeps v0.4.1 build (any other build is refused):
     `--dmmdeps C:\Tools\dmmdeps-fat.exe`. Every line has its rule in brackets; the README lists them.
 
+    To confirm the release is the build that was tested, and that its archives hold every staged file (0.15.0):
+
+        sf-mod-check release MyMod-1.0.1.zip --tested MyMod-1.0.0.zip --stage C:\Build\MyMod\Data
+
+    `--tested <zip|ba2>` compares each compiled script by meaning (not by bytes) and each plugin byte for byte with the
+    tested build; a difference is a REVIEW line (rule `tested`), expected only where something changed after the test.
+    `--stage <folder>` is the folder the release was built from: a staged file in no archive and not loose in the zip
+    is a PROBLEM (rule `stage`). A `--tested` file or `--stage` folder inside the game folder is refused (exit 2).
+
+    To lint scripts whose sources don't ship in the zip, with papyrus-tools v0.16.3 and the Creation Kit's sources
+    (0.15.0):
+
+        sf-mod-check release MyMod-1.0.0.zip --papyrus C:\Tools\papyrus.exe --ck-sources "C:\Games\Starfield\Tools\ContentResources.zip" --psc C:\Build\MyMod\Scripts\Source --psc-import C:\Build\OtherMod\Scripts\Source
+
+    `--psc <folder>` is the folder above the namespace folders; it is linted instead of the zips' `Scripts\Source`.
+    `--psc-import <folder>` adds another mod's sources to the imports, after the vanilla sources. Both can be given
+    more than once. Findings are WARNING lines (rule `papyrus-lint`) and never fail the release. Without `--papyrus`
+    and `--ck-sources` one NOTE says the folders were not used; a folder that doesn't exist is exit 2.
+
     Before uploading a Bethesda Creation (PC, Xbox and PlayStation), add the Creations rules (0.10.0):
 
         sf-mod-check release MyMod-1.0.0.zip --profile creations
@@ -219,6 +238,17 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     script tests only official plugins (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS###`, `sftaNN` and their `BlueprintShips-` files), it stays a failure (0.10.1). A master by
     another author that the user has seen on Creations for every platform: `--creations-master OtherMod.esm`. Never add
     one on your own judgement; ask the user.
+
+    To check a build before it is zipped, or a Creation built from several parts (0.15.0), give the inputs as
+    `release <zip|folder|ba2|plugin>...`:
+
+        sf-mod-check release C:\Build\MyMod\Data "C:\Build\MyMod - Textures.ba2" --profile creations --size-total
+
+    A folder is read where it is (nothing is written into it); loose `.ba2` and plugin files are checked together as
+    one package named `loose files`. The zip-only rules (`one-plugin`, `root-md`) skip them, with one NOTE (rule
+    `not-a-zip`). `--size-total` counts every input of the run as one Creation for the 2 GB rule; it needs
+    `--profile creations` (otherwise exit 2). A folder inside the game folder, or two loose files of the same name,
+    is exit 2.
 
 14. Look over a downloaded mod before installing it (0.8.0). The report goes next to the download unless `--out` is
     given; open the `.html` file:
@@ -287,6 +317,28 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 
         sf-mod-check diff OldCopy\SomeMod.esm SomeMod.esm --all --out diff.txt
 
+    Check a plugin a Mutagen-based tool wrote for the data Mutagen 0.54.4 loses (0.15.0; the same check as the
+    `release` command's `mutagen-gap` rule):
+
+        sf-mod-check gap out\MyMod.esm --masters-dir out
+
+    Masters are looked for in the plugin's own folder, each `--masters-dir` in order, then `--data`. `--quiet`
+    drops the byline and, when there are errors, the WARNING lines; `--verbose` and `--log <file>` work as for `check`.
+
+17. Tell whether a conflict patch is still up to date (0.15.0). It reads the `patch-sources.json` that `patch`
+    wrote beside the patch, compares it with the load order as it is now, and changes nothing:
+
+        sf-mod-check patch check sf-mod-check-patch\ConflictPatch.esm --plugins "%LOCALAPPDATA%\Starfield\Plugins.txt"
+        sf-mod-check patch check sf-mod-check-patch\ConflictPatch.esm --plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch --json check.json
+
+    Use the second form before the patch is installed. Read the exit code and the last stdout line: exit 0 and
+    `RESULT: UP TO DATE` (also when the patch isn't in the load order: `RESULT: UP TO DATE (the patch isn't in the load order; nothing was checked)`),
+    exit 1 and `RESULT: REBUILD (n reasons)` (run the same `patch` command again, or follow the `[moved]` or
+    `[duplicate]` advice), exit 2 and `RESULT: CANNOT CHECK (...)` (the message above it names the file and the fix;
+    no `patch-sources.json` beside the patch means it was made before 0.15.0, so make it again). The lines before
+    it are `LEVEL [rule] text`: PROBLEM `[removed]`, REVIEW `[moved]`, `[updated]`, `[new-editor]`, `[duplicate]`
+    and `[patch-changed]`, NOTE `[updated]` and `[patch-off]` (section 6 says what each means).
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -301,9 +353,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   starting with `ERROR `, `WARNING ` and `RESULT: `.
 - **stderr:** notes (very large plugin, no Starfield.esm found), error messages for bad arguments, and the
   `--verbose` log lines (`log: ...`).
-- **`release`:** input is one or more zips. Output (stdout) is `PROBLEM`, `REVIEW`, `WARNING` and `NOTE` lines, each as
+- **`release`:** input is one or more zips, stage folders, `.ba2` files or plugins (`release <zip|folder|ba2|plugin>...`, 0.15.0). Output (stdout) is `PROBLEM`, `REVIEW`, `WARNING` and `NOTE` lines, each as
   `<LEVEL> [rule] text`, then `RESULT: OK|FAIL (n problems, n to review, n warnings)` (or `RESULT: CANNOT CHECK (...)`).
-  Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments, a bad zip, a missing file or an error that stops the check). Scripts should read the exit code and the `PROBLEM ` and `RESULT: ` lines.
+  Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments such as `--size-total` without `--profile creations`, a bad zip, a missing file, an input folder, `--tested` file or `--stage` folder inside the game folder, two loose inputs of the same name, or an error that stops the check). Scripts should read the exit code and the `PROBLEM ` and `RESULT: ` lines.
 - **`triage`:** input is one .zip, .7z or .rar (unpacked into a temp folder that is removed at the end;
   password-protected archives are refused), a mod folder (read where it is; the game's install, its Data or Content folder, or a folder inside them is refused) or
   one plugin (with the archives beside it that share its name). Output: `<out>\<name>-triage.html`, `.txt` and
@@ -314,6 +366,12 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   `INCOMPLETE ...` lines, and always one last line `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <html path>` or
   `RESULT: NO REPORT (...)`. Exit codes: 0 = report written (whatever it found: there is no "fail"); 2 = bad input,
   setup or an error that stops the run. Scripts should read the exit code and the JSON.
+- **`gap`:** input is one plugin and its masters. Output: a summary line, `  ERROR   ...` lines (data Mutagen 0.54.4
+  loses, and placed references missing from the ONAM list), `  WARNING ...` lines (other fields the master has and
+  the plugin lacks; at most 200, then `  ... n more warnings`), a count line, then always one last line
+  `RESULT: OK (0 errors, n warnings)`, `RESULT: FAIL (n errors, n warnings)` or `RESULT: CANNOT CHECK (...)`. A
+  missing master prints `master <name> not found in <folders>` before the CANNOT CHECK line. Exit codes: 0 = no
+  errors, 1 = errors, 2 = can't check (missing plugin or master, not a plugin, bad argument).
 - **`diff`:** input is two plugins, or two mods (each a .zip, .7z or .rar, unpacked into a temp folder that is
   removed at the end, or a folder read where it is); plugins in two mods are paired by file name. Output: the report
   on stdout, or in the `--out` file (text, or JSON with `--json`), then always one last line on stdout:
@@ -368,7 +426,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   as the game does; a Plugins.txt line for one doesn't move it). A change lost to one of them is a `lost` entry
   with that file as `Winner`; its recommendation says no load order or patch brings it back, and `patch` lists the
   record under "Not built" (counted in the RESULT line's records not built) instead of building it. The report's
-  Kind column says `Lost` for such a field. The navmesh info map (`NavigationMeshInfoMap`) is the exception: it
+  Kind column says `Lost` for such a field, and since 0.15.0 the pair tables count those fields in a `Lost fields`
+  column (report.html also puts an "n lost" badge on the pair; conflicts.json has no new key). The navmesh info map (`NavigationMeshInfoMap`) is the exception: it
   keeps its own note and its own "Not built" reason, because each plugin's copy lists only its own navmeshes.
   A mod with a BlueprintShips master gets a `loadOrderProblems` line but is still loaded and compared, judged
   against that master's version; `triage` reports that line as a load-order note, not as "left out". A patch whose
@@ -399,14 +458,38 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   no report); 3 = stopped at `--max-memory` (no report).
 - **patch input:** the same as `conflict`, plus `--only` (plugin file names), `--pick` lines and `--include-official`. **patch output:** in
   `--out` (default `sf-mod-check-patch`): the patch plugin (light, loads last; `--name`, default
-  `ConflictPatch.esm`), `patch-report.md` and `Plugins-with-patch.txt` (the load order with the patch line at the end);
-  when the load order already holds a plugin of the patch's name, also `Plugins-without-patch.txt` (the order it was
-  built from). With nothing to patch, no plugin is written and an old one there is removed. On stdout: `ERROR [patch]`
+  `ConflictPatch.esm`), `patch-report.md`, `Plugins-with-patch.txt` (the load order with the patch line at the end)
+  and `patch-sources.json` (see below); when the load order already holds a plugin of the patch's name, also
+  `Plugins-without-patch.txt` (the order it was built from). `patch-sources.json` (0.15.0) records what the patch was built from, in schema 1, with `schema`, `tool`,
+  `made`, `patch` {`name`, `size`, `sha256`}, `loadOrder.plugins` (file names only, without the patch), `masters`
+  [{`name`, `position`, `size`, `modified` (UTC), `sha256`}] and `records` [{`formKey`, `type`, `editorId`, `editors`
+  [{`plugin`, `hash`}]}]; `hash` is 16 hex digits of the editor's copy of the record, or null when it couldn't be
+  read; a plugin saved again without changes keeps its hashes; `type` is the record type's class
+  name, such as `MiscItem`. With nothing to patch, no plugin is written and an
+  old one there is removed, with its `Plugins-with-patch.txt` and `patch-sources.json`. On stdout: `ERROR [patch]`
   lines for read-back differences, then always one last line `RESULT: OK, patch <path>: <n> records, <n> fields
   forwarded, <n> picks used, <n> shared lists merged, <n> choices kept the winner's value, <n> records not built, <n> masters (report: <path>;
   <s> s)`, or `RESULT: OK, nothing to patch: ...`, `RESULT: FAILED, <n> read-back differences (don't use this patch),
   ...`, `RESULT: CANNOT BUILD (...)` or `RESULT: STOPPED (...)`. Exit codes: 0 = written (or nothing to patch); 1 =
   written, but the read-back found a difference (don't use it); 2 = couldn't run; 3 = stopped at `--max-memory`.
+- **patch check input** (0.15.0): `sf-mod-check patch check <patch.esm>` with `--manifest <patch-sources.json>`
+  (default: the one beside the patch), `--plugins`, `--data` and `--extra-data` (the load order now, as for `patch`),
+  `--json <file>`, `--quiet`, `--verbose`, `--log <file>`. Read only. **patch check output:** on stdout, PROBLEM
+  lines, then REVIEW, then NOTE, each `LEVEL [rule] text`:
+  PROBLEM `[removed]` (a master isn't in Data, isn't active or can't be loaded);
+  REVIEW `[moved]` (a master is listed after the patch, or a plugin of the build now loads after it and changes a
+  patched record; BlueprintShips files excepted);
+  REVIEW `[updated]` (a master's size or SHA-256 changed and its copy of a patched record hashes differently from
+  `patch-sources.json`, or it now holds a patched record it didn't; NOTE `[updated]` when none of those records changed);
+  REVIEW `[new-editor]` (an active plugin that isn't a master now changes a patched record);
+  REVIEW `[duplicate]` (another spelling of the patch, differing in spaces or case, is active too);
+  REVIEW `[patch-changed]` (the loaded patch file isn't the manifest's build);
+  NOTE `[patch-off]` (the patch isn't active; nothing else is checked).
+  Then `RESULT: UP TO DATE`, `RESULT: REBUILD (n reasons)` (n = PROBLEM and REVIEW lines) or
+  `RESULT: CANNOT CHECK (...)`. Texts show up to 5 FormKeys. `--json` writes {`patch`, `state` (`up to date`,
+  `rebuild`, `not active`, `cannot check`), `result`, `findings` [{`level`, `rule`, `plugin`, `text`, `records`
+  (all FormKeys)}], and `why` for `cannot check`}. Exit codes: 0 = up to date or not active; 1 = rebuild or review;
+  2 = can't check (no or unknown manifest, an unreadable patch or load order, a bad argument). `--help` exits 0.
 - **Caches:** `%LOCALAPPDATA%\sfmodcheck\` on Windows, `~/.local/share/sfmodcheck/` on Linux (the folder kept its old
   name; the masters' EditorIDs, the learned list of official scenes and triage's index of the game's archive file
   names; rebuilt by themselves after a game update). The environment variable
@@ -423,12 +506,15 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    offline plugins only. `triage` never loads or runs a mod's DLLs, EXEs or scripts: it reads their bytes; the
    signature check asks Windows with no revocation lookup and no download.
 3. `check` checks one plugin against its masters; `conflict` compares plugin records across a load order. The
-   `assets` check in both looks up the names of attached scripts, models, materials, textures and the sounds of a
-   mod's own sound banks in loose files and BA2 archives. It reads only names from a mod's own `.nif`, `.mat` and
-   `.bnk` files, never geometry, texture or sound data, and it doesn't check face data, voice files or music.
+   `assets` check in both looks up the names of attached scripts, models, materials, textures, the `.mesh` geometry
+   files a mod's own `.nif` files name (since 0.15.0; `release` rule `mesh-missing`) and the sounds of a mod's own
+   sound banks in loose files and BA2 archives. It reads only names from a mod's own `.nif`, `.mat` and `.bnk` files,
+   never geometry, texture or sound data, and it doesn't check face data, voice files or music.
    `release` also looks for each new or changed NPC face's baked files (rule `face-missing`, a NOTE when none of
-   the five is there), archives named so that the game never loads them (rule `archive-name`), and file names with
-   non-ASCII characters or loose paths over 200 characters (rule `file-name`, a WARNING).
+   the five is there, and since 0.15.0 a NOTE that the face is stale when an override changes it but every face
+   file found is the master's), archives named so that the game never loads them (rule `archive-name`), and file
+   names with non-ASCII characters or loose paths over 200 characters (rule `file-name`, a WARNING; since 0.15.0
+   `triage` reports the same file names as LOOKs in its Files section).
 4. A patch `conflict` suggests or `patch` builds holds other authors' data: it is for the player's own game, never
    for publishing. `patch` doesn't build the records inside quests or dialogue topics (the report lists them for
    xEdit). Since 0.13.0 it builds cells and worldspaces themselves (without their other records or RNAM/OFST/CLSZ),

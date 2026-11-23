@@ -137,6 +137,48 @@ public class BlueprintOrderTests
         var html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
         Assert.Contains("<span class=\"badge minor\">Lost</span>", html);
         Assert.DoesNotContain("choice</span>", html);
+        // 0.15.0: the pair tables count the field in a Lost column (before, it counted in no column), and the pair's
+        // heading in report.html gets a "1 lost" badge.
+        Assert.Contains("| Winning plugin | Loses changes from | Records | Forwardable fields | Choice fields | Lost fields | No effect |", report);
+        Assert.Contains("| BlueprintShips-Starfield.esm (base game ship blueprints) | ModA.esm | 1 | 0 | 0 | 1 | 0 |", report);
+        Assert.Contains("<th>Choice fields</th><th>Lost fields</th><th>No effect</th>", html);
+        Assert.Contains("<td class=\"num\">1</td><td class=\"num\">0</td><td class=\"num\">0</td><td class=\"num\">1</td><td class=\"num\">0</td></tr>", html);
+        Assert.Contains("<span class=\"badge minor\">1 lost</span>", html);
+        // conflicts.json gets no new key (sf-load-order 0.1.3 reads it): the lost entry keeps its 0.14.0 keys
+        Assert.Equal(["formKey", "RecordType", "EditorID", "Loser", "LoserOfficial", "Winner", "Fields", "priority"],
+            lost.EnumerateObject().Select(p => p.Name).ToList());
+    }
+
+    [Fact]
+    public void The_Lost_fields_column_is_in_the_readme_agents_and_changelog()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "ConflictReport.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\ConflictReport.cs not found above " + AppContext.BaseDirectory);
+        string Doc(string n) => File.ReadAllText(Path.Combine(dir!.FullName, n));
+        var changes = Doc("CHANGELOG.md").Split("\n## 0.14.0")[0];
+        foreach (var (name, text) in new[] { ("README.md", Doc("README.md")), ("AGENTS.md", Doc("AGENTS.md")), ("CHANGELOG.md 0.15.0", changes) })
+        {
+            Assert.True(text.Contains("Lost fields"), $"{name} doesn't name the Lost fields column");
+            Assert.True(text.Contains("n lost"), $"{name} doesn't name the \"n lost\" badge");
+        }
+    }
+
+    [Fact]
+    public void A_mod_vs_mod_pair_has_no_lost_fields_and_no_lost_badge()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, open) => Ship(m, open("Starfield.esm"), 1));
+        game.Mod("ModB.esm", (m, open) => Ship(m, open("Starfield.esm"), 2));
+        var txt = game.PluginsTxt("*ModA.esm", "*ModB.esm");
+        var (code, stdout, _, _) = game.Conflict(txt);
+        Assert.True(code == 0, stdout);
+        var report = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
+        // both changed the ship's components: one Choice field, no Lost field
+        Assert.Contains("| ModB.esm | ModA.esm | 1 | 0 | 1 | 0 | 0 |", report);
+        var html = File.ReadAllText(Path.Combine(game.Dir, "report", "report.html"));
+        Assert.Contains("<span class=\"badge choice\">1 choice</span>", html);
+        Assert.DoesNotMatch("badge minor\">[0-9]+ lost</span>", html);
     }
 
     /// <summary>A navmesh info map in the made-up base game, then copies of it with one more entry each.</summary>

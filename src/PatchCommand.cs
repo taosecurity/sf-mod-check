@@ -42,13 +42,14 @@ public static class PatchCommand
     public const string Usage =
         "usage: sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
         "                          [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]]... [--pick <FormKey>[:<Field>]=<plugin>]...\n" +
-        "                          [--include-official] [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]";
+        "                          [--include-official] [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]\n" +
+        "       sf-mod-check patch check <patch.esm> [...]   (is a patch still up to date? sf-mod-check patch check --help)";
 
     public const string DefaultName = "ConflictPatch.esm";
     const int PartialFlag = FieldCompare.PartialFormFlag;
     const int CompressedFlag = 0x40000;
 
-    static string GamePluginsTxt() =>
+    internal static string GamePluginsTxt() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Starfield", "Plugins.txt");
 
     /// <summary>A --pick: use this plugin's value for one field of a record, or for all its Choice fields (Field null).</summary>
@@ -174,6 +175,8 @@ public static class PatchCommand
 
     public static int Run(string[] a, string version, string byline)
     {
+        // `patch check <patch>` (0.15.0): is a patch still up to date? Read only (PatchCheck.cs).
+        if (a.Length > 0 && a[0] == "check") return PatchCheck.Run(a[1..], version, byline);
         try
         {
             var code = RunLogged(a, version, byline, out var resultPrinted, out var cantWhy);
@@ -434,12 +437,15 @@ public static class PatchCommand
             var reportPath = Path.Combine(outDir, "patch-report.md");
             var patchPath = Path.Combine(outDir, name);
             var withPatchTxt = Path.Combine(outDir, "Plugins-with-patch.txt");
+            var sourcesPath = Path.Combine(outDir, PatchSources.FileName);
             if (plan.Records.Count == 0)
             {
                 // nothing to build: remove an old patch file from an earlier run, so nobody installs it by mistake
                 if (File.Exists(patchPath)) File.Delete(patchPath);
                 // and its load order with the patch line, which would name a plugin that is gone
                 if (File.Exists(withPatchTxt)) File.Delete(withPatchTxt);
+                // and its manifest, which would describe that patch (0.15.0)
+                if (File.Exists(sourcesPath)) File.Delete(sourcesPath);
                 WriteReport(reportPath, plan, lo, name, null, null, version);
                 resultPrinted = true;
                 Console.WriteLine($"RESULT: OK, nothing to patch: {plan.Forwarded} forwardable fields, {plan.NotBuilt.Count} records not built " +
@@ -452,6 +458,13 @@ public static class PatchCommand
             File.WriteAllLines(withPatchTxt, withoutPatch.Append("*" + name));
             Analyzer.Where = $"reading {patchPath} back";
             var mismatches = ReadBack(patchPath, plan, lo);
+            // what the patch was built from, for `patch check` (0.15.0)
+            Analyzer.Where = $"writing {sourcesPath}";
+            var sources = PatchSources.Build(version, patchPath, lo, masters,
+                plan.Records.Select(r => (r.FormKey, r.RecordType, r.EditorID, (IReadOnlyList<string>)r.Plugins)), DateTime.UtcNow);
+            PatchSources.Write(sourcesPath, sources);
+            Log.Write($"patch-sources: {sourcesPath}: {sources.Masters.Count} masters, {sources.Records.Count} records, " +
+                      $"{sources.Records.Sum(r => r.Editors.Count(e => e.Hash is null))} editor copies without a hash");
             WriteReport(reportPath, plan, lo, name, masters, mismatches, version);
             foreach (var m in mismatches.Take(10)) Console.WriteLine($"ERROR [patch] {m}");
             resultPrinted = true;

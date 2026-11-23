@@ -1,7 +1,8 @@
 // sfmodcheck release: the optional Papyrus lint (0.7.0, chunk C4), a port of papyrus_lint and vanilla_psc in our
 // the author's earlier Python release check. It runs only with both --papyrus <papyrus.exe> (papyrus-tools) and --ck-sources <the Creation
-// Kit's Tools\ContentResources.zip>, on the .psc files each zip ships under Scripts\Source. Every finding is a WARNING
-// (the lint never fails a release); a NOTE gives papyrus's own summary line.
+// Kit's Tools\ContentResources.zip>, on the .psc files each zip ships under Scripts\Source, or (0.15.0) on the --psc
+// folders instead, with the --psc-import folders added to the imports after the vanilla sources. Every finding is a
+// WARNING (the lint never fails a release); a NOTE gives papyrus's own summary line.
 // The vanilla sources (Scripts\Source\*.psc and *.flg in ContentResources.zip) are extracted once per zip version (size
 // and modified time) into <LearnedCache.Root>\vanilla-psc\<size>-<unix time>, through a ".partial" folder renamed when
 // complete, so a run that stops halfway never leaves a cache that looks finished.
@@ -35,14 +36,37 @@ public static class ReleaseLint
     static ReleaseFinding Warn(string text) => new(Level.Warning, Rule, text, RuleKind.Engine);
     static ReleaseFinding Note(string text) => new(Level.Note, Rule, text, RuleKind.Engine);
 
+    /// <summary>The SHA-256 papyrus.exe must have. Tests set it to a stand-in's hash; the program never changes it.</summary>
+    public static string ExpectedSha256 = PapyrusSha256;
+
+    /// <summary>Runs papyrus.exe (exe, project folder). Tests swap in a stand-in that reads the project folder.</summary>
+    public static Func<string, string, (int Exit, string Stdout, string Stderr, bool TimedOut)> Runner = Exec;
+
     public static IEnumerable<ReleaseFinding> Run(ReleaseContext c)
     {
         var o = c.Options;
-        if (o.Papyrus == null || o.CkSources == null) yield break;   // ReleaseCommand prints a note when only one is given
+        if (o.Papyrus == null || o.CkSources == null)
+        {
+            // ReleaseCommand prints a note when only one is given; folders given for the lint get a NOTE in the report
+            if (o.Psc.Count + o.PscImport.Count > 0)
+                yield return Note("--psc and --psc-import folders were not used: the Papyrus lint runs only with both --papyrus and --ck-sources");
+            yield break;
+        }
 
-        // ---- the mods' sources ----
+        // ---- the mods' sources: the --psc folders, else each zip's Scripts\Source ----
         var roots = new List<string>();
-        foreach (var p in c.Packages)
+        foreach (var psc in o.Psc)
+        {
+            var full = Path.GetFullPath(psc);
+            if (Directory.EnumerateFiles(full, "*.psc", SearchOption.AllDirectories).Any())
+            {
+                roots.Add(full);
+                Log.Write($"papyrus lint: --psc sources in {full}");
+            }
+            else yield return Note($"no .psc files in --psc {full}; Papyrus lint skipped for it");
+        }
+        if (o.Psc.Count > 0) Log.Write("papyrus lint: --psc given, so the zips' Scripts\\Source folders are not linted");
+        else foreach (var p in c.Packages)
         {
             var src = FindSourceDir(p.Root);
             if (src != null && Directory.EnumerateFiles(src, "*.psc", SearchOption.AllDirectories).Any())
@@ -63,12 +87,12 @@ public static class ReleaseLint
             digest = "";
             Log.Write($"papyrus lint: can't read {exe}: {e.Message}");
         }
-        if (!digest.Equals(PapyrusSha256, StringComparison.OrdinalIgnoreCase))
+        if (!digest.Equals(ExpectedSha256, StringComparison.OrdinalIgnoreCase))
         {
             yield return Warn(digest.Length == 0
                 ? $"Papyrus lint skipped: can't read {exe}. Check the --papyrus path."
                 : $"Papyrus lint skipped: {exe} isn't the tested papyrus-tools {PapyrusVersion} build (SHA-256 {digest[..12]}..., " +
-                  $"wanted {PapyrusSha256[..12]}...). Give --papyrus the {PapyrusVersion} papyrus.exe.");
+                  $"wanted {ExpectedSha256[..12]}...). Give --papyrus the {PapyrusVersion} papyrus.exe.");
             yield break;
         }
 
@@ -88,13 +112,15 @@ public static class ReleaseLint
         }
 
         // ---- the papyrus project ----
+        var imports = o.PscImport.Select(Path.GetFullPath).ToList();
+        foreach (var imp in imports) Log.Write($"papyrus lint: --psc-import {imp} (after the vanilla sources)");
         var proj = Path.Combine(c.Work, "papyrus-lint");
         Directory.CreateDirectory(proj);
         string? setupError = null;
         try
         {
             for (int i = 0; i < roots.Count; i++) CopySources(roots[i], Path.Combine(proj, $"Source{i}"));
-            File.WriteAllText(Path.Combine(proj, "papyrus.toml"), Toml(vanilla, roots.Count), new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(proj, "papyrus.toml"), Toml(vanilla, roots.Count, imports), new UTF8Encoding(false));
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
@@ -105,10 +131,10 @@ public static class ReleaseLint
             yield return Warn($"Papyrus lint skipped: can't copy the script sources to its work folder: {setupError}");
             yield break;
         }
-        Log.Write($"papyrus lint: running {exe} check in {proj} (imports {vanilla})");
+        Log.Write($"papyrus lint: running {exe} check in {proj} (imports {string.Join(", ", imports.Prepend(vanilla))})");
 
         int exit = 0; string stdout = "", stderr = ""; bool timedOut = false; string? startError = null;
-        try { (exit, stdout, stderr, timedOut) = Exec(exe, proj); }
+        try { (exit, stdout, stderr, timedOut) = Runner(exe, proj); }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
             startError = e.Message;
@@ -169,14 +195,16 @@ public static class ReleaseLint
 
     static readonly JsonSerializerOptions TomlString = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    /// <summary>papyrus.toml as the earlier Python check writes it. A JSON string is a valid TOML basic string.</summary>
-    public static string Toml(string vanilla, int sources)
+    /// <summary>papyrus.toml as the earlier Python check writes it: the vanilla sources first, then the --psc-import
+    /// folders in the order given. A JSON string is a valid TOML basic string.</summary>
+    public static string Toml(string vanilla, int sources, IReadOnlyList<string>? extraImports = null)
     {
         var toml = new List<string>
         {
             "game = \"starfield\"",
             "include-fragments = true",
-            "imports = [" + JsonSerializer.Serialize(vanilla.Replace('\\', '/'), TomlString) + "]",
+            "imports = [" + string.Join(", ", new[] { vanilla }.Concat(extraImports ?? [])
+                                 .Select(p => JsonSerializer.Serialize(p.Replace('\\', '/'), TomlString))) + "]",
             "sources = [" + string.Join(", ", Enumerable.Range(0, sources).Select(i => $"\"Source{i}\"")) + "]",
             "",
             "[lints]",

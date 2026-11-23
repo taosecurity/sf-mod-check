@@ -97,6 +97,9 @@ public sealed class PexObject
 }
 
 public sealed record PexDebugFunction(string Object, string State, string Function, byte Type, List<ushort> Lines);
+public sealed record PexDebugPropertyGroup(string Object, string Group, string Doc, uint UserFlags, List<string> Properties);
+/// <summary>A struct's members in the order the source declares them.</summary>
+public sealed record PexDebugStructOrder(string Object, string Struct, List<string> Members);
 
 public sealed class PexFile
 {
@@ -111,6 +114,8 @@ public sealed class PexFile
     public required List<string> Strings { get; init; }
     public bool HasDebug { get; set; }
     public List<PexDebugFunction> DebugFunctions { get; } = new();
+    public List<PexDebugPropertyGroup> DebugPropertyGroups { get; } = new();
+    public List<PexDebugStructOrder> DebugStructOrders { get; } = new();
     public List<(string Name, byte Bit)> UserFlags { get; } = new();
     public List<PexObject> Objects { get; } = new();
 
@@ -279,13 +284,18 @@ public static class Pex
                 }
                 for (int i = 0, n = U16(); i < n; i++)
                 {
-                    SRef(); SRef(); SRef(); U32();   // property group: object, name, doc, user flags
-                    for (int k = 0, m = U16(); k < m; k++) SRef();
+                    string o = SRef(), g = SRef(), d = SRef();   // property group: object, name, doc, user flags
+                    var flags = U32();
+                    var names = new List<string>();
+                    for (int k = 0, m = U16(); k < m; k++) names.Add(SRef());
+                    pex.DebugPropertyGroups.Add(new PexDebugPropertyGroup(o, g, d, flags, names));
                 }
                 for (int i = 0, n = U16(); i < n; i++)
                 {
-                    SRef(); SRef();                  // struct order: object, struct
-                    for (int k = 0, m = U16(); k < m; k++) SRef();
+                    string o = SRef(), s = SRef();               // struct order: object, struct
+                    var names = new List<string>();
+                    for (int k = 0, m = U16(); k < m; k++) names.Add(SRef());
+                    pex.DebugStructOrders.Add(new PexDebugStructOrder(o, s, names));
                 }
             }
 
@@ -386,6 +396,102 @@ public static class Pex
             }
         }
     }
+
+    // ---- the listing (0.15.0: release --tested) ----
+
+    /// <summary>The script as plain lines that two builds of the same source share (a C# port of sf-pex-tools'
+    /// pex_compare.py listing, also MIT). String-table numbers are already their text; user flags, variables, guards,
+    /// properties, states, the functions in a state, locals, struct members and debug entries are sorted, because the
+    /// compiler writes them in a build-dependent order; temporaries (::tempN) are renamed ::t1, ::t2 ... in the order
+    /// each function's code first uses them. Left out: the compile time, the source file's time, the source file's
+    /// folder, the user and the machine. Kept as written: instruction order, parameters, objects and struct order.
+    /// Two scripts are equivalent when their listings are equal. With ignoreDebug the debug entries are left out.</summary>
+    public static List<string> Listing(PexFile pex, bool ignoreDebug = false)
+    {
+        var src = pex.SourceFile.Replace('\\', '/');
+        var o = new List<string> { $"pex {pex.Version} game {pex.GameId}", $"source {src[(src.LastIndexOf('/') + 1)..]}" };
+        o.AddRange(Sorted(pex.UserFlags.Select(u => $"userflag {u.Name} = bit {u.Bit}")));
+        foreach (var obj in pex.Objects)
+        {
+            o.Add($"object {obj.Name} extends {Q(obj.Parent)}");
+            o.Add($"  doc {Q(obj.Doc)}  const {(obj.Const ? 1 : 0)}  userflags 0x{obj.UserFlags:x}  autostate {Q(obj.AutoState)}");
+            var structs = obj.Structs.Select(s => new List<string> { $"  struct {s.Name}" }
+                .Concat(Sorted(s.Members.Select(m => $"    member {m.Name} : {m.Type}  flags 0x{m.Flags:x} = {V(m.Value)}  const {(m.Const ? 1 : 0)}  doc {Q(m.Doc)}"))).ToList());
+            foreach (var b in SortedBlocks(structs)) o.AddRange(b);
+            o.AddRange(Sorted(obj.Variables.Select(v => $"  variable {v.Name} : {v.Type}  flags 0x{v.UserFlags:x} = {V(v.Value)}  const {(v.Const ? 1 : 0)}")));
+            o.AddRange(Sorted(obj.Guards.Select(g => $"  guard {g}")));
+            var props = obj.Properties.Select(p =>
+            {
+                var b = new List<string> { $"  property {p.Name} : {p.Type}  doc {Q(p.Doc)}  userflags 0x{p.UserFlags:x}  flags 0x{p.Flags:x}" };
+                if (p.AutoVar != null) b.Add($"    autovar {p.AutoVar}");
+                if (p.Get != null) { b.Add("    get"); b.AddRange(FunctionLines(p.Get, "      ")); }
+                if (p.Set != null) { b.Add("    set"); b.AddRange(FunctionLines(p.Set, "      ")); }
+                return b;
+            });
+            var states = obj.States.Select(s => new List<string> { $"  state {Q(s.Name)}" }
+                .Concat(SortedBlocks(s.Functions.Select(f => new List<string> { $"    function {f.Name}" }.Concat(FunctionLines(f, "      ")).ToList()))
+                    .SelectMany(b => b)).ToList());
+            foreach (var b in SortedBlocks(props).Concat(SortedBlocks(states))) o.AddRange(b);
+        }
+        if (!ignoreDebug && pex.HasDebug)
+        {
+            var debug = pex.DebugFunctions.Select(d => $"debug function {d.Object}.{d.State}.{d.Function} type {d.Type} lines [{string.Join(", ", d.Lines)}]")
+                .Concat(pex.DebugPropertyGroups.Select(g => $"debug propertygroup {g.Object}.{Q(g.Group)} doc {Q(g.Doc)} flags 0x{g.UserFlags:x} [{string.Join(", ", Sorted(g.Properties))}]"))
+                .Concat(pex.DebugStructOrders.Select(s => $"debug structorder {s.Object}.{s.Struct} [{string.Join(", ", s.Members)}]"));
+            o.AddRange(Sorted(debug));
+        }
+        return o;
+    }
+
+    static List<string> FunctionLines(PexFunction f, string indent)
+    {
+        var lines = new List<string> { $"{indent}returns {f.ReturnType}  doc {Q(f.Doc)}  userflags 0x{f.UserFlags:x}  flags 0x{f.Flags:x}" };
+        lines.AddRange(f.Params.Select(p => $"{indent}param {p.Name} : {p.Type}"));
+        var rename = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var i in f.Code)
+            foreach (var a in i.Args.Concat(i.Extra))
+                if (a.IsIdent && a.Text.StartsWith("::temp", StringComparison.Ordinal) && !rename.ContainsKey(a.Text))
+                    rename[a.Text] = $"::t{rename.Count + 1}";
+        foreach (var l in f.Locals.OrderBy(l => l.Type, StringComparer.Ordinal).ThenBy(l => l.Name, StringComparer.Ordinal))   // temps the code never uses
+            if (l.Name.StartsWith("::temp", StringComparison.Ordinal) && !rename.ContainsKey(l.Name))
+                rename[l.Name] = $"::t{rename.Count + 1}";
+        string R(string n) => rename.TryGetValue(n, out var r) ? r : n;
+        lines.AddRange(Sorted(f.Locals.Select(l => $"{indent}local {R(l.Name)} : {l.Type}")));
+        for (int k = 0; k < f.Code.Count; k++)
+        {
+            var i = f.Code[k];
+            // a variadic opcode's argument count is implied by the arguments listed
+            var args = i.Args.Concat(i.Extra).Select(a => a.IsIdent ? "ident:" + R(a.Text) : V(a));
+            lines.Add($"{indent}{k,4} {i.Name} {string.Join(", ", args)}");
+        }
+        return lines;
+    }
+
+    static string V(PexValue v) => v.Kind switch
+    {
+        PexValueKind.None => "None",
+        PexValueKind.Ident => "ident:" + v.Text,
+        PexValueKind.Str => "str:" + Q(v.Text),
+        PexValueKind.Int => "int:" + v.Int.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        // the float's bits, so two values that print alike are never taken as equal
+        PexValueKind.Float => $"float:{v.Float.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (0x{BitConverter.SingleToUInt32Bits(v.Float):x8})",
+        _ => "bool:" + (v.Int != 0 ? "True" : "False"),
+    };
+
+    /// <summary>A string in quotes with control characters escaped, so a line break in a doc string can't fake a line.</summary>
+    static string Q(string s)
+    {
+        var b = new StringBuilder("'");
+        foreach (var c in s)
+            b.Append(c switch { '\\' => "\\\\", '\'' => "\\'", '\n' => "\\n", '\r' => "\\r", '\t' => "\\t", _ when c < 0x20 => $"\\x{(int)c:x2}", _ => c.ToString() });
+        return b.Append('\'').ToString();
+    }
+
+    static IEnumerable<string> Sorted(IEnumerable<string> lines) => lines.OrderBy(l => l, StringComparer.Ordinal);
+
+    /// <summary>Blocks of lines in a fixed order that depends only on their content.</summary>
+    static IEnumerable<List<string>> SortedBlocks(IEnumerable<List<string>> blocks) =>
+        blocks.OrderBy(b => string.Join("\n", b), StringComparer.Ordinal);
 
     /// <summary>Every string constant in the file: in code, variable defaults and struct member defaults.</summary>
     public static IEnumerable<(PexObject Object, PexFunction? Function, string Text)> StringConstants(PexFile pex)
