@@ -427,6 +427,15 @@ public class ReleaseRulesTests
     }
 
     [Fact]
+    public void Voice_archives_of_a_language_are_quiet()
+    {
+        // the official add-ons ship "<plugin> - Voices_en.ba2" (and _de, _es, _fr, _ja), listed in no INI
+        using var s = new Sandbox();
+        None(Rules(s, MakeZip(s, "MyMod-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Main.ba2", MainBa2()),
+            ("MyMod - Voices_en.ba2", MainBa2()), ("MyMod - Voices_de.ba2", MainBa2()), ("MyMod - Voices_fr_ps.ba2", MainBa2()))), "archive-name");
+    }
+
+    [Fact]
     public void Patch_archive_for_a_plugin_outside_the_zips_gets_the_part_check_too()
     {
         using var s = new Sandbox();
@@ -450,6 +459,7 @@ public class ReleaseRulesTests
         Assert.Contains("Since 0.15.1, a WARNING also when the part after `<plugin> - ` isn't `Main` or `Textures`", readme);
         Assert.Contains("`MyMod - Main01.ba2` to `MyMod - Main99.ba2` without gaps", readme);
         Assert.Contains("0.15.1 also a WARNING for a plugin's archive whose part isn't `Main` or `Textures`", Doc("AGENTS.md"));
+        Assert.Contains("`MyMod - Voices_en.ba2`", readme);
         var changes = Doc("CHANGELOG.md").Split("\n## 0.15.0")[0];
         Assert.Contains("## 0.15.1", changes);
         Assert.Contains("WARNING  [archive-name] MyMod-0.1.0.zip: archive MyMod - Sounds.ba2", changes);

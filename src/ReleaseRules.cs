@@ -10,7 +10,8 @@
 //   ba2-unreadable    an archive whose header or records don't add up
 //   archive-name      (0.14.0) a .ba2 not named "<plugin> - <part>.ba2" for a plugin in the zips, Data or --masters-dir:
 //                     PROBLEM in a zip with a plugin, WARNING in one without or when an INI in the zip lists it;
-//                     (0.15.1) WARNING when <part> isn't Main or Textures (optionally 01-99) or a numbered part has a gap
+//                     (0.15.1) WARNING when <part> isn't Main or Textures (optionally 01-99) or Voices_<language>,
+//                     or a numbered part has a gap
 //   file-name         (0.14.0, WARNING) a non-ASCII character in a loose path or a name inside an archive; a loose
 //                     data-relative path over 200 characters
 // House rules (RuleKind.House, a WARNING in the basic profile):
@@ -297,8 +298,8 @@ public static class ReleaseRules
             var m = LoadedPart.Match(part);
             if (!m.Success)
             {
-                Log.Write($"archive-name: {rel(a)}: part \"{part}\" isn't Main or Textures: WARNING");
-                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99), so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {Path.GetFileName(a)[..plugin.Length]} - Main.ba2."));
+                Log.Write($"archive-name: {rel(a)}: part \"{part}\" isn't Main, Textures or Voices_<language>: WARNING");
+                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99) or a voice archive such as Voices_en, so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {Path.GetFileName(a)[..plugin.Length]} - Main.ba2."));
                 return;
             }
             Log.Write($"archive-name: {rel(a)} loads with {loadsWith}");
@@ -312,8 +313,10 @@ public static class ReleaseRules
     }
 
     /// <summary>The archive parts the game's plugin loader opens by itself (names are lower case here): Main or Textures,
-    /// optionally numbered 01 to 99, and the Xbox twin of each.</summary>
-    static readonly Regex LoadedPart = new(@"^(main|textures)(0[1-9]|[1-9][0-9])?(_xbox)?$", RegexOptions.CultureInvariant);
+    /// optionally numbered 01 to 99, and the Xbox twin of each; and the voice archive of a language, Voices_&lt;language&gt;
+    /// (the official add-ons ship "&lt;plugin&gt; - Voices_en.ba2", "- Voices_de" and so on, listed in no INI, and the game
+    /// holds the part string " - Voices_"; not numbered).</summary>
+    static readonly Regex LoadedPart = new(@"^(?:(main|textures)(0[1-9]|[1-9][0-9])?(_xbox)?|voices_[a-z][a-z0-9_]*)$", RegexOptions.CultureInvariant);
 
     const string IniNote = "An INI archive list (for example sResourceIndexFileList in the [Archive] section) can still load it on purpose; if that is the plan, ignore this warning.";
 

@@ -4,10 +4,11 @@
 
 ### What's new
 
-- The `release` rule `archive-name` now warns about a plugin's archive that the game doesn't load by itself. The game opens only the parts `Main` and `Textures` after `<plugin> - `, each also numbered `01` to `99`, and it stops at the first missing number.
-- An archive such as `MyMod - Sounds.ba2` is a WARNING: the part isn't `Main` or `Textures`.
+- The `release` rule `archive-name` now warns about a plugin's archive that the game doesn't load by itself. By itself the game opens only the parts `Main` and `Textures` after `<plugin> - `, each also numbered `01` to `99` (it stops at the first missing number), and the voice archive of each language, such as `Voices_en`.
+- An archive such as `MyMod - Sounds.ba2` is a WARNING: the part isn't `Main`, `Textures` or a voice archive.
 - A numbered archive after a gap is a WARNING: with `MyMod - Main01.ba2` and `MyMod - Main03.ba2` but no `MyMod - Main02.ba2`, the game loads `Main01` only. The numbers start at `01` even when the unnumbered archive is there, so `MyMod - Textures02.ba2` without `Textures01` is a WARNING too.
 - These are WARNINGs, not failures, because an INI archive list (for example `sResourceIndexFileList` in the `[Archive]` section) can load such an archive on purpose.
+- A language's voice archive (`MyMod - Voices_en.ba2`, `MyMod - Voices_de.ba2`), named the way the official add-ons ship theirs, passes too.
 - The Xbox twins (`MyMod - Main_xbox.ba2`) still pass, and the 0.14.0 PROBLEM and WARNING cases are unchanged.
 - With both `Foo.esm` and `Foo - Patch.esm` in the zips, `Foo - Patch - Main.ba2` counts as the archive of `Foo - Patch.esm`.
 
@@ -20,7 +21,7 @@ A made-up `MyMod-0.1.0.zip` holds `MyMod.esm`, `MyMod - Main.ba2`, `MyMod - Main
 What it prints (a real run, with the first line left out):
 
     sf-mod-check 0.15.1 release (basic profile): MyMod-0.1.0.zip (5 files, 1 plugins, 4 archives)
-    WARNING  [archive-name] MyMod-0.1.0.zip: archive MyMod - Sounds.ba2: the game loads a plugin's archives by itself only when the part after " - " is Main or Textures (optionally numbered 01 to 99), so it doesn't load this one by itself. An INI archive list (for example sResourceIndexFileList in the [Archive] section) can still load it on purpose; if that is the plan, ignore this warning. Otherwise rename it, for example to MyMod - Main.ba2.
+    WARNING  [archive-name] MyMod-0.1.0.zip: archive MyMod - Sounds.ba2: the game loads a plugin's archives by itself only when the part after " - " is Main or Textures (optionally numbered 01 to 99) or a voice archive such as Voices_en, so it doesn't load this one by itself. An INI archive list (for example sResourceIndexFileList in the [Archive] section) can still load it on purpose; if that is the plan, ignore this warning. Otherwise rename it, for example to MyMod - Main.ba2.
     WARNING  [archive-name] MyMod-0.1.0.zip: archive MyMod - Main03.ba2: the game loads numbered archives from 01 upward and stops at the first missing number, and there is no MyMod - Main02.ba2, so the game doesn't load this archive by itself. An INI archive list (for example sResourceIndexFileList in the [Archive] section) can still load it on purpose; if that is the plan, ignore this warning. Otherwise number the archives 01, 02 and so on without gaps.
     NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked.
     NOTE     [plugin-check] MyMod.esm: OK, 0 errors, 0 warnings (full master, 0 masters, 0 records, 0 overrides (0 ITM), 0 links)
