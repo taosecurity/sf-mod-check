@@ -307,7 +307,8 @@ public static class PatchCheck
                 Add("PROBLEM", "removed", m.Name, $"master {mn} {why}: {name} won't load without it. Rebuild the patch with sf-mod-check patch.");
                 continue;
             }
-            if (Pos(mp.FileName) > patchAt)
+            // a BlueprintShips master loads after every plugin, the patch included, as it did at build time
+            if (!LoadOrderSetup.IsBlueprint(mp.FileName) && Pos(mp.FileName) > patchAt)
                 Add("REVIEW", "moved", mp.FileName, $"master {mn} now loads after {name}, and the game won't load a plugin before its master: move {name} last, or rebuild it.");
             var mSize = new FileInfo(mp.Path).Length;
             var changed = mSize != m.Size ? $"size {m.Size} -> {mSize}" : PatchSources.Sha256Of(mp.Path) != m.Sha256 ? "content changed (SHA-256)" : null;

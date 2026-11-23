@@ -105,7 +105,7 @@ public class ReleaseTestedTests
         // a tested zip that isn't a zip: one PROBLEM naming it
         var bad = Path.Combine(s.Sub("bad"), "Broken.zip");
         File.WriteAllText(bad, "not a zip");
-        Has(Run(s, release, [bad]), Level.Problem, "tested", "Broken.zip");
+        Has(Run(s, release, [bad]), Level.Problem, "tested", "the tested build can't be read, so no tested-build comparison ran: Broken.zip");
     }
 
     [Fact]

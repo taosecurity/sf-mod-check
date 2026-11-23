@@ -156,6 +156,33 @@ public class PatchCheckTests
         Assert.Equal("RESULT: UP TO DATE", ExeTests.ResultLine(stdout));
     }
 
+    /// <summary>A BlueprintShips file loads after every plugin, so as a master of the patch it is never "moved"
+    /// (0.15.0 code review round 1: every patch with a BlueprintShips master read REBUILD on every run).</summary>
+    [Fact]
+    public void A_blueprint_ships_master_hasnt_moved()
+    {
+        using var game = new Game();
+        const string bp = "BlueprintShips-sfta09.esm";   // an official BlueprintShips name: it loads last
+        var ships = Plugin.New(bp, PluginStyle.Full, "test", "made-up ship blueprints");
+        var kw = ships.Keywords.AddNew("BP_Keyword");
+        using (var g = new GameData(game.Data)) PluginWriter.Write(ships, game.Data, g, NoGap);
+        // ModA gives B_Misc a keyword the blueprint file defines; the patch copies it, so that file is its master
+        var modA = Plugin.New("ModA.esm", PluginStyle.Light, "test", "made-up mod");
+        using (var g = new GameData(game.Data))
+        {
+            g.Open(bp);
+            modA.MiscItems.GetOrAddAsOverride(g.Open("Base.esm").MiscItems.First(m => m.EditorID == "B_Misc")).Keywords = [kw.ToLink()];
+            PluginWriter.Write(modA, game.Data, g, NoGap);
+        }
+        game.Mod("ModB.esm", m => m.Weight = 2);
+        game.Patch("Base.esm", bp, "ModA.esm", "ModB.esm");
+        Assert.Contains($"\"{bp}\"", File.ReadAllText(game.Manifest));   // a master of the patch
+        var (code, stdout, stderr) = game.Check(["Base.esm", bp, "ModA.esm", "ModB.esm", "ConflictPatch.esm"]);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Empty(Lines(stdout, "moved"));
+        Assert.Equal("RESULT: UP TO DATE", ExeTests.ResultLine(stdout));
+    }
+
     [Fact]
     public void A_new_plugin_that_edits_a_patched_record_is_a_new_editor()
     {

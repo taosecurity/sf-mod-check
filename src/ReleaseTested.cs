@@ -72,7 +72,7 @@ public static class ReleaseTested
             catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
             {
                 Log.Write($"tested: {path}: {e}");
-                findings.Add(new(Level.Problem, TestedRule, $"script can't be read for the tested-build comparison: {name}: {e.Message} " +
+                findings.Add(new(Level.Problem, TestedRule, $"the tested build can't be read, so no tested-build comparison ran: {name}: {e.Message} " +
                     "(give --tested the zip or .ba2 of the build you tested)"));
                 return;
             }

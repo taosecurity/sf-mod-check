@@ -289,7 +289,7 @@ public static class ReleaseNeeds
                         name.StartsWith("geometries\\", StringComparison.Ordinal) ||
                         name.StartsWith("sound\\soundbanks\\", StringComparison.Ordinal)) { names.Add(name); n++; }
                 }
-                Log.Write($"needs: archive {ba2}: {n} scripts, models, materials, textures and sound-bank files");
+                Log.Write($"needs: archive {ba2}: {n} scripts, models, mesh geometry, materials, textures and sound-bank files");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
             {
