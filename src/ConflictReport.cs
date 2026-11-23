@@ -311,8 +311,8 @@ public static class Report
         return $"{a.MissingAssets.Count} ({Kinds(a)})";
     }
 
-    /// <summary>"1 script, 2 models", with textures and materials added only when there are some (0.14.0), so a run
-    /// with none reads as before.</summary>
+    /// <summary>"1 script, 2 models", with textures, materials, sounds and any other kind added only when there are
+    /// some (0.14.0), so a run with none reads as before.</summary>
     public static string Kinds(Analysis a)
     {
         int N(string k) => a.MissingAssets.Count(f => f.Asset.Kind == k);
@@ -322,6 +322,9 @@ public static class Report
         if (N("texture") is var t and > 0) parts.Add(One(t, "texture"));
         if (N("material") is var m and > 0) parts.Add(One(m, "material"));
         if (N("sound") is var so and > 0) parts.Add(One(so, "sound"));
+        // any other kind still counts, so the parts add up to the total (as AssetActions does)
+        var other = a.MissingAssets.Count(f => KindOrder(f.Asset.Kind) == 5);
+        if (other > 0) parts.Add($"{other} other");
         return string.Join(", ", parts);
     }
 
@@ -365,8 +368,8 @@ public static class Report
             ? $"Scripts, models and other assets are not checked: the step stopped ({a.AssetsFailed})."
             : "Scripts, models and other assets are not checked (--no-assets); only plugin records.";
 
-    /// <summary>Recommended actions for the assets check: one per plugin (Medium when a script is missing, Low for
-    /// models only), one per archive that can't be read (Medium), and first one per archive registry over the game's
+    /// <summary>Recommended actions for the assets check: one per plugin (Medium when a script is missing, Low when
+    /// none is), one per archive that can't be read (Medium), and first one per archive registry over the game's
     /// 256 slots (High, Winner "Archive limit"). Winner holds the plugin or archive name.</summary>
     public static bool IsArchiveLimit(Recommendation r) => r.Winner == "Archive limit" && r.Loser.Length == 0;
 

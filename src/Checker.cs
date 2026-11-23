@@ -555,7 +555,7 @@ public static class Checker
         catch (Exception e) when (Fatal.Recoverable(e))
         {
             var why = $"{e.GetType().Name}: {SafeText.OneLine(e.Message)}";
-            add("WARNING", "assets", $"the assets check stopped ({why}), so scripts and models are not checked or only partly checked");
+            add("WARNING", "assets", $"the assets check stopped ({why}), so scripts, models, materials, textures and sounds are not checked or only partly checked");
             Log.Write($"assets: stopped ({why})");
         }
     }

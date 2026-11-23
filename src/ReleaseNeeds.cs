@@ -215,7 +215,7 @@ public static class ReleaseNeeds
 
     /// <summary>The names in archives outside the zips that load with the mod: each plugin's "&lt;name&gt; - *.ba2" in a
     /// --masters-dir folder, and in the Data folder the official masters' archives, Starfield.ini's archive lists and the
-    /// archives of masters installed there. Only scripts, models, materials and textures are kept (memory), and every
+    /// archives of masters installed there. Only scripts, models, materials, textures and streamed sounds are kept (memory), and every
     /// material database (.cdb) in a general archive is remembered (0.14.0).</summary>
     sealed class ExternalArchives
     {

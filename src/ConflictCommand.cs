@@ -306,8 +306,8 @@ public static class ConflictCommand
             // Field priorities (0.10.0): here only, never in Analyzer.Run, so patch and triage are unchanged.
             if (noPriorities) Log.Write("field priorities: off (--no-priorities); every differing field counts as a lost change, as in 0.9.1");
             else ApplyPriorities(analysis);
-            // the assets check (0.6.0): every active plugin's archives load; each mod plugin's scripts and models are
-            // looked up in them and in loose files (the --extra-data folder first, then Data)
+            // the assets check (0.6.0): every active plugin's archives load; each mod plugin's scripts, models, materials,
+            // textures and sounds are looked up in them and in loose files (the --extra-data folder first, then Data)
             // the archive counts per registry are made either way (--no-assets reads only each archive's header)
             var assetDirs = (extraDir != null ? new[] { extraDir, dataDir } : new[] { dataDir }).ToList();
             // A failure here (a folder this account can't list, a disk error) is noted in the report's errors and the
@@ -322,9 +322,9 @@ public static class ConflictCommand
                 }
                 else
                 {
-                    Analyzer.Where = "checking scripts, models, materials and textures (the assets check)";
+                    Analyzer.Where = "checking scripts, models, materials, textures and sounds (the assets check)";
                     Assets.CheckLoadOrder(lo.Plugins, assetDirs, AssetIndex.DefaultInis(dataDir, inis), language, analysis);
-                    if (!quiet) Console.Error.WriteLine($"Checked scripts, models, materials and textures: {analysis.MissingAssets.Count} missing, {analysis.ArchivesRead} archives read");
+                    if (!quiet) Console.Error.WriteLine($"Checked scripts, models, materials, textures and sounds: {analysis.MissingAssets.Count} missing, {analysis.ArchivesRead} archives read");
                 }
             }
             catch (Exception e) when (Fatal.Recoverable(e))

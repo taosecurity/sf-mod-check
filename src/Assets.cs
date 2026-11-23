@@ -586,7 +586,7 @@ public static class Assets
     }
 
     /// <summary>conflict --no-assets: only the archive counts (each archive's 24-byte header), so the archive-limit
-    /// warning still works when scripts and models aren't checked.</summary>
+    /// warning still works when no asset is checked.</summary>
     public static void CountArchives(IReadOnlyList<Conflict.PluginInfo> plugins, IReadOnlyList<string> dirs, IEnumerable<string> inis,
                                      string language, Conflict.Analysis analysis)
     {
@@ -622,7 +622,7 @@ public static class Assets
     static IMajorRecordGetter? Resolve(ILinkCache cache, IMajorRecordGetter rec) =>
         cache.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
 
-    /// <summary>One plugin's missing scripts and models, each path once with the records that use it. original: for an
+    /// <summary>One plugin's missing scripts, models, materials, textures and sounds, each path once with the records that use it. original: for an
     /// override, the version it replaces (null when unknown). A missing path that version names too is inherited, not
     /// the plugin's own mistake (often Bethesda's: vanilla records that attach scripts the game doesn't ship), so it
     /// isn't reported; Inherited counts those uses. The lookup runs only for missing paths. faces: also look for NPC face

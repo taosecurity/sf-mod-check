@@ -466,6 +466,9 @@ public class AssetFilesTests
         a.MissingAssets.Add(new Conflict.AssetFinding("x.esm", new MissingAsset("WARNING", "sound", @"sound\soundbanks\1.wem", null, [@"sound\soundbanks\2.bnk"])));
         a.MissingAssets.Add(new Conflict.AssetFinding("x.esm", new MissingAsset("WARNING", "sound", @"sound\soundbanks\3.wem", null, [@"sound\soundbanks\2.bnk"])));
         Assert.Equal("3 (0 scripts, 1 model, 2 sounds)", Conflict.Report.AssetsCount(a));
+        // an unlisted kind still counts, so the parts add up to the total
+        a.MissingAssets.Add(new Conflict.AssetFinding("x.esm", new MissingAsset("WARNING", "face", @"meshes\f.nif", null, ["A"])));
+        Assert.Equal("4 (0 scripts, 1 model, 2 sounds, 1 other)", Conflict.Report.AssetsCount(a));
     }
 
     // ---- face data (0.14.0, D5) ----

@@ -259,7 +259,7 @@ public class AssetsTests
             r = w.Check(p);
         }
         finally { Assets.AfterIndex = null; }
-        Expect.Finding(r, "WARNING", "assets", "the assets check stopped (IOException: made-up disk error)");
+        Expect.Finding(r, "WARNING", "assets", "the assets check stopped (IOException: made-up disk error), so scripts, models, materials, textures and sounds are not checked");
         Assert.False(r.CannotCheckLinks);
         Assert.DoesNotContain(r.Findings, f => f.Severity == "ERROR");
     }

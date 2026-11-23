@@ -1288,7 +1288,7 @@ public partial class ConflictTests
         Assert.Equal(0, code);
         var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "conflicts.json"))).RootElement;
         Assert.Equal("IOException: made-up disk error", json.GetProperty("assetsFailed").GetString());
-        Assert.Contains(json.GetProperty("Errors").EnumerateArray(), e => (e.GetString() ?? "").StartsWith("the assets check stopped while checking scripts, models, materials and textures"));
+        Assert.Contains(json.GetProperty("Errors").EnumerateArray(), e => (e.GetString() ?? "").StartsWith("the assets check stopped while checking scripts, models, materials, textures and sounds"));
         var md = File.ReadAllText(Path.Combine(outDir, "report.md"));
         Assert.Contains("The check stopped part way (IOException: made-up disk error), so this list may be incomplete.", md);
         Assert.Contains("None found before the check stopped.", md);   // code review 0.6.0: not a plain "None found."

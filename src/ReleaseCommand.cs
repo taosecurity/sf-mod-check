@@ -29,7 +29,7 @@ public sealed class ReleaseOptions
     public string DataDir { get; set; } = Cli.SteamData;
     public bool DataGiven { get; set; }
     public List<string> MastersDirs { get; } = new();
-    /// <summary>Archives of the mod this one patches: the scripts and models in them count as present.</summary>
+    /// <summary>Archives of the mod this one patches: the scripts, models, materials, textures and sounds in them count as present.</summary>
     public List<string> MasterArchives { get; } = new();
     public string? DmmDeps { get; set; }
     public string? Papyrus { get; set; }

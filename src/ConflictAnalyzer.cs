@@ -55,7 +55,7 @@ public class Analysis
     public const int MaxChanges = 20000;
     // Overrides whose record type differs from the first record with that FormID (0.5.2), in load order.
     public List<TypeChange> TypeChanges { get; } = new();
-    // The assets check (0.6.0 part 2): each mod plugin's missing scripts and models, in load order. AssetsChecked is
+    // The assets check (0.6.0 part 2): each mod plugin's missing scripts, models, materials, textures and sounds, in load order. AssetsChecked is
     // false with --no-assets.
     public bool AssetsChecked;
     public int ArchivesRead, AssetScriptUses, AssetModelUses, AssetTextureUses, AssetMaterialUses, AssetSoundUses;

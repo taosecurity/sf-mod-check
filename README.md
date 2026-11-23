@@ -158,7 +158,7 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sf-mod-check/r
 - `--no-hints`: leave out the HINT lines.
 - `--no-assets`: skip the assets check (missing scripts, models, materials, textures and sounds), for example when the plugin's archive isn't
   built yet. If the assets check itself can't finish (a folder that can't be listed, a disk error), the other checks
-  still count and one `WARNING assets` line says the scripts and models weren't checked.
+  still count and one `WARNING assets` line says the scripts, models, materials, textures and sounds weren't checked.
 - `--ini <file>`: also read this INI's `[Archive]` lists for the archives the game loads, after `Starfield.ini` in the
   game folder and `StarfieldCustom.ini` in `Documents\My Games\Starfield`; can be given more than once. Use it for an
   install whose INIs are elsewhere.
@@ -304,8 +304,8 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
 - `--max-memory`: stop cleanly when memory passes this many GB (exit code 3, no report), instead of slowing the PC.
   It takes a number of GB from 0.000001 to 1000000, for example 8.
 - `--no-assets`, `--ini <file>`, `--language <code>`: the assets check, as for `check` (0.6.0).
-  - **Where it looks:** in `conflict` it looks up every mod plugin's scripts and models in the archives of every
-    active plugin (`<plugin> - *.ba2`), the archives the INIs list, and loose files (the `--extra-data` folder, then
+  - **Where it looks:** in `conflict` it looks up every mod plugin's scripts, models, materials, textures and sounds
+    in the archives of every active plugin (`<plugin> - *.ba2`), the archives the INIs list, and loose files (the `--extra-data` folder, then
     Data).
   - **What it skips:** Bethesda's own plugins aren't checked. An override isn't blamed for a missing file the version
     it overrides already names (the record in the last of the plugin's masters, in load order, that has it, as in
@@ -578,7 +578,8 @@ and everything `check` finds in each plugin.
   the main plugin and its scripts.
 - `--data`, `--masters-dir`: as for `check`. Masters and archives of mods the zip builds on go in a `--masters-dir`
   folder.
-- `--master-archive <ba2>`: the archive of the mod your plugin patches. Scripts and models in it count as present
+- `--master-archive <ba2>`: the archive of the mod your plugin patches. Scripts, models, materials, textures and
+  sounds in it count as present
   (a patch that overrides another mod's records keeps that mod's fragment scripts there). Can be given more than once.
 - `--dmmdeps <exe>`: also run DMMDeps (`dmmdeps-fat.exe`, from ZeeOgre's DevModManager) to find files the plugin uses
   that the zip lacks. sf-mod-check runs only the reviewed v0.4.1 build and refuses any other, by its SHA-256

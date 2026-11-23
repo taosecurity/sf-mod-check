@@ -32,6 +32,7 @@
 - `release`'s NOTE when `--dmmdeps` isn't given, and the conflict report's "What this report does not check" line, now name what the assets check covers.
 - `conflict`: the summary row "Missing scripts and models" in report.md is now "Missing assets", like the HTML report's card and section.
 - `conflict`: a missing-asset action names each kind and what it does in the game, for example "2 missing models and 1 missing material; those records show an empty or error mesh and those surfaces look wrong".
+- The `WARNING assets` line of a check that stopped, and `conflict`'s matching "Tool limits hit" line, now name materials, textures and sounds as well as scripts and models. So does the README's `--master-archive` text.
 - `--version` says 0.14.0.
 
 ### Example
