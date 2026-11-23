@@ -127,7 +127,7 @@ public static class Overrides
     }
 
     /// <summary>The properties compared on a type: readable, not indexers, not ignored, not child records. Texts come
-    /// last: the first text read from a master loads that master's whole strings file (about 1 s; projectviper's
+    /// last: the first text read from a master loads that master's whole strings file (about 1 s; a large mod's
     /// factions 2026-11-09), and a record that differs elsewhere never needs it. A new array each call: DeepCompare.Itm
     /// calls it once per type and keeps the list (0.5.3: it was cached twice; read the cached list through
     /// DeepCompare.Itm.Properties).</summary>

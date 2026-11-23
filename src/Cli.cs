@@ -30,6 +30,8 @@ public static class Cli
         "--log" => "sf-mod-check-log.txt",
         "--manifest" => "\"C:\\MyPatch\\patch-sources.json\"",
         "--json" => "patch-check.json",
+        "--accept" => "script-missing:OtherMod.esm:OtherMod:Toggle",
+        "--accept-file" => "known-gaps.txt",
         _ => "<value>",
     };
 }

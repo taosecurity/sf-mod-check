@@ -151,4 +151,16 @@ public class ReleaseAcceptTests
         Assert.Contains("wildcard", stderr);
         Assert.Equal("RESULT: CANNOT CHECK (bad arguments; see the message above)", ExeTests.ResultLine(stdout));
     }
+
+    [Theory]   // bug hunt 2026-11-23: the example after a missing value was "<value>" and the entry example came twice
+    [InlineData("--accept", "--accept needs an entry <rule>:<plugin>:<detail> after it, for example: --accept script-missing:OtherMod.esm:OtherMod:Toggle")]
+    [InlineData("--accept-file", "--accept-file needs a text file of --accept entries (one per line) after it, for example: --accept-file known-gaps.txt")]
+    public void Accept_option_with_no_value_exits_2_with_a_real_example(string option, string expected)
+    {
+        using var s = new Sandbox();
+        var (code, stdout, stderr) = ExeTests.RunSplit("release", s.Sub("mod"), option);
+        Assert.Equal(2, code);
+        Assert.Contains(expected, stderr);
+        Assert.DoesNotContain("<value>", stderr);
+    }
 }

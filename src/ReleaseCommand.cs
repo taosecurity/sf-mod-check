@@ -214,11 +214,11 @@ public static class ReleaseCommand
                     o.Stage = st; break;
                 case "--size-total": o.SizeTotal = true; break;
                 case "--accept":
-                    if (Value(ref i, "an entry <rule>:<plugin>:<detail>, for example script-missing:OtherMod.esm:OtherMod:Toggle") is not { } ac) return BadArgs();
+                    if (Value(ref i, "an entry <rule>:<plugin>:<detail>") is not { } ac) return BadArgs();
                     if (ReleaseAccept.Parse(ac, "--accept", out var acError) is not { } entry) { Console.Error.WriteLine(acError); return BadArgs(); }
                     o.Accept.Add(entry); break;
                 case "--accept-file":
-                    if (Value(ref i, "a text file of --accept entries, one per line") is not { } af) return BadArgs();
+                    if (Value(ref i, "a text file of --accept entries (one per line)") is not { } af) return BadArgs();
                     if (ReleaseAccept.ReadFile(af, out var afError) is not { } entries) { Console.Error.WriteLine(afError); return BadArgs(); }
                     o.Accept.AddRange(entries); break;
                 case "--log":
