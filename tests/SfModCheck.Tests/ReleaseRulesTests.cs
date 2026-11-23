@@ -427,6 +427,16 @@ public class ReleaseRulesTests
     }
 
     [Fact]
+    public void All_99_numbered_archives_are_quiet_and_do_not_crash()
+    {
+        // code review round 1 (2026-11-23): with 01 to 99 all there, the gap search found no missing number and threw
+        using var s = new Sandbox();
+        var files = new List<(string, byte[])> { ("MyMod.esm", Plugin()) };
+        for (int n = 1; n <= 99; n++) files.Add(($"MyMod - Main{n:00}.ba2", MainBa2()));
+        None(Rules(s, MakeZip(s, "MyMod-0.1.0.zip", files.ToArray())), "archive-name");
+    }
+
+    [Fact]
     public void Voice_archives_of_a_language_are_quiet()
     {
         // the official add-ons ship "<plugin> - Voices_en.ba2" (and _de, _es, _fr, _ja), listed in no INI
@@ -456,9 +466,9 @@ public class ReleaseRulesTests
         Assert.True(dir != null, "src/ReleaseRules.cs not found above " + AppContext.BaseDirectory);
         string Doc(string n) => File.ReadAllText(Path.Combine(dir!.FullName, n)).Replace("\r\n", "\n");
         var readme = Doc("README.md");
-        Assert.Contains("Since 0.15.1, a WARNING also when the part after `<plugin> - ` isn't `Main` or `Textures`", readme);
+        Assert.Contains("Since 0.15.1, a WARNING also when the part after `<plugin> - ` is none of `Main`, `Textures` (each optionally numbered `01` to `99`) or a language's voice archive", readme);
         Assert.Contains("`MyMod - Main01.ba2` to `MyMod - Main99.ba2` without gaps", readme);
-        Assert.Contains("0.15.1 also a WARNING for a plugin's archive whose part isn't `Main` or `Textures`", Doc("AGENTS.md"));
+        Assert.Contains("0.15.1 also a WARNING for a plugin's archive whose part is none of `Main`, `Textures` (each optionally numbered\n   `01` to `99`) or a language's voice archive", Doc("AGENTS.md"));
         Assert.Contains("`MyMod - Voices_en.ba2`", readme);
         var changes = Doc("CHANGELOG.md").Split("\n## 0.15.0")[0];
         Assert.Contains("## 0.15.1", changes);

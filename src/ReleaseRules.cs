@@ -279,7 +279,8 @@ public static class ReleaseRules
         foreach (var g in numbered)
         {
             var have = g.Value.Select(x => x.N).ToHashSet();
-            var missing = Enumerable.Range(1, 99).First(n => !have.Contains(n));
+            var missing = Enumerable.Range(1, 99).FirstOrDefault(n => !have.Contains(n));
+            if (missing == 0) continue;   // 01 to 99 all there: no gap
             foreach (var (n, a) in g.Value.Where(x => x.N > missing).OrderBy(x => x.N))
             {
                 // the missing name in this archive's own spelling: its name with the two digits replaced
@@ -321,7 +322,8 @@ public static class ReleaseRules
     const string IniNote = "An INI archive list (for example sResourceIndexFileList in the [Archive] section) can still load it on purpose; if that is the plan, ignore this warning.";
 
     /// <summary>The plugin outside the zips (in the Data folder or a --masters-dir folder) that an archive's name starts
-    /// with, followed by " - ", or null. The stem is lower case, so plugin names are compared ignoring case (Linux file
+    /// with, followed by " - ", or null. When several match (Foo.esm and "Foo - Patch.esm"), the one whose part the game
+    /// loads wins, else the shortest name. The stem is lower case, so plugin names are compared ignoring case (Linux file
     /// names are case-sensitive).</summary>
     static string? OutsideOwner(ReleaseContext c, string stem)
     {
