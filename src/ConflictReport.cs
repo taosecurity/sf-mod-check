@@ -322,7 +322,8 @@ public static class Report
         if (N("texture") is var t and > 0) parts.Add(One(t, "texture"));
         if (N("material") is var m and > 0) parts.Add(One(m, "material"));
         if (N("sound") is var so and > 0) parts.Add(One(so, "sound"));
-        // any other kind still counts, so the parts add up to the total (as AssetActions does)
+        // any other kind still counts, so the parts add up to the total (as AssetActions does); a guard only:
+        // conflict makes no kind beyond these five today (face data is looked for only in release)
         var other = a.MissingAssets.Count(f => KindOrder(f.Asset.Kind) == 5);
         if (other > 0) parts.Add($"{other} other");
         return string.Join(", ", parts);
