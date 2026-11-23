@@ -309,6 +309,24 @@ public class ExeTests
     }
 
     [Fact]
+    public void Readme_and_agents_name_the_release_and_triage_exit_2_result_lines()
+    {
+        // 0.13.0 code review round 9: the README's release and triage sections named only the success forms.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Program.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\Program.cs not found above " + AppContext.BaseDirectory);
+        foreach (var file in new[] { "README.md", "AGENTS.md" })
+        {
+            var text = File.ReadAllText(Path.Combine(dir.FullName, file));
+            Assert.Contains("RESULT: CANNOT CHECK (", text);
+            Assert.Contains("RESULT: NO REPORT (", text);
+        }
+        var readme = File.ReadAllText(Path.Combine(dir.FullName, "README.md")).ReplaceLineEndings(" ");
+        Assert.Contains("`RESULT: OK|FAIL (n problems, n to review, n warnings)`, or `RESULT: CANNOT CHECK (...)`", readme);
+        Assert.Contains("<path>`, or `RESULT: NO REPORT (...)` on bad arguments or setup (exit 2)", readme);
+    }
+
+    [Fact]
     public void Readme_and_agents_say_help_exits_0()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

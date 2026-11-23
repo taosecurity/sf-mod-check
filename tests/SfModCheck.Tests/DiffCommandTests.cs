@@ -1051,7 +1051,7 @@ public class DiffCommandTests
         Assert.Equal(["mod.esm", "new.esm"], Directory.GetFiles(folder).Select(f => Path.GetFileName(f).ToLowerInvariant()).Order());
     }
 
-    // 0.13.0 (PMTUpkeep A1 step 3, choice (a)): in JSON mode the RESULT line stays last on stdout, after the JSON;
+    // 0.13.0 (choice (a)): in JSON mode the RESULT line stays last on stdout, after the JSON;
     // --out gives a file with only the JSON and leaves stdout with only the RESULT line.
     [Fact]
     public void Exe_json_on_stdout_ends_with_the_result_line_and_out_holds_only_json()

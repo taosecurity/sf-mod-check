@@ -593,7 +593,8 @@ and everything `check` finds in each plugin.
 - `--quiet`, `--verbose`, `--log <file>`: as for `check`.
 
 Output is PROBLEM lines (fail), REVIEW lines (look at them), WARNING and NOTE lines, each with its rule in brackets,
-then `RESULT: OK|FAIL (n problems, n to review, n warnings)`. Exit codes: 0 OK, 1 FAIL, 2 can't check (bad
+then `RESULT: OK|FAIL (n problems, n to review, n warnings)`, or `RESULT: CANNOT CHECK (...)` when it can't check
+(exit 2). Exit codes: 0 OK, 1 FAIL, 2 can't check (bad
 arguments, a zip that can't be unpacked or sits inside the game folder, a missing file). It never writes into the
 zip, the game folder or the Data folder.
 
@@ -644,7 +645,8 @@ harmful; you decide that after reading.
 - `--quiet`, `--verbose`, `--log <file>`: as for `check`.
 
 It writes `<name>-triage.html` (to read), `<name>-triage.txt` and `<name>-triage.json` (for scripts). On stdout it
-prints the LOOK lines and `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <path>`. Exit codes: 0 report written,
+prints the LOOK lines and `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <path>`, or `RESULT: NO REPORT (...)`
+on bad arguments or setup (exit 2). Exit codes: 0 report written,
 2 bad input or setup. There is no "fail" exit.
 
 | Section | What it lists | LOOK when |

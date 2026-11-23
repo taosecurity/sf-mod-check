@@ -1,4 +1,4 @@
-// 0.12.0 (LoadOrderFollowups blueprint relay, step 2, 2026-11-21): the official BlueprintShips-*.esm files load after
+// 0.12.0 (blueprint load order, 2026-11-21): the official BlueprintShips-*.esm files load after
 // every plugin, oldest file first (modified time, then name), as the game does. Each test builds a tiny made-up game
 // whose files carry the official names (Starfield.esm, SFBGS050.esm and their BlueprintShips files). No game files.
 using System.Text.Json;
