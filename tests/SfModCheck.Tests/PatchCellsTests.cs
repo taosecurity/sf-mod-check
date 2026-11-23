@@ -693,8 +693,10 @@ public class PatchCellsTests
             $"{game.Navmesh}=ModC.esm", $"{game.Navmesh}:NavmeshGeometry=ModA.esm");
         Assert.True(code == 0, stdout + stderr);
         Assert.DoesNotContain("NavmeshGeometry=ModA.esm was not used", stderr);
-        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModC.esm was not used for the navmesh's NNAM: a navmesh's mesh comes whole from one plugin, " +
+        // round 6: NNAM was the only field the whole-record pick took, so it gets the plain "was not used"
+        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModC.esm was not used: a navmesh's mesh comes whole from one plugin, " +
                         "and the --pick on NavmeshGeometry (ModA.esm) decides it", stderr);
+        Assert.DoesNotContain("was not used for the navmesh's", stderr);
         var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
         Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);   // ModA's whole mesh
         Assert.Equal(new byte[] { 7, 0, 0, 0 }, n.NNAM!.Value.ToArray());
@@ -735,11 +737,83 @@ public class PatchCellsTests
         Assert.Equal(3, PatchCommand.IntroducedAt(i => values[i], 4));
         Assert.Equal(0, PatchCommand.IntroducedAt(i => new object?[] { "x", "x", "x" }[i], 2));
         Assert.Equal(0, PatchCommand.IntroducedAt(i => values[i], 0));
+        // round 6: the first version's value held again after another plugin changed it is nobody's change
+        Assert.Equal(0, PatchCommand.IntroducedAt(i => new object?[] { "x", "y", "x" }[i], 2));
+        Assert.Equal(0, PatchCommand.IntroducedAt(i => new object?[] { null, "y", null, null }[i], 3));
         Assert.Equal("", PatchCommand.MeshGoneText("ModA.esm", []));
         Assert.Equal("; the mesh comes whole from ModA.esm, so ModB.esm's change to NNAM is dropped",
             PatchCommand.MeshGoneText("ModA.esm", [("NNAM", ["ModB.esm"])]));
         Assert.Equal("; the mesh comes whole from ModA.esm, so ModB.esm's change to NNAM, and ModC.esm and ModD.esm's change to PreCutMapEntries, are dropped",
             PatchCommand.MeshGoneText("ModA.esm", [("NNAM", ["ModB.esm"]), ("PreCutMapEntries", ["ModC.esm", "ModD.esm"])]));
+    }
+
+    // code review 0.13.0, round 6: a field pick on a forwarded mesh field (the geometry, which only ModA changed) still
+    // beats a whole-record pick the choice loop took on NNAM. Before the fix ModC's whole mesh went in and the geometry
+    // pick was warned "was not used: that record has no Choice field"
+    [Fact]
+    public void A_field_pick_on_a_forwarded_mesh_field_beats_a_whole_record_pick()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 5));
+        game.Mod("ModC.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(8));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(9));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModC.esm", "ModB.esm"],
+            $"{game.Navmesh}=ModC.esm", $"{game.Navmesh}:NavmeshGeometry=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("NavmeshGeometry=ModA.esm was not used", stderr);
+        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModC.esm was not used: a navmesh's mesh comes whole from one plugin, " +
+                        "and the --pick on NavmeshGeometry (ModA.esm) decides it", stderr);
+        var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
+        Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);   // ModA's whole mesh
+        Assert.Null(n.NNAM);                                                     // ModA's NNAM is Base's (none)
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("ModA.esm's whole mesh is used; the --pick on NNAM (ModC.esm) gives way", report);
+        Assert.DoesNotContain("ModC.esm's value is used", report);
+        CheckIsClean(game);
+    }
+
+    // code review 0.13.0, round 6: two losers changed NNAM (ModX's value forwarded, ModP's in the "both changed" row) and
+    // a geometry pick decides the mesh: the pick's row names both dropped changes, since both their lines and rows go
+    [Fact]
+    public void A_mesh_pick_row_names_every_dropped_change_on_a_part()
+    {
+        using var game = new Game();
+        game.Mod("ModP.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(7));
+        game.Mod("ModX.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(8));
+        game.Mod("ModC.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 4));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 6));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModP.esm", "ModX.esm", "ModC.esm", "ModB.esm"], $"{game.Navmesh}:NavmeshGeometry=ModC.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
+        Assert.Equal(4f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
+        Assert.Null(n.NNAM);
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("the mesh comes whole from ModC.esm, so ModX.esm and ModP.esm's change to NNAM is dropped", report);
+        CheckIsClean(game);
+    }
+
+    // code review 0.13.0, round 6: a whole-record pick that gave up every field it took gets the plain "was not used";
+    // one that gave up several mesh fields but kept others gets one line naming them all
+    [Fact]
+    public void Whole_record_pick_warnings_say_what_was_given_up()
+    {
+        var fk = FormKey.Factory("000801:Base.esm");
+        var all = new PatchCommand.Pick(fk, null, "ModC.esm");
+        all.Took.Add("NNAM");
+        all.GaveWay.Add("NNAM");
+        all.GaveWayWhy = "why";
+        Assert.Equal($"WARNING: --pick {fk}=ModC.esm was not used: why", PatchCommand.GaveWayWarning(all));
+        var part = new PatchCommand.Pick(fk, null, "ModC.esm");
+        foreach (var f in new[] { "NNAM", "PreCutMapEntries", "Flags" }) part.Took.Add(f);
+        part.GaveWay.Add("NNAM");
+        part.GaveWay.Add("PreCutMapEntries");
+        part.GaveWayWhy = "why";
+        Assert.Equal($"WARNING: --pick {fk}=ModC.esm was not used for the navmesh's NNAM and PreCutMapEntries: why", PatchCommand.GaveWayWarning(part));
+        Assert.Null(PatchCommand.GaveWayWarning(new PatchCommand.Pick(fk, null, "ModC.esm")));
+        var field = new PatchCommand.Pick(fk, "NNAM", "ModC.esm");
+        field.GaveWay.Add("NNAM");
+        Assert.Null(PatchCommand.GaveWayWarning(field));
     }
 
     // code review 0.13.0, round 2: whether a component kind is an identity is worked out once per field over every

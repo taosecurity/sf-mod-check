@@ -30,9 +30,9 @@
 - When two plugins each changed a different part of one navmesh's mesh, today's mesh is kept and listed under choices.
 - The `--pick` line printed for such a navmesh takes that plugin's whole mesh when you run it.
 - A whole-record `--pick` takes a navmesh's mesh only when the mesh would mix versions; a forwarded mesh change stays.
-- Picks on two mesh fields naming two plugins: a field pick beats a whole-record pick, else the later field's pick decides.
-- The pick that gives way gets a warning; a whole-record pick's warning names only the mesh field it lost.
-- A navmesh pick's row names, part by part, the plugin that made each mesh change it drops, the winner included.
+- Picks on two mesh fields naming two plugins: a field pick on any mesh field beats a whole-record pick, else the later field's pick decides.
+- The pick that gives way gets a warning; a whole-record pick that keeps other fields gets one line naming the mesh fields it lost.
+- A navmesh pick's row names, part by part, every plugin whose mesh change it drops, the winner included.
 - In a merged component list, a component's kind counts as its identity only while no version holds two of that kind.
 - With `--include-official`, cells, worldspaces, placed objects and navmeshes one official plugin loses to another are restored too.
 - `--verbose` logs where each patched cell, placed object and navmesh goes, and each cell or worldspace added as a parent.
