@@ -482,7 +482,9 @@ report's Notes say so: the game still loads that master after the patch, as it d
   once if you like). It is also faster: only the records those plugins change are compared.
 - `--pick`: see step 3. A pick that matches nothing gets a WARNING. For a field pick, the WARNING says why: the
   record type has no such field, the plugin named doesn't hold the record (or its partial copy doesn't set that
-  field), no mod overrides the record, or a later `--pick` on the same field decides it.
+  field), no mod overrides the record, the record isn't built (with the reason from the "Not built" list), or a
+  later `--pick` on the same field decides it. Field picks on one navmesh's mesh that name two plugins stop the run
+  (exit 2): see Navmeshes below.
 - `--include-official`: also bring back changes that one official plugin (the base game, a DLC or a Creation from
   Bethesda) loses to another, for example a reference one Trackers Alliance mission adds to a location and a later
   one drops. Off by default, because `conflict` doesn't list such losses either: the game ships that way, and they
@@ -520,14 +522,18 @@ cell then brings its worldspace by the rule above).
 has no reason of its own to hold it. A navmesh's mesh (its geometry, its NNAM data and its pre-cut entries) describes
 one mesh as the Creation Kit finalized it, so the patch takes all three from one plugin, never field by field or entry
 by entry. When one plugin changed one part and another plugin's copy differs in another part, a mix would be a mesh
-nobody made: the patch keeps today's mesh and the report lists it under choices. A `--pick` on a mesh field takes
-that plugin's whole mesh. A whole-record `--pick` takes the mesh only when the mesh itself would mix versions;
-otherwise it leaves a forwarded mesh change alone, as it does every other forwarded field. When picks on two mesh
-fields of one navmesh name two plugins, a field pick on any mesh field decides over a whole-record pick, and between
-two of the same kind the pick on the later field (geometry, then NNAM, then the pre-cut entries) decides the whole
-mesh. The other pick gets a "was not used" warning. A whole-record pick that still holds other fields gets "was not
-used for the navmesh's <fields>" instead, naming the mesh fields it lost. The report names, for each mesh part that
-gives way, every plugin whose change to that part is dropped.
+nobody made: the patch keeps today's mesh and the report lists it under choices. The `--pick` rules for a mesh are
+kept simple:
+
+- A field `--pick` on any mesh field (`NavmeshGeometry`, `NNAM` or `PreCutMapEntries`) takes that plugin's whole
+  mesh, and the report's one row says so: every other plugin's change to the mesh is dropped.
+- Field picks on one navmesh's mesh that name two different plugins stop the run with exit 2 and an error naming
+  both picks. Keep the one for the plugin whose mesh you want.
+- A whole-record `--pick` takes the whole mesh only when the mesh is one of its Choice fields (the winner and another
+  plugin both changed a mesh field) and no field pick names the mesh. Otherwise it leaves the mesh alone, as it
+  leaves every forwarded field alone.
+- A field pick on the mesh ranks above a whole-record pick, as on every other field. A whole-record pick left with
+  nothing to take gets a "was not used" warning that says so.
 
 **What it doesn't build yet:** dialogue topics, dialogue lines and scenes, so the report
 lists them for xEdit instead. A quest's own fields are patched; its dialogue and scenes are not copied into the patch.

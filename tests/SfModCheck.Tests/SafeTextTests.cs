@@ -20,6 +20,30 @@ public class SafeTextTests
         Assert.DoesNotContain('\u2028', text);
     }
 
+    // code review 0.13.0, round 7: every command's catch-all RESULT line escapes the error text, so a multi-line message
+    // can't split the RESULT line (before, check, diff and triage printed e.Message as it was)
+    [Fact]
+    public void Every_catch_all_result_line_escapes_the_error_text()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "SafeText.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\SafeText.cs not found above " + AppContext.BaseDirectory);
+        int sites = 0;
+        foreach (var file in Directory.GetFiles(Path.Combine(dir!.FullName, "src"), "*.cs"))
+        {
+            var text = File.ReadAllText(file);
+            for (int at = text.IndexOf("Fatal.ResultLine(e", StringComparison.Ordinal); at >= 0; at = text.IndexOf("Fatal.ResultLine(e", at + 1, StringComparison.Ordinal))
+            {
+                var end = text.IndexOf("));", at, StringComparison.Ordinal);
+                var call = text[at..(end < 0 ? text.Length : end)];
+                sites++;
+                Assert.False(call.Contains("{e.Message}", StringComparison.Ordinal), $"{Path.GetFileName(file)}: a RESULT line prints e.Message raw: {call}");
+                Assert.True(call.Contains("SafeText.OneLine(", StringComparison.Ordinal), $"{Path.GetFileName(file)}: a RESULT line doesn't escape: {call}");
+            }
+        }
+        Assert.True(sites >= 7, $"only {sites} RESULT-line sites found");
+    }
+
     [Fact]
     public void OneLine_is_null_safe_and_leaves_ordinary_names_alone()
     {

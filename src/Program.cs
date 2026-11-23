@@ -149,7 +149,7 @@ int Check(string[] a)
     {
         // Anything not caught on the way (a locked or damaged file, a bad path, running out of memory): still one RESULT
         // line and exit 2 (Fatal.cs).
-        Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK ({e.GetType().Name}: {e.Message})"));
+        Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK ({e.GetType().Name}: {SafeText.OneLine(e.Message)})"));
         Fatal.AfterResult(() =>
         {
             Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");
@@ -321,7 +321,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
         // Read errors are skipped and listed inside the check; what reaches here stopped it, running out of memory
         // included (Fatal.cs): never a result that looks whole.
         resultPrinted = true;
-        Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK {Path.GetFileName(plugin)} ({e.GetType().Name}: {e.Message})"));
+        Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK {SafeText.OneLine(Path.GetFileName(plugin))} ({e.GetType().Name}: {SafeText.OneLine(e.Message)})"));
         Fatal.AfterResult(() =>
         {
             Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");

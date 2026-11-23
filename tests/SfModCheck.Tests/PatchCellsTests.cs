@@ -8,6 +8,7 @@ using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 using Noggog;
+using SfModCheck.Conflict;
 using Xunit;
 
 namespace SfModCheck.Tests;
@@ -424,7 +425,7 @@ public class PatchCellsTests
         Assert.DoesNotContain("was not used", stdout + stderr);
         var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
         Assert.Equal(1, Count(report, "--pick: ModB.esm's"));
-        Assert.DoesNotContain("whole mesh is used", report);
+        Assert.Contains("--pick: ModB.esm's whole mesh is used", report);   // round 7: the one mesh row
     }
 
     // code review 0.13.0, round 2: a whole-record pick made for another field leaves a forwarded mesh change alone (before
@@ -446,10 +447,11 @@ public class PatchCellsTests
         CheckIsClean(game);
     }
 
-    // code review 0.13.0, round 2: a pick naming the mesh the patch holds anyway changes nothing, so it adds no row (and
-    // isn't reported as unused either)
+    // code review 0.13.0, round 7 (the simple rule): a mesh pick always leaves its one row, also when it names the mesh
+    // the patch holds anyway, and the mesh parts it brings are listed as picked (round 2 had no row here, and round 7
+    // found a case where that left a picked mesh with no row at all)
     [Fact]
-    public void A_pick_of_the_mesh_the_patch_holds_anyway_adds_no_row()
+    public void A_mesh_pick_always_leaves_one_row()
     {
         using var game = new Game();
         game.Mod("ModA.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 5); n.NNAM = Nnam(7); });
@@ -461,11 +463,11 @@ public class PatchCellsTests
         Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
         Assert.Equal(new byte[] { 7, 0, 0, 0 }, n.NNAM!.Value.ToArray());
         var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
-        Assert.DoesNotContain("whole mesh is used", report);
-        // round 3: the forwarded lines stay as they were, and the pick isn't reported as a field picked
+        Assert.Equal(1, Count(report, "--pick: ModA.esm's whole mesh is used"));
         Assert.Contains("- NavmeshGeometry from ModA.esm", report);
         Assert.Contains("- NNAM from ModA.esm", report);
-        Assert.DoesNotContain("picked with --pick", report);
+        Assert.Contains("picked with --pick (part of the navmesh's mesh)", report);
+        CheckIsClean(game);
     }
 
     // code review 0.13.0, round 3: a pick the choice loop took on the geometry decides the whole mesh, so a mesh part
@@ -485,27 +487,8 @@ public class PatchCellsTests
         var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
         Assert.DoesNotContain("- NNAM from ModA.esm", report);
         Assert.Equal(1, Count(report, "--pick: ModB.esm's"));
-        Assert.Contains("the mesh comes whole from ModB.esm, so ModA.esm's change to NNAM is dropped", report);
-    }
-
-    // code review 0.13.0, round 3: a pick of the winner's mesh names the plugin whose mesh change it drops, never the
-    // winner twice, and gives no row when no other plugin is involved
-    [Theory]
-    [InlineData("ModA.esm", new string[0], new string[0], null, "ModA.esm")]
-    [InlineData("ModB.esm", new[] { "ModA.esm" }, new string[0], null, "ModA.esm")]
-    [InlineData("ModB.esm", new[] { "ModB.esm" }, new[] { "ModC.esm" }, null, "ModC.esm")]
-    [InlineData("ModB.esm", new string[0], new string[0], "ModC.esm", "ModC.esm")]
-    [InlineData("modb.ESM", new string[0], new[] { "ModB.esm" }, "ModB.esm", null)]
-    public void A_mesh_pick_row_names_another_plugin(string picked, string[] forwardedFrom, string[] keptOut, string? meshFrom, string? expected) =>
-        Assert.Equal(expected, PatchCommand.MeshPickOther("ModB.esm", picked, forwardedFrom, keptOut, meshFrom));
-
-    // code review 0.13.0, round 4: when the winner is picked and nothing else names a plugin, the plugin of the part of
-    // today's mesh the pick replaces is named, so the row is there
-    [Fact]
-    public void A_winner_mesh_pick_names_the_part_of_todays_mesh_it_replaces()
-    {
-        Assert.Equal("ModA.esm", PatchCommand.MeshPickOther("ModB.esm", "ModB.esm", [], [], "ModB.esm", ["ModB.esm", "ModA.esm"]));
-        Assert.Null(PatchCommand.MeshPickOther("ModB.esm", "ModB.esm", [], [], "ModB.esm", ["ModB.esm"]));
+        Assert.Contains("--pick: ModB.esm's whole mesh is used (a navmesh's geometry, NNAM and pre-cut entries come from one plugin, " +
+                        "so other plugins' changes to them are dropped)", report);
     }
 
     // code review 0.13.0, round 4, end to end: ModA's NNAM is today's (the winner ModB has none), ModB's geometry is
@@ -527,10 +510,10 @@ public class PatchCellsTests
         Assert.Contains("--pick: ModB.esm's whole mesh is used", report);
     }
 
-    // code review 0.13.0, round 4: a pick the choice loop took on the geometry takes the whole mesh, and the winner's own
-    // NNAM change it drops is named (before the fix only forwarded and kept-out plugins were, and here those are ModA)
+    // code review 0.13.0, round 4: a pick on the geometry takes the whole mesh, the winner's own NNAM change included
+    // (round 7: one row says other plugins' changes go; the parts that come from ModA are listed)
     [Fact]
-    public void A_pick_on_a_mesh_choice_names_the_winners_dropped_part()
+    public void A_pick_on_a_mesh_choice_takes_the_winners_part_too()
     {
         using var game = new Game();
         game.Mod("ModA.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 5); n.NNAM = Nnam(7); });
@@ -542,33 +525,50 @@ public class PatchCellsTests
         Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
         Assert.Equal(new byte[] { 7, 0, 0, 0 }, n.NNAM!.Value.ToArray());
         var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
-        Assert.Contains("ModB.esm's change to NNAM is dropped", report);
+        Assert.Contains("--pick: ModA.esm's whole mesh is used", report);
         Assert.Contains("- NNAM from ModA.esm", report);   // the part that now comes from ModA is listed
+        Assert.DoesNotContain("the winner ModB.esm's value is kept", report);   // no leftover row on NNAM
         CheckIsClean(game);
     }
 
-    // code review 0.13.0, round 4: picks on two mesh fields naming two plugins: the pick on the last mesh field decides
-    // the mesh, the other gives way with a warning, and the report never claims the value the patch doesn't hold
-    [Fact]
-    public void Two_mesh_picks_naming_two_plugins_leave_one_and_warn_about_the_other()
+    // code review 0.13.0, round 7 (the simple rule): field picks on one navmesh's mesh that name two plugins stop the
+    // run with exit 2 and one error naming both, whether the loops would have taken them or not. Round 7 found the old
+    // ranking let a pick on a Choice field (NNAM) beat a pick on a forwarded later field (the pre-cut entries); here
+    // the geometry is the forwarded field (only ModC changed it) and NNAM the Choice field
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Two_mesh_picks_naming_two_plugins_stop_the_run(bool choiceFirst)
     {
         using var game = new Game();
-        game.Mod("ModA.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 5); n.NNAM = Nnam(7); });
-        game.Mod("ModC.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 4); n.NNAM = Nnam(8); });
-        game.Mod("ModB.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 6); n.NNAM = Nnam(9); });
-        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModC.esm", "ModB.esm"],
-            $"{game.Navmesh}:NavmeshGeometry=ModC.esm", $"{game.Navmesh}:NNAM=ModA.esm");
+        game.Mod("ModC.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 4));
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(7));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(9));
+        string nnam = $"{game.Navmesh}:NNAM=ModA.esm", geo = $"{game.Navmesh}:NavmeshGeometry=ModC.esm";
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModC.esm", "ModA.esm", "ModB.esm"], choiceFirst ? [nnam, geo] : [geo, nnam]);
+        Assert.True(code == 2, stdout + stderr);
+        Assert.Equal("RESULT: CANNOT BUILD (two --pick options name different plugins for one navmesh's mesh)", ExeTests.ResultLine(stdout));
+        Assert.Contains($"--pick {(choiceFirst ? nnam : geo)} and --pick {(choiceFirst ? geo : nnam)} name two plugins for the mesh of navmesh B_Navm [{game.Navmesh}]", stderr);
+        Assert.Contains("keep only the --pick that names the plugin whose mesh you want", stderr);
+        Assert.False(File.Exists(Path.Combine(game.Out, "ConflictPatch.esm")));
+    }
+
+    // round 7: two mesh field picks naming one plugin (spelled two ways) are one choice, not a conflict
+    [Fact]
+    public void Two_mesh_picks_naming_one_plugin_take_its_mesh()
+    {
+        using var game = new Game();
+        game.Mod("ModC.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 4));
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(7));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(9));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModC.esm", "ModA.esm", "ModB.esm"],
+            $"{game.Navmesh}:NNAM=ModA.esm", $"{game.Navmesh}:PreCutMapEntries=moda.ESM");
         Assert.True(code == 0, stdout + stderr);
-        Assert.Contains($"WARNING: --pick {game.Navmesh}:NavmeshGeometry=ModC.esm was not used: a navmesh's mesh comes whole from one plugin", stderr);
-        Assert.DoesNotContain($"NNAM=ModA.esm was not used", stderr);
+        Assert.DoesNotContain("was not used", stderr);
         var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
-        Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);   // ModA's whole mesh
+        Assert.Equal(0f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);   // ModA's whole mesh: Base's geometry
         Assert.Equal(new byte[] { 7, 0, 0, 0 }, n.NNAM!.Value.ToArray());
-        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
-        Assert.DoesNotContain("ModC.esm's value is used", report);
-        Assert.DoesNotContain("- NavmeshGeometry from ModC.esm", report);
-        Assert.Contains("- NavmeshGeometry from ModA.esm", report);
-        Assert.Contains("the --pick on NavmeshGeometry (ModC.esm) gives way", report);
+        Assert.Equal(1, Count(File.ReadAllText(Path.Combine(game.Out, "patch-report.md")), "--pick: ModA.esm's whole mesh is used"));
         CheckIsClean(game);
     }
 
@@ -693,23 +693,22 @@ public class PatchCellsTests
             $"{game.Navmesh}=ModC.esm", $"{game.Navmesh}:NavmeshGeometry=ModA.esm");
         Assert.True(code == 0, stdout + stderr);
         Assert.DoesNotContain("NavmeshGeometry=ModA.esm was not used", stderr);
-        // round 6: NNAM was the only field the whole-record pick took, so it gets the plain "was not used"
-        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModC.esm was not used: a navmesh's mesh comes whole from one plugin, " +
-                        "and the --pick on NavmeshGeometry (ModA.esm) decides it", stderr);
-        Assert.DoesNotContain("was not used for the navmesh's", stderr);
+        // the mesh was the only thing the whole-record pick could take, so it gets "was not used" with the reason
+        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModC.esm was not used: the --pick on NavmeshGeometry (ModA.esm) decides that navmesh's whole mesh, " +
+                        "and a field --pick ranks above a whole-record --pick", stderr);
         var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
         Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);   // ModA's whole mesh
         Assert.Equal(new byte[] { 7, 0, 0, 0 }, n.NNAM!.Value.ToArray());
         var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
-        Assert.Contains("the --pick on NNAM (ModC.esm) gives way", report);
+        Assert.Equal(1, Count(report, "--pick: ModA.esm's whole mesh is used"));
         Assert.DoesNotContain("- NNAM from ModC.esm", report);
         CheckIsClean(game);
     }
 
-    // code review 0.13.0, round 5: the winner ModB only carried ModA's NNAM forward, so a geometry pick's row names ModA,
-    // the plugin that made the NNAM change, not ModB (before the fix it said "ModB.esm's change to NNAM")
+    // code review 0.13.0, round 5: the winner ModB only carried ModA's NNAM forward; a geometry pick of ModC takes ModC's
+    // whole mesh (Base's NNAM), and the one row names no one's part (round 7 dropped the per-part crediting)
     [Fact]
-    public void A_mesh_pick_row_names_the_plugin_that_made_the_dropped_change()
+    public void A_geometry_pick_takes_the_whole_mesh_over_a_carried_forward_nnam()
     {
         using var game = new Game();
         game.Mod("ModC.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 4));
@@ -722,15 +721,15 @@ public class PatchCellsTests
         Assert.Equal(4f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
         Assert.Null(n.NNAM);   // ModC's whole mesh: Base's NNAM (none)
         var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
-        Assert.Contains("the mesh comes whole from ModC.esm, so ModA.esm's change to NNAM is dropped", report);
-        Assert.DoesNotContain("ModB.esm's change", report);
+        Assert.Equal(1, Count(report, "--pick: ModC.esm's whole mesh is used"));
+        Assert.DoesNotContain("- NNAM from ModA.esm", report);
         CheckIsClean(game);
     }
 
-    // code review 0.13.0, round 5: the helpers behind those rows. The change is credited to the version that brought the
-    // value in (0 for the first version's value), and the text names whose change goes part by part
+    // code review 0.13.0, round 5: a field pick's row credits a dropped change to the version that brought the value in
+    // (0 for the first version's value), so a plugin that only carried it forward isn't named
     [Fact]
-    public void Mesh_pick_rows_credit_each_part_to_its_own_plugin()
+    public void IntroducedAt_credits_the_version_that_brought_the_value_in()
     {
         object?[] values = ["base", "a", "a", "c", "c"];
         Assert.Equal(1, PatchCommand.IntroducedAt(i => values[i], 2));
@@ -740,16 +739,11 @@ public class PatchCellsTests
         // round 6: the first version's value held again after another plugin changed it is nobody's change
         Assert.Equal(0, PatchCommand.IntroducedAt(i => new object?[] { "x", "y", "x" }[i], 2));
         Assert.Equal(0, PatchCommand.IntroducedAt(i => new object?[] { null, "y", null, null }[i], 3));
-        Assert.Equal("", PatchCommand.MeshGoneText("ModA.esm", []));
-        Assert.Equal("; the mesh comes whole from ModA.esm, so ModB.esm's change to NNAM is dropped",
-            PatchCommand.MeshGoneText("ModA.esm", [("NNAM", ["ModB.esm"])]));
-        Assert.Equal("; the mesh comes whole from ModA.esm, so ModB.esm's change to NNAM, and ModC.esm and ModD.esm's change to PreCutMapEntries, are dropped",
-            PatchCommand.MeshGoneText("ModA.esm", [("NNAM", ["ModB.esm"]), ("PreCutMapEntries", ["ModC.esm", "ModD.esm"])]));
     }
 
-    // code review 0.13.0, round 6: a field pick on a forwarded mesh field (the geometry, which only ModA changed) still
-    // beats a whole-record pick the choice loop took on NNAM. Before the fix ModC's whole mesh went in and the geometry
-    // pick was warned "was not used: that record has no Choice field"
+    // code review 0.13.0, rounds 6 and 7: a field pick on a forwarded mesh field (the geometry, which only ModA changed)
+    // beats a whole-record pick that the mesh choice (NNAM) would give the mesh to; the whole-record pick, left with
+    // nothing to take, says why, and the report has the one mesh row (round 7 found a case with no row at all)
     [Fact]
     public void A_field_pick_on_a_forwarded_mesh_field_beats_a_whole_record_pick()
     {
@@ -761,21 +755,20 @@ public class PatchCellsTests
             $"{game.Navmesh}=ModC.esm", $"{game.Navmesh}:NavmeshGeometry=ModA.esm");
         Assert.True(code == 0, stdout + stderr);
         Assert.DoesNotContain("NavmeshGeometry=ModA.esm was not used", stderr);
-        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModC.esm was not used: a navmesh's mesh comes whole from one plugin, " +
-                        "and the --pick on NavmeshGeometry (ModA.esm) decides it", stderr);
+        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModC.esm was not used: the --pick on NavmeshGeometry (ModA.esm) decides that navmesh's whole mesh", stderr);
         var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
         Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);   // ModA's whole mesh
         Assert.Null(n.NNAM);                                                     // ModA's NNAM is Base's (none)
         var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
-        Assert.Contains("ModA.esm's whole mesh is used; the --pick on NNAM (ModC.esm) gives way", report);
+        Assert.Equal(1, Count(report, "--pick: ModA.esm's whole mesh is used"));
         Assert.DoesNotContain("ModC.esm's value is used", report);
         CheckIsClean(game);
     }
 
     // code review 0.13.0, round 6: two losers changed NNAM (ModX's value forwarded, ModP's in the "both changed" row) and
-    // a geometry pick decides the mesh: the pick's row names both dropped changes, since both their lines and rows go
+    // a geometry pick decides the mesh: both their lines and rows go, and the one mesh row is left (round 7)
     [Fact]
-    public void A_mesh_pick_row_names_every_dropped_change_on_a_part()
+    public void A_mesh_pick_drops_every_other_change_to_the_mesh()
     {
         using var game = new Game();
         game.Mod("ModP.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(7));
@@ -789,31 +782,90 @@ public class PatchCellsTests
         Assert.Equal(4f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
         Assert.Null(n.NNAM);
         var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
-        Assert.Contains("the mesh comes whole from ModC.esm, so ModX.esm and ModP.esm's change to NNAM is dropped", report);
+        Assert.Equal(1, Count(report, "--pick: ModC.esm's whole mesh is used"));
+        Assert.DoesNotContain("- NNAM from ModX.esm", report);
+        Assert.DoesNotContain("ModP.esm's value is kept", report);
         CheckIsClean(game);
     }
 
-    // code review 0.13.0, round 6: a whole-record pick that gave up every field it took gets the plain "was not used";
-    // one that gave up several mesh fields but kept others gets one line naming them all
+    // code review 0.13.0, round 7: a parent cell whose record can't be composed takes its placed object out with a row
+    // that says so, and the rest of the patch is still written (before, the exception stopped the whole run)
     [Fact]
-    public void Whole_record_pick_warnings_say_what_was_given_up()
+    public void A_parent_cell_that_cant_be_built_leaves_with_its_objects()
     {
-        var fk = FormKey.Factory("000801:Base.esm");
-        var all = new PatchCommand.Pick(fk, null, "ModC.esm");
-        all.Took.Add("NNAM");
-        all.GaveWay.Add("NNAM");
-        all.GaveWayWhy = "why";
-        Assert.Equal($"WARNING: --pick {fk}=ModC.esm was not used: why", PatchCommand.GaveWayWarning(all));
-        var part = new PatchCommand.Pick(fk, null, "ModC.esm");
-        foreach (var f in new[] { "NNAM", "PreCutMapEntries", "Flags" }) part.Took.Add(f);
-        part.GaveWay.Add("NNAM");
-        part.GaveWay.Add("PreCutMapEntries");
-        part.GaveWayWhy = "why";
-        Assert.Equal($"WARNING: --pick {fk}=ModC.esm was not used for the navmesh's NNAM and PreCutMapEntries: why", PatchCommand.GaveWayWarning(part));
-        Assert.Null(PatchCommand.GaveWayWarning(new PatchCommand.Pick(fk, null, "ModC.esm")));
-        var field = new PatchCommand.Pick(fk, "NNAM", "ModC.esm");
-        field.GaveWay.Add("NNAM");
-        Assert.Null(PatchCommand.GaveWayWarning(field));
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Move(Game.RefIn(m, c, game.RefInterior)));
+        game.Mod("ModB.esm", (m, b, c) => Game.RefIn(m, c, game.RefInterior).Scale = 2);
+        game.Mod("ModW.esm", (m, b, c) => Game.WorldIn(m, b).EnvironmentMap = "modw.dds");
+        game.Mod("ModV.esm", (m, b, c) => Game.WorldIn(m, b).WaterEnvironmentMap = "modv.dds");
+        var plan = InProcessPlan(game, ["Base.esm", "ModA.esm", "ModB.esm", "ModW.esm", "ModV.esm"], fk => fk == game.Interior);
+        Assert.DoesNotContain(plan.Records, r => r.FormKey == game.Interior || r.FormKey == game.RefInterior);
+        var row = Assert.Single(plan.NotBuilt, r => r.FormKey == game.RefInterior);
+        Assert.Equal($"its cell {game.Interior} could not be built (InvalidOperationException: made to fail by a test)", row.Why);
+        Assert.Contains(plan.Records, r => r.FormKey == game.World);   // the rest of the patch is still there
+    }
+
+    // round 7: a worldspace whose own build failed but is needed as a patched cell's parent goes in as the game uses it
+    // today, and its "Not built" row says so; one whose parent copy can't be built either takes its cells out with it
+    [Theory]
+    [InlineData(1)]
+    [InlineData(int.MaxValue)]
+    public void A_worldspace_that_failed_to_build_but_is_a_parent_says_so(int failures)
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.CellIn(m, c, game.Exterior).WaterHeight = 7);
+        game.Mod("ModB.esm", (m, b, c) => Game.CellIn(m, c, game.Exterior).WaterEnvironmentMap = "modb.dds");
+        game.Mod("ModW.esm", (m, b, c) => Game.WorldIn(m, b).EnvironmentMap = "modw.dds");
+        game.Mod("ModV.esm", (m, b, c) => Game.WorldIn(m, b).WaterEnvironmentMap = "modv.dds");
+        int left = failures;
+        var plan = InProcessPlan(game, ["Base.esm", "ModA.esm", "ModB.esm", "ModW.esm", "ModV.esm"], fk => fk == game.World && left-- > 0);
+        var row = Assert.Single(plan.NotBuilt, r => r.FormKey == game.World);
+        Assert.StartsWith("it could not be built (InvalidOperationException: made to fail by a test)", row.Why);
+        if (failures == 1)
+        {
+            Assert.Contains("; it is in the patch only as the parent of 1 patched cell, as the game uses it today, so its own lost changes are still not patched", row.Why);
+            Assert.True(Assert.Single(plan.Records, r => r.FormKey == game.World).Parent);
+            Assert.Contains(plan.Records, r => r.FormKey == game.Exterior);
+        }
+        else
+        {
+            Assert.DoesNotContain(plan.Records, r => r.FormKey == game.World || r.FormKey == game.Exterior);
+            Assert.Equal($"its worldspace {game.World} could not be built (InvalidOperationException: made to fail by a test)",
+                Assert.Single(plan.NotBuilt, r => r.FormKey == game.Exterior).Why);
+        }
+    }
+
+    // round 7: a pick on a record that isn't built says so, with the "Not built" reason, not the general text
+    [Fact]
+    public void A_pick_on_a_record_that_isnt_built_says_why()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Move(Game.RefIn(m, c, game.RefInterior)));
+        game.Mod("BlueprintShips-SFBGS00A.esm", (m, b, c) => Game.RefIn(m, c, game.RefInterior).Scale = 2);
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "BlueprintShips-SFBGS00A.esm", "ModA.esm"], $"{game.RefInterior}:Position=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains($"WARNING: --pick {game.RefInterior}:Position=ModA.esm was not used: that record isn't built: ", stderr);
+        Assert.Contains("BlueprintShips-SFBGS00A.esm loads after every mod, this patch too", stderr);
+        Assert.DoesNotContain("or the record isn't patched", stderr);
+    }
+
+    /// <summary>The patch plan worked out in this process (as `patch` does), with Compose made to fail for the records
+    /// <paramref name="fails"/> picks.</summary>
+    static PatchCommand.Plan InProcessPlan(Game game, string[] active, Func<FormKey, bool> fails)
+    {
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, active.Select(a => "*" + a));
+        var lo = LoadOrderSetup.Build(game.Data, txt);
+        try
+        {
+            PatchCommand.ComposeFailsForTest.Value = fails;
+            return PatchCommand.Build(lo, Analyzer.Run(lo.Plugins), new HashSet<string>(), new());
+        }
+        finally
+        {
+            PatchCommand.ComposeFailsForTest.Value = null;
+            foreach (var p in lo.Plugins) p.Mod.Dispose();
+        }
     }
 
     // code review 0.13.0, round 2: whether a component kind is an identity is worked out once per field over every
@@ -1232,7 +1284,8 @@ public class PatchCellsTests
         var fk = FormKey.Factory("000801:Base.esm");
         Assert.Equal($"WARNING: --pick {fk}=ModA.esm was not used: that record has no Choice field that ModA.esm supplies, or the record isn't patched",
             PatchCommand.NotUsedWarning(new PatchCommand.Pick(fk, null, "ModA.esm")));
-        Assert.Equal($"WARNING: --pick {fk}:Value=ModA.esm was not used: that record has no field Value that ModA.esm supplies, or no mod overrides the record",
+        // round 7: "or the record isn't patched" for a field pick too (a record with lost changes can still not be built)
+        Assert.Equal($"WARNING: --pick {fk}:Value=ModA.esm was not used: that record has no field Value that ModA.esm supplies, or the record isn't patched",
             PatchCommand.NotUsedWarning(new PatchCommand.Pick(fk, "Value", "ModA.esm")));
         Assert.Equal($"WARNING: --pick {fk}:Value=ModA.esm was not used: why",
             PatchCommand.NotUsedWarning(new PatchCommand.Pick(fk, "Value", "ModA.esm") { Why = "why" }));

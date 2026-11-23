@@ -268,17 +268,17 @@ public static class ReleaseCreations
             // compiled scripts, loose and in archives
             foreach (var (label, data, error) in Scripts(p))
             {
-                if (data == null) { Log.Write(SafeText.OneLine($"creations: {label}: not read ({error})")); continue; }
+                if (data == null) { Log.Write($"creations: {label}: not read ({error})"); continue; }
                 PexFile pex;
                 try { pex = Pex.Read(data, label); }
-                catch (InvalidDataException e) { Log.Write(SafeText.OneLine($"creations: {label}: not a readable script ({e.Message})")); continue; }
+                catch (InvalidDataException e) { Log.Write($"creations: {label}: not a readable script ({e.Message})"); continue; }
                 var fw = Frameworks(pex);
                 var names = fw.Count > 0 ? IsPluginInstalledNames(pex) : null;
                 var tested = names == null ? null : Targets(names);
                 // user, 2026-11-21 (0.10.1, option b): a check that tests only official plugins (every name a string
                 // matching [official]) doesn't guard an SFSE framework, so it stays a PROBLEM.
                 var officialOnly = names != null && names.All(n => n != null && IsOfficial(n));
-                if (names != null) Log.Write(SafeText.OneLine($"creations: {label}: Game.IsPluginInstalled tests {string.Join(", ", tested!)}{(officialOnly ? " (official plugins only: not a framework guard)" : "")}"));
+                if (names != null) Log.Write($"creations: {label}: Game.IsPluginInstalled tests {string.Join(", ", tested!)}{(officialOnly ? " (official plugins only: not a framework guard)" : "")}");
                 if (tested != null && officialOnly)
                     Add(Level.Problem, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins. Its Game.IsPluginInstalled calls test only official plugins ({string.Join(", ", tested)}), which doesn't guard the framework. Creations can't run SFSE, so those calls fail; remove them, guard them with Game.IsPluginInstalled on the framework's own plugin in this script, or keep the mod on PC (Nexus).");
                 else if (tested != null)

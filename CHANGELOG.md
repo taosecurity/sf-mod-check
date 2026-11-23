@@ -12,6 +12,7 @@
 - One rule for names from a plugin, script or zip, everywhere: control, line-break and invisible format characters print as `\n`, `\t` or `\uXXXX`.
 - `conflict`, `patch`, `diff`, the reports and conflicts.json used to turn those characters into spaces; they now show the escape, as `release --profile creations` did.
 - `release` escapes them in every step's findings, the header line and the RESULT line, not only in the creations step.
+- The RESULT line of every command escapes them too when it quotes an error, so it stays one line.
 - The `--log` and `--verbose` lines escape them too, and the later lines of one multi-line entry (a stack trace) are indented by two spaces.
 - Ordinary names, accented letters and dashes print as before.
 - `conflict` rates a file name stored as raw bytes (a city-map component's file) that differs only in letter case as "No effect", as it does a text field. `patch` leaves such a change alone.
@@ -29,20 +30,20 @@
 - A navmesh's mesh (geometry, NNAM, pre-cut entries) comes whole from one plugin, never field by field.
 - When two plugins each changed a different part of one navmesh's mesh, today's mesh is kept and listed under choices.
 - The `--pick` line printed for such a navmesh takes that plugin's whole mesh when you run it.
-- A whole-record `--pick` takes a navmesh's mesh only when the mesh would mix versions; a forwarded mesh change stays.
-- Picks on two mesh fields naming two plugins: a field pick on any mesh field beats a whole-record pick, else the later field's pick decides.
-- The pick that gives way gets a warning; a whole-record pick that keeps other fields gets one line naming the mesh fields it lost.
-- A navmesh pick's row names, part by part, every plugin whose mesh change it drops, the winner included.
+- A field `--pick` on any mesh field takes that plugin's whole mesh, with one report row saying the other plugins' mesh changes are dropped.
+- Field picks on one navmesh's mesh that name two plugins stop the run with exit 2 and an error naming both.
+- A whole-record `--pick` takes a navmesh's mesh only when the mesh is one of its Choice fields and no field pick names the mesh.
 - A field `--pick` (`<FormKey>:<Field>=<plugin>`) now works on any field, not only on Choice fields.
 - It keeps that plugin's value where the patch would forward another mod's change; the report names the change it drops.
 - A field `--pick` on a record with no lost change adds that record, as the game uses it today with the one field picked.
 - Example: keep a worldspace's water empty when a mod filled it, with `--pick 0012AB:Starfield.esm:Water=Starfield.esm`.
-- A field pick that can't be used says why: no such field, the plugin doesn't hold the record, or no mod overrides it.
+- A pick that can't be used says why: no such field, the plugin doesn't hold the record, no mod overrides it, or the record isn't built (and why not).
 - Of two field picks on one field, the later one decides, and the earlier one gets a "was not used" warning.
 - In a merged component list, a component's kind counts as its identity only while no version holds two of that kind.
 - With `--include-official`, cells, worldspaces, placed objects and navmeshes one official plugin loses to another are restored too.
 - `--verbose` logs where each patched cell, placed object and navmesh goes, and each cell or worldspace added as a parent.
 - `--verbose` also logs each placed object and navmesh left out because its cell's worldspace couldn't be read again.
+- A parent cell or worldspace that can't be built leaves the patch with its objects, each listed under "Not built" with the reason; the rest is still written.
 - `patch --verbose` logs one line for every record it decides on: built (with the fields forwarded and the lists merged), left out as equal to today's, or not built and why.
 - Dialogue and scenes are still listed under "Not built".
 

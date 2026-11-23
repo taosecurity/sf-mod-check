@@ -290,7 +290,7 @@ public static class TriageCommand
         try { return RunLogged(a, version, byline); }
         catch (Exception e)
         {
-            Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: NO REPORT ({e.GetType().Name}: {e.Message})"));
+            Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: NO REPORT ({e.GetType().Name}: {SafeText.OneLine(e.Message)})"));
             Fatal.AfterResult(() =>
             {
                 Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");
