@@ -53,6 +53,8 @@ public static class PatchCommand
     public record Pick(FormKey FormKey, string? Field, string Plugin)
     {
         public bool Used { get; set; }
+        /// <summary>Why a pick the choice loop took gave way after all (another pick decides the navmesh's whole mesh).</summary>
+        public string? Overruled { get; set; }
     }
 
     /// <summary>Parses "064F3C:Starfield.esm=ModA.esm" (whole record) or "064F3C:Starfield.esm:Value=ModA.esm" (one
@@ -402,6 +404,8 @@ public static class PatchCommand
             foreach (var pk in picks.Where(pk => !pk.Used))
                 Console.Error.WriteLine($"WARNING: --pick {pk.FormKey}{(pk.Field is null ? "" : ":" + pk.Field)}={pk.Plugin} was not used: that record has no Choice field " +
                                         $"{(pk.Field is null ? "" : pk.Field + " ")}that {pk.Plugin} supplies, or the record isn't patched");
+            foreach (var pk in picks.Where(pk => pk.Used && pk.Overruled is not null))
+                Console.Error.WriteLine($"WARNING: --pick {pk.FormKey}{(pk.Field is null ? "" : ":" + pk.Field)}={pk.Plugin} was not used: {pk.Overruled}");
 
             var reportPath = Path.Combine(outDir, "patch-report.md");
             var patchPath = Path.Combine(outDir, name);
@@ -722,12 +726,15 @@ public static class PatchCommand
 
     /// <summary>The "Other" of a navmesh pick's row: the plugin picked, or, when the winner is picked, the plugin whose mesh
     /// change the pick drops (the last forwarded part's plugin, else the last kept-out row's, else the version the mesh
-    /// came from). Null when no plugin but the winner is involved, and then no row is added (code review 0.13.0, round 3).</summary>
-    internal static string? MeshPickOther(string winner, string picked, IEnumerable<string> forwardedFrom, IEnumerable<string> keptOut, string? meshFrom)
+    /// came from, else the plugin of a part of today's mesh that the pick replaces). Null when no plugin but the winner is
+    /// involved, and then no row is added: the pick then changes nothing against today's mesh (code review 0.13.0, rounds
+    /// 3 and 4).</summary>
+    internal static string? MeshPickOther(string winner, string picked, IEnumerable<string> forwardedFrom, IEnumerable<string> keptOut, string? meshFrom,
+        IEnumerable<string>? todayFrom = null)
     {
         bool NotWinner(string? x) => x is not null && !x.Equals(winner, StringComparison.OrdinalIgnoreCase);
         if (NotWinner(picked)) return picked;
-        return new[] { forwardedFrom.LastOrDefault(NotWinner), keptOut.LastOrDefault(NotWinner), meshFrom }.FirstOrDefault(NotWinner);
+        return new[] { forwardedFrom.LastOrDefault(NotWinner), keptOut.LastOrDefault(NotWinner), meshFrom, (todayFrom ?? []).LastOrDefault(NotWinner) }.FirstOrDefault(NotWinner);
     }
 
     /// <summary>The worldspace of these patched cells could not be read again: the cells and their placed objects and
@@ -739,7 +746,9 @@ public static class PatchCommand
         foreach (var c in cells)
         {
             plan.Records.Remove(c);
-            var objs = plan.Records.Where(o => IsCellChild(o.Record) && plan.RefPlaces.TryGetValue(o.FormKey, out var at) && at.Cell == c.FormKey).ToList();
+            // every planned placed object and navmesh has its place (set when it was planned), as in the parent-cell step:
+            // a missing one is a bug and fails loudly rather than leaving an object without its cell (round 4)
+            var objs = plan.Records.Where(o => IsCellChild(o.Record) && plan.RefPlaces[o.FormKey].Cell == c.FormKey).ToList();
             // a parent cell noted earlier as "in the patch only as the parent" gets its one row corrected
             if (!NoteParentDropped(plan, c.FormKey, world))
             {
@@ -754,6 +763,7 @@ public static class PatchCommand
             {
                 plan.Records.Remove(o);
                 plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, $"the worldspace {world} of its cell could not be read again", new()));
+                Log.Write($"patch: {o.RecordType} {o.FormKey} not built: the worldspace {world} of its cell could not be read again");
             }
         }
     }
@@ -778,14 +788,15 @@ public static class PatchCommand
     }
 
     /// <summary>"2 patched placed objects and 1 patched navmesh": what a parent cell is in the patch for.</summary>
-    static string ChildrenText(IEnumerable<IMajorRecordGetter> children)
+    internal static string ChildrenText(IEnumerable<IMajorRecordGetter> children)
     {
         var list = children.ToList();
         int navs = list.Count(x => x is INavigationMeshGetter), refs = list.Count - navs;
         var parts = new List<string>();
         if (refs > 0) parts.Add($"{refs} patched placed object{(refs == 1 ? "" : "s")}");
         if (navs > 0) parts.Add($"{navs} patched navmesh{(navs == 1 ? "" : "es")}");
-        return string.Join(" and ", parts);
+        // a parent whose children already left the plan (round 4): never an empty "the parent of , ..."
+        return parts.Count > 0 ? string.Join(" and ", parts) : "patched objects";
     }
 
     /// <summary>Every cell one plugin holds: interior cells, and each worldspace's persistent cell and exterior cells.</summary>
@@ -1162,7 +1173,10 @@ public static class PatchCommand
                     // the row names the plugin picked, or, when the winner is picked, the plugin whose mesh change the
                     // pick drops: a forwarded part's plugin, a kept-out row's, or the version the mesh came from (round 3)
                     var winner = vs[^1].Plugin.FileName;
-                    var other = MeshPickOther(winner, direct.Plugin, who, dropped.Select(c => c.Other), u0 >= 0 ? vs[u0].Plugin.FileName : null);
+                    // round 4: when the winner is picked and nothing else names a plugin, the part of today's mesh the
+                    // pick replaces does, so a pick that changes the patch always leaves a row
+                    var todayFrom = unit.Where(f => !FieldCompare.DeepEq(Held(f, di), Held(f, today[f]), 0)).Select(f => vs[today[f]].Plugin.FileName);
+                    var other = MeshPickOther(winner, direct.Plugin, who, dropped.Select(c => c.Other), u0 >= 0 ? vs[u0].Plugin.FileName : null, todayFrom);
                     if (other is not null)
                         plan.Choices.Add(new(fk, first.RecordType, first.EditorID, unit[0], winner, other, true, $"--pick: {direct.Plugin}'s whole mesh is used"));
                     Log.Write($"patch: navmesh {fk}: --pick takes {direct.Plugin}'s whole mesh{(other is not null ? $" (in place of {other}'s)" : "")}");
@@ -1192,18 +1206,42 @@ public static class PatchCommand
                     // the pick the loops above took decides the whole mesh: a mesh part forwarded from, or kept for,
                     // another plugin gives way, and the pick's one row names whose change goes (code review 0.13.0, round 3)
                     var picked = vs[u].Plugin.FileName;
+                    var winnerName = vs[^1].Plugin.FileName;
                     var meshChanged = unit.Where(f => source[f] != u && !FieldCompare.DeepEq(Held(f, source[f]), Held(f, u), 0)).ToList();
-                    var gone = forwarded.Where(x => meshChanged.Contains(x.Field) && !x.Picked).Select(x => x.From)
-                        .Concat(plan.Choices.Where(c => c.FormKey == fk && meshChanged.Contains(c.Field) && !c.Picked).Select(c => c.Other))
+                    // Picks on two mesh fields naming two plugins: the pick on the last mesh field (unit order) decides
+                    // the mesh, and the other gives way with a warning, so the report never claims a value the patch
+                    // doesn't hold (code review 0.13.0, round 4).
+                    var givesWay = meshChanged.Where(f => plan.Choices.Any(c => c.FormKey == fk && c.Field == f && c.Picked && !c.Merged)).ToList();
+                    var overruled = new List<string>();
+                    foreach (var f in givesWay)
+                    {
+                        var by = vs[source[f]].Plugin.FileName;
+                        overruled.Add($"{f} ({by})");
+                        forwarded.RemoveAll(x => x.Field == f);
+                        plan.Choices.RemoveAll(c => c.FormKey == fk && c.Field == f && c.Picked && !c.Merged);
+                        foreach (var pk in picks.Where(pk => pk.FormKey == fk && pk.Field == f && pk.Plugin.Equals(by, StringComparison.OrdinalIgnoreCase)))
+                            pk.Overruled = $"a navmesh's mesh comes whole from one plugin, and the --pick on {earlier} ({picked}) decides it";
+                    }
+                    var rest = meshChanged.Except(givesWay).ToList();
+                    // whose change each part gives up: a forwarded line's or kept-out row's plugin, and the plugin whose
+                    // value the part held when that is a change of its own (not the record's first version's value)
+                    var gone = forwarded.Where(x => rest.Contains(x.Field) && !x.Picked).Select(x => x.From)
+                        .Concat(plan.Choices.Where(c => c.FormKey == fk && rest.Contains(c.Field) && !c.Picked).Select(c => c.Other))
+                        .Concat(rest.Where(f => source[f] > 0 && !FieldCompare.DeepEq(Held(f, source[f]), Held(f, 0), 0)).Select(f => vs[source[f]].Plugin.FileName))
                         .Where(x => !x.Equals(picked, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                    forwarded.RemoveAll(x => meshChanged.Contains(x.Field) && !x.Picked);
-                    plan.Choices.RemoveAll(c => c.FormKey == fk && meshChanged.Contains(c.Field) && !c.Picked);
+                    forwarded.RemoveAll(x => rest.Contains(x.Field) && !x.Picked);
+                    plan.Choices.RemoveAll(c => c.FormKey == fk && rest.Contains(c.Field) && !c.Picked);
+                    // the parts that now come from the picked plugin are listed as forwarded, as the picked field is
+                    if (!picked.Equals(winnerName, StringComparison.OrdinalIgnoreCase))
+                        foreach (var f in meshChanged.Where(f => !FieldCompare.DeepEq(Held(f, u), Held(f, today[f]), 0)))
+                            forwarded.Add(new(f, picked, "picked with --pick (part of the mesh)", Picked: true));
                     var k = plan.Choices.FindLastIndex(c => c.FormKey == fk && c.Field == earlier && c.Picked && !c.Merged);
-                    if (gone.Count > 0 && k >= 0)
-                        plan.Choices[k] = plan.Choices[k] with { Text = plan.Choices[k].Text +
-                            $"; the mesh comes whole from {picked}, so {string.Join(" and ", gone)}'s change to {string.Join(", ", meshChanged)} is dropped" };
-                    if (gone.Count > 0)
-                        Log.Write($"patch: navmesh {fk}: the --pick on {earlier} takes {picked}'s whole mesh, dropping {string.Join(" and ", gone)}'s change to {string.Join(", ", meshChanged)}");
+                    var extra = (gone.Count > 0 ? $"; the mesh comes whole from {picked}, so {string.Join(" and ", gone)}'s change to {string.Join(", ", rest)} is dropped" : "")
+                              + (overruled.Count > 0 ? $"; the --pick on {string.Join(" and ", overruled)} gives way (a navmesh's mesh comes whole from one plugin)" : "");
+                    if (extra.Length > 0 && k >= 0)
+                        plan.Choices[k] = plan.Choices[k] with { Text = plan.Choices[k].Text + extra };
+                    if (extra.Length > 0)
+                        Log.Write($"patch: navmesh {fk}: the --pick on {earlier} takes {picked}'s whole mesh{extra}");
                 }
                 foreach (var f in unit.Where(f => source[f] != u))
                 {

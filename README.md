@@ -514,7 +514,9 @@ one mesh as the Creation Kit finalized it, so the patch takes all three from one
 by entry. When one plugin changed one part and another plugin's copy differs in another part, a mix would be a mesh
 nobody made: the patch keeps today's mesh and the report lists it under choices. A `--pick` on a mesh field takes
 that plugin's whole mesh. A whole-record `--pick` takes the mesh only when the mesh itself would mix versions;
-otherwise it leaves a forwarded mesh change alone, as it does every other forwarded field.
+otherwise it leaves a forwarded mesh change alone, as it does every other forwarded field. When picks on two mesh
+fields of one navmesh name two plugins, the pick on the later field (geometry, then NNAM, then the pre-cut entries)
+decides the whole mesh, and the other pick gets a "was not used" warning.
 
 **What it doesn't build yet:** dialogue topics, dialogue lines and scenes, so the report
 lists them for xEdit instead. A quest's own fields are patched; its dialogue and scenes are not copied into the patch.
