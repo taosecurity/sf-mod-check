@@ -276,7 +276,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
         }
     if (!dataGiven && !Directory.Exists(o.DataDir))
     {
-        Console.WriteLine($"RESULT: CANNOT CHECK {Path.GetFileName(plugin)} (no Data folder: Steam's usual folder {o.DataDir} doesn't exist; give --data)");
+        Console.WriteLine($"RESULT: CANNOT CHECK {SafeText.OneLine(Path.GetFileName(plugin))} (no Data folder: Steam's usual folder {o.DataDir} doesn't exist; give --data)");
         Console.Error.WriteLine($"can't find the game's Data folder: Steam's usual folder {o.DataDir} doesn't exist and the plugin's own folder " +
                                 "has no Starfield.esm. Run again with --data \"<the game's Data folder>\" (Game Pass: ...\\Starfield\\Content\\Data).");
         Log.Write($"stopped: no Data folder (Steam's usual folder missing, no --data)");
@@ -286,7 +286,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     if (dataGiven && !Directory.Exists(o.DataDir))
     {
         resultPrinted = true;
-        Console.WriteLine($"RESULT: CANNOT CHECK {Path.GetFileName(plugin)} (the Data folder {Path.GetFullPath(o.DataDir)} doesn't exist)");
+        Console.WriteLine($"RESULT: CANNOT CHECK {SafeText.OneLine(Path.GetFileName(plugin))} (the Data folder {SafeText.OneLine(Path.GetFullPath(o.DataDir))} doesn't exist)");
         Console.Error.WriteLine($"can't use the Data folder {Path.GetFullPath(o.DataDir)}: it doesn't exist. Give --data the game's Data folder, " +
                                 "the one that holds Starfield.esm (a path with spaces needs quotes around it).");
         Log.Write($"stopped: Data folder {Path.GetFullPath(o.DataDir)} doesn't exist");
@@ -346,7 +346,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     var note = r.CannotCheckLinks ? "; links not checked" : "";
     if (r.ScenesNotChecked > 0) note += $"; {r.ScenesNotChecked} official scene{(r.ScenesNotChecked == 1 ? "" : "s")} not checked ({r.ScenesNotCheckedWhy})";
     var verdict = r.Errors > 0 ? "FAILED" : "OK";
-    Console.WriteLine($"RESULT: {verdict}, {r.Errors} errors, {r.Warnings} warnings{note} ({Path.GetFileName(plugin)}: {r.Records} records, {r.Links} links; {r.Elapsed.TotalSeconds:F1} s)");
+    Console.WriteLine($"RESULT: {verdict}, {r.Errors} errors, {r.Warnings} warnings{note} ({SafeText.OneLine(Path.GetFileName(plugin))}: {r.Records} records, {r.Links} links; {r.Elapsed.TotalSeconds:F1} s)");
     if (Log.On)
     {
         foreach (var g in r.Findings.GroupBy(f => (f.Severity, f.Check)).OrderBy(g => g.Key.Check))

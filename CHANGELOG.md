@@ -31,6 +31,7 @@
 - When two plugins each changed a different part of one navmesh's mesh, today's mesh is kept and listed under choices.
 - The `--pick` line printed for such a navmesh takes that plugin's whole mesh when you run it.
 - A field `--pick` on any mesh field takes that plugin's whole mesh, with one report row saying the other plugins' mesh changes are dropped.
+- A mesh `--pick` that names today's mesh and drops no change adds no row; one on a partial copy lacking part of the mesh isn't used, and says why.
 - Field picks on one navmesh's mesh that name two plugins stop the run with exit 2 and an error naming both.
 - A whole-record `--pick` takes a navmesh's mesh only when the mesh is one of its Choice fields and no field pick names the mesh.
 - A field `--pick` (`<FormKey>:<Field>=<plugin>`) now works on any field, not only on Choice fields.
@@ -44,6 +45,7 @@
 - `--verbose` logs where each patched cell, placed object and navmesh goes, and each cell or worldspace added as a parent.
 - `--verbose` also logs each placed object and navmesh left out because its cell's worldspace couldn't be read again.
 - A parent cell or worldspace that can't be built leaves the patch with its objects, each listed under "Not built" with the reason; the rest is still written.
+- A `--pick` on an object that leaves this way gets a "was not used" warning with that reason, and its report row goes.
 - `patch --verbose` logs one line for every record it decides on: built (with the fields forwarded and the lists merged), left out as equal to today's, or not built and why.
 - Dialogue and scenes are still listed under "Not built".
 

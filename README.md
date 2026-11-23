@@ -526,12 +526,14 @@ nobody made: the patch keeps today's mesh and the report lists it under choices.
 kept simple:
 
 - A field `--pick` on any mesh field (`NavmeshGeometry`, `NNAM` or `PreCutMapEntries`) takes that plugin's whole
-  mesh, and the report's one row says so: every other plugin's change to the mesh is dropped.
+  mesh, and the report's one row says so: every other plugin's change to the mesh is dropped. A pick that names
+  today's mesh and drops no change counts as used but adds no row. The plugin's copy must hold the whole mesh: a
+  partial copy that lacks a part gets a "was not used" warning.
 - Field picks on one navmesh's mesh that name two different plugins stop the run with exit 2 and an error naming
   both picks. Keep the one for the plugin whose mesh you want.
 - A whole-record `--pick` takes the whole mesh only when the mesh is one of its Choice fields (the winner and another
   plugin both changed a mesh field) and no field pick names the mesh. Otherwise it leaves the mesh alone, as it
-  leaves every forwarded field alone.
+  leaves every forwarded field alone; if it takes nothing else, its warning says so and gives the field pick to use.
 - A field pick on the mesh ranks above a whole-record pick, as on every other field. A whole-record pick left with
   nothing to take gets a "was not used" warning that says so.
 

@@ -447,9 +447,8 @@ public class PatchCellsTests
         CheckIsClean(game);
     }
 
-    // code review 0.13.0, round 7 (the simple rule): a mesh pick always leaves its one row, also when it names the mesh
-    // the patch holds anyway, and the mesh parts it brings are listed as picked (round 2 had no row here, and round 7
-    // found a case where that left a picked mesh with no row at all)
+    // code review 0.13.0, round 7 (the simple rule): a mesh pick that changes the mesh leaves its one row, and the mesh
+    // parts it brings are listed as picked (round 8: a pick that names today's mesh and drops no change adds none)
     [Fact]
     public void A_mesh_pick_always_leaves_one_row()
     {
@@ -835,6 +834,83 @@ public class PatchCellsTests
         }
     }
 
+    // code review 0.13.0, round 8: a navmesh left out with its parent cell takes its pick's row with it, and the pick
+    // counts as not used, with the "Not built" reason (before, the report said the picked mesh was used)
+    [Fact]
+    public void A_pick_on_a_navmesh_left_out_with_its_cell_is_not_used()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 5));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 6));
+        var pick = new PatchCommand.Pick(game.Navmesh, "NavmeshGeometry", "ModA.esm");
+        var plan = InProcessPlan(game, ["Base.esm", "ModA.esm", "ModB.esm"], fk => fk == game.Interior, [pick]);
+        Assert.Contains(plan.NotBuilt, r => r.FormKey == game.Navmesh);
+        Assert.DoesNotContain(plan.Choices, c => c.FormKey == game.Navmesh);
+        Assert.False(pick.Used);
+        Assert.StartsWith("that record isn't built: its cell ", pick.Why);
+    }
+
+    // round 8: a mesh pick that names today's mesh and drops nobody's change counts as taken but adds no row, as on
+    // every other field (before, it gave a row naming the winner as the other plugin)
+    [Fact]
+    public void A_mesh_pick_of_todays_mesh_adds_no_row()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).EditorID = "A_Navm");
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 6));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModB.esm"], $"{game.Navmesh}:NavmeshGeometry=ModB.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
+        Assert.Equal("A_Navm", n.EditorID);
+        Assert.Equal(6f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
+        Assert.DoesNotContain("whole mesh is used", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+    }
+
+    // round 8: a whole-record pick and a field pick that name the same plugin's mesh give no warning
+    [Fact]
+    public void A_whole_and_a_field_mesh_pick_naming_one_plugin_give_no_warning()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 5));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 6));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModB.esm"], $"{game.Navmesh}=ModA.esm", $"{game.Navmesh}:NNAM=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        Assert.Equal(5f, Assert.Single(Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>()).NavmeshGeometry!.Vertices).Point.X);
+    }
+
+    // round 8: a whole-record pick on a navmesh whose mesh isn't a Choice field says why it leaves the mesh alone and
+    // how to take it, not the general "or the record isn't patched" text
+    [Fact]
+    public void A_whole_record_pick_on_a_mesh_that_isnt_a_choice_says_why()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 5));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).EditorID = "B_Navm");
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModB.esm"], $"{game.Navmesh}=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModA.esm was not used: that navmesh's mesh isn't a field the winner and another plugin both changed", stderr);
+        Assert.Contains($"use --pick {game.Navmesh}:NavmeshGeometry=ModA.esm", stderr);
+        Assert.DoesNotContain("or the record isn't patched", stderr);
+    }
+
+    // round 8 (found earlier in the code): a pick naming a plugin whose navmesh copy is partial and lacks part of the
+    // mesh is refused with a reason, instead of writing a mesh with that part empty
+    [Fact]
+    public void A_mesh_pick_on_a_partial_copy_without_the_geometry_is_refused()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = null; n.NNAM = Nnam(7); n.MajorRecordFlagsRaw |= 0x4000; });
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 6));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModB.esm"], $"{game.Navmesh}:NNAM=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("ModA.esm's copy of that navmesh is partial and doesn't hold its whole mesh", stderr);
+        if (File.Exists(Path.Combine(game.Out, "ConflictPatch.esm")))
+            foreach (var n in game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>())
+                Assert.NotNull(n.NavmeshGeometry);
+    }
+
     // round 7: a pick on a record that isn't built says so, with the "Not built" reason, not the general text
     [Fact]
     public void A_pick_on_a_record_that_isnt_built_says_why()
@@ -851,7 +927,7 @@ public class PatchCellsTests
 
     /// <summary>The patch plan worked out in this process (as `patch` does), with Compose made to fail for the records
     /// <paramref name="fails"/> picks.</summary>
-    static PatchCommand.Plan InProcessPlan(Game game, string[] active, Func<FormKey, bool> fails)
+    static PatchCommand.Plan InProcessPlan(Game game, string[] active, Func<FormKey, bool> fails, List<PatchCommand.Pick>? picks = null)
     {
         var txt = Path.Combine(game.Dir, "Plugins.txt");
         File.WriteAllLines(txt, active.Select(a => "*" + a));
@@ -859,7 +935,7 @@ public class PatchCellsTests
         try
         {
             PatchCommand.ComposeFailsForTest.Value = fails;
-            return PatchCommand.Build(lo, Analyzer.Run(lo.Plugins), new HashSet<string>(), new());
+            return PatchCommand.Build(lo, Analyzer.Run(lo.Plugins), new HashSet<string>(), picks ?? new());
         }
         finally
         {

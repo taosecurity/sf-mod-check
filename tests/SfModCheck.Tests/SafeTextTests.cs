@@ -44,6 +44,25 @@ public class SafeTextTests
         Assert.True(sites >= 7, $"only {sites} RESULT-line sites found");
     }
 
+    // code review 0.13.0, round 8: the other RESULT lines (check's no-Data-folder and summary lines, the STOPPED lines of
+    // patch and conflict) escape the file name and the error text too, as the CHANGELOG says
+    [Fact]
+    public void No_result_line_prints_a_file_name_or_error_text_raw()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "SafeText.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\SafeText.cs not found above " + AppContext.BaseDirectory);
+        int lines = 0;
+        foreach (var file in Directory.GetFiles(Path.Combine(dir!.FullName, "src"), "*.cs"))
+            foreach (var line in File.ReadAllLines(file).Where(l => l.Contains("\"RESULT: ", StringComparison.Ordinal) || l.Contains("$\"RESULT: ", StringComparison.Ordinal)))
+            {
+                lines++;
+                Assert.False(line.Contains("{e.Message", StringComparison.Ordinal), $"{Path.GetFileName(file)}: a RESULT line prints e.Message raw: {line.Trim()}");
+                Assert.False(line.Contains("{Path.GetFileName(", StringComparison.Ordinal), $"{Path.GetFileName(file)}: a RESULT line prints a file name raw: {line.Trim()}");
+            }
+        Assert.True(lines >= 20, $"only {lines} RESULT lines found");
+    }
+
     [Fact]
     public void OneLine_is_null_safe_and_leaves_ordinary_names_alone()
     {

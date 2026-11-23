@@ -300,7 +300,7 @@ public static class ConflictCommand
             catch (MemoryLimitException e)
             {
                 resultPrinted = true;
-                Console.WriteLine($"RESULT: STOPPED ({e.Message}; no report written)");
+                Console.WriteLine($"RESULT: STOPPED ({SafeText.OneLine(e.Message)}; no report written)");
                 Console.Error.WriteLine("Try a smaller load order, or raise --max-memory if this computer has the memory.");
                 Log.Write($"stopped at the memory limit: {e.Message}");
                 return 3;

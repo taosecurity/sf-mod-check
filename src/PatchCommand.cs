@@ -412,7 +412,7 @@ public static class PatchCommand
             catch (MemoryLimitException e)
             {
                 resultPrinted = true;
-                Console.WriteLine($"RESULT: STOPPED ({e.Message}; no patch written)");
+                Console.WriteLine($"RESULT: STOPPED ({SafeText.OneLine(e.Message)}; no patch written)");
                 Console.Error.WriteLine("Try a smaller load order, use --only, or raise --max-memory if this computer has the memory.");
                 return 3;
             }
@@ -804,6 +804,17 @@ public static class PatchCommand
         if (plan.Records.Any(r => r.Record is IWorldspaceGetter))
             plan.Notes.Add("Worldspaces go in without their large-reference table (RNAM) and cell offsets (OFST, CLSZ), as Creation Kit overrides do: " +
                            "they index objects and cells of the plugin that holds them, which a patch doesn't have");
+        // a record built first and then left out with its parent cell or worldspace takes its picks' rows with it: those
+        // picks weren't used after all (code review 0.13.0, round 8)
+        var inPatch = plan.Records.Select(r => r.FormKey).ToHashSet();
+        var leftOut = plan.NotBuilt.Select(r => r.FormKey).Where(k => !inPatch.Contains(k)).ToHashSet();
+        plan.Choices.RemoveAll(c => leftOut.Contains(c.FormKey));
+        foreach (var pk in picks.Where(pk => pk.Used && leftOut.Contains(pk.FormKey)))
+        {
+            pk.Used = false;
+            pk.Overruled = null;
+            pk.Why = null;
+        }
         // a pick on a record that isn't built (dialogue, NAVI, a BlueprintShips winner, a cell with no place) says so in
         // its "was not used" warning, rather than the general text (code review 0.13.0, round 7)
         foreach (var pk in picks.Where(pk => !pk.Used && pk.Why is null))
@@ -950,13 +961,13 @@ public static class PatchCommand
         public IMajorRecord Of(int i) => made.TryGetValue(i, out var c) ? c : made[i] = CopyOf(versions[i].Rec);
     }
 
-    /// <summary>The record as the game uses it today: the last full version, with each later (partial) version's own
-    /// fields laid over it. Source says which version each field's value comes from (an index into vs).</summary>
     /// <summary>Tests only: makes Compose fail for the records it returns true for, in the calling test's own flow
     /// (AsyncLocal), so the paths that keep the patch writable when a record can't be built can be run (code review
     /// 0.13.0, round 7). Always null in a real run.</summary>
     internal static readonly AsyncLocal<Func<FormKey, bool>?> ComposeFailsForTest = new();
 
+    /// <summary>The record as the game uses it today: the last full version, with each later (partial) version's own
+    /// fields laid over it. Source says which version each field's value comes from (an index into vs).</summary>
     static (IMajorRecord Rec, Dictionary<string, int> Source, PropertyInfo[] Fields) Compose(List<(PluginInfo Plugin, IMajorRecordGetter Rec)> vs, Copies copies)
     {
         if (ComposeFailsForTest.Value is { } fails && fails(vs[^1].Rec.FormKey))
@@ -1312,10 +1323,12 @@ public static class PatchCommand
         if (isNavmesh)
         {
             var unit = NavmeshUnit.Where(byName.ContainsKey).ToList();
-            bool HoldsMesh(Pick pk) => IndexOf(pk.Plugin) is var pi && pi >= 0 && unit.Any(f => FieldCompare.Provides(vs[pi].Rec, byName[f], out _));
+            // the whole mesh is copied from the picked plugin, so its copy must hold every part (a partial copy holding only
+            // NNAM would leave the geometry empty; code review 0.13.0, round 8)
+            bool HoldsMesh(Pick pk) => IndexOf(pk.Plugin) is var pi && pi >= 0 && unit.All(f => FieldCompare.Provides(vs[pi].Rec, byName[f], out _));
             var fieldPicks = picks.Where(pk => pk.FormKey == fk && pk.Field is not null && NavmeshUnit.Contains(pk.Field)).ToList();
             foreach (var pk in fieldPicks.Where(pk => !HoldsMesh(pk)))
-                pk.Why = IndexOf(pk.Plugin) < 0 ? $"{pk.Plugin} doesn't hold that navmesh" : $"{pk.Plugin}'s copy of that navmesh is partial and holds no part of its mesh";
+                pk.Why = IndexOf(pk.Plugin) < 0 ? $"{pk.Plugin} doesn't hold that navmesh" : $"{pk.Plugin}'s copy of that navmesh is partial and doesn't hold its whole mesh (geometry, NNAM and pre-cut entries)";
             var usable = fieldPicks.Where(HoldsMesh).ToList();
             var named = usable.GroupBy(pk => vs[IndexOf(pk.Plugin)].Plugin.FileName, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
             if (named.Count > 1)
@@ -1326,16 +1339,28 @@ public static class PatchCommand
             bool meshIsChoice = lost.Any(l => l.Fields.Any(f => f.WinnerChangedToo && !Impact.IsMinor(f) && unit.Contains(f.Field)));
             var wholePicks = picks.Where(pk => pk.FormKey == fk && pk.Field is null && HoldsMesh(pk)).ToList();
             var decides = usable.LastOrDefault() ?? (meshIsChoice ? wholePicks.LastOrDefault() : null);
+            // a whole-record pick left with nothing to take, on a navmesh whose mesh isn't a Choice field, says why (code
+            // review 0.13.0, round 8)
+            if (decides is null)
+                foreach (var pk in wholePicks.Where(pk => !pk.Used))
+                    pk.Why ??= "that navmesh's mesh isn't a field the winner and another plugin both changed, so a whole-record --pick leaves it alone; " +
+                               $"to take {pk.Plugin}'s mesh, use --pick {fk}:NavmeshGeometry={pk.Plugin}";
             if (decides is not null)
             {
                 var di = IndexOf(decides.Plugin);
                 var picked = vs[di].Plugin.FileName;
                 foreach (var pk in usable) pk.Used = true;
                 decides.Used = true;
-                // a whole-record pick that took nothing else gives way to the field pick, and its warning says why
+                // a whole-record pick that took nothing else gives way to the field pick, and its warning says why; one that
+                // names the same plugin got the mesh it asked for (code review 0.13.0, round 8)
                 if (usable.Count > 0 && meshIsChoice)
                     foreach (var pk in wholePicks.Where(pk => !pk.Used))
-                        pk.Why = $"the --pick on {decides.Field} ({picked}) decides that navmesh's whole mesh, and a field --pick ranks above a whole-record --pick";
+                        if (vs[IndexOf(pk.Plugin)].Plugin.FileName.Equals(picked, StringComparison.OrdinalIgnoreCase)) pk.Used = true;
+                        else pk.Why = $"the --pick on {decides.Field} ({picked}) decides that navmesh's whole mesh, and a field --pick ranks above a whole-record --pick";
+                // the plugins whose change to the mesh goes: the row names one of them when the winner itself is picked
+                var meshGone = forwarded.Where(x => unit.Contains(x.Field)).Select(x => x.From)
+                    .Concat(plan.Choices.Where(c => c.FormKey == fk && unit.Contains(c.Field)).Select(c => c.Other))
+                    .Where(n => !n.Equals(picked, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 forwarded.RemoveAll(x => unit.Contains(x.Field));
                 plan.Choices.RemoveAll(c => c.FormKey == fk && unit.Contains(c.Field));
                 foreach (var f in unit)
@@ -1345,9 +1370,13 @@ public static class PatchCommand
                     if (di != today[f] && !FieldCompare.DeepEq(Held(f, di), Held(f, today[f]), 0))
                         forwarded.Add(new(f, picked, "picked with --pick (part of the navmesh's mesh)", Picked: true));
                 }
-                plan.Choices.Add(new(fk, first.RecordType, first.EditorID, unit[0], vs[^1].Plugin.FileName, picked, true,
-                    $"--pick: {picked}'s whole mesh is used (a navmesh's geometry, NNAM and pre-cut entries come from one plugin, so other plugins' changes to them are dropped)"));
-                Log.Write($"patch: navmesh {fk}: --pick takes {picked}'s whole mesh (geometry, NNAM, pre-cut entries)");
+                // a pick that changes nothing counts as taken but adds no row, as on every other field (code review 0.13.0, round 8)
+                bool meshChanged = forwarded.Any(x => unit.Contains(x.Field) && x.Picked);
+                if (meshChanged || meshGone.Count > 0)
+                    plan.Choices.Add(new(fk, first.RecordType, first.EditorID, unit[0], vs[^1].Plugin.FileName,
+                        (!meshChanged || picked.Equals(vs[^1].Plugin.FileName, StringComparison.OrdinalIgnoreCase)) && meshGone.Count > 0 ? meshGone[^1] : picked, true,
+                        $"--pick: {picked}'s whole mesh is used (a navmesh's geometry, NNAM and pre-cut entries come from one plugin, so other plugins' changes to them are dropped)"));
+                Log.Write($"patch: navmesh {fk}: --pick takes {picked}'s whole mesh (geometry, NNAM, pre-cut entries){(meshChanged || meshGone.Count > 0 ? "" : ", which is today's mesh")}");
             }
             else
             {
