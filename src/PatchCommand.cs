@@ -687,18 +687,7 @@ public static class PatchCommand
                 if (!wv.TryGetValue(w, out var vs) || vs.Count == 0)
                 {
                     // can't happen when the cell was found in it; keep the patch writable by leaving its cells out
-                    foreach (var c in cells)
-                    {
-                        plan.Records.Remove(c);
-                        // a parent cell noted above as "in the patch only as the parent" gets its one row corrected
-                        if (!NoteParentDropped(plan, c.FormKey, w))
-                            plan.NotBuilt.Add(new(c.FormKey, c.RecordType, c.EditorID, $"its worldspace {w} could not be read again", new()));
-                        foreach (var o in plan.Records.Where(o => IsCellChild(o.Record) && plan.RefPlaces[o.FormKey].Cell == c.FormKey).ToList())
-                        {
-                            plan.Records.Remove(o);
-                            plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, $"the worldspace {w} of its cell could not be read again", new()));
-                        }
-                    }
+                    DropCellsOfLostWorld(plan, w, cells);
                     continue;
                 }
                 var (rec, source, _) = Compose(vs, new Copies(vs));
@@ -730,6 +719,44 @@ public static class PatchCommand
     }
 
     const string ParentNoteMid = "; it is in the patch only as the parent of ";
+
+    /// <summary>The "Other" of a navmesh pick's row: the plugin picked, or, when the winner is picked, the plugin whose mesh
+    /// change the pick drops (the last forwarded part's plugin, else the last kept-out row's, else the version the mesh
+    /// came from). Null when no plugin but the winner is involved, and then no row is added (code review 0.13.0, round 3).</summary>
+    internal static string? MeshPickOther(string winner, string picked, IEnumerable<string> forwardedFrom, IEnumerable<string> keptOut, string? meshFrom)
+    {
+        bool NotWinner(string? x) => x is not null && !x.Equals(winner, StringComparison.OrdinalIgnoreCase);
+        if (NotWinner(picked)) return picked;
+        return new[] { forwardedFrom.LastOrDefault(NotWinner), keptOut.LastOrDefault(NotWinner), meshFrom }.FirstOrDefault(NotWinner);
+    }
+
+    /// <summary>The worldspace of these patched cells could not be read again: the cells and their placed objects and
+    /// navmeshes leave the patch, each explained once. A cell with lost changes of its own gets a "Not built" row (or its
+    /// existing row corrected); a cell that was there only as a parent gets a note instead, since it had no changes of
+    /// its own to redo and its objects' rows say what was lost (code review 0.13.0, rounds 2 and 3).</summary>
+    internal static void DropCellsOfLostWorld(Plan plan, FormKey world, List<PatchRecord> cells)
+    {
+        foreach (var c in cells)
+        {
+            plan.Records.Remove(c);
+            var objs = plan.Records.Where(o => IsCellChild(o.Record) && plan.RefPlaces.TryGetValue(o.FormKey, out var at) && at.Cell == c.FormKey).ToList();
+            // a parent cell noted earlier as "in the patch only as the parent" gets its one row corrected
+            if (!NoteParentDropped(plan, c.FormKey, world))
+            {
+                if (c.Parent)
+                    plan.Notes.Add($"Cell {c.EditorID} [{c.FormKey}] was needed only as the parent of {ChildrenText(objs.Select(o => o.Record))}, " +
+                                   $"but its worldspace {world} could not be read again, so it is left out with them (it has no changes of its own)");
+                else
+                    plan.NotBuilt.Add(new(c.FormKey, c.RecordType, c.EditorID, $"its worldspace {world} could not be read again", new()));
+            }
+            Log.Write($"patch: cell {c.EditorID} [{c.FormKey}] left out: its worldspace {world} could not be read again");
+            foreach (var o in objs)
+            {
+                plan.Records.Remove(o);
+                plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, $"the worldspace {world} of its cell could not be read again", new()));
+            }
+        }
+    }
 
     /// <summary>A parent cell left out after all, because its worldspace could not be read again: its note in Notes goes,
     /// and a "Not built" row NoteNotBuiltParent marked is corrected instead of a second row being added. True when such a
@@ -1118,18 +1145,28 @@ public static class PatchCommand
                 var di = IndexOf(direct.Plugin);
                 // the mesh the patch would hold without the pick: today's when it would mix, else the geometry's version
                 bool changes = unit.Any(f => !FieldCompare.DeepEq(Held(f, di), Held(f, mixedNow ? today[f] : u0 >= 0 ? u0 : source[f]), 0));
-                var who = forwarded.Where(x => unit.Contains(x.Field)).Select(x => x.From).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                forwarded.RemoveAll(x => unit.Contains(x.Field));
-                plan.Choices.RemoveAll(c => c.FormKey == fk && unit.Contains(c.Field) && !c.Picked);
-                if (unit.Any(f => di != today[f] && !FieldCompare.DeepEq(Held(f, di), Held(f, today[f]), 0)))
-                    forwarded.Add(new ForwardedField(unit[0], direct.Plugin, "picked with --pick", Picked: true));
-                // a row only when the pick changes the patch; it names the plugin whose mesh change the pick drops
-                // when the plugin picked is the winner
-                var winner = vs[^1].Plugin.FileName;
-                var other = !direct.Plugin.Equals(winner, StringComparison.OrdinalIgnoreCase) ? direct.Plugin : who.Count > 0 ? who[^1] : direct.Plugin;
-                if (changes || mixedNow)
-                    plan.Choices.Add(new(fk, first.RecordType, first.EditorID, unit[0], winner, other, true, $"--pick: {direct.Plugin}'s whole mesh is used"));
-                Log.Write($"patch: navmesh {fk}: --pick takes {direct.Plugin}'s whole mesh{(changes || mixedNow ? "" : " (the mesh the patch holds anyway)")}");
+                if (!changes && !mixedNow)
+                {
+                    // the mesh the patch holds anyway: its forwarded lines and rows stay as they are, and no row is added
+                    // (code review 0.13.0, round 3)
+                    Log.Write($"patch: navmesh {fk}: --pick takes {direct.Plugin}'s whole mesh (the mesh the patch holds anyway)");
+                }
+                else
+                {
+                    var who = forwarded.Where(x => unit.Contains(x.Field)).Select(x => x.From).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    var dropped = plan.Choices.Where(c => c.FormKey == fk && unit.Contains(c.Field) && !c.Picked).ToList();
+                    forwarded.RemoveAll(x => unit.Contains(x.Field));
+                    plan.Choices.RemoveAll(dropped.Contains);
+                    if (unit.Any(f => di != today[f] && !FieldCompare.DeepEq(Held(f, di), Held(f, today[f]), 0)))
+                        forwarded.Add(new ForwardedField(unit[0], direct.Plugin, "picked with --pick", Picked: true));
+                    // the row names the plugin picked, or, when the winner is picked, the plugin whose mesh change the
+                    // pick drops: a forwarded part's plugin, a kept-out row's, or the version the mesh came from (round 3)
+                    var winner = vs[^1].Plugin.FileName;
+                    var other = MeshPickOther(winner, direct.Plugin, who, dropped.Select(c => c.Other), u0 >= 0 ? vs[u0].Plugin.FileName : null);
+                    if (other is not null)
+                        plan.Choices.Add(new(fk, first.RecordType, first.EditorID, unit[0], winner, other, true, $"--pick: {direct.Plugin}'s whole mesh is used"));
+                    Log.Write($"patch: navmesh {fk}: --pick takes {direct.Plugin}'s whole mesh{(other is not null ? $" (in place of {other}'s)" : "")}");
+                }
             }
             int u = direct is not null ? IndexOf(direct.Plugin) : u0;
             bool mixed = direct is null && mixedNow;
@@ -1150,6 +1187,24 @@ public static class PatchCommand
             }
             else if (u >= 0)
             {
+                if (earlier is not null)
+                {
+                    // the pick the loops above took decides the whole mesh: a mesh part forwarded from, or kept for,
+                    // another plugin gives way, and the pick's one row names whose change goes (code review 0.13.0, round 3)
+                    var picked = vs[u].Plugin.FileName;
+                    var meshChanged = unit.Where(f => source[f] != u && !FieldCompare.DeepEq(Held(f, source[f]), Held(f, u), 0)).ToList();
+                    var gone = forwarded.Where(x => meshChanged.Contains(x.Field) && !x.Picked).Select(x => x.From)
+                        .Concat(plan.Choices.Where(c => c.FormKey == fk && meshChanged.Contains(c.Field) && !c.Picked).Select(c => c.Other))
+                        .Where(x => !x.Equals(picked, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    forwarded.RemoveAll(x => meshChanged.Contains(x.Field) && !x.Picked);
+                    plan.Choices.RemoveAll(c => c.FormKey == fk && meshChanged.Contains(c.Field) && !c.Picked);
+                    var k = plan.Choices.FindLastIndex(c => c.FormKey == fk && c.Field == earlier && c.Picked && !c.Merged);
+                    if (gone.Count > 0 && k >= 0)
+                        plan.Choices[k] = plan.Choices[k] with { Text = plan.Choices[k].Text +
+                            $"; the mesh comes whole from {picked}, so {string.Join(" and ", gone)}'s change to {string.Join(", ", meshChanged)} is dropped" };
+                    if (gone.Count > 0)
+                        Log.Write($"patch: navmesh {fk}: the --pick on {earlier} takes {picked}'s whole mesh, dropping {string.Join(" and ", gone)}'s change to {string.Join(", ", meshChanged)}");
+                }
                 foreach (var f in unit.Where(f => source[f] != u))
                 {
                     if (!SetField(rec, f, copies.Of(u))) throw new InvalidOperationException($"field {f} can't be set");

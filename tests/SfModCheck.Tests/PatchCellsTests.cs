@@ -459,8 +459,45 @@ public class PatchCellsTests
         Assert.DoesNotContain("was not used", stdout + stderr);
         var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
         Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
-        Assert.DoesNotContain("whole mesh is used", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+        Assert.Equal(new byte[] { 7, 0, 0, 0 }, n.NNAM!.Value.ToArray());
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.DoesNotContain("whole mesh is used", report);
+        // round 3: the forwarded lines stay as they were, and the pick isn't reported as a field picked
+        Assert.Contains("- NavmeshGeometry from ModA.esm", report);
+        Assert.Contains("- NNAM from ModA.esm", report);
+        Assert.DoesNotContain("picked with --pick", report);
     }
+
+    // code review 0.13.0, round 3: a pick the choice loop took on the geometry decides the whole mesh, so a mesh part
+    // forwarded from another plugin goes, and the pick's one row says so (before the fix the report still listed ModA's
+    // NNAM as forwarded while the patch held ModB's)
+    [Fact]
+    public void A_pick_on_a_mesh_choice_drops_another_part_and_says_so()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 5); n.NNAM = Nnam(7); });
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 6));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModB.esm"], $"{game.Navmesh}:NavmeshGeometry=ModB.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        // ModB's whole mesh is ModB's record as it is, so no patch record is left to write
+        Assert.False(File.Exists(Path.Combine(game.Out, "ConflictPatch.esm")) || File.Exists(Path.Combine(game.Data, "ConflictPatch.esm")), stdout);
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.DoesNotContain("- NNAM from ModA.esm", report);
+        Assert.Equal(1, Count(report, "--pick: ModB.esm's"));
+        Assert.Contains("the mesh comes whole from ModB.esm, so ModA.esm's change to NNAM is dropped", report);
+    }
+
+    // code review 0.13.0, round 3: a pick of the winner's mesh names the plugin whose mesh change it drops, never the
+    // winner twice, and gives no row when no other plugin is involved
+    [Theory]
+    [InlineData("ModA.esm", new string[0], new string[0], null, "ModA.esm")]
+    [InlineData("ModB.esm", new[] { "ModA.esm" }, new string[0], null, "ModA.esm")]
+    [InlineData("ModB.esm", new[] { "ModB.esm" }, new[] { "ModC.esm" }, null, "ModC.esm")]
+    [InlineData("ModB.esm", new string[0], new string[0], "ModC.esm", "ModC.esm")]
+    [InlineData("modb.ESM", new string[0], new[] { "ModB.esm" }, "ModB.esm", null)]
+    public void A_mesh_pick_row_names_another_plugin(string picked, string[] forwardedFrom, string[] keptOut, string? meshFrom, string? expected) =>
+        Assert.Equal(expected, PatchCommand.MeshPickOther("ModB.esm", picked, forwardedFrom, keptOut, meshFrom));
 
     // code review 0.13.0, round 2: a parent cell left out after all (its worldspace couldn't be read again) has one
     // corrected "Not built" row, and its parent note goes
@@ -484,6 +521,47 @@ public class PatchCellsTests
         // a parent cell with no row of its own: its note goes, and the caller adds the row
         Assert.False(PatchCommand.NoteParentDropped(plan, other, w));
         Assert.Empty(plan.Notes);
+    }
+
+    // code review 0.13.0, round 3: the worldspace-failure branch itself. A cell there only as a parent gets a note (it has
+    // no changes to redo), a cell with changes of its own gets one row, a cell whose own build failed keeps its one
+    // corrected row, and every object in them gets its own row
+    [Fact]
+    public void Cells_of_a_worldspace_that_fails_leave_with_one_explanation_each()
+    {
+        var plan = new PatchCommand.Plan();
+        var w = FormKey.Factory("000900:Base.esm");
+        PatchCommand.PatchRecord Rec(IMajorRecord r, string type, bool parent) =>
+            new(r.FormKey, type, r.EditorID, r, new(), new() { "Base.esm" }, new(), new()) { Parent = parent };
+        var pure = new Cell(FormKey.Factory("000801:Base.esm"), StarfieldRelease.Starfield) { EditorID = "B_Pure" };
+        var own = new Cell(FormKey.Factory("000802:Base.esm"), StarfieldRelease.Starfield) { EditorID = "B_Own" };
+        var failed = new Cell(FormKey.Factory("000803:Base.esm"), StarfieldRelease.Starfield) { EditorID = "B_Failed" };
+        var obj = new PlacedObject(FormKey.Factory("000811:Base.esm"), StarfieldRelease.Starfield);
+        var obj2 = new PlacedObject(FormKey.Factory("000813:Base.esm"), StarfieldRelease.Starfield);
+        var cells = new List<PatchCommand.PatchRecord> { Rec(pure, "Cell", true), Rec(own, "Cell", false), Rec(failed, "Cell", true) };
+        plan.Records.AddRange(cells);
+        plan.Records.Add(Rec(obj, "PlacedObject", false));
+        plan.Records.Add(Rec(obj2, "PlacedObject", false));
+        plan.RefPlaces[obj.FormKey] = new(pure.FormKey, false);
+        plan.RefPlaces[obj2.FormKey] = new(failed.FormKey, false);
+        plan.NotBuilt.Add(new(failed.FormKey, "Cell", "B_Failed", "it could not be built (X: y)", new()));
+        PatchCommand.NoteNotBuiltParent(plan, failed.FormKey, "1 patched placed object");
+        foreach (var c in new[] { pure, failed })
+            plan.Notes.Add($"Cell {c.EditorID} [{c.FormKey}] is in the patch as the parent of 1 patched placed object: the record as the game uses it today, with no field changed");
+
+        PatchCommand.DropCellsOfLostWorld(plan, w, cells);
+
+        Assert.Empty(plan.Records);
+        Assert.DoesNotContain(plan.NotBuilt, r => r.FormKey == pure.FormKey);
+        var note = Assert.Single(plan.Notes);
+        Assert.StartsWith($"Cell B_Pure [{pure.FormKey}] was needed only as the parent of 1 patched placed object", note);
+        Assert.Contains("it has no changes of its own", note);
+        Assert.Equal($"its worldspace {w} could not be read again", Assert.Single(plan.NotBuilt, r => r.FormKey == own.FormKey).Why);
+        var f = Assert.Single(plan.NotBuilt, r => r.FormKey == failed.FormKey);
+        Assert.StartsWith("it could not be built (X: y); it was needed as the parent", f.Why);
+        foreach (var o in new[] { obj, obj2 })
+            Assert.Equal($"the worldspace {w} of its cell could not be read again", Assert.Single(plan.NotBuilt, r => r.FormKey == o.FormKey).Why);
+        Assert.Equal(4, plan.NotBuilt.Count);   // the two cells with changes and the two objects; the pure parent has only its note
     }
 
     // code review 0.13.0, round 2: whether a component kind is an identity is worked out once per field over every

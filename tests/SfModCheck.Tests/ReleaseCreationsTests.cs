@@ -114,6 +114,19 @@ public class ReleaseCreationsTests
     [InlineData("X[A-z].esm", "X_.esm", false)]       // and [A-z] is a to z, not the ASCII run between
     [InlineData("X[A-z].esm", "XQ.esm", true)]
     [InlineData("X?.esm", "X\n.esm", false)]          // on purpose: a newline never takes a shape (fnmatch says true)
+    [InlineData("X[!a].esm", "X\n.esm", false)]       // round 3: nor through a negated class
+    [InlineData("X[!a].esm", "Xb.esm", true)]
+    [InlineData("X[-a].esm", "X-.esm", true)]         // a leading - is a literal, as in fnmatch
+    [InlineData("X[!-a].esm", "X\n.esm", false)]
+    [InlineData("X[/].esm", "X\\.esm", true)]         // round 3: / and \ are one character, as normcase makes them
+    [InlineData("X[\\].esm", "X/.esm", true)]
+    [InlineData("X/Y.esm", "X\\Y.esm", true)]
+    [InlineData("X\\Y.esm", "X/Y.esm", true)]
+    [InlineData("X[!/].esm", "X\\.esm", false)]
+    [InlineData("X[!/].esm", "X/.esm", false)]
+    [InlineData("X[+-0].esm", "X/.esm", false)]       // the range + to 0 holds / but not \, and a name's / is read as \
+    [InlineData("X[+-0].esm", "X..esm", true)]
+    [InlineData("X[!+-0].esm", "X/.esm", true)]
     public void Wildcards_read_like_fnmatch(string pattern, string name, bool match) =>
         Assert.Equal(match, ReleaseCreations.Wildcard(pattern).IsMatch(name));
 

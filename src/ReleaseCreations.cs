@@ -82,8 +82,11 @@ public static class ReleaseCreations
     // (round 2).
     // Shapes as Python's fnmatch reads them (0.13.0): * any characters, ? one character, [...] one character from a
     // class ([0-9A-F], [!x] for "not x"); an unclosed [ is a literal [. Everything else is matched literally.
-    // One difference, on purpose (code review 0.13.0, round 2): fnmatch lets * and ? match a newline, here they don't,
-    // so a name holding a newline never takes an official or allowed shape (the safe side, as \z above).
+    // One difference, on purpose (code review 0.13.0, round 2): fnmatch lets *, ? and a negated class [!x] match a
+    // newline, here they don't, so a name holding a newline never takes an official or allowed shape (the safe side, as
+    // \z above; the negated class since round 3). As fnmatch on Windows (normcase), / and \ are the same character, in
+    // the pattern and in the name (round 3). Letters are folded with .NET's invariant rules, which match Python's for
+    // every ASCII letter; a few non-ASCII letters (such as U+0130) fold differently, which no plugin name needs.
     internal static Regex Wildcard(string p)
     {
         var sb = new System.Text.StringBuilder("^");
@@ -102,7 +105,8 @@ public static class ReleaseCreations
                 {
                     // lower-cased first, as fnmatch on Windows (and creations-check.py) lower-cases the pattern, so a
                     // range such as [Z-a] is reversed there too and [A-z] means a to z (code review 0.13.0, round 2)
-                    var body = p[(i + 1)..j].ToLowerInvariant();
+                    // normcase also turns / into \ in the pattern (round 3)
+                    var body = p[(i + 1)..j].ToLowerInvariant().Replace('/', '\\');
                     bool negate = body.StartsWith('!');
                     if (negate) body = body[1..];
                     // a reversed range (z-a) is empty, as fnmatch drops it; a class left empty matches nothing (or, negated,
@@ -122,11 +126,16 @@ public static class ReleaseCreations
                     if (body.Length == 0) { sb.Append(negate ? "." : "(?!)"); i = j; continue; }
                     // inside a .NET class only \, ] , [ and ^ need care; - keeps its range meaning
                     var esc = body.Replace("\\", "\\\\").Replace("[", "\\[").Replace("]", "\\]").Replace("^", "\\^");
-                    sb.Append('[').Append(negate ? "^" : "").Append(esc).Append(']');
+                    var cls = "[" + (negate ? "^" : "") + esc + "]";
+                    // normcase turns a / in the name into \, so / takes the class's answer for \ (round 3)
+                    bool backslash = Regex.IsMatch("\\", "^" + cls + "\\z", RegexOptions.CultureInvariant);
+                    // a negated class never matches a newline either (round 3), as * and ? don't
+                    sb.Append(negate ? "(?!\\n)" : "").Append(backslash ? "(?:" + cls + "|/)" : "(?!/)" + cls);
                     i = j;
                     continue;
                 }
             }
+            if (ch is '/' or '\\') { sb.Append("[/\\\\]"); continue; }
             sb.Append(Regex.Escape(ch.ToString()));
         }
         return new(sb.Append("\\z").ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);

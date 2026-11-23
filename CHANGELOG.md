@@ -44,7 +44,8 @@
 - `release --profile creations`: Bethesda's own masters are now matched by exact name shape (`SFBGS` plus three hex digits, `sfta` plus two digits, and their `BlueprintShips-` files), as `check` does.
 - Before, the `SFBGS*` and `SFTA*` patterns also let a mod such as `SFBGS003Fixes.esm` pass as official.
 - The `[official]` patterns in `data\creations-masters.txt` now read `?` and `[...]` classes as Python's fnmatch does.
-- Classes are read in lower case, as fnmatch on Windows does, so `[A-z]` means a to z. A name with a newline never matches.
+- Classes are read in lower case, as fnmatch on Windows does, so `[A-z]` means a to z, and `/` and `\` count as one character.
+- One difference from fnmatch, on purpose: a name with a newline never matches, not even through `*`, `?` or `[!x]`.
 
 ### Example
 
