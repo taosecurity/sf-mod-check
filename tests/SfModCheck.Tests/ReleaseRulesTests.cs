@@ -398,7 +398,10 @@ public class ReleaseRulesTests
         Assert.Contains("MyMod - Sounds.ba2", f.Text);
         Assert.Contains("Main or Textures", f.Text);
         Assert.Contains("sResourceIndexFileList", f.Text);
-        Assert.Contains("rename it, for example to MyMod - Main.ba2", f.Text);   // the fix names the plugin
+        // the fix names the plugin and never an archive that is already there (MyMod - Main.ba2 is in the zip)
+        Assert.Contains("rename it, for example to MyMod - Main01.ba2", f.Text);
+        var free = One(Rules(s, MakeZip(s, "B-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Sounds.ba2", MainBa2()))), "archive-name");
+        Assert.Contains("rename it, for example to MyMod - Main.ba2", free.Text);
     }
 
     [Fact]
@@ -451,11 +454,14 @@ public class ReleaseRulesTests
         using var s = new Sandbox();
         var masters = s.Sub("masters");
         File.WriteAllBytes(Path.Combine(masters, "BaseMod.esm"), Plugin());
+        File.WriteAllBytes(Path.Combine(masters, "BaseMod - Main.ba2"), MainBa2());
         var o = new ReleaseOptions();
         o.MastersDirs.Add(masters);
         var f = One(Rules(s, o, MakeZip(s, "Patch-0.1.0.zip", ("MyPatch.esm", Plugin()), ("BaseMod - Voices.ba2", MainBa2()))), "archive-name");
         Assert.Equal(Level.Warning, f.Level);
-        Assert.Contains("to BaseMod - Main.ba2", f.Text);
+        // the base mod's own Main archive is there, so the advice doesn't name it (that rename would replace it)
+        Assert.Contains("to BaseMod - Main01.ba2", f.Text);
+        Assert.DoesNotContain("to BaseMod - Main.ba2", f.Text);
     }
 
     [Fact]

@@ -300,7 +300,7 @@ public static class ReleaseRules
             if (!m.Success)
             {
                 Log.Write($"archive-name: {rel(a)}: part \"{part}\" isn't Main, Textures or Voices_<language>: WARNING");
-                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99) or a voice archive such as Voices_en, so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {Path.GetFileName(a)[..plugin.Length]} - Main.ba2."));
+                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99) or a voice archive such as Voices_en, so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {FreeMainName(c, dir, Path.GetFileName(a)[..plugin.Length])}."));
                 return;
             }
             Log.Write($"archive-name: {rel(a)} loads with {loadsWith}");
@@ -320,6 +320,27 @@ public static class ReleaseRules
     static readonly Regex LoadedPart = new(@"^(?:(main|textures)(0[1-9]|[1-9][0-9])?(_xbox)?|voices_[a-z][a-z0-9_]*)$", RegexOptions.CultureInvariant);
 
     const string IniNote = "An INI archive list (for example sResourceIndexFileList in the [Archive] section) can still load it on purpose; if that is the plan, ignore this warning.";
+
+    /// <summary>A rename the part check can suggest that takes no archive already there (0.15.1 review round 2):
+    /// "&lt;plugin&gt; - Main.ba2" when it is free, else the first free "&lt;plugin&gt; - MainNN.ba2". Taken names are the
+    /// archives beside it in the zips and, at the top level, the files in the Data folder and the --masters-dir folders,
+    /// so the advice never overwrites the mod's own Main archive or the patched mod's.</summary>
+    static string FreeMainName(ReleaseContext c, string dir, string plugin)
+    {
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var q in c.Packages)
+            foreach (var a in q.Archives)
+            {
+                var n = InData(Ba2Names.Normalize(Path.GetRelativePath(q.Root, a)));
+                if (DirOf(n) == dir) taken.Add(Path.GetFileName(a));
+            }
+        if (dir.Length == 0)
+            foreach (var d in new[] { c.DataDir }.Concat(c.Options.MastersDirs).Where(Directory.Exists))
+                foreach (var f in Directory.EnumerateFiles(d, "*.ba2")) taken.Add(Path.GetFileName(f));
+        var main = $"{plugin} - Main.ba2";
+        if (!taken.Contains(main)) return main;
+        return Enumerable.Range(1, 99).Select(n => $"{plugin} - Main{n:00}.ba2").FirstOrDefault(s => !taken.Contains(s)) ?? main;
+    }
 
     /// <summary>The plugin outside the zips (in the Data folder or a --masters-dir folder) that an archive's name starts
     /// with, followed by " - ", or null. When several match (Foo.esm and "Foo - Patch.esm"), the one whose part the game
