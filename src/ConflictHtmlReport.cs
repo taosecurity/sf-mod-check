@@ -114,7 +114,7 @@ public static class HtmlReport
         Card(h, a.Itms.Count.ToString(), "overrides that change nothing (ITM)");
         Card(h, lo.Problems.Count.ToString(), "load-order problems", lo.Problems.Count > 0);
         Card(h, a.TypeChanges.Count.ToString(), "overrides that change a record's type", a.TypeChanges.Count > 0);
-        Card(h, a.AssetsChecked ? a.MissingAssets.Count.ToString() : "off", a.AssetsChecked ? "missing scripts and models" : $"missing scripts and models: not checked ({(a.AssetsFailed != null ? "the step stopped" : "--no-assets")})",
+        Card(h, a.AssetsChecked ? a.MissingAssets.Count.ToString() : "off", a.AssetsChecked ? "missing assets" : $"missing assets: not checked ({(a.AssetsFailed != null ? "the step stopped" : "--no-assets")})",
              a.MissingAssets.Count > 0 || a.UnreadableArchives.Count > 0 || a.AssetsFailed != null);
         if (a.ArchivesCounted)
             Card(h, $"{a.GnrlArchives} / {a.Dx10Archives}", $"archives loaded (general / texture; {AssetIndex.ArchiveSlots} slots each)", Assets.ArchiveLimitWarnings(a).Count > 0);

@@ -324,4 +324,104 @@ public class ReleaseRulesTests
         Assert.All(basic.Where(x => x.Level == Level.Warning), x => Assert.EndsWith("(a failure with --profile house)", x.Text));
         Assert.Equal(7, house.Count(x => x.Level == Level.Problem));
     }
+
+    // ---------------------------------------------------------------- 0.14.0: archive-name and file-name
+
+    static List<ReleaseFinding> Rules(Sandbox s, ReleaseOptions o, params string[] zips)
+    {
+        var ps = zips.Select(z => ReleaseCommand.Unpack(z, Path.Combine(s.Dir, "out", Path.GetFileNameWithoutExtension(z)))).ToList();
+        var c = new ReleaseContext { Options = o, Packages = ps, Work = s.Sub("work") };
+        return ReleaseRules.Run(c).ToList();
+    }
+
+    static byte[] MainBa2() => Ba2("GNRL", 2, G("scripts\\mymod\\a.pex", false));
+
+    [Fact]
+    public void Archive_named_after_its_plugin_and_its_xbox_twin_are_quiet()
+    {
+        using var s = new Sandbox();
+        var f = Rules(s, MakeZip(s, "MyMod-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Main.ba2", MainBa2()), ("MyMod - Main_xbox.ba2", MainBa2()),
+            ("Data/Other Mod.esm", Plugin()), ("Data/other mod - Textures.ba2", Ba2("DX10", 2, ("textures\\a.dds", [false])))));
+        None(f, "archive-name");
+    }
+
+    [Fact]
+    public void Misnamed_archive_is_a_problem_with_a_plugin_and_a_warning_without()
+    {
+        using var s = new Sandbox();
+        var with = One(Rules(s, MakeZip(s, "A-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyModMain.ba2", MainBa2()))), "archive-name");
+        Assert.Equal(Level.Problem, with.Level);
+        Assert.Contains("MyModMain.ba2", with.Text);
+        Assert.Contains("never loads", with.Text);
+        Assert.Contains("MyMod - Main.ba2", with.Text);   // the fix
+        var without = One(Rules(s, MakeZip(s, "B-0.1.0.zip", ("Loose - Main.ba2", MainBa2()))), "archive-name");
+        Assert.Equal(Level.Warning, without.Level);
+        Assert.Contains("holds no plugin", without.Text);
+    }
+
+    [Fact]
+    public void Archive_without_spaces_around_the_dash_or_in_a_subfolder_is_a_problem()
+    {
+        using var s = new Sandbox();
+        var dash = One(Rules(s, MakeZip(s, "A-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod-Main.ba2", MainBa2()))), "archive-name");
+        Assert.Equal(Level.Problem, dash.Level);
+        var sub = One(Rules(s, MakeZip(s, "B-0.1.0.zip", ("MyMod.esm", Plugin()), ("Extras/MyMod - Main.ba2", MainBa2()))), "archive-name");
+        Assert.Equal(Level.Problem, sub.Level);
+        Assert.Contains("top level", sub.Text);
+    }
+
+    [Fact]
+    public void Archive_named_after_a_plugin_outside_the_zips_or_listed_by_an_ini()
+    {
+        using var s = new Sandbox();
+        var masters = s.Sub("masters");
+        File.WriteAllBytes(Path.Combine(masters, "BaseMod.esm"), Plugin());
+        var o = new ReleaseOptions();
+        o.MastersDirs.Add(masters);
+        // a patch that ships an archive for the mod it patches: loads with BaseMod.esm
+        None(Rules(s, o, MakeZip(s, "Patch-0.1.0.zip", ("MyPatch.esm", Plugin()), ("BaseMod - Textures.ba2", MainBa2()))), "archive-name");
+        // listed by an INI in the zip: a WARNING
+        var ini = One(Rules(s, MakeZip(s, "Ini-0.1.0.zip", ("MyMod.esm", Plugin()), ("Extra.ba2", MainBa2()),
+            ("MyMod.ini", T("[Archive]\nsResourceIndexFileList=Extra.ba2\n")))), "archive-name");
+        Assert.Equal(Level.Warning, ini.Level);
+        Assert.Contains("MyMod.ini", ini.Text);
+    }
+
+    [Fact]
+    public void Non_ascii_names_loose_and_in_an_archive_are_warnings()
+    {
+        using var s = new Sandbox();
+        var f = Rules(s, MakeZip(s, "MyMod-0.1.0.zip", ("MyMod.esm", Plugin()), ("Textures/MyMod/Café.dds", X),
+            ("MyMod - Main.ba2", Ba2("GNRL", 2, G("scripts\\mymod\\ok.pex", false), G("scripts\\mymod\\naïve.pex", false)))))
+            .Where(x => x.Rule == "file-name").ToList();
+        Assert.Equal(2, f.Count);
+        Assert.All(f, x => Assert.Equal(Level.Warning, x.Level));
+        Assert.Contains(f, x => x.Text.Contains("café.dds", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(f, x => x.Text.Contains("naïve.pex") && x.Text.Contains("MyMod - Main.ba2"));
+    }
+
+    [Fact]
+    public void Loose_path_over_200_characters_is_a_warning_and_200_is_quiet()
+    {
+        using var s = new Sandbox();
+        string PathOf(int length) { var head = "Textures/MyMod/"; return head + new string('a', length - head.Length - 4) + ".dds"; }
+        Assert.Equal(201, PathOf(201).Length);
+        var f = One(Rules(s, MakeZip(s, "Long-0.1.0.zip", ("MyMod.esm", Plugin()), (PathOf(201), X))), "file-name");
+        Assert.Equal(Level.Warning, f.Level);
+        Assert.Contains("201 characters", f.Text);
+        None(Rules(s, MakeZip(s, "Fine-0.1.0.zip", ("MyMod.esm", Plugin()), (PathOf(200), X))), "file-name");
+        // a Data folder in the zip doesn't count toward the length
+        None(Rules(s, MakeZip(s, "Data-0.1.0.zip", ("Data/MyMod.esm", Plugin()), ("Data/" + PathOf(200), X))), "file-name");
+    }
+
+    [Fact]
+    public void Many_file_name_warnings_name_five_and_count_the_rest()
+    {
+        using var s = new Sandbox();
+        var entries = new List<(string, byte[])> { ("MyMod.esm", Plugin()) };
+        for (int i = 0; i < 8; i++) entries.Add(($"Textures/MyMod/é{i}.dds", X));
+        var f = Rules(s, MakeZip(s, "Many-0.1.0.zip", entries.ToArray())).Where(x => x.Rule == "file-name").ToList();
+        Assert.Equal(6, f.Count);
+        Assert.Contains("and 3 more", f[^1].Text);
+    }
 }

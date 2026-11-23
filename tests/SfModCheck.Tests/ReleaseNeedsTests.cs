@@ -15,7 +15,7 @@ public class ReleaseNeedsTests
     static readonly WriteOptions NoGap = new() { GapCheck = false };
 
     /// <summary>Writes a light plugin with no masters and one misc item into dir.</summary>
-    static string Write(string dir, string name, Action<StarfieldMod, MiscItem> change)
+    internal static string Write(string dir, string name, Action<StarfieldMod, MiscItem> change)
     {
         Directory.CreateDirectory(dir);
         var mod = Plugin.New(name, PluginStyle.Light, "test", "release needs test");
@@ -32,7 +32,7 @@ public class ReleaseNeedsTests
     }
 
     /// <summary>Zips the folder and unpacks it the way the release command does.</summary>
-    static ReleaseContext Context(Sandbox s, string pkgDir, string data, Action<ReleaseOptions>? configure = null)
+    internal static ReleaseContext Context(Sandbox s, string pkgDir, string data, Action<ReleaseOptions>? configure = null)
     {
         var zip = Path.Combine(s.Sub("zips"), Path.GetFileName(pkgDir) + "-0.1.0.zip");
         ZipFile.CreateFromDirectory(pkgDir, zip);
@@ -43,7 +43,7 @@ public class ReleaseNeedsTests
         return new ReleaseContext { Options = o, Packages = [ReleaseCommand.Unpack(zip, Path.Combine(work, "zip0"))], Work = work };
     }
 
-    static string List(IEnumerable<ReleaseFinding> f) => string.Join("\n", f.Select(x => $"  {x.Level} [{x.Rule}] {x.Text}"));
+    internal static string List(IEnumerable<ReleaseFinding> f) => string.Join("\n", f.Select(x => $"  {x.Level} [{x.Rule}] {x.Text}"));
 
     [Fact]
     public void Attached_scripts_are_found_in_the_zip_masters_dirs_and_game_archives_and_missing_ones_are_problems()

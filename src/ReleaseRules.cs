@@ -8,6 +8,10 @@
 //   voice-compressed  .wem or .ffxanim stored compressed in a .ba2: the game plays them silent (every working voice
 //                     archive stores them as is; Archive2 compresses by default)
 //   ba2-unreadable    an archive whose header or records don't add up
+//   archive-name      (0.14.0) a .ba2 not named "<plugin> - <part>.ba2" for a plugin in the zips, Data or --masters-dir:
+//                     PROBLEM in a zip with a plugin, WARNING in one without or when an INI in the zip lists it
+//   file-name         (0.14.0, WARNING) a non-ASCII character in a loose path or a name inside an archive; a loose
+//                     data-relative path over 200 characters
 // House rules (RuleKind.House, a WARNING in the basic profile):
 //   master            a BlueprintShips* master in the plugin's header
 //   one-plugin        more than one plugin in a zip (Vortex and other managers install one zip as one mod)
@@ -136,6 +140,10 @@ public static class ReleaseRules
                     o.Add(new(Level.Note, "voice-compressed", $"{label}: {sound.Count} sound files, all stored uncompressed"));
             }
 
+            // ---- engine: archive names and file names (0.14.0) ----
+            o.AddRange(ArchiveNames(c, p, Rel, Show));
+            o.AddRange(FileNames(p, Show));
+
             // ---- house: BlueprintShips master ----
             foreach (var pl in p.Plugins)
             {
@@ -176,6 +184,140 @@ public static class ReleaseRules
                         $"{zip}: private file in the zip, must never ship ({why}): {Show(f)}; rebuild the zip without it",
                         RuleKind.House));
         }
+        return o;
+    }
+
+    // ---------------------------------------------------------------- 0.14.0: archive names and file names
+
+    /// <summary>The longest loose data-relative path that stays under Windows' 260-character limit (MAX_PATH) in Steam's
+    /// usual install: 260 less the 59 characters of "C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data" and a
+    /// separator.</summary>
+    public const int MaxLoosePath = 200;
+
+    /// <summary>How many files one zip's file-name findings name before the rest become one "and N more" line.</summary>
+    public const int MaxNamed = 5;
+
+    /// <summary>A path as the game sees it in Data: no "data\" in front (a zip may hold a Data folder).</summary>
+    static string InData(string norm) => norm.StartsWith("data\\", StringComparison.Ordinal) ? norm[5..] : norm;
+
+    static string DirOf(string norm) { var i = norm.LastIndexOf('\\'); return i < 0 ? "" : norm[..i]; }
+
+    /// <summary>archive-name: the game loads a .ba2 only when it is named "&lt;plugin&gt; - &lt;part&gt;.ba2" beside that
+    /// plugin, or when an INI lists it. An archive with any other name, in a zip that holds a plugin, is a PROBLEM (it
+    /// never loads); in a zip with no plugin it is a WARNING (it may be meant for an INI). An archive named after a plugin
+    /// in the Data folder or a --masters-dir folder (the game's own, or the mod this one patches) is fine, and one that an
+    /// INI in the zip lists is a WARNING. The Xbox twin ("... - Main_xbox.ba2") carries the same name and passes the same
+    /// way.</summary>
+    static IEnumerable<ReleaseFinding> ArchiveNames(ReleaseContext c, ReleasePackage p, Func<string, string> rel, Func<string, string> show)
+    {
+        var o = new List<ReleaseFinding>();
+        // every plugin in the zips, by its folder in Data and its stem
+        var plugins = c.Packages.SelectMany(q => q.Plugins.Select(pl => InData(Ba2Names.Normalize(Path.GetRelativePath(q.Root, pl))))).ToList();
+        var inis = p.Files.Where(f => f.EndsWith(".ini", StringComparison.Ordinal))
+            .Select(f => (Rel: show(f), Text: SafeRead(Path.Combine(p.Root, show(f))))).ToList();
+        foreach (var a in p.Archives)
+        {
+            var norm = InData(Ba2Names.Normalize(Path.GetRelativePath(p.Root, a)));
+            var dir = DirOf(norm);
+            var file = norm[(dir.Length == 0 ? 0 : dir.Length + 1)..];
+            var stem = file[..^4];
+            var owner = plugins.Where(pl => DirOf(pl) == dir)
+                .Select(pl => Path.GetFileNameWithoutExtension(pl[(dir.Length == 0 ? 0 : dir.Length + 1)..]))
+                .FirstOrDefault(s => stem.StartsWith(s + " - ", StringComparison.Ordinal));
+            if (owner != null) { Log.Write($"archive-name: {rel(a)} loads with {owner} (a plugin in the zips)"); continue; }
+            if (dir.Length == 0 && OutsideOwner(c, stem) is { } outside)
+            {
+                Log.Write($"archive-name: {rel(a)} loads with {outside}");
+                continue;
+            }
+            var listedBy = inis.FirstOrDefault(t => t.Text.Contains(file, StringComparison.OrdinalIgnoreCase)).Rel;
+            var why = dir.Length > 0
+                ? $"it isn't in the Data folder's top level beside a plugin of that name (it is in {dir}\\)"
+                : stem.Contains(" - ") ? "no plugin in the zips has the name before its \" - \""
+                : "its name has no \" - \" part";
+            var fix = "The game loads an archive only when it is named \"<plugin> - <part>.ba2\" (with spaces around the dash) beside " +
+                      "a plugin of that name, or when an INI lists it; rename it, for example MyMod - Main.ba2 for MyMod.esm";
+            if (listedBy != null)
+            {
+                Log.Write($"archive-name: {rel(a)} not named after a plugin, but {listedBy} lists it: WARNING");
+                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: {why}; {listedBy} lists it, so it loads only if that INI's archive list is used. {fix}"));
+            }
+            else if (p.Plugins.Count > 0)
+            {
+                Log.Write($"archive-name: {rel(a)}: {why}: PROBLEM");
+                o.Add(new(Level.Problem, "archive-name", $"{p.Name}: archive {rel(a)}: {why}, so the game never loads it. {fix}"));
+            }
+            else
+            {
+                Log.Write($"archive-name: {rel(a)}: {why}, zip has no plugin: WARNING");
+                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: {why}, and the zip holds no plugin, so it loads only if an INI lists it. {fix}"));
+            }
+        }
+        return o;
+    }
+
+    /// <summary>The plugin outside the zips (in the Data folder or a --masters-dir folder) that an archive's name starts
+    /// with, followed by " - ", or null. The stem is lower case, so plugin names are compared ignoring case (Linux file
+    /// names are case-sensitive).</summary>
+    static string? OutsideOwner(ReleaseContext c, string stem)
+    {
+        var dirs = new[] { c.DataDir }.Concat(c.Options.MastersDirs).Where(Directory.Exists).ToList();
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in dirs)
+            foreach (var f in Directory.EnumerateFiles(d))
+                if (Path.GetExtension(f).ToLowerInvariant() is ".esm" or ".esp" or ".esl")
+                    names.TryAdd(Path.GetFileName(f), Path.GetFileName(f));
+        for (int i = stem.IndexOf(" - ", StringComparison.Ordinal); i > 0; i = stem.IndexOf(" - ", i + 1, StringComparison.Ordinal))
+            foreach (var ext in new[] { ".esm", ".esp", ".esl" })
+                if (names.TryGetValue(stem[..i] + ext, out var real)) return real;
+        return null;
+    }
+
+    static string SafeRead(string path)
+    {
+        try { return File.ReadAllText(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write($"couldn't read {path}: {e.Message}"); return ""; }
+    }
+
+    /// <summary>file-name WARNINGs: a data-relative path (a loose file, or a name inside one of the zip's archives) with a
+    /// character outside ASCII, which archive tools and the game's lower-casing don't handle safely; and a loose path
+    /// over MaxLoosePath characters, which goes past Windows' 260-character limit once installed. Up to MaxNamed files
+    /// are named, then one line counts the rest.</summary>
+    static IEnumerable<ReleaseFinding> FileNames(ReleasePackage p, Func<string, string> show)
+    {
+        var hits = new List<string>();
+        foreach (var f in p.Files)
+        {
+            var d = InData(f);
+            if (d.Any(ch => ch > 0x7E))
+            {
+                Log.Write($"file-name: {show(f)}: non-ASCII character");
+                hits.Add($"{p.Name}: {show(f)} has a character outside plain ASCII (letters with accents, other scripts, symbols); " +
+                         "archive tools and the game may not find it. Rename it with plain letters, digits and - _ .");
+            }
+            if (d.Length > MaxLoosePath)
+            {
+                Log.Write($"file-name: {show(f)}: {d.Length} characters");
+                hits.Add($"{p.Name}: {show(f)} is {d.Length} characters long inside Data, more than {MaxLoosePath}: installed under Steam's " +
+                         "usual Data folder it passes Windows' 260-character path limit (a longer install path lowers the limit), and some " +
+                         "tools won't copy it. Shorten its folder or file names");
+            }
+        }
+        foreach (var a in p.Archives)
+        {
+            List<string> names;
+            try { names = Ba2Names.Read(a); }
+            catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { continue; }   // ba2-unreadable reports it
+            foreach (var n in names.Where(n => n.Any(ch => ch > 0x7E)))
+            {
+                Log.Write($"file-name: {Path.GetFileName(a)}: {n}: non-ASCII character");
+                hits.Add($"{p.Name}:{Path.GetRelativePath(p.Root, a)}: {n} has a character outside plain ASCII (letters with accents, other scripts, " +
+                         "symbols); the game may not find it. Rename it with plain letters, digits and - _ . and pack the archive again");
+            }
+        }
+        var o = hits.Take(MaxNamed).Select(h => new ReleaseFinding(Level.Warning, "file-name", h)).ToList();
+        if (hits.Count > MaxNamed)
+            o.Add(new(Level.Warning, "file-name", $"{p.Name}: and {hits.Count - MaxNamed} more file-name warnings like these (--verbose lists them all)"));
         return o;
     }
 }

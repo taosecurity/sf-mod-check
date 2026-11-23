@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.14.0
+
+### Added
+
+- The `assets` check (in `check` and `conflict`) looks for materials and textures, each a WARNING when missing.
+- It reads the materials a record names (a texture set's material and a few other fields) and the textures it names (a perk icon file, a lens flare sprite, a particle texture).
+- It reads the material names in the plugin's own `.nif` files, and the textures and parent materials in its own `.mat` files.
+- "Its own" means a loose file that a record, `.nif` or `.mat` of the plugin names, or any `.nif` or `.mat` in an archive named after the plugin. Other mods' and the game's files are looked up by name only.
+- A material also counts when a material database holds it: any `.cdb` file in a loaded archive or loose under `materials\`. The game's (`materials\materialsbeta.cdb`) holds all of its own materials, and DLC and mods ship their own (`materials\creations\<plugin>\materialsbeta.cdb`).
+- `--verbose` logs each database read with its count of material IDs.
+- LOD meshes (`meshes\lod\`) in a plugin's own archive are read only when a record names one, since LOD isn't checked.
+- If no database can be read, one WARNING says how many materials couldn't be checked, and none of them is called missing.
+- A `.nif` or `.mat` that can't be read is one WARNING naming the file, never a crash.
+- Texture archives (`<plugin> - Textures.ba2`) are read for their texture names. Before, only their type was read, for the archive count.
+- `release` has two new rules, `material-missing` and `texture-missing` (WARNING). They are left out with `--dmmdeps`, which reports these files itself.
+- The `assets` check reads each Wwise sound bank (`.bnk`) in an archive named after the plugin. Every sound the bank streams must be a `sound\soundbanks\<id>.wem` file the game can find, else a WARNING.
+- Sounds held inside the bank need no file. Only bank version 140, the game's own, is read; a bank of another version, or one that can't be read, is one WARNING naming the file.
+- `release` has a new rule, `sound-missing` (WARNING), which also reads the zip's loose sound banks. It runs with `--dmmdeps` too, since DMMDeps doesn't read sound banks.
+- `release` has a new rule, `face-missing` (NOTE). An NPC a plugin adds with its own face, or an override that changes an NPC's face, should ship its baked face files: a `facegeom` `.nif` and four `facecustomization` textures, named after the defining plugin and the NPC's local ID.
+- It is a NOTE only when none of the five files is there, because some of Bethesda's own NPCs have none or only part of them. NPCs whose template gives their Traits aren't looked at. It runs with `--dmmdeps` too, since DMMDeps can't see face files.
+- `check` and `conflict` don't look for face data.
+- `release` has a new rule, `archive-name` (PROBLEM). A `.ba2` that isn't named `<plugin> - <part>.ba2` beside a plugin in the zips, the Data folder or a `--masters-dir` folder never loads. The Xbox twin `<plugin> - <part>_xbox.ba2` passes.
+- It is a WARNING instead in a zip that holds no plugin, or when an INI in the zip lists the archive.
+- `release` has a new rule, `file-name` (WARNING): a file or a name inside an archive with a non-ASCII character, or a loose path inside Data over 200 characters (Windows' 260-character limit under Steam's usual Data folder). Up to 5 are named per zip, then one line counts the rest.
+- `conflict`: the RESULT line and the report's summary add textures, materials and sounds to the missing-asset count when there are some. conflicts.json lists these in a new top-level key, `missingFiles` (the same item keys as `missingAssets`; `kind` is `material`, `texture` or `sound`). `missingAssets` keeps only scripts and models, so tools that read it, such as sf-load-order 0.1.3, count as before.
+
+### Changed
+
+- A texture link with no `.dds` or `.png` ending is a name, not a file, so it isn't looked up. Perks name their icon that way.
+- `release`'s NOTE when `--dmmdeps` isn't given, and the conflict report's "What this report does not check" line, now name what the assets check covers.
+- `--version` says 0.14.0.
+
+### Example
+
+Check a made-up mod zip before release. `MyMod-0.1.0.zip` holds `MyMod.esm`, `MyMod - Main.ba2` with one model, `meshes\mymod\crate.nif`, whose material the mod doesn't ship, and a second archive named `MyMod_Extra.ba2`:
+
+    sf-mod-check release MyMod-0.1.0.zip
+
+What it prints (a real run, with the first line left out):
+
+    sf-mod-check 0.14.0 release (basic profile): MyMod-0.1.0.zip (3 files, 1 plugins, 2 archives)
+    PROBLEM  [archive-name] MyMod-0.1.0.zip: archive MyMod_Extra.ba2: its name has no " - " part, so the game never loads it. The game loads an archive only when it is named "<plugin> - <part>.ba2" (with spaces around the dash) beside a plugin of that name, or when an INI lists it; rename it, for example MyMod - Main.ba2 for MyMod.esm
+    WARNING  [material-missing] MyMod.esm: the material materials\mymod\crate.mat is in none of MyMod-0.1.0.zip's loose files or archives, a --masters-dir mod's archives or the game's archives, and isn't in any of their material databases (used by meshes\mymod\crate.nif). Put the file in the zip or its archive, or fix the path in the file that names it.
+    NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files and .mesh geometry were not checked.
+    NOTE     [plugin-check] MyMod.esm: OK, 0 errors, 0 warnings (full master, 0 masters, 0 records, 0 overrides (0 ITM), 0 links)
+    NOTE     [mutagen-gap] MyMod.esm: 0 own records, 0 overrides, 0 compared with their master's copy
+    RESULT: FAIL (1 problems, 0 to review, 1 warnings)
+
+The exit code is 1. With 0.13.0 the same zip passed with no warnings, although the game never loads `MyMod_Extra.ba2` and the crate has no material.
+
 ## 0.13.0 (2026-11-23)
 
 ### Changed

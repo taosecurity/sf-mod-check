@@ -546,9 +546,11 @@ public static class Checker
         {
             var index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language);
             Assets.AfterIndex?.Invoke();
-            var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache);
+            var uses = new AssetUses();
+            var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache, uses);
             r.Scripts = scriptCount; r.Models = modelCount;
-            Stage($"assets: {scriptCount} script uses, {modelCount} model uses, {index.Loaded.Count} archives read");
+            Stage($"assets: {scriptCount} script uses, {modelCount} model uses, {uses.Textures} textures, {uses.Materials} materials " +
+                  $"({uses.FilesRead} of the plugin's own .nif and .mat files read), {index.Loaded.Count} archives read");
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {

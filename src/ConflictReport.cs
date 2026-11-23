@@ -208,7 +208,10 @@ public static class Report
             inheritedAssetUses = a.AssetsInherited,
             // why the assets step or the archive count stopped part way, else null (also in errors)
             assetsFailed = a.AssetsFailed,
-            missingAssets = AssetsByPlugin(a).SelectMany(g => g).Select(f => new { plugin = f.Plugin, severity = f.Severity, kind = f.Kind, path = f.Path, script = f.Script, users = f.Users, finding = f.Text }),
+            // missingAssets keeps the 0.13.0 kinds (script, model): sf-load-order 0.1.3 counts every non-script entry
+            // there as a model. The 0.14.0 kinds (material, texture, sound) go to missingFiles, with the same keys.
+            missingAssets = AssetsByPlugin(a).SelectMany(g => g).Where(f => IsOldKind(f.Kind)).Select(AssetJson),
+            missingFiles = AssetsByPlugin(a).SelectMany(g => g).Where(f => !IsOldKind(f.Kind)).Select(AssetJson),
             unreadableArchives = a.UnreadableArchives.Select(u => new { archive = u.Archive, why = u.Why }),
             // 0.6.0: the archives the game would load per registry (null when not counted); slots is the game's limit
             archiveCounts = a.ArchivesCounted ? new { gnrl = a.GnrlArchives, dx10 = a.Dx10Archives, slots = AssetIndex.ArchiveSlots } : null,
@@ -286,11 +289,17 @@ public static class Report
     /// <summary>One missing script or model with its plugin, flattened for the reports.</summary>
     public record AssetRow(string Plugin, string Severity, string Kind, string Path, string? Script, IReadOnlyList<string> Users, string Text);
 
+    /// <summary>The kinds conflicts.json's missingAssets held up to 0.13.0; the others go to missingFiles.</summary>
+    internal static bool IsOldKind(string kind) => kind is "script" or "model";
+
+    static object AssetJson(AssetRow f) =>
+        new { plugin = f.Plugin, severity = f.Severity, kind = f.Kind, path = f.Path, script = f.Script, users = f.Users, finding = f.Text };
+
     /// <summary>Missing assets by plugin in load order; in each plugin the scripts (ERROR) before the models (WARNING),
     /// each kind in path order.</summary>
     public static List<IGrouping<string, AssetRow>> AssetsByPlugin(Analysis a) =>
         a.MissingAssets.GroupBy(f => f.Plugin)
-            .SelectMany(g => g.OrderBy(f => f.Asset.Kind == "script" ? 0 : 1).ThenBy(f => f.Asset.Path, StringComparer.Ordinal))
+            .SelectMany(g => g.OrderBy(f => KindOrder(f.Asset.Kind)).ThenBy(f => f.Asset.Path, StringComparer.Ordinal))
             .Select(f => new AssetRow(f.Plugin, f.Asset.Severity, f.Asset.Kind, f.Asset.Path, f.Asset.Script, f.Asset.Users, f.Asset.Text))
             .GroupBy(r => r.Plugin).ToList();
 
@@ -299,10 +308,24 @@ public static class Report
     {
         if (!a.AssetsChecked) return a.AssetsFailed != null ? "not checked (the step stopped)" : "not checked (--no-assets)";
         if (a.MissingAssets.Count == 0) return "0";
-        var s = a.MissingAssets.Count(f => f.Asset.Kind == "script");
-        var m = a.MissingAssets.Count - s;
-        return $"{a.MissingAssets.Count} ({s} script{(s == 1 ? "" : "s")}, {m} model{(m == 1 ? "" : "s")})";
+        return $"{a.MissingAssets.Count} ({Kinds(a)})";
     }
+
+    /// <summary>"1 script, 2 models", with textures and materials added only when there are some (0.14.0), so a run
+    /// with none reads as before.</summary>
+    public static string Kinds(Analysis a)
+    {
+        int N(string k) => a.MissingAssets.Count(f => f.Asset.Kind == k);
+        string One(int n, string what) => $"{n} {what}{(n == 1 ? "" : "s")}";
+        var s = N("script");
+        var parts = new List<string> { One(s, "script"), One(N("model"), "model") };
+        if (N("texture") is var t and > 0) parts.Add(One(t, "texture"));
+        if (N("material") is var m and > 0) parts.Add(One(m, "material"));
+        if (N("sound") is var so and > 0) parts.Add(One(so, "sound"));
+        return string.Join(", ", parts);
+    }
+
+    static int KindOrder(string kind) => kind switch { "script" => 0, "model" => 1, "material" => 2, "texture" => 3, "sound" => 4, _ => 5 };
 
     /// <summary>The section's first paragraph: what was checked, or that the check was off.</summary>
     public static string AssetsIntro(Analysis a) => !a.AssetsChecked
@@ -311,9 +334,12 @@ public static class Report
           "Every script a mod plugin's records attach needs its .pex, and every model a record names needs its file, as a " +
           "loose file under Data or inside an archive the game loads (the archives of every active plugin and those the " +
           $"game's INI lists). Checked {a.AssetScriptUses} script use{(a.AssetScriptUses == 1 ? "" : "s")} and {a.AssetModelUses} " +
-          $"model use{(a.AssetModelUses == 1 ? "" : "s")} in the mod plugins against {a.ArchivesRead} archive{(a.ArchivesRead == 1 ? "" : "s")} " +
-          "and the loose files. A missing script is an ERROR (that record's script never runs); a missing model is a WARNING " +
-          "(an empty or error mesh in game). Official plugins are not checked, and neither is a missing path an override " +
+          $"model use{(a.AssetModelUses == 1 ? "" : "s")}, and {a.AssetMaterialUses} material and {a.AssetTextureUses} texture path{(a.AssetTextureUses == 1 ? "" : "s")} " +
+          "(named by records, by the mods' own .nif files and by their .mat files), " +
+          (a.AssetSoundUses > 0 ? $"and {a.AssetSoundUses} streamed sound{(a.AssetSoundUses == 1 ? "" : "s")} of the mods' own sound banks, " : "") +
+          $"in the mod plugins against {a.ArchivesRead} archive{(a.ArchivesRead == 1 ? "" : "s")} " +
+          "and the loose files; a material also counts when a loaded material database (the game's or a plugin's own .cdb) holds it. A missing script is an ERROR (that record's script never runs); a missing model, material, texture or sound is a WARNING " +
+          "(an empty or error mesh, a wrong-looking surface, or silence, in game). Official plugins are not checked, and neither is a missing path an override " +
           "inherits: when the version it overrides names the same path, the mistake isn't the override's" +
           (a.AssetsInherited > 0 ? $" ({a.AssetsInherited} such use{(a.AssetsInherited == 1 ? "" : "s")} left out; --verbose lists them)." : ".");
 
@@ -334,7 +360,7 @@ public static class Report
 
     /// <summary>The "What this report does not check" line about assets.</summary>
     public static string AssetsNotChecked(Analysis a) => a.AssetsChecked
-        ? "Assets other than scripts and models (textures, materials, .mesh geometry, sounds, voice and animation files) and script parents are not checked, and neither are official plugins' scripts and models."
+        ? ".mesh geometry, voice and animation files, music, sounds outside the mods' own sound banks, and script parents are not checked, and neither are official plugins' assets."
         : a.AssetsFailed != null
             ? $"Scripts, models and other assets are not checked: the step stopped ({a.AssetsFailed})."
             : "Scripts, models and other assets are not checked (--no-assets); only plugin records.";

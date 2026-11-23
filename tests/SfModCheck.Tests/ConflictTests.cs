@@ -1119,6 +1119,37 @@ public partial class ConflictTests
         Assert.Contains("**WARNING** archive ModM - Main.ba2 can't be read", md);
     }
 
+    // 0.14.0 (relay step 10): sf-load-order 0.1.3 counts every non-script missingAssets entry as a model, so the new
+    // kinds go to missingFiles and missingAssets keeps scripts and models only.
+    [Fact]
+    public void Missing_materials_go_to_missing_files_and_missing_assets_keeps_scripts_and_models()
+    {
+        using var game = new Game();
+        game.Mod("ModF.esm", (m, _) =>
+        {
+            m.MiscItems.AddNew("F_Thing").Model = new Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>("SfmTest\\Thing.nif") };
+            m.MiscItems.AddNew("F_Gone").Model = new Model { File = new Mutagen.Bethesda.Plugins.Assets.AssetLink<Mutagen.Bethesda.Starfield.Assets.StarfieldModelAssetType>("SfmTest\\Gone.nif") };
+        });
+        File.WriteAllBytes(Path.Combine(game.Data, "Base - Materials.ba2"), AssetFilesTests.Gnrl((AssetFiles.CdbPath, AssetFilesTests.Cdb(@"materials\vanilla\rock01.mat"))));
+        var nif = Path.Combine(game.Data, "Meshes", "SfmTest", "Thing.nif");
+        Directory.CreateDirectory(Path.GetDirectoryName(nif)!);
+        File.WriteAllBytes(nif, AssetFilesTests.Nif("materials\\vanilla\\rock01.mat", "materials\\sfmtest\\gone.mat"));
+        var (code, stdout, json) = game.Conflict(new[] { "Base.esm", "ModF.esm" });
+        Assert.True(code == 0, stdout);
+        Assert.Contains(", 2 missing assets (0 scripts, 1 model, 1 material)", ExeTests.ResultLine(stdout));
+        var ma = json.GetProperty("missingAssets").EnumerateArray().ToList();
+        Assert.Single(ma);
+        Assert.Equal("model", S(ma[0], "kind"));
+        var mf = json.GetProperty("missingFiles").EnumerateArray().ToList();
+        Assert.Single(mf);
+        Assert.Equal("material", S(mf[0], "kind"));
+        Assert.Equal(@"materials\sfmtest\gone.mat", S(mf[0], "path"));
+        Assert.Equal("ModF.esm", S(mf[0], "plugin"));
+        Assert.Equal("WARNING", S(mf[0], "severity"));
+        // every entry in missingAssets is one of the kinds sf-load-order 0.1.3 knows
+        Assert.All(ma, f => Assert.Contains(S(f, "kind"), new[] { "script", "model" }));
+    }
+
     // 0.6.0 part 2 item 2: the game has 256 slots per archive registry (general GNRL, texture DX10). 256 is fine, the
     // 257th is a WARNING in the RESULT line, all three reports and a High action; --no-assets still counts.
     [Fact]
@@ -1257,7 +1288,7 @@ public partial class ConflictTests
         Assert.Equal(0, code);
         var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "conflicts.json"))).RootElement;
         Assert.Equal("IOException: made-up disk error", json.GetProperty("assetsFailed").GetString());
-        Assert.Contains(json.GetProperty("Errors").EnumerateArray(), e => (e.GetString() ?? "").StartsWith("the assets check stopped while checking scripts and models"));
+        Assert.Contains(json.GetProperty("Errors").EnumerateArray(), e => (e.GetString() ?? "").StartsWith("the assets check stopped while checking scripts, models, materials and textures"));
         var md = File.ReadAllText(Path.Combine(outDir, "report.md"));
         Assert.Contains("The check stopped part way (IOException: made-up disk error), so this list may be incomplete.", md);
         Assert.Contains("None found before the check stopped.", md);   // code review 0.6.0: not a plain "None found."

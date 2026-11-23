@@ -121,7 +121,10 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    by two spaces.
 
 6. Fewer lines: `--max 20` (at most 20 lines per check), `--no-hints` (no HINT lines), `--quiet` (no summary line).
-   The `assets` check (missing scripts and models) is on by default: `--no-assets` turns it off (for a plugin whose
+   The `assets` check (missing scripts, models, materials, textures and sounds; materials, textures and sounds since
+   0.14.0, each a WARNING, found through the records, the plugin's own `.nif`, `.mat` and sound-bank `.bnk` files and
+   the material databases, the game's and any a plugin ships) is
+   on by default: `--no-assets` turns it off (for a plugin whose
    archive isn't built yet), `--ini <file>` adds an INI's archive lists (installs whose INIs aren't in the usual
    places), and `--language de` counts German voice archives instead of English. A path with a part that ends in a
    dot or a space (`meshes\armor.\helm.nif`) gets its own text: a WARNING when Windows' trimmed path is a loose file
@@ -168,8 +171,12 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
         sf-mod-check conflict --no-assets
         sf-mod-check conflict --ini "D:\MyGames\StarfieldCustom.ini" --language de
 
-    The RESULT line then adds ", <n> missing assets (<s> scripts, <m> models)" when there are any, and the report's
-    "Missing assets" section and conflicts.json's `missingAssets` list each one with the plugin and the records using it.
+    The RESULT line then adds ", <n> missing assets (<s> scripts, <m> models)" when there are any (", <t> textures",
+    ", <a> materials" and ", <d> sounds" are added when there are some, 0.14.0), and the report's "Missing assets"
+    section lists each one with the plugin and the records or files using it. In conflicts.json, scripts and models
+    are in `missingAssets` (`kind`: `script` or `model`), and materials, textures and sounds are in `missingFiles`
+    (0.14.0, the same keys; `kind`: `material`, `texture` or `sound`). A mod's `.nif`, `.mat` or `.bnk` that can't be
+    read, or a sound bank of an unknown Wwise version, is an assets-check note.
     A missing file an override inherits (the version it overrides, in the last of its masters that has the record,
     names it too; often a vanilla record) isn't reported against the override; `inheritedAssetUses` counts those uses
     and `--log` lists them. If the assets step stops part way, the report is still written and conflicts.json's
@@ -371,7 +378,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   since 0.6.0 `assetsChecked` (false with `--no-assets`), `archivesRead`, `inheritedAssetUses` (missing-path uses
   left out because the version they override names them too), `assetsFailed` (why the assets step stopped part
   way, else null), `missingAssets` (each with `plugin`,
-  `severity` ERROR for a script or WARNING for a model, `kind`, `path`, `script`, `users`, `finding`) and
+  `severity` ERROR for a script or WARNING for a model, `kind`, `path`, `script`, `users`, `finding`; since 0.14.0
+  materials, textures and sounds are in `missingFiles`, with the same keys) and
   `unreadableArchives` (`archive`, `why`), `archiveCounts` (`gnrl`, `dx10`, `slots`; null if not counted) and
   `archiveLimitWarnings`, and since 0.10.0, unless `--no-priorities` is given, a `priority` on each `lost` entry and
   field (`normal` or `critical`), `benign` (entries shaped like `lost`, each field's `priority` `benign` or `ignore`)
@@ -415,9 +423,12 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    offline plugins only. `triage` never loads or runs a mod's DLLs, EXEs or scripts: it reads their bytes; the
    signature check asks Windows with no revocation lookup and no download.
 3. `check` checks one plugin against its masters; `conflict` compares plugin records across a load order. The
-   `assets` check in both only looks up the names of attached scripts and model files in loose files and BA2
-   archives; neither reads what is inside a script, model or archive, and textures, materials and sounds aren't
-   looked up.
+   `assets` check in both looks up the names of attached scripts, models, materials, textures and the sounds of a
+   mod's own sound banks in loose files and BA2 archives. It reads only names from a mod's own `.nif`, `.mat` and
+   `.bnk` files, never geometry, texture or sound data, and it doesn't check face data, voice files or music.
+   `release` also looks for each new or changed NPC face's baked files (rule `face-missing`, a NOTE when none of
+   the five is there), archives named so that the game never loads them (rule `archive-name`), and file names with
+   non-ASCII characters or loose paths over 200 characters (rule `file-name`, a WARNING).
 4. A patch `conflict` suggests or `patch` builds holds other authors' data: it is for the player's own game, never
    for publishing. `patch` doesn't build the records inside quests or dialogue topics (the report lists them for
    xEdit). Since 0.13.0 it builds cells and worldspaces themselves (without their other records or RNAM/OFST/CLSZ),

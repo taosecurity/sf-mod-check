@@ -234,7 +234,7 @@ public class AssetsTests
     }
 
     [Fact]
-    public void A_texture_archive_is_skipped_and_a_damaged_archive_is_a_warning()
+    public void A_texture_archive_gives_only_textures_and_a_damaged_archive_is_a_warning()
     {
         using var w = new World();
         var p = w.Build("arch", m => AttachScript(m, "SfmTest:InTextures"));

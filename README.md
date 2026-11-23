@@ -156,7 +156,7 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sf-mod-check/r
 - `--max`: the most lines printed per check (default 100). The counts in the RESULT line are always complete.
 - `--quiet`: leave out the first summary line.
 - `--no-hints`: leave out the HINT lines.
-- `--no-assets`: skip the assets check (missing scripts and models), for example when the plugin's archive isn't
+- `--no-assets`: skip the assets check (missing scripts, models, materials, textures and sounds), for example when the plugin's archive isn't
   built yet. If the assets check itself can't finish (a folder that can't be listed, a disk error), the other checks
   still count and one `WARNING assets` line says the scripts and models weren't checked.
 - `--ini <file>`: also read this INI's `[Archive]` lists for the archives the game loads, after `Starfield.ini` in the
@@ -313,11 +313,16 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
     (conflicts.json `inheritedAssetUses` counts the uses left out).
   - **Memory:** those lookups obey `--max-memory`. Past the limit they stop, every missing path is reported, and
     "Tool limits hit" says so.
-  - **Results:** the RESULT line adds ", N missing assets (S scripts, M models)" when there are any. The report's
-    "Missing assets" section lists them by plugin (scripts, an ERROR, before models, a WARNING), with the number of
-    archives read and any archive that can't be read. Each plugin with missing files gets a recommended action, and
-    conflicts.json has them as `missingAssets` and `unreadableArchives`. With `--no-assets` the section says the
-    check was off.
+  - **Results:** the RESULT line adds ", N missing assets (S scripts, M models)" when there are any, with ", T
+    textures", ", A materials" and ", D sounds" added when there are some (0.14.0; materials, textures and sounds as
+    for `check`). The report's "Missing assets" section lists them by plugin (scripts, an ERROR, then models,
+    materials, textures and sounds, each a WARNING), with the number of archives read and any archive that can't be
+    read. Each plugin with missing files gets a recommended action. conflicts.json has the scripts and models as
+    `missingAssets` (`kind` is `script` or `model`, as before 0.14.0), the materials, textures and sounds as
+    `missingFiles` (since 0.14.0, the same keys, `kind` is `material`, `texture` or `sound`), and the archives that
+    can't be read as `unreadableArchives`. A mod's `.nif`, `.mat`
+    or `.bnk` that can't be read, a sound bank of a version the tool doesn't know, or materials that couldn't be
+    checked against the game's database, are listed in "Tool limits hit" and counted as assets-check notes. With `--no-assets` the section says the check was off.
   - **If the step stops:** if the assets step itself stops (a folder that can't be listed, a disk error), the report
     is still written. The section and "Tool limits hit" say why, and conflicts.json has the reason as `assetsFailed`
     (else null). The RESULT line counts that note (and a `--max-memory` stop in the assets lookups) as ", N
@@ -398,8 +403,9 @@ that plugin's group of records of that type, and the rest of the load order is s
 limits hit" section lists the plugin, the record type and, where Mutagen names it, the record, once each. The RESULT
 line then adds "read problems (records not compared ...)". Run `sf-mod-check check` on that plugin to see the record.
 
-**What it doesn't check:** the scripts' code and assets other than attached scripts and model paths (textures,
-materials, sounds; see the `assets` entry under `check`). Fields
+**What it doesn't check:** the scripts' code and assets other than attached scripts, model paths, materials,
+textures and the sounds of the mods' own sound banks (face data, which only `release` looks for, voice files, music, `.mesh` geometry; see the
+`assets` entry under `check`). Fields
 that are bookkeeping or that the Creation Kit regenerates are skipped (the report lists them). A patch it suggests is
 for your own game: it holds other authors' data, so don't publish it. To see its working for one record, set the
 environment variable `SFMODCHECK_DEBUG_RECORD` to that record's FormKey (for example `064F3C:Starfield.esm`).
@@ -578,7 +584,8 @@ and everything `check` finds in each plugin.
   that the zip lacks. sf-mod-check runs only the reviewed v0.4.1 build and refuses any other, by its SHA-256
   (`8a5367865ef21e29b17301a3341b2195fdacbf163c151678c0c420747ff9e6f8`). DMMDeps has gaps (its issues #175 to #177:
   base scripts, face files, some models), so what it can't see is a REVIEW line and never "not needed". Without it,
-  one NOTE says that only the scripts and models were checked. DMMDeps runs on a copy in the temp folder and takes a
+  one NOTE says that only sf-mod-check's own check of the files the plugins need ran (scripts, models, materials,
+  textures, NPC face data and the sounds of the mod's own sound banks). DMMDeps runs on a copy in the temp folder and takes a
   minute or more on big mods (15 minutes at most).
 - `--papyrus <exe>` with `--ck-sources <ContentResources.zip>`: lint the `.psc` sources a zip ships under
   `Scripts\Source`, with papyrus-tools v0.16.3 (SHA-256 `954ec6d7559713c8cdf6aaaf20bde5d9feedf52a6404a90cfca5b2107559c4fa`)
@@ -603,7 +610,12 @@ Data folder.
 | `plugin-name` | basic, house | A plugin named `...-ShatteredSpace.esm`, `-Constellation`, `-Starfield`, `-OldMars` or `-SFBGS...`, or `BlueprintShips-...`: Starfield drops it from Plugins.txt and it stops loading. Rename it, for example `-ShatteredSpaceAddon.esm`. |
 | `voice-compressed` | basic, house | `.wem` or `.ffxanim` stored compressed in a `.ba2`: the game plays them silent. Pack with Archive2 `-compression=None`. |
 | `ba2-unreadable` | basic, house | An archive whose header or records don't add up. |
+| `archive-name` | basic, house | 0.14.0: a `.ba2` the game never loads, because it isn't named `<plugin> - <part>.ba2` (with spaces around the dash, `MyMod - Main.ba2` for `MyMod.esm`) beside a plugin in the zips, in the Data folder or in a `--masters-dir` folder. The Xbox twin (`MyMod - Main_xbox.ba2`) carries the same name and passes. A WARNING instead when the zip holds no plugin, or when an INI in the zip lists the archive (it loads only through that INI). |
+| `file-name` | never (WARNING) | 0.14.0: a file in the zip, or a name inside one of its archives, with a character outside plain ASCII (accented letters, other scripts, symbols), which archive tools and the game may not find; or a loose file whose path inside Data is over 200 characters, which passes Windows' 260-character limit under Steam's usual Data folder (a longer install path lowers the limit). Up to 5 files are named per zip, then one line counts the rest; `--verbose` lists them all. |
 | `script-missing`, `model-missing` | basic, house (models: WARNING) | A script a plugin attaches, or a model it names, is in none of the zip's files and archives, the `--masters-dir` mods' archives or the game's archives. |
+| `material-missing`, `texture-missing` | basic, house (WARNING) | 0.14.0: a material or texture the plugin's records, or its own `.nif` and `.mat` files, name is in none of those places (a material may also be one of the game's own, in its material database). A `.nif` or `.mat` that can't be read is a NOTE. Left out with `--dmmdeps`, which reports these files itself. |
+| `sound-missing` | basic, house (WARNING) | 0.14.0: a sound that one of the mod's own sound banks (`sound\soundbanks\*.bnk`, loose in the zip or in its archives) streams, `sound\soundbanks\<id>.wem`, is in none of those places, so that sound is silent. A bank that can't be read, or of a Wwise version the tool doesn't know (it knows version 140, the game's own), is a NOTE. Runs with `--dmmdeps` too, since DMMDeps doesn't read sound banks. |
+| `face-missing` | basic, house (NOTE) | 0.14.0: an NPC a plugin adds with its own face (head parts, tints, face morphs or morph blends), or an override that changes another plugin's NPC face, has none of its five baked face files: `meshes\actors\character\facegendata\facegeom\<plugin>\<id>.nif` and the `_ao`, `_color`, `_normal` and `_rough` `.dds` under `textures\actors\character\facecustomization\<plugin>\`. `<plugin>` is the file name of the plugin that defines the NPC and `<id>` its local ID in 8 hex digits. An NPC whose template gives its Traits isn't looked at. It is a NOTE, not a WARNING, because some of Bethesda's own NPCs have no baked face data either, and others only part of it, so one file is enough to count. Runs with `--dmmdeps` too, since DMMDeps can't see face files. |
 | `dmmdeps` | basic, house | With `--dmmdeps`: a file the plugin needs isn't in the zip (PROBLEM), a file is referenced but found nowhere (PROBLEM), a file in the zip is not used (REVIEW), or also in the game's archives (REVIEW). |
 | `plugin-check` | basic, house | An ERROR from the same checks as `check`, run on every plugin in the zips, or a plugin that can't be checked. |
 | `mutagen-gap` | basic, house | Data the Mutagen library 0.54.4 loses when it writes a plugin, and a missing ONAM list (the game ignores edits to the master's placed references). |
@@ -920,6 +932,24 @@ Each finding names its check in brackets.
 - **assets** (0.6.0): every script a record attaches (its scripts, and the fragment and alias scripts of quests,
   scenes, perks, topic infos and packages) must have its `.pex` under `scripts\` (ERROR: the script never runs), and
   every model path a record names must have its file under `meshes\` (WARNING).
+  - **Materials and textures** (0.14.0, WARNING): the materials and textures a record names (a texture set's
+    material, a perk icon file, a lens flare sprite and a few others), the materials each of the plugin's own `.nif`
+    files names, and the textures and parent materials each of its own `.mat` files names. "Its own" means a loose
+    file a record, `.nif` or `.mat` of the plugin names, or any `.nif` or `.mat` inside an archive named after the
+    plugin. Other mods' and the game's files are looked up by name only, never opened. A material also counts when
+    a material database holds it: any `.cdb` file in a loaded archive or loose under `materials\`. The game's
+    (`materials\materialsbeta.cdb` in `Starfield - Materials.ba2`) holds all of the game's own materials, and DLC
+    and mods can ship their own (`materials\creations\<plugin>\materialsbeta.cdb`). If no database can be read, one
+    WARNING says how many materials couldn't be checked, and none of them is called missing. A `.nif` or `.mat` that can't be read is one WARNING
+    naming the file. Textures are found in texture archives (`<plugin> - Textures.ba2`) as well.
+  - **Sounds** (0.14.0, WARNING): each Wwise sound bank (`sound\soundbanks\*.bnk`) inside an archive named after the
+    plugin is read, and every sound it streams rather than holds itself must be a `sound\soundbanks\<id>.wem` file
+    in the places below. Sounds held inside the bank need no file. Loose banks in the Data folder aren't read by
+    `check` or `conflict`, since every mod shares that folder (`release` reads the zip's loose banks). A bank that
+    can't be read, or whose Wwise version isn't 140 (the version of every bank the game ships), is one WARNING
+    naming the file. Voice files and music aren't checked.
+  - **Face data** isn't checked here: `release` looks for it (rule `face-missing`, a NOTE), since some of the game's
+    own NPCs have no baked face files either.
   - **Where a file can be:** a file counts when it is loose in the Data folder (or a `--masters-dir` folder) or inside
     an archive the game loads: `<plugin> - *.ba2` for the plugin and each of its masters (other languages' voice
     archives left out), plus the archives `Starfield.ini` and `StarfieldCustom.ini` list.
@@ -932,7 +962,7 @@ Each finding names its check in brackets.
     file, the finding is a WARNING that says the game may load it on Windows but not once the file is packed into a
     `.ba2` (a script too, not an ERROR). Otherwise the path is missing as usual, and the finding names the trimmed
     path.
-  - **Not checked yet:** textures and materials (a mesh's `.mat` and `.dds` files), `.mesh` geometry, files the game finds by name (voice,
+  - **Not checked yet:** `.mesh` geometry a `.nif` names, files the game finds by name (voice,
   lip and face animation, `.af`/`.hkx` animations, LOD, Wwise sounds), a script's parent and imports, whether an SFSE
   plugin a native script needs is installed, and which copy of a file wins. Tested on Steam installs only.
 
@@ -956,7 +986,7 @@ What each check's findings mean and how to fix them. These are the same lines sf
 - **itm**: Identical to Master (ITM) records change nothing but can undo other mods' edits to the same record. xEdit: right-click the plugin > Remove "Identical to Master" records (or run QuickAutoClean). In the CK they come from opening a form and pressing OK without changes.
 - **trees**: The plugin edits an official Story Manager or Planet Content Manager node. Every mod that edits the same node conflicts, and the last one loaded wins. CK: make your own node under the official branch (Story Manager: set its parent and previous sibling) and revert your edits to the official one. xEdit: remove the override (right-click > Remove) once your own node does the job. Keep the edit only if you mean to.
 - **ships**: A ship the plugin adds has a cockpit but lacks a system every official player ship has (cockpit, reactor, grav drive, engine, fuel tank, landing gear, docker, landing bay). CK: open the ship in the Spaceship Editor, add a module for each missing system and run its flight check. xEdit: add the module to the ship's Blueprint component. A ship only NPCs fly (an enemy or a quest ship) can ignore this.
-- **assets**: A missing script means the record's script never runs; a missing model shows as an empty or error mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file comes from another mod, make that mod a master or a requirement. A folder or file name in the path that ends in a dot or a space works only as a loose file on Windows: remove the dot or space in the record. Run with --verbose to see which archives were read.
+- **assets**: A missing script means the record's script never runs; a missing model shows as an empty or error mesh. Pack the file into the mod's own archive (<plugin name> - Main.ba2), install it as a loose file under Data, or fix the path in the record (xEdit: the record's VMAD scripts or Model field). If the file comes from another mod, make that mod a master or a requirement. A folder or file name in the path that ends in a dot or a space works only as a loose file on Windows: remove the dot or space in the record. A missing material or texture makes a surface look wrong in the game: pack the .mat or .dds file with the mod (textures go in <plugin name> - Textures.ba2) or fix the path in the .nif or .mat that names it. A missing sound is silent in the game: pack the .wem file the sound bank streams (sound\soundbanks\<id>.wem) with the mod, or generate the bank again in Wwise. Run with --verbose to see which archives were read.
 - **records**: Deleted records can crash the game when the game or another mod still uses them. xEdit: on placed references (REFR, ACHR) use right-click > Undelete and Disable References. For other types, remove the deleting override in xEdit (right-click > Remove) unless you really mean it. In the CK, disable instead of deleting vanilla objects.
 
 Each finding names the record by its EditorID (where it has one) and `[TYPE:FormID:Plugin]`, where FormID is the
@@ -1007,8 +1037,26 @@ filter.
   `data\required-fields-seen.txt`). It isn't a WARNING because many mods that work in the game lack fields the
   Creation Kit always writes (such as a dialogue topic's info count), so "every official record has it" doesn't show
   the game needs it.
-- Not checked: face data, and what is inside loose files or BA2 archives (the `assets` check only looks up the names
-  of attached scripts and models).
+- Face data is looked for only by `release` (rule `face-missing`, a NOTE), and only whether any of an NPC's five
+  baked files is there, not whether it matches the face in the plugin. For an override that changes another plugin's
+  NPC, that plugin's own face files count, so a face left over from the master isn't noticed. The file names follow
+  the installed mods: a light plugin's files use the 12-bit local ID, and a medium plugin's textures the 16-bit one.
+- `archive-name` and `file-name` run only in `release`, not in `triage`. `archive-name` doesn't read INI settings
+  outside the zip, so an archive that the user's own `StarfieldCustom.ini` lists still counts as not loading.
+  The 200-character limit assumes Steam's usual install folder; a deeper one lowers it.
+- Not checked: voice files (matched to dialogue lines), music tracks and the Wwise events records name,
+  and what is inside loose files or BA2 archives beyond the material and texture names in a mod's own `.nif` and
+  `.mat` files and the streamed sounds in its own sound banks (the `assets` check looks up names; it doesn't read
+  geometry, texture or sound data).
+- LOD isn't checked: a `.nif` under `meshes\lod\` in a plugin's own archive is read for its materials only when a
+  record names it. Generated LOD meshes name composite materials that no file or database holds.
+- Sound banks are read only for Wwise bank version 140, the version of every bank in the game's own archives and of
+  the mod banks tried. The tool reads each Sound object's source type, stream type and source ID; on the game's own
+  banks every one of the 110,276 streamed sources had its `.wem` file (2026-11-23). A bank of another version gets a
+  note instead of a guess.
+- Materials are matched to the material databases by the 12-byte resource ID the game uses (a CRC32 of the
+  folder and of the file name). The database is scanned for those IDs rather than parsed. On the game's own file
+  this matched 935 of the 936 material paths it names in plain text and none of 3 made-up paths (2026-11-23).
 - `check` checks one plugin against its masters. Conflicts between mods are `sf-mod-check conflict`'s job.
 - The `mutagen-gap` rule compares fields only. A quest's `Unknown` value in Mutagen isn't a field: it is the last 4
   bytes of the header of the quest's child group (its dialogue and scenes). Mutagen 0.54.4 writes 0 there whatever

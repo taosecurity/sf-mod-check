@@ -51,7 +51,7 @@ public static class ReleaseNeeds
         var scripts = Scripts(c, plugins, findings);
         if (c.Options.DmmDeps is { } exe) DmmDeps(c, exe, scripts, findings);
         else findings.Add(new(Level.Note, "dmmdeps", "DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the " +
-                                                     "plugins need ran: attached scripts and model paths. Textures, materials and voice files were not checked."));
+                                                     "plugins need ran: attached scripts, models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files and .mesh geometry were not checked."));
         PluginCheck(c, plugins, findings);
         return findings;
     }
@@ -100,11 +100,21 @@ public static class ReleaseNeeds
                 }
                 IMajorRecordGetter? Original(IMajorRecordGetter rec) =>
                     game.LinkCache.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
-                var (scriptUses, modelUses, missing, inherited) = Assets.Find(mod, index, Checker.Name, Original);
+                // names in the game's and --masters-dir archives count as found, and materials are looked up in every
+                // material database those archives and the zips hold (0.14.0)
+                index.Fallback = external.Has;
+                foreach (var (ba2, entry) in external.Cdbs) index.AddCdb(ba2, entry);
+                var uses = new AssetUses();
+                var (scriptUses, modelUses, missing, inherited) = Assets.Find(mod, index, Checker.Name, Original, uses, faces: true);
+                if (c.Options.DmmDeps == null)
+                    foreach (var n in uses.Notes)
+                        findings.Add(new(Level.Note, "material-missing", $"{name}: {n}."));
+                // DMMDeps doesn't read sound banks, so sound-missing runs with --dmmdeps too (0.14.0)
+                foreach (var n in uses.SoundNotes) findings.Add(new(Level.Note, "sound-missing", $"{name}: {n}."));
                 int shown = 0;
                 foreach (var m in missing)
                 {
-                    if (external.Has(m.Path)) continue;
+                    if (m.Kind != "face" && external.Has(m.Path)) continue;   // a face was already looked up file by file, with the fallback (0.14.0)
                     shown++;
                     if (m.Kind == "script")
                     {
@@ -114,7 +124,32 @@ public static class ReleaseNeeds
                             $"archives or the game's archives (used by {Assets.Users(m.Users)}). Put the compiled script in the zip or its archive, " +
                             "or give --masters-dir the folder of the mod it comes from."));
                     }
-                    else if (c.Options.DmmDeps == null)
+                    else if (m.Kind == "sound")
+                    {
+                        reported.Add(m.Path);
+                        findings.Add(new(Level.Warning, "sound-missing",
+                            $"{name}: the sound bank {Assets.Users(m.Users)} streams {m.Path}, which is in none of {Zips(c)}'s loose files or archives, " +
+                            "a --masters-dir mod's archives or the game's archives, so that sound is silent in the game. Put the .wem file in the zip " +
+                            "or its archive (under sound\\soundbanks), or generate the bank again in Wwise with its media."));
+                    }
+                    else if (m.Kind == "face")
+                    {
+                        // a NOTE (P3 in the baton: Bethesda's own NPCs aren't always baked); DMMDeps can't see face files
+                        // (KnownGaps), so face-missing runs with --dmmdeps too (0.14.0)
+                        reported.Add(m.Path);
+                        findings.Add(new(Level.Note, "face-missing", $"{name}: {m.FaceText}. Looked in {Zips(c)}'s loose files and archives, " +
+                                                                     "a --masters-dir mod's archives and the game's archives."));
+                    }
+                    else if (c.Options.DmmDeps != null) { }   // DMMDeps reports models, materials and textures itself
+                    else if (m.Kind is "texture" or "material")
+                    {
+                        reported.Add(m.Path);
+                        findings.Add(new(Level.Warning, m.Kind + "-missing",
+                            $"{name}: the {m.Kind} {m.Path} is in none of {Zips(c)}'s loose files or archives, a --masters-dir mod's archives " +
+                            (m.Kind == "material" ? "or the game's archives, and isn't in any of their material databases " : "or the game's archives ") +
+                            $"(used by {Assets.Users(m.Users)}). Put the file in the zip or its archive, or fix the path in the file that names it."));
+                    }
+                    else
                     {
                         reported.Add(m.Path);
                         findings.Add(new(Level.Warning, "model-missing",
@@ -122,7 +157,8 @@ public static class ReleaseNeeds
                             $"or the game's archives (used by {Assets.Users(m.Users)}). Put the file in the zip or its archive, or fix the path."));
                     }
                 }
-                Log.Write($"needs: {name}: {scriptUses} script uses, {modelUses} model uses, {shown} missing" +
+                Log.Write($"needs: {name}: {scriptUses} script uses, {modelUses} model uses, {uses.Textures} texture paths, {uses.Materials} material paths, {uses.Sounds} streamed sounds, {uses.Faces} NPC faces " +
+                          $"({uses.FilesRead} of its own .nif, .mat and .bnk files read), {shown} missing" +
                           (missing.Count > shown ? $", {missing.Count - shown} found in the game's or a --masters-dir mod's archives" : "") +
                           (inherited > 0 ? $", {inherited} inherited from the record it overrides (not reported)" : ""));
             }
@@ -168,6 +204,7 @@ public static class ReleaseNeeds
         }
         var roots = c.Packages.Select(p => p.Root).ToList();
         var index = AssetIndex.Build(names.Distinct(StringComparer.OrdinalIgnoreCase), roots, [], "en");
+        index.LooseBanksAreOwn = true;   // the loose folders are the zips' roots: their sound banks are the mod's own (0.14.0)
         foreach (var (a, why) in index.Unreadable)
             findings.Add(new(Level.Problem, "script-missing", $"{Assets.UnreadableText(a, why)}: rebuild the archive (Archive2 or the Creation Kit)"));
         return index;
@@ -175,7 +212,8 @@ public static class ReleaseNeeds
 
     /// <summary>The names in archives outside the zips that load with the mod: each plugin's "&lt;name&gt; - *.ba2" in a
     /// --masters-dir folder, and in the Data folder the official masters' archives, Starfield.ini's archive lists and the
-    /// archives of masters installed there. Only scripts and models are kept (memory). Texture archives are skipped.</summary>
+    /// archives of masters installed there. Only scripts, models, materials and textures are kept (memory), and every
+    /// material database (.cdb) in a general archive is remembered (0.14.0).</summary>
     sealed class ExternalArchives
     {
         readonly HashSet<string> names = new(StringComparer.Ordinal);
@@ -222,11 +260,16 @@ public static class ReleaseNeeds
             if (!read.Add(Path.GetFullPath(ba2))) return;
             try
             {
-                if (Ba2Names.Type(ba2) == "DX10") return;
+                var type = Ba2Names.Type(ba2);
                 int n = 0;
                 foreach (var name in Ba2Names.Read(ba2))
-                    if (name.EndsWith(".pex", StringComparison.Ordinal) || name.StartsWith("meshes\\", StringComparison.Ordinal)) { names.Add(name); n++; }
-                Log.Write($"needs: archive {ba2}: {n} scripts and models");
+                {
+                    if (type == "GNRL" && name.EndsWith(".cdb", StringComparison.Ordinal)) Cdbs.Add((ba2, name));
+                    if (name.EndsWith(".pex", StringComparison.Ordinal) || name.StartsWith("meshes\\", StringComparison.Ordinal) ||
+                        name.StartsWith("textures\\", StringComparison.Ordinal) || name.StartsWith("materials\\", StringComparison.Ordinal) ||
+                        name.StartsWith("sound\\soundbanks\\", StringComparison.Ordinal)) { names.Add(name); n++; }
+                }
+                Log.Write($"needs: archive {ba2}: {n} scripts, models, materials, textures and sound-bank files");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
             {
@@ -235,6 +278,9 @@ public static class ReleaseNeeds
         }
 
         public bool Has(string path) => names.Contains(path);
+
+        /// <summary>Every material database (.cdb) in the general archives read, as (archive, data-relative name).</summary>
+        public List<(string Archive, string Entry)> Cdbs { get; } = new();
     }
 
     // ---------------------------------------------------------------- 2. DMMDeps

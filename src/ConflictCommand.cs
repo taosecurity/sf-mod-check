@@ -56,10 +56,8 @@ public static class ConflictCommand
     internal static string MissingAssetsPart(Analysis a)
     {
         if (!a.AssetsChecked) return "";
-        var s = a.MissingAssets.Count(f => f.Asset.Kind == "script");
-        var m = a.MissingAssets.Count - s;
         var part = a.MissingAssets.Count > 0
-            ? $", {a.MissingAssets.Count} missing asset{(a.MissingAssets.Count == 1 ? "" : "s")} ({s} script{(s == 1 ? "" : "s")}, {m} model{(m == 1 ? "" : "s")})"
+            ? $", {a.MissingAssets.Count} missing asset{(a.MissingAssets.Count == 1 ? "" : "s")} ({Report.Kinds(a)})"
             : "";
         if (a.UnreadableArchives.Count is var u and > 0) part += $", {u} archive{(u == 1 ? "" : "s")} that can't be read";
         return part;
@@ -324,9 +322,9 @@ public static class ConflictCommand
                 }
                 else
                 {
-                    Analyzer.Where = "checking scripts and models (the assets check)";
+                    Analyzer.Where = "checking scripts, models, materials and textures (the assets check)";
                     Assets.CheckLoadOrder(lo.Plugins, assetDirs, AssetIndex.DefaultInis(dataDir, inis), language, analysis);
-                    if (!quiet) Console.Error.WriteLine($"Checked scripts and models: {analysis.MissingAssets.Count} missing, {analysis.ArchivesRead} archives read");
+                    if (!quiet) Console.Error.WriteLine($"Checked scripts, models, materials and textures: {analysis.MissingAssets.Count} missing, {analysis.ArchivesRead} archives read");
                 }
             }
             catch (Exception e) when (Fatal.Recoverable(e))
