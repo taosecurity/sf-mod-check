@@ -1,6 +1,6 @@
 // sfmodcheck conflict: reads a whole load order and reports the changes it throws away (official changes undone by
 // mods, one mod's changes lost to another, ITMs, load-order problems), with a recommendation for each. Read-only:
-// it writes only its report folder. Moved in from the author's StarfieldConflictCheck on 2026-11-16 (0.5.0).
+// it writes only its report folder. Moved in from the author's older private tool on 2026-11-16 (0.5.0).
 //   sfmodcheck conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
 //                       [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]
 //                       [--quiet] [--verbose] [--log <file>]

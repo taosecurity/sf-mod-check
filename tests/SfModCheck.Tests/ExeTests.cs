@@ -281,12 +281,31 @@ public class ExeTests
     [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "conflict", "--no-such-option")]
     [InlineData("RESULT: CANNOT BUILD (bad arguments; see the message above)", "patch", "--no-such-option")]
     [InlineData("RESULT: CANNOT DIFF (bad arguments; see the message above)", "diff", "--no-such-option", "--help")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "release", "--no-such-option")]
+    [InlineData("RESULT: NO REPORT (bad arguments; see the message above)", "triage", "--no-such-option")]
     public void A_bad_argument_still_exits_2_with_a_result_line(string result, params string[] args)
     {
         var (code, stdout, stderr) = RunSplit(args);
         Assert.Equal(2, code);
         Assert.Equal(result, ResultLine(stdout));
         Assert.Contains("unknown option --no-such-option", stderr);
+    }
+
+    // release and triage printed no RESULT line for a bad argument before 0.13.0's bug hunt: a bad value, a missing
+    // value, an extra input and no input at all each give one now, as the other commands do.
+    [Theory]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "not \"bogus\"", "release", "a.zip", "--profile", "bogus")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "--data needs", "release", "a.zip", "--data")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "sf-mod-check release MyMod-1.0.0.zip", "release")]
+    [InlineData("RESULT: NO REPORT (bad arguments; see the message above)", "one mod per run", "triage", "a.zip", "b.zip")]
+    [InlineData("RESULT: NO REPORT (bad arguments; see the message above)", "--out needs", "triage", "a.zip", "--out")]
+    [InlineData("RESULT: NO REPORT (bad arguments; see the message above)", "sf-mod-check triage SomeMod-1.2.zip", "triage")]
+    public void Release_and_triage_bad_arguments_give_a_result_line(string result, string message, params string[] args)
+    {
+        var (code, stdout, stderr) = RunSplit(args);
+        Assert.Equal(2, code);
+        Assert.Equal(result, ResultLine(stdout));
+        Assert.Contains(message, stderr);
     }
 
     [Fact]

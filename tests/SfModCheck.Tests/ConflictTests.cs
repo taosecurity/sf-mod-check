@@ -982,7 +982,7 @@ public partial class ConflictTests
     static void ScriptedMisc(StarfieldMod m, string script) =>
         m.MiscItems.AddNew("S_Misc").VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = { new ScriptEntry { Name = script } } };
 
-    // SWG hand-check 2026-11-18: mods overriding vanilla MQ305, City_NA_Well01 and two MagPerk perks were blamed for
+    // A hand check of a large load order, 2026-11-18: mods overriding vanilla MQ305, City_NA_Well01 and two MagPerk perks were blamed for
     // scripts Bethesda's own records name and the game doesn't ship. A missing path the original record names too is
     // inherited: reported once, against the plugin that defines the record, not against each override.
     [Fact]

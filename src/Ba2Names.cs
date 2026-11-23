@@ -1,5 +1,5 @@
 // The file names inside a Starfield archive (.ba2), read from its name table only (0.6.0, for the assets check).
-// Ported from StarWarsGenesis\swg_ba2conflicts.py ba2_names(), which read all 253 archives of a 157-plugin load order
+// Ported from an older private script's ba2_names(), which read all 253 archives of a 157-plugin load order
 // correctly. Every BA2 version keeps the same first 24 bytes: "BTDX", version, type ("GNRL" or "DX10"), file count at
 // 12 and the name table's offset at 16; the name table is one uint16 length plus that many bytes per file. Nothing is
 // decompressed, so a large texture archive costs no more than a small one.

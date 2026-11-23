@@ -51,6 +51,8 @@
 
 ### Fixed
 
+- `release` and `triage`: a bad argument (an unknown option, a missing or wrong value, an extra input or no input) now ends with a RESULT line, as the other commands do.
+- That line is `RESULT: CANNOT CHECK (bad arguments; see the message above)` for `release` and `RESULT: NO REPORT (bad arguments; see the message above)` for `triage`. The exit code stays 2.
 - `diff`: a condition (CTDA) whose only difference is its padding bytes is now noise, as the README said. Before, the record counted as changed (field `Conditions`) and `diff` exited 1.
 - The padding left out is the 3 bytes after a condition's operator and the 2 bytes after its function index.
 - A condition's parameters, the third one included, are still compared. `check` and `conflict` are unchanged.

@@ -1,4 +1,4 @@
-// Triage section "Plugins" (0.8.0, chunk C2). Ported from ModImpactCheck (Runner, OnamCheck, ScriptCheck; folded in
+// Triage section "Plugins" (0.8.0, chunk C2). Ported from an older private tool (Runner, OnamCheck, ScriptCheck; folded in
 // 2026-11-19) onto sfmodcheck's own classes. For each plugin of the mod:
 //   header      kind (full, medium, light; master flag), masters and the missing ones, unused masters, own FormID range
 //               against the flag's limit, record counts, text that isn't valid UTF-8 (raw read, no Mutagen)
@@ -12,7 +12,7 @@
 //   scripts     every script a record attaches must be in the mod (loose or in an archive that loads with one of its
 //               plugins) or in the game's own archives (VanillaIndex); loose files in the player's Data don't count
 // Without the game only what the plugins show on their own is reported, with one line saying what wasn't compared.
-// Memory: NAPGR 0.1.6 (283 overridden navmeshes and references) once ran the old ModImpactCheck to 14.6 GB. The comparison
+// Memory: a test mod (283 overridden navmeshes and references) once ran the older tool to 14.6 GB. The comparison
 // reads one record type at a time and stops at MemoryLimitBytes of managed memory (ConflictAnalyzer's --max-memory
 // check); the report then lists the section as incomplete.
 using System.Text;
@@ -350,7 +350,7 @@ public static class TriagePlugins
             var sigs = string.Join(", ", g.GroupBy(d => d.Sig).OrderByDescending(x => x.Count()).Select(x => $"{x.Count():N0} {x.Key}"));
             var text = $"deletes {n:N0} record{(n == 1 ? "" : "s")} of {LoadOrderSetup.Display(g.Key)} ({sigs}; e.g. {string.Join(", ", g.Take(3).Select(d => $"{d.Sig} {d.Id}"))}): " +
                        "a quest or another mod that still uses a deleted record can crash the game" +
-                       // the tip fits placed references only (NAPGR 0.1.6 deletes navmeshes alone; C5 acceptance)
+                       // the tip fits placed references only (a test mod deletes navmeshes alone; C5 acceptance)
                        (g.Any(d => d.Sig is "REFR" or "ACHR" or "PGRE" or "PMIS" or "PHZD" or "PARW" or "PBAR" or "PBEA" or "PCON" or "PFLA")
                            ? " (xEdit's Undelete and Disable is the usual way to remove placed references)" : "");
             if (IsOfficial(g.Key)) look(p.Rel, text); else note(p.Rel, text);
@@ -370,7 +370,7 @@ public static class TriagePlugins
     static readonly HashSet<string> RefSigs = ["REFR", "ACHR", "PGRE", "PMIS", "PARW", "PBEA", "PFLA", "PCON", "PBAR", "PHZD"];
 
     /// <summary>The temporary references of full masters a plugin overrides, and which its TES4 ONAM list leaves out
-    /// (port of ModImpactCheck's OnamCheck and tools\onam-check.py, with IdMap for Starfield's per-style master lists).
+    /// (port of the older tool's OnamCheck and an ONAM script, with IdMap for Starfield's per-style master lists).
     /// Light masters' references are left out (the Creation Kit doesn't list them); a master that can't be found counts
     /// as full. Needs ReadFacts first (the masters' styles).</summary>
     public static OnamResult Onam(Facts p)
@@ -475,7 +475,7 @@ public static class TriagePlugins
     // ---------------------------------------------------------------- the comparison
 
     /// <summary>Records that live in cells and worldspaces (and the navmesh index): compared raw, field type by field type.
-    /// Reading them through Mutagen means reading every such record of the game (NAPGR 0.1.6's navmeshes and references
+    /// Reading them through Mutagen means reading every such record of the game (a test mod's navmeshes and references
     /// kept over 5 GB that way).</summary>
     public static readonly HashSet<string> CellBound = new(StringComparer.Ordinal)
         { "CELL", "WRLD", "LAND", "NAVM", "NAVI", "REFR", "ACHR", "PGRE", "PMIS", "PARW", "PBEA", "PFLA", "PCON", "PBAR", "PHZD" };
@@ -755,7 +755,7 @@ public static class TriagePlugins
                 if (sig == "NAVI")
                 {
                     // The navmesh info map: every navmesh mod overrides it, Bethesda's own add-ons each carry a full copy and
-                    // still work together, so the game merges its entries (QuickCheck NAPG EVALUATION.md). Not an undone change.
+                    // still work together, so the game merges its entries (found in an earlier mod evaluation). Not an undone change.
                     if (later.Count > 0)
                         notePlugin(p.Name, $"overrides the navmesh info map ({name}), as every navmesh mod does; {later.Count:N0} official file" +
                                            $"{(later.Count == 1 ? "" : "s")} that aren't its masters carry it too ({string.Join(", ", later.Take(3).Select(v => v.Plugin))}" +
@@ -876,7 +876,7 @@ public static class TriagePlugins
 
         // The game's own copy of an override, to tell a script Bethesda's record names too (carried over) from the mod's
         // own. Records inside cells (placed objects, navmeshes) aren't looked up: finding one makes Mutagen index every
-        // such record of the game (the memory the old ModImpactCheck ran out of).
+        // such record of the game (the memory the older tool ran out of).
         ILinkCache? official = null;
         bool lookups = true;
         IMajorRecordGetter? Original(IMajorRecordGetter rec)

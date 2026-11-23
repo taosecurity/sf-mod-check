@@ -1,4 +1,4 @@
-// Moved from StarfieldConflictCheck (Recommend.cs, commit d336108) into sfmodcheck on 2026-11-16.
+// Moved from an older private tool (Recommend.cs) into sfmodcheck on 2026-11-16.
 // Recommendations: what to do about a conflict, when something should be done.
 // Prompt: text to paste into an AI coding assistant (or follow by hand in xEdit) to build the fix, when the fix is
 // clear (a forwarding patch).

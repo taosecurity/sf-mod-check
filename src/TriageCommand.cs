@@ -309,6 +309,14 @@ public static class TriageCommand
         return 2;
     }
 
+    /// <summary>A bad argument: the message is already on stderr; stdout gets the RESULT line, as for the other
+    /// commands (0.13.0 bug hunt).</summary>
+    static int BadArgs()
+    {
+        Console.WriteLine("RESULT: NO REPORT (bad arguments; see the message above)");
+        return 2;
+    }
+
     static int RunLogged(string[] a, string version, string byline)
     {
         var o = new TriageOptions();
@@ -320,16 +328,16 @@ public static class TriageCommand
             switch (a[i])
             {
                 case "--game":
-                    if (Value(ref i, "the game's folder (or its Data folder)") is not { } g) return 2;
+                    if (Value(ref i, "the game's folder (or its Data folder)") is not { } g) return BadArgs();
                     game = g; break;
                 case "--out":
-                    if (Value(ref i, "a folder for the report") is not { } of) return 2;
+                    if (Value(ref i, "a folder for the report") is not { } of) return BadArgs();
                     o.Out = of; break;
                 case "--manalyze":
-                    if (Value(ref i, "the path of manalyze.exe") is not { } ma) return 2;
+                    if (Value(ref i, "the path of manalyze.exe") is not { } ma) return BadArgs();
                     o.Manalyze = ma; break;
                 case "--log":
-                    if (Value(ref i, "a file name") is not { } lf) return 2;
+                    if (Value(ref i, "a file name") is not { } lf) return BadArgs();
                     logFile = lf; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
@@ -339,17 +347,17 @@ public static class TriageCommand
                     {
                         Console.Error.WriteLine($"unknown option {a[i]}");
                         Console.Error.WriteLine(Usage);
-                        return 2;
+                        return BadArgs();
                     }
                     if (a[i].Trim().Length == 0)
                     {
                         Console.Error.WriteLine("the mod's name is empty: give the path of the mod's download, for example: sf-mod-check triage SomeMod-1.2.zip");
-                        return 2;
+                        return BadArgs();
                     }
                     if (o.Input != "")
                     {
                         Console.Error.WriteLine($"one mod per run: got {o.Input} and {a[i]}. Run triage once for each (a path with spaces needs quotes around it).");
-                        return 2;
+                        return BadArgs();
                     }
                     o.Input = a[i];
                     break;
@@ -359,7 +367,7 @@ public static class TriageCommand
         {
             Console.Error.WriteLine(Usage);
             Console.Error.WriteLine("To look over a mod you downloaded, before you install it, run: sf-mod-check triage SomeMod-1.2.zip");
-            return 2;
+            return BadArgs();
         }
         if (!quiet) Console.Error.WriteLine(byline);
         if (verbose) Log.ToStderr();

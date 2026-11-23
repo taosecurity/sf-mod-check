@@ -27,7 +27,7 @@ public sealed class AssetIndex
 
     /// <summary>The archives the game would load, by registry (0.6.0 part 2, the archive-limit warning): general
     /// archives (GNRL: scripts, meshes, materials, sounds) and texture archives (DX10). The game keeps 256 slots in
-    /// each (an 8-bit index; StarWarsGenesis NOTES "BA2 limit test", confirmed in Ghidra 2026-11-17). Archives whose
+    /// each (an 8-bit index; a BA2 limit test on a large load order, confirmed in Ghidra 2026-11-17). Archives whose
     /// header can't be read aren't counted (they are in Unreadable). File names, in load order.</summary>
     public readonly List<string> Gnrl = new(), Dx10 = new();
 
@@ -378,7 +378,7 @@ public static class Assets
         // The version an override replaces: the record in the last of the plugin's masters (in load order) that has it,
         // as check mode does with the masters' link cache (code review 2026-11-18: a DLC or master mod that changed the
         // record counts, not only the plugin that defines the FormID). One link cache per master, made only when a
-        // missing path needs it (StarWarsGenesis 2026-11-18: mods that override vanilla MQ305, City_NA_Well01 and two
+        // missing path needs it (a large load order, 2026-11-18: mods that override vanilla MQ305, City_NA_Well01 and two
         // MagPerk perks carry Bethesda's own references to scripts the game doesn't ship). A cache of Starfield.esm can
         // be large, so --max-memory is checked before each lookup; past it the lookups stop and missing paths are all
         // reported (the safe side), with a note in the errors.

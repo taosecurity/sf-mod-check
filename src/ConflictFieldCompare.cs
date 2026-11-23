@@ -1,4 +1,4 @@
-// Moved from StarfieldConflictCheck (FieldCompare.cs, commit d336108) into sfmodcheck on 2026-11-16.
+// Moved from an older private tool (FieldCompare.cs) into sfmodcheck on 2026-11-16.
 // Field-by-field comparison of two versions of the same record (DeepEq/Dump come from itm-check).
 using System.Collections;
 using System.Reflection;

@@ -1,4 +1,4 @@
-// Moved from StarfieldConflictCheck (LoadOrderSetup.cs, commit d336108) into sfmodcheck on 2026-11-16.
+// Moved from an older private tool (LoadOrderSetup.cs) into sfmodcheck on 2026-11-16.
 // Builds the load order: official files first, then Plugins.txt order, with every plugin after its masters, then the
 // official BlueprintShips-*.esm files, oldest first, as the game loads them (0.12.0).
 using System.Text;

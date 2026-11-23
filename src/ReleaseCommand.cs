@@ -115,6 +115,14 @@ public static class ReleaseCommand
         return 2;
     }
 
+    /// <summary>A bad argument: the message is already on stderr; stdout gets the RESULT line, as for the other
+    /// commands (0.13.0 bug hunt).</summary>
+    static int BadArgs()
+    {
+        Console.WriteLine("RESULT: CANNOT CHECK (bad arguments; see the message above)");
+        return 2;
+    }
+
     static int RunLogged(string[] a, string version, string byline)
     {
         var o = new ReleaseOptions();
@@ -126,36 +134,36 @@ public static class ReleaseCommand
             switch (a[i])
             {
                 case "--data":
-                    if (Value(ref i, "the game's Data folder") is not { } d) return 2;
+                    if (Value(ref i, "the game's Data folder") is not { } d) return BadArgs();
                     o.DataDir = d; o.DataGiven = true; break;
                 case "--masters-dir":
-                    if (Value(ref i, "a folder") is not { } m) return 2;
+                    if (Value(ref i, "a folder") is not { } m) return BadArgs();
                     o.MastersDirs.Add(m); break;
                 case "--master-archive":
-                    if (Value(ref i, "the path of a .ba2") is not { } ma) return 2;
+                    if (Value(ref i, "the path of a .ba2") is not { } ma) return BadArgs();
                     o.MasterArchives.Add(ma); break;
                 case "--dmmdeps":
-                    if (Value(ref i, "the path of dmmdeps-fat.exe") is not { } dm) return 2;
+                    if (Value(ref i, "the path of dmmdeps-fat.exe") is not { } dm) return BadArgs();
                     o.DmmDeps = dm; break;
                 case "--papyrus":
-                    if (Value(ref i, "the path of papyrus.exe (papyrus-tools)") is not { } pa) return 2;
+                    if (Value(ref i, "the path of papyrus.exe (papyrus-tools)") is not { } pa) return BadArgs();
                     o.Papyrus = pa; break;
                 case "--ck-sources":
-                    if (Value(ref i, "the Creation Kit's Tools\\ContentResources.zip") is not { } ck) return 2;
+                    if (Value(ref i, "the Creation Kit's Tools\\ContentResources.zip") is not { } ck) return BadArgs();
                     o.CkSources = ck; break;
                 case "--profile":
-                    if (Value(ref i, "basic, house or creations") is not { } pr) return 2;
+                    if (Value(ref i, "basic, house or creations") is not { } pr) return BadArgs();
                     if (pr is not ("basic" or "house" or "creations"))
                     {
                         Console.Error.WriteLine($"--profile is basic (only problems that break the mod in game fail), house (our packaging rules fail too) or creations (basic plus Bethesda Creations' rules for PC, Xbox and PlayStation), not \"{pr}\"");
-                        return 2;
+                        return BadArgs();
                     }
                     o.Profile = pr; break;
                 case "--creations-master":
-                    if (Value(ref i, "a plugin's file name, for example OtherMod.esm") is not { } cm) return 2;
+                    if (Value(ref i, "a plugin's file name, for example OtherMod.esm") is not { } cm) return BadArgs();
                     o.CreationsMasters.Add(cm); break;
                 case "--log":
-                    if (Value(ref i, "a file name") is not { } lf) return 2;
+                    if (Value(ref i, "a file name") is not { } lf) return BadArgs();
                     logFile = lf; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
@@ -165,12 +173,12 @@ public static class ReleaseCommand
                     {
                         Console.Error.WriteLine($"unknown option {a[i]}");
                         Console.Error.WriteLine(Usage);
-                        return 2;
+                        return BadArgs();
                     }
                     if (a[i].Trim().Length == 0)
                     {
                         Console.Error.WriteLine("a zip name is empty: give the path of the mod's release zip, for example: sf-mod-check release MyMod-1.0.0.zip");
-                        return 2;
+                        return BadArgs();
                     }
                     o.Zips.Add(a[i]);
                     break;
@@ -180,7 +188,7 @@ public static class ReleaseCommand
         {
             Console.Error.WriteLine(Usage);
             Console.Error.WriteLine("To check a mod before you upload it, run: sf-mod-check release MyMod-1.0.0.zip");
-            return 2;
+            return BadArgs();
         }
         if (!quiet) Console.Error.WriteLine(byline);
         if (verbose) Log.ToStderr();

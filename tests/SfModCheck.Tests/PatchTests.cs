@@ -518,7 +518,7 @@ public class PatchTests
         Assert.Null(PatchCommand.WhyNotBuilt(typeof(IQuestGetter)));
     }
 
-    // Relay step 1 (2026-11-20): on Zacha-Test the patch merged the navmesh info map from 22 plugins and the result
+    // Relay step 1 (2026-11-20): on a large load order the patch merged the navmesh info map from 22 plugins and the result
     // held fewer navmeshes than Starfield.esm's own copy. NAVI is never built.
     [Fact]
     public void The_navmesh_info_map_is_not_built()

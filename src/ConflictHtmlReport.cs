@@ -1,4 +1,4 @@
-// Moved from StarfieldConflictCheck (HtmlReport.cs, commit d336108) into sfmodcheck on 2026-11-16.
+// Moved from an older private tool (HtmlReport.cs) into sfmodcheck on 2026-11-16.
 // Writes report.html: the same content as report.md in a single self-contained page that is easier to read.
 using System.Text;
 using static System.Net.WebUtility;

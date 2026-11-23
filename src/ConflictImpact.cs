@@ -1,4 +1,4 @@
-// Moved from StarfieldConflictCheck (Impact.cs, commit d336108) into sfmodcheck on 2026-11-16.
+// Moved from an older private tool (Impact.cs) into sfmodcheck on 2026-11-16.
 // Plain-English impact statements: what a lost change means in game, with the exact differences spelled out.
 using System.Collections;
 using System.Reflection;

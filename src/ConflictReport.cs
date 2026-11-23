@@ -1,4 +1,4 @@
-// Moved from StarfieldConflictCheck (Report.cs, commit d336108) into sfmodcheck on 2026-11-16.
+// Moved from an older private tool (Report.cs) into sfmodcheck on 2026-11-16.
 // Writes report.md (for reading) and conflicts.json (for the next steps: load-order advice and patch rules).
 using System.Text;
 using System.Text.Json;

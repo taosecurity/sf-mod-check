@@ -51,7 +51,7 @@ public static class Overrides
                 if (child.FormKey != cell.FormKey) parentCell.TryAdd(child.FormKey, cell.FormKey);
         // Every master's version of a cell, the winning one first. Cells themselves are looked up here too, not with
         // TryResolve: Mutagen keeps a separate cell index for each of the two calls, about 2 GB each for Starfield.esm,
-        // so a mod that overrides cells and their children needed both (NAPGR 0.1.6: 4.35 GB peak; 0.10.0 relay step 13).
+        // so a mod that overrides cells and their children needed both (a test mod: 4.35 GB peak; 0.10.0 relay step 13).
         var cellVersions = new Dictionary<FormKey, List<ICellGetter>>();
         List<ICellGetter> CellVersions(FormKey cellKey)
         {
@@ -90,7 +90,7 @@ public static class Overrides
                     orig = InCells(ck, rec.FormKey);
                     // The cell came back with no master version at all although the plugin's cell overrides one: the
                     // lookup failed, so this record couldn't be compared (a WARNING, not a silent "different"). With
-                    // the .NET heap capped at 1 GB, ResolveAll on NAPGR 0.1.6's cells came back empty for 269 children
+                    // the .NET heap capped at 1 GB, ResolveAll on a test mod's cells came back empty for 269 children
                     // (found in the 0.8.0 triage work, 2026-11-19). A direct TryResolve isn't tried: it makes Mutagen index
                     // every placed reference in Starfield.esm (see above), and under that cap it came back empty too.
                     // A child missing from a cell that was found (moved or injected) stays "not identical", as before.

@@ -1,4 +1,4 @@
-// Moved from StarfieldConflictCheck (Analyzer.cs, commit d336108) into sfmodcheck on 2026-11-16.
+// Moved from an older private tool (Analyzer.cs) into sfmodcheck on 2026-11-16.
 // For every record a mod overrides, works out what each plugin meant to change and which of those changes the winner loses.
 //
 // A plugin's intended changes = fields that differ from the version it was built on, which is the latest earlier
@@ -60,7 +60,7 @@ public class Analysis
     public bool AssetsChecked;
     public int ArchivesRead, AssetScriptUses, AssetModelUses;
     // Missing path uses not reported because the version the override replaces (in the last of its masters that has
-    // the record) names the same path: inherited, often from Bethesda's own records (SWG hand-check 2026-11-18).
+    // the record) names the same path: inherited, often from Bethesda's own records (a hand check of a large load order, 2026-11-18).
     public int AssetsInherited;
     // Why the assets step (or the archive count) stopped part way, else null (code review 2026-11-18: a folder that
     // can't be listed no longer costs the whole report). Also in Errors.
@@ -160,7 +160,7 @@ public static class Analyzer
     /// compared, and the fields they changed on purpose are listed in Analysis.Changes. Null: every mod's overrides, as
     /// before, and no Changes.</param>
     /// <param name="onlyRecords">triage: when given, of those overrides only these records are compared (triage reads
-    /// records that live in cells and worldspaces raw instead: their Mutagen reads kept gigabytes, NAPGR 0.1.6).</param>
+    /// records that live in cells and worldspaces raw instead: their Mutagen reads kept gigabytes on a test mod).</param>
     /// <param name="officialTypes">patch --include-official (0.10.0): when given, a change one official plugin loses to
     /// another is kept too (normally "Bethesda vs Bethesda is not our business"), and records that only official plugins
     /// override are compared as well, for the record types this accepts (the ones patch can build). Ignored with `only`.

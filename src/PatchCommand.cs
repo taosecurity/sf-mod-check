@@ -151,7 +151,7 @@ public static class PatchCommand
     public static string? WhyNotBuilt(Type getter)
     {
         // The navmesh info map (NAVI): each plugin's copy lists only the navmeshes that plugin adds or changes (on
-        // Zacha-Test, 2026-11-20: Starfield.esm 56,631 entries, sfta03.esm 515, POIR-Test.esm 16), so it is not a record
+        // a large load order, 2026-11-20: Starfield.esm 56,631 entries, sfta03.esm 515, a mod 16), so it is not a record
         // one plugin wins whole. A merged copy built here came out with fewer navmeshes than Starfield.esm's own.
         if (typeof(INavigationMeshInfoMapGetter).IsAssignableFrom(getter))
             return "the navmesh info map isn't patched: each plugin's copy lists only its own navmeshes, so a merged copy would hide entries; " +

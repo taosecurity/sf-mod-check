@@ -128,7 +128,7 @@ public class BlueprintOrderTests
         Assert.Equal("BlueprintShips-Starfield.esm (base game ship blueprints) loads after every mod, so no load order or patch brings this change back; " +
                      "the edit ModA.esm makes to these 2 ships doesn't reach the game.",
             Recommend.BlueprintAdvice("BlueprintShips-Starfield.esm", "ModA.esm", 2));
-        // Step 4b (SWG's StarStationPolvo row): both plugins changed the field, but nothing can be chosen, so it is
+        // Step 4b (a large load order's StarStationPolvo row): both plugins changed the field, but nothing can be chosen, so it is
         // "Lost" with nothing to do, never a "choice".
         Assert.Contains("there is nothing to do.", report);
         Assert.DoesNotContain("so it is a choice", report);
