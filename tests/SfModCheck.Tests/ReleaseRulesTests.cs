@@ -476,6 +476,21 @@ public class ReleaseRulesTests
     }
 
     [Fact]
+    public void Installed_old_copy_of_the_mod_does_not_change_the_rename_advice()
+    {
+        // review round 5: the plugin is in the zip, so an older install's "MyMod - Main.ba2" outside the zips is
+        // replaced by this release and doesn't count as taken
+        using var s = new Sandbox();
+        var masters = s.Sub("masters");
+        File.WriteAllBytes(Path.Combine(masters, "MyMod.esm"), Plugin());
+        File.WriteAllBytes(Path.Combine(masters, "MyMod - Main.ba2"), MainBa2());
+        var o = new ReleaseOptions();
+        o.MastersDirs.Add(masters);
+        var f = One(Rules(s, o, MakeZip(s, "MyMod-0.2.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Sounds.ba2", MainBa2()))), "archive-name");
+        Assert.Contains("rename it, for example to MyMod - Main.ba2", f.Text);
+    }
+
+    [Fact]
     public void Patch_archive_with_an_unloaded_part_is_told_the_patch_name_not_the_base_name()
     {
         // code review round 4 (2026-11-23): with Foo.esm and "Foo - Patch.esm" both there and neither part loading,

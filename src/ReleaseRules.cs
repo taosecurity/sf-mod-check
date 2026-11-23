@@ -246,13 +246,13 @@ public static class ReleaseRules
             var owner = owners.FirstOrDefault(s => LoadedPart.IsMatch(stem[(s.Length + 3)..])) ?? owners.FirstOrDefault();
             if (owner != null)
             {
-                CheckPart(a, dir, owner, stem[(owner.Length + 3)..], $"{owner} (a plugin in the zips)");
+                CheckPart(a, dir, owner, stem[(owner.Length + 3)..], $"{owner} (a plugin in the zips)", inZips: true);
                 continue;
             }
             if (dir.Length == 0 && OutsideOwner(c, stem) is { } outside)
             {
                 var plugin = Path.GetFileNameWithoutExtension(outside).ToLowerInvariant();
-                CheckPart(a, dir, plugin, stem[(plugin.Length + 3)..], outside);
+                CheckPart(a, dir, plugin, stem[(plugin.Length + 3)..], outside, inZips: false);
                 continue;
             }
             var listedBy = inis.FirstOrDefault(t => t.Text.Contains(file, StringComparison.OrdinalIgnoreCase)).Rel;
@@ -297,13 +297,13 @@ public static class ReleaseRules
         return o;
 
         // the part after "<plugin> - ": the game's loader tries only Main and Textures, each also numbered 01 to 99
-        void CheckPart(string a, string dir, string plugin, string part, string loadsWith)
+        void CheckPart(string a, string dir, string plugin, string part, string loadsWith, bool inZips)
         {
             var m = LoadedPart.Match(part);
             if (!m.Success)
             {
                 Log.Write($"archive-name: {rel(a)}: part \"{part}\" isn't Main, Textures or Voices_<language>: WARNING");
-                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99) or a voice archive such as Voices_en, so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {FreeMainName(c, dir, Path.GetFileName(a)[..plugin.Length], part.EndsWith("_xbox", StringComparison.Ordinal) ? Path.GetFileNameWithoutExtension(a)[^5..] : "", suggested)}."));
+                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99) or a voice archive such as Voices_en, so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {FreeMainName(c, dir, Path.GetFileName(a)[..plugin.Length], part.EndsWith("_xbox", StringComparison.Ordinal) ? Path.GetFileNameWithoutExtension(a)[^5..] : "", suggested, inZips)}."));
                 return;
             }
             Log.Write($"archive-name: {rel(a)} loads with {loadsWith}");
@@ -326,11 +326,12 @@ public static class ReleaseRules
 
     /// <summary>A rename the part check can suggest that takes no archive already there (0.15.1 review round 2):
     /// "&lt;plugin&gt; - Main.ba2" when it is free, else the first free "&lt;plugin&gt; - MainNN.ba2". Taken names are the
-    /// archives beside it in the zips and, at the top level, the files in the Data folder and the --masters-dir folders,
-    /// so the advice never overwrites the mod's own Main archive or the patched mod's. An Xbox archive keeps its "_xbox"
+    /// archives beside it in the zips and, at the top level for a plugin outside the zips, the files in the Data folder
+    /// and the --masters-dir folders, so the advice never overwrites the mod's own Main archive or the patched mod's. For
+    /// a plugin in the zips, those folders hold at most an older install that this release replaces (review round 5). An Xbox archive keeps its "_xbox"
     /// suffix (in its own spelling), and a name already suggested for another archive of the zip counts as taken
     /// (review round 3).</summary>
-    static string FreeMainName(ReleaseContext c, string dir, string plugin, string xbox, HashSet<string> suggested)
+    static string FreeMainName(ReleaseContext c, string dir, string plugin, string xbox, HashSet<string> suggested, bool inZips)
     {
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in suggested) if (DirOf(s) == dir) taken.Add(s[(dir.Length == 0 ? 0 : dir.Length + 1)..]);
@@ -340,7 +341,7 @@ public static class ReleaseRules
                 var n = InData(Ba2Names.Normalize(Path.GetRelativePath(q.Root, a)));
                 if (DirOf(n) == dir) taken.Add(Path.GetFileName(a));
             }
-        if (dir.Length == 0)
+        if (dir.Length == 0 && !inZips)
             foreach (var d in new[] { c.DataDir }.Concat(c.Options.MastersDirs).Where(Directory.Exists))
                 foreach (var f in Directory.EnumerateFiles(d, "*.ba2")) taken.Add(Path.GetFileName(f));
         var main = $"{plugin} - Main{xbox}.ba2";
@@ -362,15 +363,15 @@ public static class ReleaseRules
             foreach (var f in Directory.EnumerateFiles(d))
                 if (Path.GetExtension(f).ToLowerInvariant() is ".esm" or ".esp" or ".esl")
                     names.TryAdd(Path.GetFileName(f), Path.GetFileName(f));
-        string? first = null;   // 0.15.1: prefer the plugin whose part the game loads (see ArchiveNames)
+        string? longest = null;   // 0.15.1: prefer the plugin whose part the game loads (see ArchiveNames)
         for (int i = stem.IndexOf(" - ", StringComparison.Ordinal); i > 0; i = stem.IndexOf(" - ", i + 1, StringComparison.Ordinal))
             foreach (var ext in new[] { ".esm", ".esp", ".esl" })
                 if (names.TryGetValue(stem[..i] + ext, out var real))
                 {
                     if (LoadedPart.IsMatch(stem[(i + 3)..])) return real;
-                    first = real;   // later matches are longer names
+                    longest = real;   // later matches are longer names
                 }
-        return first;
+        return longest;
     }
 
     static string SafeRead(string path)
