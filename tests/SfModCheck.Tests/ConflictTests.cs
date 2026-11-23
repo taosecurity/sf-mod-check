@@ -1034,7 +1034,7 @@ public partial class ConflictTests
             Assert.Contains("1 missing script; those records' scripts never run", page);
             Assert.Contains("never runs; a missing model shows as an empty or error", page);   // the assets hint
         }
-        Assert.Contains("| Missing scripts and models | 1 (1 script, 0 models) |", md);
+        Assert.Contains("| Missing assets | 1 (1 script, 0 models) |", md);
         Assert.Contains("**Medium** — ModS.esm: 1 missing script", md);
         Assert.Contains("<a href=\"#assets\">ModS.esm</a>", html);
 
@@ -1050,7 +1050,7 @@ public partial class ConflictTests
         Assert.DoesNotContain("missing asset", ExeTests.ResultLine(stdout));
         Assert.Equal(0, json.GetProperty("missingAssets").GetArrayLength());
         md = File.ReadAllText(Path.Combine(game.Dir, "report", "report.md"));
-        Assert.Contains("| Missing scripts and models | 0 |", md);
+        Assert.Contains("| Missing assets | 0 |", md);
         Assert.Contains("## Missing assets", md);
         Assert.DoesNotContain("SfmTest:InConflict", md);
         Assert.DoesNotContain("ModS.esm: 1 missing", md);
@@ -1078,7 +1078,7 @@ public partial class ConflictTests
             Assert.Contains("Scripts, models and other assets are not checked (--no-assets)", page);
             Assert.DoesNotContain("SfmTest:Loose", page);
         }
-        Assert.Contains("| Missing scripts and models | not checked (--no-assets) |", md);
+        Assert.Contains("| Missing assets | not checked (--no-assets) |", md);
         Assert.Contains("Nothing needs doing.", md);
         Directory.CreateDirectory(Path.Combine(game.Data, "Scripts", "SfmTest"));
         File.WriteAllBytes(Path.Combine(game.Data, "Scripts", "SfmTest", "Loose.pex"), new byte[4]);

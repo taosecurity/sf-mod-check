@@ -631,4 +631,53 @@ public class AssetFilesTests
         Expect.Finding(r, "WARNING", "assets", @"material materials\sfmtest\missing.mat is in no loose file or loaded archive; used by SFM_Txst");
         Assert.DoesNotContain(r.Findings, f => f.Text.Contains("rock01"));
     }
+
+    [Fact]
+    public void A_material_database_added_after_the_first_lookup_is_read_too()
+    {
+        // code review 0.14.0: release adds each plugin's Data masters' databases as it goes, after the first lookup
+        using var s = new Sandbox();
+        var index = Index(s);
+        Assert.Null(index.InCdb(@"materials\late\one.mat"));
+        Assert.NotNull(index.CdbProblem);
+        var late = Path.Combine(s.Dir, "late.cdb");
+        File.WriteAllBytes(late, Cdb(@"materials\late\one.mat"));
+        index.AddCdb(late, null);
+        Assert.True(index.InCdb(@"materials\late\one.mat"));
+        Assert.Null(index.CdbProblem);
+        Assert.False(index.InCdb(@"materials\late\nosuch.mat"));
+    }
+
+    [Fact]
+    public void A_material_many_records_name_is_read_once()
+    {
+        // code review 0.14.0: it was opened, and counted as read, once per record
+        var (mod, _, s) = FaceMod("MatOnce.esm", m =>
+        {
+            for (int i = 0; i < 3; i++) m.TextureSets.Add(new TextureSet(m) { EditorID = $"SFM_Txst{i}", Material = "SfmTest\\Shared.mat" });
+        });
+        using (s)
+        {
+            Put(Path.Combine(s.Dir, "Materials", "SfmTest", "Shared.mat"), Mat("Data\\Materials\\SfmTest\\Shared.mat", [], "Data\\Textures\\SfmTest\\gone.dds"));
+            var uses = new AssetUses();
+            var (_, _, missing, _) = Assets.Find(mod, Index(s), Checker.Name, _ => null, uses);
+            Assert.Equal(1, uses.FilesRead);
+            var gone = Assert.Single(missing);
+            Assert.Equal("texture", gone.Kind);
+            Assert.Equal(@"textures\sfmtest\gone.dds", gone.Path);
+        }
+    }
+
+    [Fact]
+    public void Conflict_actions_name_each_missing_kind_and_its_effect()
+    {
+        var a = new Conflict.Analysis { AssetsChecked = true };
+        a.MissingAssets.Add(new Conflict.AssetFinding("x.esm", new MissingAsset("WARNING", "texture", @"textures\a.dds", null, ["A"])));
+        a.MissingAssets.Add(new Conflict.AssetFinding("x.esm", new MissingAsset("WARNING", "material", @"materials\a.mat", null, ["A"])));
+        a.MissingAssets.Add(new Conflict.AssetFinding("x.esm", new MissingAsset("WARNING", "sound", @"sound\soundbanks\1.wem", null, ["B"])));
+        var act = Assert.Single(Conflict.Report.AssetActions(a));
+        Assert.Equal(3, act.Priority);
+        Assert.StartsWith("1 missing material, 1 missing texture and 1 missing sound; those surfaces look wrong and those sounds are silent.", act.Text);
+        Assert.DoesNotContain("model", act.Text);
+    }
 }

@@ -117,7 +117,7 @@ public static class ReleaseNeeds
                 int shown = 0;
                 foreach (var m in missing)
                 {
-                    if (m.Kind != "face" && external.Has(m.Path)) continue;   // a face was already looked up file by file, with the fallback (0.14.0)
+                    // the game's and --masters-dir archives were already looked in, through index.Fallback (0.14.0)
                     shown++;
                     if (m.Kind == "script")
                     {
@@ -162,7 +162,6 @@ public static class ReleaseNeeds
                 }
                 Log.Write($"needs: {name}: {scriptUses} script uses, {modelUses} model uses, {uses.Textures} texture paths, {uses.Materials} material paths, {uses.Sounds} streamed sounds, {uses.Faces} NPC faces " +
                           $"({uses.FilesRead} of its own .nif, .mat and .bnk files read), {shown} missing" +
-                          (missing.Count > shown ? $", {missing.Count - shown} found in the game's or a --masters-dir mod's archives" : "") +
                           (inherited > 0 ? $", {inherited} inherited from the record it overrides (not reported)" : ""));
             }
             catch (Exception e) when (Fatal.Recoverable(e))

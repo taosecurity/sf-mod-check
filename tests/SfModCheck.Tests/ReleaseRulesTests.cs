@@ -401,6 +401,18 @@ public class ReleaseRulesTests
     }
 
     [Fact]
+    public void Files_the_game_never_loads_get_no_file_name_warning()
+    {
+        // code review 0.14.0: a README beside the plugin and the fomod folder aren't game files; a plugin with an
+        // accent beside them still counts
+        using var s = new Sandbox();
+        var f = Rules(s, MakeZip(s, "Docs-0.1.0.zip", ("MyMod.esm", Plugin()), ("Lisez-moi é.txt", X), ("fomod/images/ü.png", X),
+            ("Mödl.esp", Plugin()))).Where(x => x.Rule == "file-name").ToList();
+        var one = Assert.Single(f);
+        Assert.Contains("mödl.esp", one.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Loose_path_over_200_characters_is_a_warning_and_200_is_quiet()
     {
         using var s = new Sandbox();

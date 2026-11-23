@@ -203,6 +203,8 @@ public sealed class AssetIndex
     readonly HashSet<string> cdbKeys = new(StringComparer.OrdinalIgnoreCase);
     HashSet<ulong>? cdbIds;
     bool cdbTried;
+    int cdbsRead, failedLogged;   // how many of cdbs were read, and how many failures were logged
+    readonly List<string> cdbFailed = new();
 
     /// <summary>release (0.14.0): names found outside the index (the game's and --masters-dir archives) count as found.</summary>
     public Func<string, bool>? Fallback { get; set; }
@@ -218,15 +220,18 @@ public sealed class AssetIndex
     public string? CdbProblem { get; private set; }
 
     /// <summary>Whether a loaded material database holds this material (by its resource ID); null when no database is
-    /// in a loaded archive or loose, or none could be read (CdbProblem says why). All are read once, on first use, and
-    /// their IDs joined.</summary>
+    /// in a loaded archive or loose, or none could be read (CdbProblem says why). Each is read once, on first use, and
+    /// their IDs joined; one added after that (release adds each plugin's Data masters' databases as it goes) is read
+    /// at the next lookup (code review 0.14.0).</summary>
     public bool? InCdb(string materialPath)
     {
-        if (!cdbTried)
+        if (!cdbTried || cdbsRead < cdbs.Count)
         {
             cdbTried = true;
-            var failed = new List<string>();
-            foreach (var (file, entry) in cdbs)
+            var failed = cdbFailed;
+            var fresh = cdbs.Skip(cdbsRead).ToList();
+            cdbsRead = cdbs.Count;
+            foreach (var (file, entry) in fresh)
             {
                 var label = entry == null ? file : $"{entry} in {Path.GetFileName(file)}";
                 try
@@ -245,7 +250,9 @@ public sealed class AssetIndex
                 }
                 catch (Exception e) when (Fatal.Recoverable(e)) { failed.Add($"{label} ({e.GetType().Name}: {SafeText.OneLine(e.Message)})"); }
             }
-            foreach (var f in failed) Log.Write($"assets: material database {f} could not be read");
+            foreach (var f in failed.Skip(failedLogged)) Log.Write($"assets: material database {f} could not be read");
+            failedLogged = failed.Count;
+            CdbProblem = null;
             if (cdbIds != null) Log.Write($"assets: {cdbs.Count - failed.Count} material database(s) read, {cdbIds.Count:N0} material IDs in all");
             else CdbProblem = cdbs.Count == 0
                 ? $"no material database (.cdb, such as the game's {AssetFiles.CdbPath}) is in a loaded archive or loose"
@@ -753,6 +760,7 @@ public static class Assets
             catch (Exception e) when (Fatal.Recoverable(e)) { uses.Notes.Add(Unread(nif, e)); }
         }
         var seen = new HashSet<(string, string)>();
+        var matFiles = new Dictionary<string, bool>(StringComparer.Ordinal);   // material -> a file that was opened
         for (int i = 0; i < wanted.Count; i++)
         {
             var (kind, path, user, rec) = wanted[i];
@@ -762,11 +770,13 @@ public static class Assets
             }
             bool found;
             string how;
-            if (kind == "material" && Open(path, out var where) is { } mat)
+            // each material file is opened and read once, however many records or files name it (code review 0.14.0)
+            var isFile = false;
+            if (kind == "material" && !matFiles.TryGetValue(path, out isFile))
             {
-                found = true; how = "a file of the plugin's own, read";
-                if (seen.Add(("read", path)))
+                if (Open(path, out var where) is { } mat)
                 {
+                    isFile = true;
                     try
                     {
                         var (tex, parents) = AssetFiles.MatLinks(mat);
@@ -776,7 +786,9 @@ public static class Assets
                     }
                     catch (Exception e) when (Fatal.Recoverable(e) || e is JsonException) { uses.Notes.Add(Unread(path, e)); }
                 }
+                matFiles[path] = isFile;
             }
+            if (isFile) { found = true; how = "a file of the plugin's own, read"; }
             else if (index.Has(path)) { found = true; how = "found by name"; }
             else if (kind == "material" && index.InCdb(path) is { } inCdb) { found = inCdb; how = inCdb ? "in a loaded material database" : "not a file and not in any loaded material database"; }
             else if (kind == "material") { found = true; how = "not a file; the material database couldn't be checked"; if (seen.Add(("unverified", path))) uses.Unverified.Add(path); }

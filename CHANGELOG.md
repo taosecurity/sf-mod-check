@@ -23,7 +23,7 @@
 - `check` and `conflict` don't look for face data.
 - `release` has a new rule, `archive-name` (PROBLEM). A `.ba2` that isn't named `<plugin> - <part>.ba2` beside a plugin in the zips, the Data folder or a `--masters-dir` folder never loads. The Xbox twin `<plugin> - <part>_xbox.ba2` passes.
 - It is a WARNING instead in a zip that holds no plugin, or when an INI in the zip lists the archive.
-- `release` has a new rule, `file-name` (WARNING): a file or a name inside an archive with a non-ASCII character, or a loose path inside Data over 200 characters (Windows' 260-character limit under Steam's usual Data folder). Up to 5 are named per zip, then one line counts the rest.
+- `release` has a new rule, `file-name` (WARNING): a file or a name inside an archive with a non-ASCII character, or a loose path inside Data over 200 characters (Windows' 260-character limit under Steam's usual Data folder). The `fomod` folder and documents beside the plugin are skipped. Up to 5 are named per zip, then one line counts the rest.
 - `conflict`: the RESULT line and the report's summary add textures, materials and sounds to the missing-asset count when there are some. conflicts.json lists these in a new top-level key, `missingFiles` (the same item keys as `missingAssets`; `kind` is `material`, `texture` or `sound`). `missingAssets` keeps only scripts and models, so tools that read it, such as sf-load-order 0.1.3, count as before.
 
 ### Changed

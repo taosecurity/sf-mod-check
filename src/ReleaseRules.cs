@@ -283,12 +283,18 @@ public static class ReleaseRules
     /// character outside ASCII, which archive tools and the game's lower-casing don't handle safely; and a loose path
     /// over MaxLoosePath characters, which goes past Windows' 260-character limit once installed. Up to MaxNamed files
     /// are named, then one line counts the rest.</summary>
+    static readonly HashSet<string> GameRootExts = new(StringComparer.OrdinalIgnoreCase) { ".esm", ".esp", ".esl", ".ba2", ".ini" };
+
     static IEnumerable<ReleaseFinding> FileNames(ReleasePackage p, Func<string, string> show)
     {
         var hits = new List<string>();
         foreach (var f in p.Files)
         {
             var d = InData(f);
+            // files the game never loads: the installer's fomod folder, and documents beside the plugin (a README, an
+            // image) rather than in a game folder (code review 0.14.0)
+            if (d.StartsWith("fomod\\", StringComparison.Ordinal) ||
+                !d.Contains('\\') && !GameRootExts.Contains(Path.GetExtension(d))) continue;
             if (d.Any(ch => ch > 0x7E))
             {
                 Log.Write($"file-name: {show(f)}: non-ASCII character");

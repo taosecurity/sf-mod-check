@@ -33,7 +33,7 @@ public static class Report
         md.AppendLine($"| Overrides that change nothing (ITM) | {a.Itms.Count} |");
         md.AppendLine($"| Load-order problems | {lo.Problems.Count} |");
         md.AppendLine($"| Overrides that change a record's type | {a.TypeChanges.Count} |");
-        md.AppendLine($"| Missing scripts and models | {AssetsCount(a)} |");
+        md.AppendLine($"| Missing assets | {AssetsCount(a)} |");
         if (a.ArchivesCounted) md.AppendLine($"| Archives loaded (general / texture; {AssetIndex.ArchiveSlots} slots each) | {ArchiveCountText(a)} |");
         md.AppendLine();
         md.AppendLine("How to read the tables: **Forwardable** means the winning plugin did not mean to change that field; it just carries an older value, so a patch can copy the lost value forward safely. **Choice** means both plugins changed the same field, so someone has to pick. **No effect** means the versions differ only in list order, letter case or undocumented fields. **Lost** means an official BlueprintShips file wins: the game loads it after every mod, so no load order or patch brings the change back, and there is nothing to choose.");
@@ -370,6 +370,10 @@ public static class Report
     /// 256 slots (High, Winner "Archive limit"). Winner holds the plugin or archive name.</summary>
     public static bool IsArchiveLimit(Recommendation r) => r.Winner == "Archive limit" && r.Loser.Length == 0;
 
+    /// <summary>"a", "a and b", "a, b and c".</summary>
+    static string Join(List<string> items) =>
+        items.Count <= 1 ? string.Join("", items) : string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1];
+
     public static List<Recommendation> AssetActions(Analysis a)
     {
         var list = new List<Recommendation>();
@@ -377,13 +381,23 @@ public static class Report
             list.Add(new Recommendation(1, "Archive limit", "", w));
         foreach (var g in AssetsByPlugin(a))
         {
-            var s = g.Count(f => f.Kind == "script");
-            var m = g.Count() - s;
+            // each kind counted and its effect named (code review 0.14.0: textures, materials and sounds aren't models)
             var parts = new List<string>();
-            if (s > 0) parts.Add($"{s} missing script{(s == 1 ? "" : "s")}");
-            if (m > 0) parts.Add($"{m} missing model{(m == 1 ? "" : "s")}");
+            var effects = new List<string>();
+            foreach (var (kind, effect) in new[]
+                     {
+                         ("script", "those records' scripts never run"), ("model", "those records show an empty or error mesh"),
+                         ("material", "those surfaces look wrong"), ("texture", "those surfaces look wrong"), ("sound", "those sounds are silent"),
+                     })
+            {
+                var n = g.Count(f => f.Kind == kind);
+                if (n == 0) continue;
+                parts.Add($"{n} missing {kind}{(n == 1 ? "" : "s")}");
+                if (!effects.Contains(effect)) effects.Add(effect);
+            }
+            var s = g.Count(f => f.Kind == "script");
             list.Add(new Recommendation(s > 0 ? 2 : 3, g.Key, "",
-                $"{string.Join(" and ", parts)}; {(s > 0 ? "those records' scripts never run" : "those records show an empty or error mesh")}. Reinstall the mod or ask its author for the missing files"));
+                $"{Join(parts)}; {Join(effects)}. Reinstall the mod or ask its author for the missing files"));
         }
         foreach (var (archive, _) in a.UnreadableArchives)
             list.Add(new Recommendation(2, archive, "", "this archive can't be read, so its files count as missing. Check the file (reinstall the mod that brings it)"));
