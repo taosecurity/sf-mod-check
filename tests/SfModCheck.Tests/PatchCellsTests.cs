@@ -673,7 +673,73 @@ public class PatchCellsTests
         var cells3 = new List<PatchCommand.PatchRecord> { Rec(cell, "Cell", true) };
         plan3.Records.AddRange(cells3);
         plan3.Records.Add(Rec(obj, "PlacedObject", false));
-        Assert.Throws<KeyNotFoundException>(() => PatchCommand.DropCellsOfLostWorld(plan3, w, cells3));
+        // round 5: with a message that names the record and says it is a bug to report (not a bare KeyNotFoundException)
+        var e = Assert.Throws<InvalidOperationException>(() => PatchCommand.DropCellsOfLostWorld(plan3, w, cells3));
+        Assert.Contains($"PlacedObject [{obj.FormKey}] has no planned place in a cell", e.Message);
+        Assert.Contains("a bug in sf-mod-check: please report it with the --log file", e.Message);
+    }
+
+    // code review 0.13.0, round 5: a field pick on a mesh field ranks above a whole-record pick that took a later mesh
+    // field, as it does for every other field. Before the fix the whole-record pick (on NNAM) decided ModC's mesh and the
+    // explicit geometry pick was warned as unused; the whole-record pick's warning now names the mesh field it lost
+    [Fact]
+    public void A_field_mesh_pick_beats_a_whole_record_pick_on_a_later_mesh_field()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 5); n.NNAM = Nnam(7); });
+        game.Mod("ModC.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 4); n.NNAM = Nnam(8); });
+        game.Mod("ModB.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 6); n.NNAM = Nnam(9); });
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModC.esm", "ModB.esm"],
+            $"{game.Navmesh}=ModC.esm", $"{game.Navmesh}:NavmeshGeometry=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("NavmeshGeometry=ModA.esm was not used", stderr);
+        Assert.Contains($"WARNING: --pick {game.Navmesh}=ModC.esm was not used for the navmesh's NNAM: a navmesh's mesh comes whole from one plugin, " +
+                        "and the --pick on NavmeshGeometry (ModA.esm) decides it", stderr);
+        var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
+        Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);   // ModA's whole mesh
+        Assert.Equal(new byte[] { 7, 0, 0, 0 }, n.NNAM!.Value.ToArray());
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("the --pick on NNAM (ModC.esm) gives way", report);
+        Assert.DoesNotContain("- NNAM from ModC.esm", report);
+        CheckIsClean(game);
+    }
+
+    // code review 0.13.0, round 5: the winner ModB only carried ModA's NNAM forward, so a geometry pick's row names ModA,
+    // the plugin that made the NNAM change, not ModB (before the fix it said "ModB.esm's change to NNAM")
+    [Fact]
+    public void A_mesh_pick_row_names_the_plugin_that_made_the_dropped_change()
+    {
+        using var game = new Game();
+        game.Mod("ModC.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 4));
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(7));
+        game.Mod("ModB.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 6); n.NNAM = Nnam(7); });
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModC.esm", "ModA.esm", "ModB.esm"], $"{game.Navmesh}:NavmeshGeometry=ModC.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
+        Assert.Equal(4f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
+        Assert.Null(n.NNAM);   // ModC's whole mesh: Base's NNAM (none)
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("the mesh comes whole from ModC.esm, so ModA.esm's change to NNAM is dropped", report);
+        Assert.DoesNotContain("ModB.esm's change", report);
+        CheckIsClean(game);
+    }
+
+    // code review 0.13.0, round 5: the helpers behind those rows. The change is credited to the version that brought the
+    // value in (0 for the first version's value), and the text names whose change goes part by part
+    [Fact]
+    public void Mesh_pick_rows_credit_each_part_to_its_own_plugin()
+    {
+        object?[] values = ["base", "a", "a", "c", "c"];
+        Assert.Equal(1, PatchCommand.IntroducedAt(i => values[i], 2));
+        Assert.Equal(3, PatchCommand.IntroducedAt(i => values[i], 4));
+        Assert.Equal(0, PatchCommand.IntroducedAt(i => new object?[] { "x", "x", "x" }[i], 2));
+        Assert.Equal(0, PatchCommand.IntroducedAt(i => values[i], 0));
+        Assert.Equal("", PatchCommand.MeshGoneText("ModA.esm", []));
+        Assert.Equal("; the mesh comes whole from ModA.esm, so ModB.esm's change to NNAM is dropped",
+            PatchCommand.MeshGoneText("ModA.esm", [("NNAM", ["ModB.esm"])]));
+        Assert.Equal("; the mesh comes whole from ModA.esm, so ModB.esm's change to NNAM, and ModC.esm and ModD.esm's change to PreCutMapEntries, are dropped",
+            PatchCommand.MeshGoneText("ModA.esm", [("NNAM", ["ModB.esm"]), ("PreCutMapEntries", ["ModC.esm", "ModD.esm"])]));
     }
 
     // code review 0.13.0, round 2: whether a component kind is an identity is worked out once per field over every

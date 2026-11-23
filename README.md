@@ -515,8 +515,10 @@ by entry. When one plugin changed one part and another plugin's copy differs in 
 nobody made: the patch keeps today's mesh and the report lists it under choices. A `--pick` on a mesh field takes
 that plugin's whole mesh. A whole-record `--pick` takes the mesh only when the mesh itself would mix versions;
 otherwise it leaves a forwarded mesh change alone, as it does every other forwarded field. When picks on two mesh
-fields of one navmesh name two plugins, the pick on the later field (geometry, then NNAM, then the pre-cut entries)
-decides the whole mesh, and the other pick gets a "was not used" warning.
+fields of one navmesh name two plugins, a field pick decides over a whole-record pick, and between two of the same
+kind the pick on the later field (geometry, then NNAM, then the pre-cut entries) decides the whole mesh. The other
+pick gets a "was not used" warning (for a whole-record pick, "was not used for the navmesh's <field>", since its
+other fields stay picked). The report names, for each mesh part that gives way, the plugin that made that change.
 
 **What it doesn't build yet:** dialogue topics, dialogue lines and scenes, so the report
 lists them for xEdit instead. A quest's own fields are patched; its dialogue and scenes are not copied into the patch.
