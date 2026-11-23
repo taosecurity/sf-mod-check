@@ -115,6 +115,8 @@ public static class ReleaseNeeds
                         findings.Add(new(Level.Note, "material-missing", $"{name}: {n}."));
                 // DMMDeps doesn't read sound banks, so sound-missing runs with --dmmdeps too (0.14.0)
                 foreach (var n in uses.SoundNotes) findings.Add(new(Level.Note, "sound-missing", $"{name}: {n}."));
+                // each missing file's finding names its plugin and detail, so an --accept entry can name it (0.15.2)
+                void Add(MissingAsset m, ReleaseFinding f) => findings.Add(f with { Plugin = name, Subject = m.Kind == "script" ? m.Script ?? m.Path : m.Path });
                 int shown = 0;
                 foreach (var m in missing)
                 {
@@ -123,7 +125,7 @@ public static class ReleaseNeeds
                     if (m.Kind == "script")
                     {
                         reported.Add(m.Path);
-                        findings.Add(new(Level.Problem, "script-missing",
+                        Add(m, new(Level.Problem, "script-missing",
                             $"{name} attaches script {m.Script}, but {m.Path} is in none of {Zips(c)} loose files or archives, a --masters-dir mod's " +
                             $"archives or the game's archives (used by {Assets.Users(m.Users)}). Put the compiled script in the zip or its archive, " +
                             "or give --masters-dir the folder of the mod it comes from."));
@@ -131,7 +133,7 @@ public static class ReleaseNeeds
                     else if (m.Kind == "sound")
                     {
                         reported.Add(m.Path);
-                        findings.Add(new(Level.Warning, "sound-missing",
+                        Add(m, new(Level.Warning, "sound-missing",
                             $"{name}: the sound bank {Assets.Users(m.Users)} streams {m.Path}, which is in none of {Zips(c)} loose files or archives, " +
                             "a --masters-dir mod's archives or the game's archives, so that sound is silent in the game. Put the .wem file in the zip " +
                             "or its archive (under sound\\soundbanks), or generate the bank again in Wwise with its media."));
@@ -140,7 +142,7 @@ public static class ReleaseNeeds
                     {
                         // DMMDeps can't see geometry a .nif names (KnownGaps), so mesh-missing runs with --dmmdeps too (0.15.0)
                         reported.Add(m.Path);
-                        findings.Add(new(Level.Warning, "mesh-missing",
+                        Add(m, new(Level.Warning, "mesh-missing",
                             $"{name}: the model {Assets.Users(m.Users)} names the geometry file {m.Path}, which is in none of {Zips(c)} loose files or archives, " +
                             "a --masters-dir mod's archives or the game's archives, so that part of the model doesn't show in the game. Put the .mesh file in " +
                             "the zip or its archive (under geometries), or export the model again with its geometry."));
@@ -150,20 +152,20 @@ public static class ReleaseNeeds
                         // a NOTE (P3 in the baton: Bethesda's own NPCs aren't always baked); DMMDeps can't see face files
                         // (KnownGaps), so face-missing runs with --dmmdeps too (0.14.0)
                         reported.Add(m.Path);
-                        findings.Add(new(Level.Note, "face-missing", $"{name}: {m.FaceText}. Looked in {Zips(c)} loose files and archives, " +
+                        Add(m, new(Level.Note, "face-missing", $"{name}: {m.FaceText}. Looked in {Zips(c)} loose files and archives, " +
                                                                      "a --masters-dir mod's archives and the game's archives."));
                     }
                     else if (m.Kind == "face-stale")
                     {
                         // 0.15.0: found, but only outside the zips; a NOTE like face-missing, and with --dmmdeps too
                         // (not added to reported: the files were found)
-                        findings.Add(new(Level.Note, "face-missing", $"{name}: {m.StaleFaceText}. Looked in {Zips(c)} loose files and archives."));
+                        Add(m, new(Level.Note, "face-missing", $"{name}: {m.StaleFaceText}. Looked in {Zips(c)} loose files and archives."));
                     }
                     else if (c.Options.DmmDeps != null) { }   // DMMDeps reports models, materials and textures itself
                     else if (m.Kind is "texture" or "material")
                     {
                         reported.Add(m.Path);
-                        findings.Add(new(Level.Warning, m.Kind + "-missing",
+                        Add(m, new(Level.Warning, m.Kind + "-missing",
                             $"{name}: the {m.Kind} {m.Path} is in none of {Zips(c)} loose files or archives, a --masters-dir mod's archives " +
                             (m.Kind == "material" ? "or the game's archives, and isn't in any of their material databases " : "or the game's archives ") +
                             $"(used by {Assets.Users(m.Users)}). Put the file in the zip or its archive, or fix the path in the file that names it."));
@@ -171,7 +173,7 @@ public static class ReleaseNeeds
                     else
                     {
                         reported.Add(m.Path);
-                        findings.Add(new(Level.Warning, "model-missing",
+                        Add(m, new(Level.Warning, "model-missing",
                             $"{name} names the model {m.Path}, which is in none of {Zips(c)} loose files or archives, a --masters-dir mod's archives " +
                             $"or the game's archives (used by {Assets.Users(m.Users)}). Put the file in the zip or its archive, or fix the path."));
                     }

@@ -642,6 +642,7 @@ so the game plays them silent, and everything `check` finds in each plugin.
                                 [--psc <folder>]... [--psc-import <folder>]...
                                 [--profile basic|house|creations] [--creations-master <plugin>]... [--size-total]
                                 [--tested <zip|ba2>]... [--stage <folder>]
+                                [--accept <rule>:<plugin>:<detail>]... [--accept-file <file>]...
                                 [--quiet] [--verbose] [--log <file>]
 
 - `<zip>`: the release zip. Give an add-on's zip together with its main mod's zip, so the add-on's plugin finds
@@ -699,12 +700,28 @@ so the game plays them silent, and everything `check` finds in each plugin.
   Archives, `.achlist` files, DMMDeps output (`*_deps.csv`, `*_deps.json`), plugins and `Scripts\Source` are left
   out, since they never go in an archive. A file in an archive that isn't staged is a REVIEW line (an archive left
   over from an older build?). A release with no archive gets one NOTE that this check was skipped.
+- `--accept <rule>:<plugin>:<detail>` (0.15.2): accept one known finding, for a plugin you ship with a known gap in
+  someone else's work (a script their plugin names that ships nowhere, say):
+  `sf-mod-check release MyPatch-1.0.0.zip --accept script-missing:OtherMod.esm:OtherMod:Toggle`. The rule is one
+  of `script-missing`, `model-missing`, `mesh-missing`, `texture-missing`, `material-missing`, `sound-missing` and
+  `face-missing`; the plugin is the plugin's file name; the detail is the script's name for `script-missing` (a
+  name with a namespace keeps its colon, as above) and the missing file's path for the others (as the finding
+  prints it, either slash). Case doesn't matter. Wildcards (`*`, `?`) aren't allowed. The finding still prints, as
+  an `ACCEPTED` line that names the entry, and no longer counts toward FAIL or the exit code. An entry that matches
+  nothing is a WARNING (rule `accept`), so a stale entry shows. A malformed entry stops the check (exit 2) and says
+  what is wrong with it. Can be given more than once. A finding from DMMDeps (`dmmdeps`) or any other rule can't be
+  accepted.
+- `--accept-file <file>` (0.15.2): the same entries from a text file, one per line. A `#` starts a comment that runs
+  to the end of the line, and blank lines are skipped. An `ACCEPTED` line names the file and the line. Can be given
+  more than once, and mixed with `--accept`.
 - `--quiet`, `--verbose`, `--log <file>`: as for `check`. With `--verbose` the log names each script compared and,
   for a script that differs, the first line of the listing where the two builds differ.
 
 Output is PROBLEM lines (fail), REVIEW lines (look at them), WARNING and NOTE lines, each with its rule in brackets,
-then `RESULT: OK|FAIL (n problems, n to review, n warnings)`, or `RESULT: CANNOT CHECK (...)` when it can't check
-(exit 2). Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments, a zip, input folder, `--tested` file or `--stage`
+then `ACCEPTED` lines (with `--accept`) and `RESULT: OK|FAIL (n problems, n to review, n warnings)` (with
+`, n accepted` added when an entry accepted a finding), or `RESULT: CANNOT CHECK (...)` when it can't check
+(exit 2). Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments such as a malformed `--accept` entry or a missing
+`--accept-file`, a zip, input folder, `--tested` file or `--stage`
 folder that sits inside the game folder, two loose inputs of the same name, a zip that can't be unpacked, a missing file or folder such as a `--psc` folder, or an error that stops the
 check). It never writes into the zip, an input folder, the game folder or the
 Data folder.
@@ -750,6 +767,7 @@ texture, `.mesh` geometry or sound shows the same way, as a WARNING line that na
 | `not-a-zip` | never (NOTE) | 0.15.0: an input that is a folder or the run's loose files, not a zip, so the zip-only rules `one-plugin` and `root-md` were skipped. Run `release` on the zip you upload to check them. |
 | `tested` | basic, house | 0.15.0, with `--tested`: a compiled script that can't be read for the comparison (PROBLEM), or a `--tested` zip or `.ba2` that can't be read (one PROBLEM, and nothing is compared). A script that differs from the tested build, is missing now or is new since the test, a plugin that differs, and a plugin with no namesake in the tested zip are REVIEW lines; a script the same as the tested build and a byte-identical plugin are NOTE lines. |
 | `stage` | basic, house | 0.15.0, with `--stage`: a staged file in none of the release's archives and not loose in the zip (PROBLEM; the game won't see it). A file in an archive that isn't staged is a REVIEW line; a stage that matches is one NOTE. |
+| `accept` | never (WARNING) | 0.15.2: an `--accept` or `--accept-file` entry that matched no finding. Check the rule, the plugin's file name and the detail against the finding, or remove the entry. |
 | `papyrus-lint` | never | Lint findings (WARNING only). A NOTE when a zip or `--psc` folder holds no sources, and when `--psc` or `--psc-import` is given without `--papyrus` and `--ck-sources`. |
 | `creations-ini`, `creations-sfse` | creations | An INI file, or a DLL, EXE, ASI or file in an `SFSE` folder: Creations take none of them on any platform. A mod that needs SFSE stays a PC (Nexus) mod. |
 | `creations-framework` | creations | A compiled script that names a script from an SFSE plugin (ConsoleAPI, PapyrusUtil and others in `data\creations-masters.txt`). Consoles can't run SFSE, so those calls fail. A WARNING instead when the same script calls `Game.IsPluginInstalled`, so it may use the plugin only when it's there; the WARNING names the plugins the script tests, and a guard in another script isn't seen. Since 0.10.1 it stays a PROBLEM when every name the script tests is an official plugin's (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS###` and `sftaNN` plugins and their `BlueprintShips-` files: the `[official]` list in `data\creations-masters.txt`), since such a check doesn't guard the framework; a name held in a variable still counts as a guard. |

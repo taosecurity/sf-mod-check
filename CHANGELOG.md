@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.15.2 (not released yet)
+
+### What's new
+
+- `release` takes `--accept <rule>:<plugin>:<detail>` to accept one known finding, for a mod that ships a plugin with a known gap in someone else's work, such as a script another author's plugin names that ships nowhere: `--accept script-missing:OtherMod.esm:OtherMod:Toggle`.
+- `--accept-file <file>` reads the same entries from a text file, one per line. A `#` starts a comment, and blank lines are skipped.
+- An entry names one rule (`script-missing`, `model-missing`, `mesh-missing`, `texture-missing`, `material-missing`, `sound-missing` or `face-missing`), the plugin's file name, and the script's name or the missing file's path. Case doesn't matter, and wildcards aren't allowed.
+- An accepted finding still prints, as an `ACCEPTED` line that names the entry and where it came from, and it no longer counts toward FAIL or the exit code. The RESULT line adds `, n accepted` when an entry accepted a finding.
+- An entry that matches nothing is a WARNING (rule `accept`), so a stale entry shows. A malformed entry, or an `--accept-file` that can't be read, stops the check (exit 2) and says what is wrong.
+
+### Example
+
+A made-up `MyMod-1.0.0.zip` ships `OtherMod.esm`, whose author's records attach the scripts `OtherMod:Toggle` and `OtherModDoorTest`, and neither script ships anywhere. Without entries the check fails (exit 1) with two `PROBLEM  [script-missing]` lines. `known-gaps.txt` holds:
+
+    # OtherMod.esm by another author names two scripts that ship nowhere
+    script-missing:OtherMod.esm:OtherMod:Toggle
+    script-missing:OtherMod.esm:OtherModDoorTest
+    script-missing:OtherMod.esm:OtherMod:OldName   # left from an older version
+
+    sf-mod-check release MyMod-1.0.0.zip --accept-file known-gaps.txt
+
+What it prints (a real run, with the first line left out):
+
+    sf-mod-check 0.15.2 release (basic profile): MyMod-1.0.0.zip (1 files, 1 plugins, 0 archives)
+    WARNING  [accept] accept entry matched nothing: script-missing:OtherMod.esm:OtherMod:OldName (from known-gaps.txt line 4). Check the rule, the plugin's file name and the detail against the finding, or remove the entry.
+    NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked.
+    NOTE     [plugin-check] OtherMod.esm: OK, 0 errors, 0 warnings (light master, 0 masters, 1 records, 0 overrides (0 ITM), 0 links)
+    NOTE     [mutagen-gap] OtherMod.esm: 1 own records, 0 overrides, 0 compared with their master's copy
+    ACCEPTED [script-missing] OtherMod.esm attaches script OtherMod:Toggle, but scripts\othermod\toggle.pex is in none of MyMod-1.0.0.zip's loose files or archives, a --masters-dir mod's archives or the game's archives (used by RN_Misc [MISC:000800:OtherMod.esm]). Put the compiled script in the zip or its archive, or give --masters-dir the folder of the mod it comes from. (was a PROBLEM; accepted by known-gaps.txt line 2 script-missing:OtherMod.esm:OtherMod:Toggle)
+    ACCEPTED [script-missing] OtherMod.esm attaches script OtherModDoorTest, but scripts\othermoddoortest.pex is in none of MyMod-1.0.0.zip's loose files or archives, a --masters-dir mod's archives or the game's archives (used by RN_Misc [MISC:000800:OtherMod.esm]). Put the compiled script in the zip or its archive, or give --masters-dir the folder of the mod it comes from. (was a PROBLEM; accepted by known-gaps.txt line 3 script-missing:OtherMod.esm:OtherModDoorTest)
+    RESULT: OK (0 problems, 0 to review, 1 warnings, 2 accepted)
+
+The exit code is 0. The third entry matched nothing, so it is a WARNING.
+
+### Changed
+
+- `--version` says 0.15.2.
+
 ## 0.15.1 (2026-11-23)
 
 ### What's new

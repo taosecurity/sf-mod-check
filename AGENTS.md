@@ -250,6 +250,20 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `--profile creations` (otherwise exit 2). A folder inside the game folder, or two loose files of the same name,
     is exit 2.
 
+    To accept one known finding, such as a script that another author's plugin names and that ships nowhere
+    (0.15.2):
+
+        sf-mod-check release MyPatch-1.0.0.zip --accept script-missing:OtherMod.esm:OtherMod:Toggle
+        sf-mod-check release MyPatch-1.0.0.zip --accept-file known-gaps.txt
+
+    An entry is `<rule>:<plugin>:<detail>`: one of the rules `script-missing`, `model-missing`, `mesh-missing`,
+    `texture-missing`, `material-missing`, `sound-missing` and `face-missing`; the plugin's file name; and the
+    script's name (for `script-missing`) or the missing file's path. Case doesn't matter, and wildcards aren't
+    allowed. The finding still prints, as an `ACCEPTED [rule] ...` line naming the entry, and no longer counts toward
+    FAIL. An entry that matches nothing is a `WARNING [accept]` line. A malformed entry, or an `--accept-file` that
+    can't be read, is exit 2. The file holds one entry per line; `#` starts a comment. Accept only a finding the
+    user has looked at and agreed is a known gap; never add an entry on your own judgement.
+
 14. Look over a downloaded mod before installing it (0.8.0). The report goes next to the download unless `--out` is
     given; open the `.html` file:
 
@@ -354,8 +368,10 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 - **stderr:** notes (very large plugin, no Starfield.esm found), error messages for bad arguments, and the
   `--verbose` log lines (`log: ...`).
 - **`release`:** input is one or more zips, stage folders, `.ba2` files or plugins (`release <zip|folder|ba2|plugin>...`, 0.15.0). Output (stdout) is `PROBLEM`, `REVIEW`, `WARNING` and `NOTE` lines, each as
-  `<LEVEL> [rule] text`, then `RESULT: OK|FAIL (n problems, n to review, n warnings)` (or `RESULT: CANNOT CHECK (...)`).
-  Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments such as `--size-total` without `--profile creations`, a bad zip, a missing file, an input folder, `--tested` file or `--stage` folder inside the game folder, two loose inputs of the same name, or an error that stops the check). Scripts should read the exit code and the `PROBLEM ` and `RESULT: ` lines.
+  `<LEVEL> [rule] text`, then `ACCEPTED [rule] text (was a <LEVEL>; accepted by <where> <entry>)` lines for findings
+  an `--accept` entry accepted (0.15.2), then `RESULT: OK|FAIL (n problems, n to review, n warnings)`, with
+  `, n accepted` before the closing parenthesis when any were accepted (or `RESULT: CANNOT CHECK (...)`).
+  Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments such as `--size-total` without `--profile creations` or a malformed `--accept` entry, a bad zip, a missing file, an input folder, `--tested` file or `--stage` folder inside the game folder, two loose inputs of the same name, or an error that stops the check). Scripts should read the exit code and the `PROBLEM ` and `RESULT: ` lines.
 - **`triage`:** input is one .zip, .7z or .rar (unpacked into a temp folder that is removed at the end;
   password-protected archives are refused), a mod folder (read where it is; the game's install, its Data or Content folder, or a folder inside them is refused) or
   one plugin (with the archives beside it that share its name). Output: `<out>\<name>-triage.html`, `.txt` and

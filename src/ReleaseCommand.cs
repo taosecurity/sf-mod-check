@@ -2,6 +2,7 @@
 //   sfmodcheck release <zip>... [--data <Data folder>] [--masters-dir <folder>]... [--master-archive <ba2>]... [--dmmdeps <exe>]
 //                      [--papyrus <exe> --ck-sources <ContentResources.zip>] [--psc <folder>]... [--psc-import <folder>]...
 //                      [--profile basic|house|creations] [--creations-master <plugin>]... [--tested <zip|ba2>]... [--stage <folder>]
+//                      [--accept <rule>:<plugin>:<detail>]... [--accept-file <file>]...   (0.15.2: ReleaseAccept.cs)
 //                      [--quiet] [--verbose] [--log <file>]
 // Each zip is unpacked into a temp folder that is always removed; nothing else is written. Zips inside a game install
 // are refused. Output: PROBLEM / REVIEW / WARNING / NOTE lines, then "RESULT: OK|FAIL (n problems, n to review, n
@@ -22,7 +23,15 @@ public enum Level { Problem, Review, Warning, Note }
 public enum RuleKind { Engine, House }
 
 /// <summary>One line of the report. Rule is a short tag such as "plugin-name" or "dmmdeps".</summary>
-public sealed record ReleaseFinding(Level Level, string Rule, string Text, RuleKind Kind = RuleKind.Engine);
+public sealed record ReleaseFinding(Level Level, string Rule, string Text, RuleKind Kind = RuleKind.Engine)
+{
+    /// <summary>The plugin's file name, for a finding about one plugin's missing file (an --accept entry names it; 0.15.2).</summary>
+    public string? Plugin { get; init; }
+    /// <summary>The finding's detail for --accept: the script name (script-missing) or the missing file's path.</summary>
+    public string? Subject { get; init; }
+    /// <summary>The --accept entry that accepted this finding: it prints as ACCEPTED and doesn't count (0.15.2).</summary>
+    public AcceptEntry? Accepted { get; init; }
+}
 
 public sealed class ReleaseOptions
 {
@@ -48,6 +57,8 @@ public sealed class ReleaseOptions
     public List<string> PscImport { get; } = new();
     /// <summary>--size-total (creations profile): every input of the run counts as one Creation for the 2 GB rule.</summary>
     public bool SizeTotal { get; set; }
+    /// <summary>--accept and --accept-file entries: known findings that print as ACCEPTED and don't count (ReleaseAccept).</summary>
+    public List<AcceptEntry> Accept { get; } = new();
 }
 
 /// <summary>One input: an unpacked zip, a folder used in place, or the run's loose .ba2 and plugin files.</summary>
@@ -85,6 +96,7 @@ public static class ReleaseCommand
         "                          [--papyrus <exe> --ck-sources <ContentResources.zip>] [--psc <folder>]... [--psc-import <folder>]...\n" +
         "                          [--profile basic|house|creations] [--creations-master <plugin>]... [--size-total]\n" +
         "                          [--tested <zip|ba2>]... [--stage <folder>]\n" +
+        "                          [--accept <rule>:<plugin>:<detail>]... [--accept-file <file>]...\n" +
         "                          [--quiet] [--verbose] [--log <file>]";
 
     static readonly string[] PluginExts = [".esm", ".esp", ".esl"];
@@ -201,6 +213,14 @@ public static class ReleaseCommand
                     }
                     o.Stage = st; break;
                 case "--size-total": o.SizeTotal = true; break;
+                case "--accept":
+                    if (Value(ref i, "an entry <rule>:<plugin>:<detail>, for example script-missing:OtherMod.esm:OtherMod:Toggle") is not { } ac) return BadArgs();
+                    if (ReleaseAccept.Parse(ac, "--accept", out var acError) is not { } entry) { Console.Error.WriteLine(acError); return BadArgs(); }
+                    o.Accept.Add(entry); break;
+                case "--accept-file":
+                    if (Value(ref i, "a text file of --accept entries, one per line") is not { } af) return BadArgs();
+                    if (ReleaseAccept.ReadFile(af, out var afError) is not { } entries) { Console.Error.WriteLine(afError); return BadArgs(); }
+                    o.Accept.AddRange(entries); break;
                 case "--log":
                     if (Value(ref i, "a file name") is not { } lf) return BadArgs();
                     logFile = lf; break;
@@ -388,16 +408,21 @@ public static class ReleaseCommand
             findings = DedupeUnreadable(findings);
 
             // ---- report ----
-            var shown = findings.Select(f => Apply(f, o.Profile)).ToList();
-            int problems = shown.Count(f => f.Level == Level.Problem), review = shown.Count(f => f.Level == Level.Review),
-                warnings = shown.Count(f => f.Level == Level.Warning);
+            var shown = ReleaseAccept.Apply(findings.Select(f => Apply(f, o.Profile)).ToList(), o.Accept);
+            var counted = shown.Where(f => f.Accepted == null).ToList();
+            int problems = counted.Count(f => f.Level == Level.Problem), review = counted.Count(f => f.Level == Level.Review),
+                warnings = counted.Count(f => f.Level == Level.Warning), accepted = shown.Count - counted.Count;
             if (!quiet)
                 Console.WriteLine($"sf-mod-check {version} release ({o.Profile} profile): {SafeText.OneLine(string.Join(", ", packages.Select(p => p.Name)))} " +
                                   $"({packages.Sum(p => p.Files.Count)} files, {packages.Sum(p => p.Plugins.Count)} plugins, {packages.Sum(p => p.Archives.Count)} archives)");
             foreach (var lvl in new[] { Level.Problem, Level.Review, Level.Warning, Level.Note })
-                foreach (var f in shown.Where(f => f.Level == lvl))
+                foreach (var f in counted.Where(f => f.Level == lvl))
                     Console.WriteLine($"{Label(lvl)} [{f.Rule}] {SafeText.OneLine(f.Text)}");   // every step's names, one rule (0.13.0)
-            Console.WriteLine($"RESULT: {(problems > 0 ? "FAIL" : "OK")} ({problems} problems, {review} to review, {warnings} warnings)");
+            // accepted findings still print, last, with the entry that accepted them (0.15.2)
+            foreach (var f in shown.Where(f => f.Accepted != null))
+                Console.WriteLine($"ACCEPTED [{f.Rule}] {SafeText.OneLine(f.Text)} (was a {Label(f.Level).Trim()}; accepted by {SafeText.OneLine(f.Accepted!.Source)} {SafeText.OneLine(f.Accepted.Text)})");
+            Console.WriteLine($"RESULT: {(problems > 0 ? "FAIL" : "OK")} ({problems} problems, {review} to review, {warnings} warnings" +
+                              (accepted > 0 ? $", {accepted} accepted)" : ")"));
             Log.Write($"result: {(problems > 0 ? "FAIL" : "OK")}, exit code {(problems > 0 ? 1 : 0)}");
             return problems > 0 ? 1 : 0;
         }
