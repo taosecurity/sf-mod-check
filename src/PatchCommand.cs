@@ -6,6 +6,8 @@
 //   - copies every Forwardable field forward from the plugin that lost it (the winner didn't change that field, so
 //     nothing the winner meant is undone);
 //   - for Choice fields (both plugins changed it) keeps the winner's value unless --pick names another plugin.
+// Since 0.13.0 a field --pick works on any field: it keeps the named plugin's value where a change would be forwarded,
+// and on a record with no lost change it adds the record as the game uses it today with that one field picked.
 // Cells, worldspaces, placed objects and navmeshes are built since 0.13.0 (each record itself only; a placed object's or
 // navmesh's cell and an exterior cell's worldspace come along as the game uses them today). The records inside quests or
 // dialogue topics are not built in this version: the report lists them for xEdit. Nor is the navmesh info map (NAVI), whose copies
@@ -61,7 +63,16 @@ public static class PatchCommand
         /// mesh field, decides the whole mesh), and why; its other fields stay picked (code review 0.13.0, rounds 5 and 6).</summary>
         public List<string> GaveWay { get; } = new();
         public string? GaveWayWhy { get; set; }
+        /// <summary>Why a field pick could not be used (its "was not used" warning says this instead of the general text).</summary>
+        public string? Why { get; set; }
     }
+
+    /// <summary>The "was not used" warning for a pick nothing took.</summary>
+    internal static string NotUsedWarning(Pick pk) =>
+        $"WARNING: --pick {pk.FormKey}{(pk.Field is null ? "" : ":" + pk.Field)}={pk.Plugin} was not used: " +
+        (pk.Why ?? (pk.Field is null
+            ? $"that record has no Choice field that {pk.Plugin} supplies, or the record isn't patched"
+            : $"that record has no field {pk.Field} that {pk.Plugin} supplies, or no mod overrides the record"));
 
     /// <summary>The warning for a whole-record pick that gave up mesh fields: "was not used" when it gave up every field
     /// it took, else one line naming the fields it gave up; null when it gave up none (code review 0.13.0, round 6).</summary>
@@ -403,7 +414,9 @@ public static class PatchCommand
             // a patch can build (the rest would only fill the "Not built" list).
             Func<Type, bool>? officialTypes = includeOfficial ? t => WhyNotBuilt(t) is null : null;
             if (includeOfficial) Log.Write("patch: --include-official: changes one official plugin loses to another are restored too");
-            try { analysis = Analyzer.Run(lo.Plugins, onlySet.Count > 0 ? onlySet : null, officialTypes: officialTypes); }
+            // a field pick may name a record with no lost change (0.13.0): the analysis notes its type
+            var pickKeys = picks.Where(pk => pk.Field is not null).Select(pk => pk.FormKey).ToHashSet();
+            try { analysis = Analyzer.Run(lo.Plugins, onlySet.Count > 0 ? onlySet : null, officialTypes: officialTypes, wantTypes: pickKeys); }
             catch (MemoryLimitException e)
             {
                 resultPrinted = true;
@@ -415,8 +428,7 @@ public static class PatchCommand
             var plan = Build(lo, analysis, onlySet, picks);
             plan.IncludeOfficial = includeOfficial;
             foreach (var pk in picks.Where(pk => !pk.Used))
-                Console.Error.WriteLine($"WARNING: --pick {pk.FormKey}{(pk.Field is null ? "" : ":" + pk.Field)}={pk.Plugin} was not used: that record has no Choice field " +
-                                        $"{(pk.Field is null ? "" : pk.Field + " ")}that {pk.Plugin} supplies, or the record isn't patched");
+                Console.Error.WriteLine(NotUsedWarning(pk));
             foreach (var pk in picks.Where(pk => pk.Used && pk.Overruled is not null))
                 Console.Error.WriteLine($"WARNING: --pick {pk.FormKey}{(pk.Field is null ? "" : ":" + pk.Field)}={pk.Plugin} was not used: {pk.Overruled}");
             foreach (var pk in picks.Where(pk => pk.Used && pk.Overruled is null))
@@ -505,7 +517,8 @@ public static class PatchCommand
             .Where(l => only.Count == 0 || only.Contains(l.Loser) || only.Contains(l.Winner))
             .Where(l => l.Fields.Any(f => !Impact.IsMinor(f)))
             .ToList();
-        // only records with a lost change are patched: a --pick on any other record is reported as unused
+        // records with a lost change are patched; a field --pick may add another record (below), and a whole-record
+        // --pick on any other record is reported as unused
         var byRecord = relevant.GroupBy(l => l.FormKey).ToList();
         var targets = new Dictionary<FormKey, (Type Getter, string ClassName)>();
         foreach (var g in byRecord)
@@ -535,6 +548,27 @@ public static class PatchCommand
                 continue;
             }
             targets[g.Key] = (getter, cls);
+        }
+        // 0.13.0: a field --pick may name a record with no lost change, to keep one plugin's value of a field the winner
+        // took from another mod (three city worldspaces where one mod filled an empty water field). The record then goes
+        // in as the game uses it today, with that one field from the plugin picked.
+        var lostKeys = byRecord.Select(g => g.Key).ToHashSet();
+        var pickOnly = new HashSet<FormKey>();
+        foreach (var fk in picks.Where(pk => pk.Field is not null).Select(pk => pk.FormKey).Distinct())
+        {
+            if (lostKeys.Contains(fk)) continue;
+            string? whyNot = null;
+            if (!analysis.WantedTypes.TryGetValue(fk, out var t))
+                whyNot = only.Count > 0 ? "none of the --only plugins overrides that record" : "no mod in the load order overrides that record";
+            else if (WhyNotBuilt(t) is { } why) whyNot = why;
+            if (whyNot is not null)
+            {
+                foreach (var pk in picks.Where(pk => pk.FormKey == fk && pk.Field is not null)) pk.Why = whyNot;
+                Log.Write($"patch: --pick on {fk}: {whyNot}");
+                continue;
+            }
+            targets[fk] = (t!, Analyzer.TypeShort(t!));
+            pickOnly.Add(fk);
         }
 
         // Each plugin's masters, transitively (file names), as the analyzer works them out.
@@ -627,12 +661,33 @@ public static class PatchCommand
                 Log.Write($"patch: {kind} {g.Key} not built: no cell holds it");
                 continue;
             }
-            try { BuildRecord(g.Key, g.ToList(), vs, picks, plan, MastersOf, Name); }
+            try { BuildRecord(g.Key, g.ToList(), vs, picks, plan, MastersOf, Name, g.First().RecordType, g.First().EditorID); }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
                 plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, $"it could not be built ({e.GetType().Name}: {SafeText.OneLine(e.Message)})", new()));
                 Log.Write($"patch: {g.Key} not built: {e}");
             }
+        }
+        // the records only a field --pick names (above): built the same way, with no lost change to forward
+        foreach (var fk in pickOnly)
+        {
+            string? whyNot = null;
+            if (!versions.TryGetValue(fk, out var vs) || vs.Count == 0) whyNot = "its versions could not be read again";
+            else if (LoadOrderSetup.IsBlueprint(vs[^1].Plugin.FileName))
+                whyNot = $"{LoadOrderSetup.Display(vs[^1].Plugin.FileName)} has its last copy and loads after every plugin, this patch too";
+            else if (cellTargets.Contains(fk) && !plan.Places.ContainsKey(fk)) whyNot = "the cell's place (an interior block or a worldspace) could not be found";
+            else if (refTargets.Contains(fk) && !plan.RefPlaces.ContainsKey(fk)) whyNot = "the cell that holds it could not be found";
+            else
+                try { BuildRecord(fk, new(), vs, picks, plan, MastersOf, Name, targets[fk].ClassName, SafeText.OneLine(vs[^1].Rec.EditorID)); }
+                catch (Exception e) when (Fatal.Recoverable(e))
+                {
+                    whyNot = $"the record could not be built ({e.GetType().Name}: {SafeText.OneLine(e.Message)})";
+                    Log.Write($"patch: {fk} (named by --pick) not built: {e}");
+                }
+            if (whyNot is null) continue;
+            // nothing of this record was built, so none of its picks was used
+            foreach (var pk in picks.Where(pk => pk.FormKey == fk && pk.Field is not null)) { pk.Used = false; pk.Overruled = null; pk.Why = whyNot; }
+            Log.Write($"patch: --pick on {fk}: {whyNot}");
         }
 
         // 0.13.0: a placed object or navmesh can only be written inside its cell, so a cell the patch doesn't hold yet goes
@@ -908,7 +963,7 @@ public static class PatchCommand
     }
 
     static void BuildRecord(FormKey fk, List<LostChange> lost, List<(PluginInfo Plugin, IMajorRecordGetter Rec)> vs, List<Pick> picks, Plan plan,
-        Func<PluginInfo, HashSet<string>> mastersOf, Func<IFormLinkGetter, string> name)
+        Func<PluginInfo, HashSet<string>> mastersOf, Func<IFormLinkGetter, string> name, string recordType, string? editorId)
     {
         var copies = new Copies(vs);
         var (rec, source, getterFields) = Compose(vs, copies);
@@ -921,7 +976,8 @@ public static class PatchCommand
         var setBy = new Dictionary<string, string>(StringComparer.Ordinal);
         // the --pick each picked field was taken by (a field pick, or a whole-record pick), for the navmesh step below
         var pickOf = new Dictionary<string, Pick>(StringComparer.Ordinal);
-        var first = lost[0];
+        // the record's type and EditorID for report lines (a record only a field --pick names has no lost change)
+        var first = (RecordType: recordType, EditorID: editorId);
         // List fields are merged entry by entry (the rule of the author's in-game-proven merge builder, 2026-11-06):
         // each plugin's own additions are added and its own removals removed, against the version it was built on, so
         // two plugins that both add entries (a DLC and a mod adding references to one location) both keep them.
@@ -1177,6 +1233,56 @@ public static class PatchCommand
                 plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Winner, l.Loser, false,
                     $"both changed it; the winner {l.Winner}'s value is kept{(change.Length > 0 ? $" ({l.Loser} {change})" : "")}"));
             }
+
+        // 0.13.0: a field --pick the loops above didn't take keeps the named plugin's value on any field: one a loser's
+        // change was forwarded into, one nobody lost, or one of a record only the pick names. This is how a patch keeps a
+        // field as the game ships it when the winner took another mod's value there (a mod that filled three city
+        // worldspaces' empty water field). Among picks on one field the last one given decides. A navmesh's mesh fields
+        // keep their own rule below.
+        foreach (var byField in picks.Where(pk => pk.FormKey == fk && pk.Field is not null && !pk.Used && pk.Why is null
+                     && !(isNavmesh && NavmeshUnit.Contains(pk.Field))).GroupBy(pk => pk.Field!).ToList())
+        {
+            var field = byField.Key;
+            if (!byName.TryGetValue(field, out var fp))
+            {
+                foreach (var pk in byField) pk.Why = $"{first.RecordType} records have no field {field} (the patch report and conflict's report name the fields)";
+                continue;
+            }
+            foreach (var pk in byField)
+                pk.Why = IndexOf(pk.Plugin) is var pi && pi < 0 ? $"{pk.Plugin} doesn't hold that record"
+                    : !FieldCompare.Provides(vs[pi].Rec, fp, out _) ? $"{pk.Plugin}'s copy of that record is partial and doesn't set {field}" : null;
+            var usable = byField.Where(pk => pk.Why is null).ToList();
+            if (usable.Count == 0) continue;
+            var pick = usable[^1];
+            foreach (var earlier in usable.SkipLast(1)) { earlier.Used = true; earlier.Overruled = $"a later --pick on the same field names {pick.Plugin}"; }
+            var pIdx = IndexOf(pick.Plugin);
+            pick.Used = true;
+            pickOf[field] = pick;
+            pick.Took.Add(field);
+            var winner = vs[^1].Plugin.FileName;
+            var rowsGone = plan.Choices.Where(c => c.FormKey == fk && c.Field == field && !c.Picked).ToList();
+            var dropped = forwarded.Where(x => x.Field == field && !x.Picked).Select(x => x.From).Concat(rowsGone.Select(c => c.Other))
+                .Where(x => !x.Equals(pick.Plugin, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            plan.Choices.RemoveAll(rowsGone.Contains);
+            merged.Remove(field);
+            if (!SetField(rec, field, copies.Of(pIdx))) throw new InvalidOperationException($"field {field} can't be set");
+            source[field] = pIdx;
+            setBy[field] = pick.Plugin;
+            forwarded.RemoveAll(x => x.Field == field);
+            var asToday = FieldCompare.DeepEq(Held(field, pIdx), Held(field, today[field]), 0);
+            // the pick replaces today's value: the plugin that brought that value in is named too (none when it is the
+            // first version's value)
+            if (!asToday && IntroducedAt(i => Held(field, i), today[field]) is var by && by > 0
+                && !vs[by].Plugin.FileName.Equals(pick.Plugin, StringComparison.OrdinalIgnoreCase)
+                && !dropped.Contains(vs[by].Plugin.FileName, StringComparer.OrdinalIgnoreCase))
+                dropped.Add(vs[by].Plugin.FileName);
+            if (!asToday) forwarded.Add(new(field, pick.Plugin, "picked with --pick", Picked: true));
+            var gone = dropped.Count > 0 ? $"; {string.Join(" and ", dropped)}'s change to {field} is dropped" : "";
+            // a pick that changes nothing counts as taken but adds no row (as on Choice fields)
+            if (!asToday || dropped.Count > 0)
+                plan.Choices.Add(new(fk, first.RecordType, first.EditorID, field, winner, asToday ? dropped[^1] : pick.Plugin, true, $"--pick: {pick.Plugin}'s value is used{gone}"));
+            Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)}: --pick keeps {pick.Plugin}'s {field}{(asToday ? " (today's value)" : "")}{gone}");
+        }
 
         // 0.13.0: a navmesh's mesh (NavmeshUnit) comes from one version. A --pick on any of its fields takes that
         // plugin's whole mesh. Otherwise the mesh follows its geometry's version when the other parts there hold the same

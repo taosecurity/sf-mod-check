@@ -41,6 +41,8 @@ public class Analysis
 {
     public int RecordsOverriddenByMods;
     public List<LostChange> Lost { get; } = new();
+    // patch (0.13.0): the record type (getter) of each record Run's wantTypes named that a mod overrides.
+    public Dictionary<FormKey, Type> WantedTypes { get; } = new();
     public List<ItmRecord> Itms { get; } = new();
     // (earlier, later) -> "Type EditorID: Field" entries the later mod changed on purpose that the earlier one would undo if moved after it.
     public Dictionary<(string Earlier, string Later), List<string>> ReorderCost { get; } = new();
@@ -163,8 +165,10 @@ public static class Analyzer
     /// another is kept too (normally "Bethesda vs Bethesda is not our business"), and records that only official plugins
     /// override are compared as well, for the record types this accepts (the ones patch can build). Ignored with `only`.
     /// Null (conflict, triage, a default patch): exactly the 0.9.1 analysis.</param>
+    /// <param name="wantTypes">patch (0.13.0): records whose type to note in Analysis.WantedTypes when a mod overrides
+    /// them, so a field --pick can add a record that has no lost change. Changes nothing else.</param>
     public static Analysis Run(List<PluginInfo> plugins, ISet<string>? only = null, ISet<FormKey>? onlyRecords = null,
-        Func<Type, bool>? officialTypes = null)
+        Func<Type, bool>? officialTypes = null, ISet<FormKey>? wantTypes = null)
     {
         bool withOfficial = officialTypes is not null && only is null;
         var result = new Analysis();
@@ -252,6 +256,9 @@ public static class Analyzer
             }
         }
         result.RecordsOverriddenByMods = targets.Count;
+        if (wantTypes is not null)
+            foreach (var fk in wantTypes)
+                if (targets.TryGetValue(fk, out var wt)) result.WantedTypes[fk] = wt;
         Info($"{targets.Count} records overridden by mods");
         Progress?.Invoke($"{targets.Count} records overridden by mods, in {targets.Values.Concat(otherTypes.Values.SelectMany(t => t)).Distinct().Count()} record types");
 

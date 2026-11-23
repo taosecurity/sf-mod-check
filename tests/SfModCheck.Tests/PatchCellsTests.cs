@@ -853,6 +853,10 @@ public class PatchCellsTests
         Assert.Contains("and placed objects and navmeshes, each inside its cell", Text("AGENTS.md"));
         Assert.Contains("`patch` builds placed objects", Text("CHANGELOG.md"));
         Assert.Contains("`patch` builds navmeshes", Text("CHANGELOG.md"));
+        // relay step 22: a field pick works on any field and can add a record with no lost change
+        Assert.Contains("**A field pick works on any field** (since 0.13.0)", Text("README.md"));
+        Assert.Contains("Since 0.13.0 a field pick works on any field", Text("AGENTS.md"));
+        Assert.Contains("A field `--pick` (`<FormKey>:<Field>=<plugin>`) now works on any field", Text("CHANGELOG.md"));
     }
 
     static void Move(PlacedObject r) => r.Position = new P3Float(10, 20, 30);
@@ -1100,5 +1104,148 @@ public class PatchCellsTests
         Assert.Contains("## Not built (2): no patch can restore these", report);
         Assert.Contains("loads after every mod, this patch too, so no patch or load order brings this change back", report);
         Assert.DoesNotContain("are one mesh", report);
+    }
+
+    // ---------- relay step 22: a field --pick keeps a chosen plugin's value on any field (the city-water case) ----------
+
+    /// <summary>ModO fills the worldspace's empty water field with its own water record (and, with more, also changes
+    /// its water environment map).</summary>
+    static void FillWater(StarfieldMod m, IStarfieldModGetter b, bool more = false)
+    {
+        var water = m.Waters.AddNew("O_WaterClear");
+        var w = Game.WorldIn(m, b);
+        w.Water.SetTo(water);
+        if (more) w.WaterEnvironmentMap = "modo.dds";
+    }
+
+    // The forwarded field (Paradiso): ModO's water is a lost change the winner ModW left alone, so patch forwards it; a
+    // pick of the winner keeps the winner's (empty) value instead, and the report names the change it drops.
+    [Fact]
+    public void A_field_pick_keeps_the_winners_value_on_a_forwarded_field()
+    {
+        using var game = new Game();
+        game.Mod("ModO.esm", (m, b, c) => FillWater(m, b, more: true));
+        game.Mod("ModW.esm", (m, b, c) => Game.WorldIn(m, b).EnvironmentMap = "modw.dds");
+        var (code0, stdout0, stderr0, log0) = PickLogged(game, ["Base.esm", "ModO.esm", "ModW.esm"]);
+        Assert.True(code0 == 0, stdout0 + stderr0);
+        Assert.Contains("(Water from ModO.esm, WaterEnvironmentMap from ModO.esm)", log0);   // without the pick: ModO's water is forwarded
+        Directory.Delete(game.Out, true);
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModO.esm", "ModW.esm"], $"{game.World}:Water=ModW.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        Assert.Contains("1 records, 1 fields forwarded, 1 picks used", ExeTests.ResultLine(stdout));
+        var world = Assert.Single(game.OpenPatch().Worldspaces);
+        Assert.True(world.Water.IsNull);
+        Assert.Equal(("modw.dds", "modo.dds"), (world.EnvironmentMap, world.WaterEnvironmentMap));   // the other forwarded field stays
+        Assert.Contains("--pick: ModW.esm's value is used; ModO.esm's change to Water is dropped", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+    }
+
+    // When the pick leaves the record equal to today's, it is left out, and the pick still counts as used.
+    [Fact]
+    public void A_field_pick_that_undoes_the_only_forwarded_change_leaves_the_record_out()
+    {
+        using var game = new Game();
+        game.Mod("ModO.esm", (m, b, c) => FillWater(m, b));
+        game.Mod("ModW.esm", (m, b, c) => Game.WorldIn(m, b).EnvironmentMap = "modw.dds");
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModO.esm", "ModW.esm"], $"{game.World}:Water=Base.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        Assert.StartsWith("RESULT: OK, nothing to patch", ExeTests.ResultLine(stdout));
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Contains("--pick: Base.esm's value is used; ModO.esm's change to Water is dropped", report);
+        Assert.Contains("the patched record would equal today's, so it is left out", report);
+    }
+
+    // A record with no lost change (Hopetown): ModO wins the worldspace, so nothing is lost; a field pick adds the record
+    // as the game uses it today with that one field from the plugin picked.
+    [Fact]
+    public void A_field_pick_adds_a_record_that_has_no_lost_change()
+    {
+        using var game = new Game();
+        game.Mod("ModO.esm", (m, b, c) => FillWater(m, b, more: true));
+        var (code0, stdout0, stderr0) = PickRun(game, ["Base.esm", "ModO.esm"]);
+        Assert.True(code0 == 0, stdout0 + stderr0);
+        Assert.StartsWith("RESULT: OK, nothing to patch", ExeTests.ResultLine(stdout0));
+        var (code, stdout, stderr, log) = PickLogged(game, ["Base.esm", "ModO.esm"], $"{game.World}:Water=Base.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        Assert.Contains("1 records, 0 fields forwarded, 1 picks used", ExeTests.ResultLine(stdout));
+        var patch = game.OpenPatch();
+        var world = Assert.Single(patch.Worldspaces);
+        Assert.True(world.Water.IsNull);
+        Assert.Equal("modo.dds", world.WaterEnvironmentMap);   // everything else as the game uses it today
+        Assert.Empty(world.SubCells);
+        Assert.Single(patch.EnumerateMajorRecords());
+        Assert.Contains("--pick: Base.esm's value is used; ModO.esm's change to Water is dropped", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+        Assert.Contains($"patch: Worldspace B_World [{game.World}]: --pick keeps Base.esm's Water", log);
+        var (checkCode, checkOut, checkErr) = ExeTests.RunSplit("check", Path.Combine(game.Out, "ConflictPatch.esm"), "--data", game.Data, "--quiet", "--no-assets");
+        Assert.True(checkCode == 0, checkOut + checkErr);
+    }
+
+    // A worldspace that would be a parent (Neon): the pick makes it a patch record of its own, with the picked field,
+    // and its patched cell still sits in it.
+    [Fact]
+    public void A_field_pick_on_a_parent_worldspace_makes_it_a_patch_record()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.CellIn(m, c, game.Exterior).WaterHeight = 7);
+        game.Mod("ModB.esm", (m, b, c) => Game.CellIn(m, c, game.Exterior).WaterEnvironmentMap = "modb.dds");
+        game.Mod("ModO.esm", (m, b, c) => FillWater(m, b));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModB.esm", "ModO.esm"], $"{game.World}:Water=Base.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        Assert.Contains("2 records, 1 fields forwarded, 1 picks used", ExeTests.ResultLine(stdout));
+        var world = Assert.Single(game.OpenPatch().Worldspaces);
+        Assert.True(world.Water.IsNull);
+        var cell = Assert.Single(world.SubCells.SelectMany(x => x.Items).SelectMany(x => x.Items));
+        Assert.Equal((7f, "modb.dds"), (cell.WaterHeight, cell.WaterEnvironmentMap));
+        Assert.DoesNotContain("the parent of patched cells", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+    }
+
+    // Picks that can't be used say why, each in its own warning, and the last usable pick on a field decides.
+    [Fact]
+    public void A_field_pick_that_cant_be_used_says_why()
+    {
+        using var game = new Game();
+        game.Mod("ModO.esm", (m, b, c) => FillWater(m, b, more: true));
+        game.Mod("ModX.esm", (m, b, c) => m.MiscItems.AddNew("X_Misc"));
+        FormKey misc;
+        using (var gd = new GameData(game.Data)) misc = Assert.Single(gd.Open("Base.esm").MiscItems).FormKey;
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModO.esm", "ModX.esm"],
+            $"{game.World}:Nope=Base.esm", $"{game.World}:Water=ModX.esm", $"{misc}:Name=Base.esm",
+            $"{game.World}:WaterEnvironmentMap=ModO.esm", $"{game.World}:WaterEnvironmentMap=Base.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains($"WARNING: --pick {game.World}:Nope=Base.esm was not used: Worldspace records have no field Nope", stderr);
+        Assert.Contains($"WARNING: --pick {game.World}:Water=ModX.esm was not used: ModX.esm doesn't hold that record", stderr);
+        Assert.Contains($"WARNING: --pick {misc}:Name=Base.esm was not used: no mod in the load order overrides that record", stderr);
+        Assert.Contains($"WARNING: --pick {game.World}:WaterEnvironmentMap=ModO.esm was not used: a later --pick on the same field names Base.esm", stderr);
+        Assert.DoesNotContain("WaterEnvironmentMap=Base.esm was not used", stderr);
+        var world = Assert.Single(game.OpenPatch().Worldspaces);
+        Assert.Null(world.WaterEnvironmentMap);   // Base.esm's (none)
+        Assert.False(world.Water.IsNull);         // no usable pick on Water: today's (ModO's)
+    }
+
+    // The general warning text for a pick nothing took, with and without a field.
+    [Fact]
+    public void The_not_used_warning_names_the_field_or_the_reason()
+    {
+        var fk = FormKey.Factory("000801:Base.esm");
+        Assert.Equal($"WARNING: --pick {fk}=ModA.esm was not used: that record has no Choice field that ModA.esm supplies, or the record isn't patched",
+            PatchCommand.NotUsedWarning(new PatchCommand.Pick(fk, null, "ModA.esm")));
+        Assert.Equal($"WARNING: --pick {fk}:Value=ModA.esm was not used: that record has no field Value that ModA.esm supplies, or no mod overrides the record",
+            PatchCommand.NotUsedWarning(new PatchCommand.Pick(fk, "Value", "ModA.esm")));
+        Assert.Equal($"WARNING: --pick {fk}:Value=ModA.esm was not used: why",
+            PatchCommand.NotUsedWarning(new PatchCommand.Pick(fk, "Value", "ModA.esm") { Why = "why" }));
+    }
+
+    (int Code, string Stdout, string Stderr, string Log) PickLogged(Game game, string[] active, params string[] picks)
+    {
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, active.Select(a => "*" + a));
+        var log = Path.Combine(game.Dir, "patch.log");
+        var args = new List<string> { "patch", "--data", game.Data, "--plugins", txt, "--out", game.Out, "--quiet", "--log", log };
+        foreach (var p in picks) { args.Add("--pick"); args.Add(p); }
+        var (code, stdout, stderr) = ExeTests.RunSplit(args.ToArray());
+        return (code, stdout, stderr, File.Exists(log) ? File.ReadAllText(log) : "");
     }
 }

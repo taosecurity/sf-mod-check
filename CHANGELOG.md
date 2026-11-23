@@ -33,6 +33,12 @@
 - Picks on two mesh fields naming two plugins: a field pick on any mesh field beats a whole-record pick, else the later field's pick decides.
 - The pick that gives way gets a warning; a whole-record pick that keeps other fields gets one line naming the mesh fields it lost.
 - A navmesh pick's row names, part by part, every plugin whose mesh change it drops, the winner included.
+- A field `--pick` (`<FormKey>:<Field>=<plugin>`) now works on any field, not only on Choice fields.
+- It keeps that plugin's value where the patch would forward another mod's change; the report names the change it drops.
+- A field `--pick` on a record with no lost change adds that record, as the game uses it today with the one field picked.
+- Example: keep a worldspace's water empty when a mod filled it, with `--pick 0012AB:Starfield.esm:Water=Starfield.esm`.
+- A field pick that can't be used says why: no such field, the plugin doesn't hold the record, or no mod overrides it.
+- Of two field picks on one field, the later one decides, and the earlier one gets a "was not used" warning.
 - In a merged component list, a component's kind counts as its identity only while no version holds two of that kind.
 - With `--include-official`, cells, worldspaces, placed objects and navmeshes one official plugin loses to another are restored too.
 - `--verbose` logs where each patched cell, placed object and navmesh goes, and each cell or worldspace added as a parent.

@@ -451,6 +451,12 @@ How it builds each record:
    prints a ready-made `--pick` line for each one. Run the command again with the lines you want, for example
    `--pick 0012AB:Starfield.esm:Value=NewModB.esm` (one field) or `--pick 0012AB:Starfield.esm=NewModB.esm` (every Choice
    field of that record).
+   - **A field pick works on any field** (since 0.13.0). On a field the patch would forward from another mod, it keeps
+     the named plugin's value instead, and the report names the change it drops. On a record the patch wouldn't hold
+     at all (the winner already has the other mod's value), it adds the record as the game uses it today, with that
+     one field from the named plugin. For example, when a mod fills a worldspace's empty water field and you want the
+     game's empty value back, use `--pick 0012AB:Starfield.esm:Water=Starfield.esm`. A whole-record pick still covers
+     only Choice fields.
 4. A record that would end up the same as today's is left out (no "identical to master" records).
 5. It writes the patch, then reads it back and compares every field with the plugin it was copied from.
 
@@ -474,7 +480,9 @@ report's Notes say so: the game still loads that master after the patch, as it d
   one is built, and the new one replaces it.
 - `--only`: patch only the conflicts that involve these plugins (file names, separated by commas; give it more than
   once if you like). It is also faster: only the records those plugins change are compared.
-- `--pick`: see step 3. A pick that matches nothing gets a WARNING.
+- `--pick`: see step 3. A pick that matches nothing gets a WARNING. For a field pick, the WARNING says why: the
+  record type has no such field, the plugin named doesn't hold the record (or its partial copy doesn't set that
+  field), no mod overrides the record, or a later `--pick` on the same field decides it.
 - `--include-official`: also bring back changes that one official plugin (the base game, a DLC or a Creation from
   Bethesda) loses to another, for example a reference one Trackers Alliance mission adds to a location and a later
   one drops. Off by default, because `conflict` doesn't list such losses either: the game ships that way, and they

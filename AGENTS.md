@@ -242,7 +242,10 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     kept, so usually nothing to choose; if the user wants one mod's whole list instead, add
     `--pick <FormKey>:<Field>=<plugin>` for it). For any other field the winner's value is kept unless the user wants the other one,
     then run `patch` again with the `--pick` line the report prints for it, for example
-    `--pick 0012AB:Starfield.esm:Value=NewModA.esm`. "Not built" records (dialogue,
+    `--pick 0012AB:Starfield.esm:Value=NewModA.esm`. Since 0.13.0 a field pick works on any field: it can also keep
+    one plugin's value where the patch would forward another mod's change, or add a record with no lost change (for
+    example `--pick 0012AB:Starfield.esm:Water=Starfield.esm` keeps a worldspace's water as the game ships it when a
+    mod filled it). Use it only when the user asks for that value. "Not built" records (dialogue,
     scenes; cells, worldspaces, placed objects and navmeshes are built since 0.13.0) must be done in xEdit; give the user the report's list. The navmesh info map (NAVI)
     is listed there too but must not be copied by hand. The `conflict` run on `Plugins-with-patch.txt` still lists
     those records, Choices that kept the winner's value, and harmless lost changes (only a reorder, letter case or
