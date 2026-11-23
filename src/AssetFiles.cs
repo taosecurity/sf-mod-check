@@ -1,4 +1,4 @@
-// The file-to-file asset links (0.14.0, design D2b and D3b in PMTUpkeep\smc-0.14.0\RELAY.md): a .nif names its
+// The file-to-file asset links (0.14.0, design D2b and D3b): a .nif names its
 // materials in its header's string table, a .mat (JSON) names its textures and its parent materials, and the game's own
 // materials live only in materials\materialsbeta.cdb, found there by a 12-byte resource ID. Only names are read: no
 // geometry, no texture data, nothing kept from the game's files but the IDs.

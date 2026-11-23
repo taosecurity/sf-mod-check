@@ -1,7 +1,7 @@
 // The assets check (0.6.0, PLAN-ASSETS.md): every script a record attaches must have its .pex, and every model path a
 // record names must have its file, in a loose file or in an archive the game loads. A missing script is an ERROR (the
 // record's behavior silently doesn't run); a missing model is a WARNING. Since 0.14.0 materials, textures and the
-// streamed sounds of the plugin's own sound banks are checked too (WARNINGs; PMTUpkeep\smc-0.14.0\RELAY.md, D1 to D6).
+// streamed sounds of the plugin's own sound banks are checked too (WARNINGs; 0.14.0 design D1 to D6).
 // .mesh geometry, voice and animation files, music and script parents are not (README "Known gaps").
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
@@ -255,10 +255,11 @@ public sealed class AssetIndex
         return cdbIds?.Contains(AssetFiles.MaterialId(materialPath));
     }
 
-    /// <summary>release (0.14.0): the loose folders are the zips' roots, so their sound banks are the mod's own and are
-    /// read. In check and conflict the loose folders are Data, shared by every mod, so only the banks in a plugin's own
-    /// archives are read.</summary>
-    public bool LooseBanksAreOwn { get; set; }
+    /// <summary>release (0.14.0): the zip roots whose loose sound banks are the current plugin's own and are read (its
+    /// own zip's, set per plugin, so a bank is reported under the plugin it ships with). Null in check and conflict,
+    /// where the loose folders are Data, shared by every mod, so only the banks in a plugin's own archives are
+    /// read.</summary>
+    public List<string>? OwnLooseDirs { get; set; }
 
     readonly HashSet<string> banksTaken = new(StringComparer.OrdinalIgnoreCase);
 
@@ -266,14 +267,14 @@ public sealed class AssetIndex
     /// once per run even when several plugins share the loose files (release with several zips).</summary>
     public bool TakeBank(string key) => banksTaken.Add(key);
 
-    /// <summary>The loose sound banks under the searched folders ("sound\soundbanks\*.bnk", any case), as (data-relative
+    /// <summary>The loose sound banks under OwnLooseDirs ("sound\soundbanks\*.bnk", any case), as (data-relative
     /// name, full path); a name found in an earlier folder wins.</summary>
     public List<(string Rel, string Path)> LooseBanks()
     {
         var list = new List<(string, string)>();
         var names = new HashSet<string>(StringComparer.Ordinal);
         var ci = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive };
-        foreach (var d in looseDirs)
+        foreach (var d in OwnLooseDirs ?? [])
         {
             try
             {
@@ -786,16 +787,15 @@ public static class Assets
             mu.Add(user);
         }
         // Sound banks of the plugin's own (0.14.0, D6): each streamed source must be a .wem the game can find. Banks in
-        // its own archives, and in release the zips' loose banks too (LooseBanksAreOwn).
+        // its own archives, and in release its zip's loose banks too (OwnLooseDirs).
         var banks = own.Keys.Where(AssetFiles.IsBank).Order(StringComparer.Ordinal)
             .Select(n => (Rel: n, Key: ownIn[n] + "|" + n, Where: ownIn[n], Get: own[n])).ToList();
-        if (index.LooseBanksAreOwn)
-            foreach (var (rel, path) in index.LooseBanks())
-                banks.Add((rel, path, path, () =>
-                {
-                    if (new FileInfo(path).Length > AssetFiles.MaxFileBytes) throw new InvalidDataException($"it is larger than {AssetFiles.MaxFileBytes / (1024 * 1024)} MB");
-                    return File.ReadAllBytes(path);
-                }));
+        foreach (var (rel, path) in index.LooseBanks())
+            banks.Add((rel, path, path, () =>
+            {
+                if (new FileInfo(path).Length > AssetFiles.MaxFileBytes) throw new InvalidDataException($"it is larger than {AssetFiles.MaxFileBytes / (1024 * 1024)} MB");
+                return File.ReadAllBytes(path);
+            }));
         foreach (var (rel, key, where, get) in banks)
         {
             if (!index.TakeBank(key)) continue;
@@ -852,14 +852,14 @@ public static class Assets
         !a.HeadParts.Select(h => h.FormKey).SequenceEqual(b.HeadParts.Select(h => h.FormKey)) || !(a.Tints ?? []).SequenceEqual(b.Tints ?? []) ||
         !a.FaceMorphs.SequenceEqual(b.FaceMorphs) || !a.MorphBlends.SequenceEqual(b.MorphBlends);
 
-    /// <summary>Face data (0.14.0, D5; release only, as a NOTE: PMTUpkeep\smc-0.14.0\RELAY.md, P3). An NPC the plugin
+    /// <summary>Face data (0.14.0, D5; release only, as a NOTE). An NPC the plugin
     /// adds with its own head parts, tints, face morphs or morph blends, or an override that changes them, is looked
     /// up for its FaceGen files (facegeom .nif and four facecustomization textures) under the file name of the plugin
     /// that defines the FormID, named by its local ID. Not when its template gives the Traits. Reported only when none
     /// of the five files is there: Bethesda's own plugins ship partial sets (a .nif without textures), and some NPCs
     /// with none at all (real data, 2026-11-23). The ID is tried with 24, 16 and 12 bits, and for the .nif also with
     /// any third byte over the 16-bit ID: light plugins name their files by the 12-bit ID, and medium creations their
-    /// textures by the 16-bit ID and their .nif by a 24-bit one (PMTUpkeep\smc-0.14.0\faceprobe.py, facepairs.py).</summary>
+    /// textures by the 16-bit ID and their .nif by a 24-bit one (read from installed mods' face files, 2026-11-23).</summary>
     static List<MissingAsset> FindFaces(IModGetter mod, List<INpcGetter> npcs, AssetIndex index, Func<IMajorRecordGetter, string> name,
                                         Func<IMajorRecordGetter, IMajorRecordGetter?>? original, AssetUses uses)
     {

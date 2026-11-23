@@ -104,6 +104,9 @@ public static class ReleaseNeeds
                 // material database those archives and the zips hold (0.14.0)
                 index.Fallback = external.Has;
                 foreach (var (ba2, entry) in external.Cdbs) index.AddCdb(ba2, entry);
+                // the loose sound banks of this plugin's own zip are its own, so each is reported under the plugin it
+                // ships with; the first plugin also takes those of zips with no plugin (0.14.0)
+                index.OwnLooseDirs = c.Packages.Where(p => p == pkg || p.Plugins.Count == 0 && path == plugins[0].Path).Select(p => p.Root).ToList();
                 var uses = new AssetUses();
                 var (scriptUses, modelUses, missing, inherited) = Assets.Find(mod, index, Checker.Name, Original, uses, faces: true);
                 if (c.Options.DmmDeps == null)
@@ -120,7 +123,7 @@ public static class ReleaseNeeds
                     {
                         reported.Add(m.Path);
                         findings.Add(new(Level.Problem, "script-missing",
-                            $"{name} attaches script {m.Script}, but {m.Path} is in none of {Zips(c)}'s loose files or archives, a --masters-dir mod's " +
+                            $"{name} attaches script {m.Script}, but {m.Path} is in none of {Zips(c)} loose files or archives, a --masters-dir mod's " +
                             $"archives or the game's archives (used by {Assets.Users(m.Users)}). Put the compiled script in the zip or its archive, " +
                             "or give --masters-dir the folder of the mod it comes from."));
                     }
@@ -128,7 +131,7 @@ public static class ReleaseNeeds
                     {
                         reported.Add(m.Path);
                         findings.Add(new(Level.Warning, "sound-missing",
-                            $"{name}: the sound bank {Assets.Users(m.Users)} streams {m.Path}, which is in none of {Zips(c)}'s loose files or archives, " +
+                            $"{name}: the sound bank {Assets.Users(m.Users)} streams {m.Path}, which is in none of {Zips(c)} loose files or archives, " +
                             "a --masters-dir mod's archives or the game's archives, so that sound is silent in the game. Put the .wem file in the zip " +
                             "or its archive (under sound\\soundbanks), or generate the bank again in Wwise with its media."));
                     }
@@ -137,7 +140,7 @@ public static class ReleaseNeeds
                         // a NOTE (P3 in the baton: Bethesda's own NPCs aren't always baked); DMMDeps can't see face files
                         // (KnownGaps), so face-missing runs with --dmmdeps too (0.14.0)
                         reported.Add(m.Path);
-                        findings.Add(new(Level.Note, "face-missing", $"{name}: {m.FaceText}. Looked in {Zips(c)}'s loose files and archives, " +
+                        findings.Add(new(Level.Note, "face-missing", $"{name}: {m.FaceText}. Looked in {Zips(c)} loose files and archives, " +
                                                                      "a --masters-dir mod's archives and the game's archives."));
                     }
                     else if (c.Options.DmmDeps != null) { }   // DMMDeps reports models, materials and textures itself
@@ -145,7 +148,7 @@ public static class ReleaseNeeds
                     {
                         reported.Add(m.Path);
                         findings.Add(new(Level.Warning, m.Kind + "-missing",
-                            $"{name}: the {m.Kind} {m.Path} is in none of {Zips(c)}'s loose files or archives, a --masters-dir mod's archives " +
+                            $"{name}: the {m.Kind} {m.Path} is in none of {Zips(c)} loose files or archives, a --masters-dir mod's archives " +
                             (m.Kind == "material" ? "or the game's archives, and isn't in any of their material databases " : "or the game's archives ") +
                             $"(used by {Assets.Users(m.Users)}). Put the file in the zip or its archive, or fix the path in the file that names it."));
                     }
@@ -153,7 +156,7 @@ public static class ReleaseNeeds
                     {
                         reported.Add(m.Path);
                         findings.Add(new(Level.Warning, "model-missing",
-                            $"{name} names the model {m.Path}, which is in none of {Zips(c)}'s loose files or archives, a --masters-dir mod's archives " +
+                            $"{name} names the model {m.Path}, which is in none of {Zips(c)} loose files or archives, a --masters-dir mod's archives " +
                             $"or the game's archives (used by {Assets.Users(m.Users)}). Put the file in the zip or its archive, or fix the path."));
                     }
                 }
@@ -185,7 +188,8 @@ public static class ReleaseNeeds
         return new LoadOrder<IModMasterStyledGetter>(list);
     }
 
-    static string Zips(ReleaseContext c) => c.Packages.Count == 1 ? c.Packages[0].Name : "the zips";
+    /// <summary>The zips' possessive for the messages: "MyMod-1.0.0.zip's" or "the zips'".</summary>
+    static string Zips(ReleaseContext c) => c.Packages.Count == 1 ? c.Packages[0].Name + "'s" : "the zips'";
 
     /// <summary>The folders holding the zips' plugins, each once, in zip order.</summary>
     static List<string> PluginDirs(ReleaseContext c) =>
@@ -204,7 +208,6 @@ public static class ReleaseNeeds
         }
         var roots = c.Packages.Select(p => p.Root).ToList();
         var index = AssetIndex.Build(names.Distinct(StringComparer.OrdinalIgnoreCase), roots, [], "en");
-        index.LooseBanksAreOwn = true;   // the loose folders are the zips' roots: their sound banks are the mod's own (0.14.0)
         foreach (var (a, why) in index.Unreadable)
             findings.Add(new(Level.Problem, "script-missing", $"{Assets.UnreadableText(a, why)}: rebuild the archive (Archive2 or the Creation Kit)"));
         return index;

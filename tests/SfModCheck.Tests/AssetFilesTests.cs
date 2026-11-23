@@ -436,6 +436,28 @@ public class AssetFilesTests
     }
 
     [Fact]
+    public void Release_with_two_zips_reports_a_loose_bank_under_the_plugin_whose_zip_ships_it()
+    {
+        // 0.14.0 bug hunt: the first plugin took every zip's loose banks, so a main mod's bank was blamed on its add-on
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        ReleaseNeedsTests.Write(data, "Starfield.esm", (_, _) => { });
+        var addon = s.Sub("RnAddon");
+        ReleaseNeedsTests.Write(addon, "RnAddon.esm", (_, _) => { });
+        var main = s.Sub("RnMain");
+        ReleaseNeedsTests.Write(main, "RnMain.esm", (_, _) => { });
+        Put(Path.Combine(main, "sound", "soundbanks", "77.bnk"), Bnk(140, (Codec, 2, 401)));
+        var ctx = ReleaseNeedsTests.Context(s, addon, data);
+        var zip = Path.Combine(s.Sub("zips"), "RnMain-0.1.0.zip");
+        System.IO.Compression.ZipFile.CreateFromDirectory(main, zip);
+        ctx.Options.Zips.Add(zip);
+        ctx.Packages.Add(ReleaseCommand.Unpack(zip, Path.Combine(ctx.Work, "zip1")));
+        var f = ReleaseNeeds.Run(ctx).Where(x => x.Rule == "sound-missing").ToList();
+        var miss = Assert.Single(f);
+        Assert.StartsWith(@"RnMain.esm: the sound bank sound\soundbanks\77.bnk streams sound\soundbanks\401.wem, which is in none of the zips' loose files", miss.Text);
+    }
+
+    [Fact]
     public void The_conflict_summary_counts_sounds_only_when_there_are_some()
     {
         var a = new Conflict.Analysis { AssetsChecked = true };
