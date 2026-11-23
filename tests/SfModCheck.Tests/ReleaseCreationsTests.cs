@@ -110,6 +110,10 @@ public class ReleaseCreationsTests
     [InlineData("X[!z-a].esm", "Xb.esm", true)]
     [InlineData("X[z-a0-9].esm", "X5.esm", true)]
     [InlineData("X[z-a0-9].esm", "Xb.esm", false)]
+    [InlineData("X[Z-a].esm", "X_.esm", false)]       // round 2: lower-cased first, so [Z-a] is reversed as in fnmatch
+    [InlineData("X[A-z].esm", "X_.esm", false)]       // and [A-z] is a to z, not the ASCII run between
+    [InlineData("X[A-z].esm", "XQ.esm", true)]
+    [InlineData("X?.esm", "X\n.esm", false)]          // on purpose: a newline never takes a shape (fnmatch says true)
     public void Wildcards_read_like_fnmatch(string pattern, string name, bool match) =>
         Assert.Equal(match, ReleaseCreations.Wildcard(pattern).IsMatch(name));
 

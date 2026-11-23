@@ -82,6 +82,8 @@ public static class ReleaseCreations
     // (round 2).
     // Shapes as Python's fnmatch reads them (0.13.0): * any characters, ? one character, [...] one character from a
     // class ([0-9A-F], [!x] for "not x"); an unclosed [ is a literal [. Everything else is matched literally.
+    // One difference, on purpose (code review 0.13.0, round 2): fnmatch lets * and ? match a newline, here they don't,
+    // so a name holding a newline never takes an official or allowed shape (the safe side, as \z above).
     internal static Regex Wildcard(string p)
     {
         var sb = new System.Text.StringBuilder("^");
@@ -98,7 +100,9 @@ public static class ReleaseCreations
                 while (j < p.Length && p[j] != ']') j++;
                 if (j < p.Length)
                 {
-                    var body = p[(i + 1)..j];
+                    // lower-cased first, as fnmatch on Windows (and creations-check.py) lower-cases the pattern, so a
+                    // range such as [Z-a] is reversed there too and [A-z] means a to z (code review 0.13.0, round 2)
+                    var body = p[(i + 1)..j].ToLowerInvariant();
                     bool negate = body.StartsWith('!');
                     if (negate) body = body[1..];
                     // a reversed range (z-a) is empty, as fnmatch drops it; a class left empty matches nothing (or, negated,

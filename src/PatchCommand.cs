@@ -690,7 +690,9 @@ public static class PatchCommand
                     foreach (var c in cells)
                     {
                         plan.Records.Remove(c);
-                        plan.NotBuilt.Add(new(c.FormKey, c.RecordType, c.EditorID, $"its worldspace {w} could not be read again", new()));
+                        // a parent cell noted above as "in the patch only as the parent" gets its one row corrected
+                        if (!NoteParentDropped(plan, c.FormKey, w))
+                            plan.NotBuilt.Add(new(c.FormKey, c.RecordType, c.EditorID, $"its worldspace {w} could not be read again", new()));
                         foreach (var o in plan.Records.Where(o => IsCellChild(o.Record) && plan.RefPlaces[o.FormKey].Cell == c.FormKey).ToList())
                         {
                             plan.Records.Remove(o);
@@ -716,7 +718,6 @@ public static class PatchCommand
         return plan;
     }
 
-    /// <summary>"2 patched placed objects and 1 patched navmesh": what a parent cell is in the patch for.</summary>
     /// <summary>A cell whose own build failed (a "Not built" row) can still be needed as the parent of patched placed
     /// objects or navmeshes. It then goes in as the game uses it today, and its row says so, so the report doesn't seem to
     /// list it twice for no reason: its own lost changes still need redoing (code review 0.13.0, round 1).</summary>
@@ -724,10 +725,32 @@ public static class PatchCommand
     {
         for (int k = 0; k < plan.NotBuilt.Count; k++)
             if (plan.NotBuilt[k].FormKey == cell)
-                plan.NotBuilt[k] = plan.NotBuilt[k] with { Why = plan.NotBuilt[k].Why + $"; it is in the patch only as the parent of {children}, " +
+                plan.NotBuilt[k] = plan.NotBuilt[k] with { Why = plan.NotBuilt[k].Why + ParentNoteMid + $"{children}, " +
                     "as the game uses it today, so its own lost changes are still not patched" };
     }
 
+    const string ParentNoteMid = "; it is in the patch only as the parent of ";
+
+    /// <summary>A parent cell left out after all, because its worldspace could not be read again: its note in Notes goes,
+    /// and a "Not built" row NoteNotBuiltParent marked is corrected instead of a second row being added. True when such a
+    /// row was there (code review 0.13.0, round 2).</summary>
+    internal static bool NoteParentDropped(Plan plan, FormKey cell, FormKey world)
+    {
+        plan.Notes.RemoveAll(n => n.StartsWith("Cell ") && n.Contains($"[{cell}] is in the patch as the parent of "));
+        bool had = false;
+        for (int k = 0; k < plan.NotBuilt.Count; k++)
+            if (plan.NotBuilt[k].FormKey == cell)
+            {
+                var why = plan.NotBuilt[k].Why;
+                var at = why.IndexOf(ParentNoteMid, StringComparison.Ordinal);
+                if (at >= 0) why = why[..at];
+                plan.NotBuilt[k] = plan.NotBuilt[k] with { Why = why + $"; it was needed as the parent of patched objects, but its worldspace {world} could not be read again, so it isn't in the patch" };
+                had = true;
+            }
+        return had;
+    }
+
+    /// <summary>"2 patched placed objects and 1 patched navmesh": what a parent cell is in the patch for.</summary>
     static string ChildrenText(IEnumerable<IMajorRecordGetter> children)
     {
         var list = children.ToList();
@@ -839,9 +862,10 @@ public static class PatchCommand
         // 0.13.0: a record holds one component of each kind (the city cells on 2026-11-22: every version had exactly one
         // CityMapsUsageComponent), so a component's kind is its identity. Without it, two versions of one component
         // whose file name differs only in letter case both went in, a duplicate. A kind Mutagen doesn't know gets none.
-        // Code review 0.13.0, round 1: only while no list in the merge holds two components of that kind (multiKinds, set
-        // by each Merge call); a kind that appears twice anywhere has no identity, so a second one is added, not swapped in.
+        // Code review 0.13.0, round 1: only while no version's list holds two components of that kind (multiKinds, set
+        // per field by Merge, round 2); a kind that appears twice anywhere has no identity, so a second one is added, not swapped in.
         var multiKinds = new HashSet<string>();
+        var multiByField = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         string? Identity(object? x) => x switch
         {
             IActorReactionGetter ar => "Actor:" + ar.Actor.FormKey,
@@ -922,10 +946,16 @@ public static class PatchCommand
             var baseBag = mv.Count > 0 ? mvBags[^1] : new Bag(H);
             var lBag = BagOf(lHeld);
             var stateBag = BagOf(state.Select(x => x.Held));
+            // round 2: worked out once per field over every version, so the rule can't change between one plugin's
+            // merge and the next (an earlier swap would then stand while a later plugin's merge added a second one)
+            if (!multiByField.TryGetValue(field, out var mk))
+            {
+                mk = new HashSet<string>();
+                for (int j = 0; j < vs.Count; j++) AddMultiKinds(mk, Items(Held(field, j)));
+                multiByField[field] = mk;
+            }
             multiKinds.Clear();
-            AddMultiKinds(multiKinds, lHeld);
-            AddMultiKinds(multiKinds, state.Select(x => x.Held));
-            foreach (var j in mv) AddMultiKinds(multiKinds, Items(Held(field, j)));
+            multiKinds.UnionWith(mk);
             for (int k = 0; k < lHeld.Count; k++)
             {
                 if (baseBag.Contains(lHeld[k]) || stateBag.Contains(lHeld[k])) continue;
@@ -1069,28 +1099,40 @@ public static class PatchCommand
         if (isNavmesh)
         {
             var unit = NavmeshUnit.Where(byName.ContainsKey).ToList();
-            var picked = unit.Select(f => forwarded.FirstOrDefault(x => x.Field == f && x.Picked)).OfType<ForwardedField>().LastOrDefault();
+            // A pick the loops above already took on a mesh field (a choice field, picking the winner or another
+            // plugin): the mesh follows that plugin, with no second row (code review 0.13.0, round 2).
+            var earlier = unit.LastOrDefault(f => plan.Choices.Any(c => c.FormKey == fk && c.Field == f && c.Picked && !c.Merged));
+            int u0 = earlier is not null ? source[earlier] : unit.Contains("NavmeshGeometry") ? source["NavmeshGeometry"] : -1;
+            bool MixedAt(int at) => at >= 0 && unit.Any(f => source[f] != at && !FieldCompare.DeepEq(Held(f, source[f]), Held(f, at), 0));
+            bool mixedNow = earlier is null && MixedAt(u0);
             // A pick on a mesh field the loops above didn't use (the geometry is usually a plain forwarded field, not a
             // choice): the report's mixed-mesh row prints such a pick, so it is taken here (code review 0.13.0, round 1).
-            var direct = picked is not null ? null : picks.Where(pk => pk.FormKey == fk && (pk.Field is null || unit.Contains(pk.Field)))
+            // A whole-record pick takes the mesh only when the mesh itself is in question (it would mix versions); else
+            // it leaves a forwarded mesh change alone, as it does every other forwarded field (round 2).
+            var direct = earlier is not null ? null : picks.Where(pk => pk.FormKey == fk && (pk.Field is null ? mixedNow : unit.Contains(pk.Field)))
                 .Where(pk => IndexOf(pk.Plugin) is var pi && pi >= 0 && unit.Any(f => FieldCompare.Provides(vs[pi].Rec, byName[f], out _)))
                 .OrderBy(pk => pk.Field is null ? 0 : 1).LastOrDefault();
             if (direct is not null)
             {
                 direct.Used = true;
                 var di = IndexOf(direct.Plugin);
+                // the mesh the patch would hold without the pick: today's when it would mix, else the geometry's version
+                bool changes = unit.Any(f => !FieldCompare.DeepEq(Held(f, di), Held(f, mixedNow ? today[f] : u0 >= 0 ? u0 : source[f]), 0));
+                var who = forwarded.Where(x => unit.Contains(x.Field)).Select(x => x.From).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 forwarded.RemoveAll(x => unit.Contains(x.Field));
                 plan.Choices.RemoveAll(c => c.FormKey == fk && unit.Contains(c.Field) && !c.Picked);
                 if (unit.Any(f => di != today[f] && !FieldCompare.DeepEq(Held(f, di), Held(f, today[f]), 0)))
-                {
-                    picked = new ForwardedField(unit[0], direct.Plugin, "picked with --pick", Picked: true);
-                    forwarded.Add(picked);
-                }
-                plan.Choices.Add(new(fk, first.RecordType, first.EditorID, unit[0], vs[^1].Plugin.FileName, direct.Plugin, true, $"--pick: {direct.Plugin}'s whole mesh is used"));
-                Log.Write($"patch: navmesh {fk}: --pick takes {direct.Plugin}'s whole mesh");
+                    forwarded.Add(new ForwardedField(unit[0], direct.Plugin, "picked with --pick", Picked: true));
+                // a row only when the pick changes the patch; it names the plugin whose mesh change the pick drops
+                // when the plugin picked is the winner
+                var winner = vs[^1].Plugin.FileName;
+                var other = !direct.Plugin.Equals(winner, StringComparison.OrdinalIgnoreCase) ? direct.Plugin : who.Count > 0 ? who[^1] : direct.Plugin;
+                if (changes || mixedNow)
+                    plan.Choices.Add(new(fk, first.RecordType, first.EditorID, unit[0], winner, other, true, $"--pick: {direct.Plugin}'s whole mesh is used"));
+                Log.Write($"patch: navmesh {fk}: --pick takes {direct.Plugin}'s whole mesh{(changes || mixedNow ? "" : " (the mesh the patch holds anyway)")}");
             }
-            int u = direct is not null ? IndexOf(direct.Plugin) : picked is not null ? IndexOf(picked.From) : unit.Contains("NavmeshGeometry") ? source["NavmeshGeometry"] : -1;
-            bool mixed = u >= 0 && picked is null && direct is null &&unit.Any(f => source[f] != u && !FieldCompare.DeepEq(Held(f, source[f]), Held(f, u), 0));
+            int u = direct is not null ? IndexOf(direct.Plugin) : u0;
+            bool mixed = direct is null && mixedNow;
             if (mixed)
             {
                 var who = forwarded.Where(x => unit.Contains(x.Field)).Select(x => x.From).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

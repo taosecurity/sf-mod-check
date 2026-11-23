@@ -29,6 +29,7 @@
 - A navmesh's mesh (geometry, NNAM, pre-cut entries) comes whole from one plugin, never field by field.
 - When two plugins each changed a different part of one navmesh's mesh, today's mesh is kept and listed under choices.
 - The `--pick` line printed for such a navmesh takes that plugin's whole mesh when you run it.
+- A whole-record `--pick` takes a navmesh's mesh only when the mesh would mix versions; a forwarded mesh change stays.
 - In a merged component list, a component's kind counts as its identity only while no version holds two of that kind.
 - With `--include-official`, cells, worldspaces, placed objects and navmeshes one official plugin loses to another are restored too.
 - `--verbose` logs where each patched cell, placed object and navmesh goes, and each cell or worldspace added as a parent.
@@ -43,6 +44,7 @@
 - `release --profile creations`: Bethesda's own masters are now matched by exact name shape (`SFBGS` plus three hex digits, `sfta` plus two digits, and their `BlueprintShips-` files), as `check` does.
 - Before, the `SFBGS*` and `SFTA*` patterns also let a mod such as `SFBGS003Fixes.esm` pass as official.
 - The `[official]` patterns in `data\creations-masters.txt` now read `?` and `[...]` classes as Python's fnmatch does.
+- Classes are read in lower case, as fnmatch on Windows does, so `[A-z]` means a to z. A name with a newline never matches.
 
 ### Example
 

@@ -395,6 +395,120 @@ public class PatchCellsTests
         CheckIsClean(game);
     }
 
+    static int Count(string text, string part)
+    {
+        int n = 0;
+        for (int at = text.IndexOf(part, StringComparison.Ordinal); at >= 0; at = text.IndexOf(part, at + part.Length, StringComparison.Ordinal)) n++;
+        return n;
+    }
+
+    (int Code, string Stdout, string Stderr) PickRun(Game game, string[] active, params string[] picks)
+    {
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, active.Select(a => "*" + a));
+        var args = new List<string> { "patch", "--data", game.Data, "--plugins", txt, "--out", game.Out, "--quiet" };
+        foreach (var p in picks) { args.Add("--pick"); args.Add(p); }
+        return ExeTests.RunSplit(args.ToArray());
+    }
+
+    // code review 0.13.0, round 2: a pick of the winner on a mesh field both changed is taken once, by the choice loop,
+    // and gives one row (before the fix the navmesh step took the same pick again and added a second row)
+    [Fact]
+    public void A_pick_of_the_winner_on_a_mesh_choice_gives_one_row()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 5));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 6));
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModB.esm"], $"{game.Navmesh}:NavmeshGeometry=ModB.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        var report = File.ReadAllText(Path.Combine(game.Out, "patch-report.md"));
+        Assert.Equal(1, Count(report, "--pick: ModB.esm's"));
+        Assert.DoesNotContain("whole mesh is used", report);
+    }
+
+    // code review 0.13.0, round 2: a whole-record pick made for another field leaves a forwarded mesh change alone (before
+    // the fix it took the picked plugin's mesh and dropped ModA's geometry)
+    [Fact]
+    public void A_whole_record_pick_keeps_a_forwarded_mesh_change()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 5));
+        game.Mod("ModC.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).EditorID = "C_Navm");
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).EditorID = "B_Navm2");
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModC.esm", "ModB.esm"], $"{game.Navmesh}=ModC.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
+        Assert.Equal("C_Navm", n.EditorID);
+        Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
+        Assert.DoesNotContain("whole mesh is used", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+        CheckIsClean(game);
+    }
+
+    // code review 0.13.0, round 2: a pick naming the mesh the patch holds anyway changes nothing, so it adds no row (and
+    // isn't reported as unused either)
+    [Fact]
+    public void A_pick_of_the_mesh_the_patch_holds_anyway_adds_no_row()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => { var n = Game.NavIn(m, c, game.Navmesh); n.NavmeshGeometry = Game.Geometry(game.Interior, 5); n.NNAM = Nnam(7); });
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).EditorID = "B_NavmRenamed");
+        var (code, stdout, stderr) = PickRun(game, ["Base.esm", "ModA.esm", "ModB.esm"], $"{game.Navmesh}:NavmeshGeometry=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
+        Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
+        Assert.DoesNotContain("whole mesh is used", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+    }
+
+    // code review 0.13.0, round 2: a parent cell left out after all (its worldspace couldn't be read again) has one
+    // corrected "Not built" row, and its parent note goes
+    [Fact]
+    public void A_parent_cell_whose_worldspace_fails_keeps_one_corrected_row()
+    {
+        var plan = new PatchCommand.Plan();
+        var fk = FormKey.Factory("000801:Base.esm");
+        var other = FormKey.Factory("000802:Base.esm");
+        var w = FormKey.Factory("000900:Base.esm");
+        plan.NotBuilt.Add(new(fk, "Cell", "B_Cell", "it could not be built (X: y)", new()));
+        PatchCommand.NoteNotBuiltParent(plan, fk, "1 patched placed object");
+        plan.Notes.Add($"Cell B_Cell [{fk}] is in the patch as the parent of 1 patched placed object: the record as the game uses it today, with no field changed");
+        plan.Notes.Add($"Cell B_Other [{other}] is in the patch as the parent of 1 patched navmesh: the record as the game uses it today, with no field changed");
+        Assert.True(PatchCommand.NoteParentDropped(plan, fk, w));
+        var row = Assert.Single(plan.NotBuilt);
+        Assert.StartsWith("it could not be built (X: y); it was needed as the parent", row.Why);
+        Assert.DoesNotContain("it is in the patch only", row.Why);
+        Assert.Contains($"its worldspace {w} could not be read again", row.Why);
+        Assert.Contains($"[{other}]", Assert.Single(plan.Notes));
+        // a parent cell with no row of its own: its note goes, and the caller adds the row
+        Assert.False(PatchCommand.NoteParentDropped(plan, other, w));
+        Assert.Empty(plan.Notes);
+    }
+
+    // code review 0.13.0, round 2: whether a component kind is an identity is worked out once per field over every
+    // version, so the same plugins give the same list in either order
+    [Fact]
+    public void Component_lists_merge_the_same_in_either_load_order()
+    {
+        List<string> Files(string[] order)
+        {
+            using var game = new Game();
+            game.Mod("ModA.esm", (m, b, c) => { var x = Game.CellIn(m, c, game.Interior); x.Components.Clear(); x.Components.Add(Game.CityMap("maps\\a.dat")); });
+            game.Mod("ModC.esm", (m, b, c) => Game.CellIn(m, c, game.Interior).Components.Add(Game.CityMap("maps\\c.dat")));
+            game.Mod("ModB.esm", (m, b, c) => Game.CellIn(m, c, game.Interior).WaterHeight = 3);
+            var (code, stdout, stderr) = game.Patch(order);
+            Assert.True(code == 0, stdout + stderr);
+            var cell = Assert.Single(game.OpenPatch().EnumerateMajorRecords<ICellGetter>(), x => x.FormKey == game.Interior);
+            return cell.Components.OfType<ICityMapsUsageComponentGetter>()
+                .Select(x => System.Text.Encoding.ASCII.GetString(x.MOD2!.Value.ToArray()).TrimEnd('\0')).OrderBy(s => s).ToList();
+        }
+        var one = Files(["Base.esm", "ModA.esm", "ModC.esm", "ModB.esm"]);
+        var two = Files(["Base.esm", "ModC.esm", "ModA.esm", "ModB.esm"]);
+        Assert.Equal(new[] { "maps\\a.dat", "maps\\c.dat" }, one);
+        Assert.Equal(one, two);
+    }
+
     [Fact]
     public void Readme_and_agents_say_placed_objects_and_navmeshes_are_built()
     {
