@@ -15,7 +15,7 @@
 - The `--log` and `--verbose` lines escape them too, and the later lines of one multi-line entry (a stack trace) are indented by two spaces.
 - Ordinary names, accented letters and dashes print as before.
 - `conflict` rates a file name stored as raw bytes (a city-map component's file) that differs only in letter case as "No effect", as it does a text field. `patch` leaves such a change alone.
-- Raw bytes count as a file name only when they hold printable text, and only letters in that text may differ.
+- Raw bytes count as a file name only when they hold printable text of three characters or more with a dot or a path separator, and only letters in that text may differ.
 
 ### Added
 
@@ -28,6 +28,8 @@
 - `patch` builds navmeshes, each in its cell, with the cell brought in as the game uses it today when needed.
 - A navmesh's mesh (geometry, NNAM, pre-cut entries) comes whole from one plugin, never field by field.
 - When two plugins each changed a different part of one navmesh's mesh, today's mesh is kept and listed under choices.
+- The `--pick` line printed for such a navmesh takes that plugin's whole mesh when you run it.
+- In a merged component list, a component's kind counts as its identity only while no version holds two of that kind.
 - With `--include-official`, cells, worldspaces, placed objects and navmeshes one official plugin loses to another are restored too.
 - `--verbose` logs where each patched cell, placed object and navmesh goes, and each cell or worldspace added as a parent.
 - `patch --verbose` logs one line for every record it decides on: built (with the fields forwarded and the lists merged), left out as equal to today's, or not built and why.

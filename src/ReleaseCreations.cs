@@ -101,6 +101,21 @@ public static class ReleaseCreations
                     var body = p[(i + 1)..j];
                     bool negate = body.StartsWith('!');
                     if (negate) body = body[1..];
+                    // a reversed range (z-a) is empty, as fnmatch drops it; a class left empty matches nothing (or, negated,
+                    // any one character), so one odd line never makes the .NET pattern throw (code review 0.13.0, round 1)
+                    var kept = new System.Text.StringBuilder();
+                    for (int k = 0; k < body.Length; k++)
+                    {
+                        if (k + 2 < body.Length && body[k + 1] == '-')
+                        {
+                            if (body[k + 2] >= body[k]) kept.Append(body, k, 3);
+                            k += 2;
+                            continue;
+                        }
+                        kept.Append(body[k]);
+                    }
+                    body = kept.ToString();
+                    if (body.Length == 0) { sb.Append(negate ? "." : "(?!)"); i = j; continue; }
                     // inside a .NET class only \, ] , [ and ^ need care; - keeps its range meaning
                     var esc = body.Replace("\\", "\\\\").Replace("[", "\\[").Replace("]", "\\]").Replace("^", "\\^");
                     sb.Append('[').Append(negate ? "^" : "").Append(esc).Append(']');

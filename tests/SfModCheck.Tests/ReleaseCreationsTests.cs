@@ -106,6 +106,10 @@ public class ReleaseCreationsTests
     [InlineData("X[.esm", "X[.esm", true)]
     [InlineData("A.esm", "AXesm", false)]
     [InlineData("*.esm", "Any Name.esm", true)]
+    [InlineData("X[z-a].esm", "Xb.esm", false)]       // a reversed range is empty, as in fnmatch (no exception)
+    [InlineData("X[!z-a].esm", "Xb.esm", true)]
+    [InlineData("X[z-a0-9].esm", "X5.esm", true)]
+    [InlineData("X[z-a0-9].esm", "Xb.esm", false)]
     public void Wildcards_read_like_fnmatch(string pattern, string name, bool match) =>
         Assert.Equal(match, ReleaseCreations.Wildcard(pattern).IsMatch(name));
 

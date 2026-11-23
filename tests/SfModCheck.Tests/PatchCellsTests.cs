@@ -261,6 +261,22 @@ public class PatchCellsTests
         Assert.Contains("the patched record would equal today's", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
     }
 
+    // code review 0.13.0, round 1: a mod that adds a second component of a kind the list already has keeps it; the kind is
+    // an identity only while every list holds one of it (before the fix, the winner's one city map swallowed ModA's second)
+    [Fact]
+    public void A_second_component_of_one_kind_is_added_not_swapped_in()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.CellIn(m, c, game.Interior).Components.Add(Game.CityMap("maps\\town.dat")));
+        game.Mod("ModB.esm", (m, b, c) => { var x = Game.CellIn(m, c, game.Interior); x.Components.Clear(); x.Components.Add(Game.CityMap("maps\\other.dat")); });
+        var (code, stdout, stderr) = game.Patch("Base.esm", "ModA.esm", "ModB.esm");
+        Assert.True(code == 0, stdout + stderr);
+        var cell = Assert.Single(game.OpenPatch().EnumerateMajorRecords<ICellGetter>(), x => x.FormKey == game.Interior);
+        var files = cell.Components.OfType<ICityMapsUsageComponentGetter>()
+            .Select(x => System.Text.Encoding.ASCII.GetString(x.MOD2!.Value.ToArray()).TrimEnd('\0')).ToList();
+        Assert.Equal(new[] { "maps\\other.dat", "maps\\town.dat" }, files);
+    }
+
     [Fact]
     public void Cells_worldspaces_placed_objects_and_navmeshes_are_built()
     {
@@ -322,6 +338,43 @@ public class PatchCellsTests
         Assert.Contains("the patched record would equal today's", report);
         Assert.DoesNotContain("navmeshes", ExeTests.ResultLine(stdout));
         Assert.False(File.Exists(Path.Combine(game.Out, "ConflictPatch.esm")) && game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>().Any());
+    }
+
+    // code review 0.13.0, round 1: the mixed-mesh row's --pick line works when run (the geometry is a plain forwarded
+    // field there, which the choice loops never picked, so the pick went unused before the fix)
+    [Fact]
+    public void The_pick_a_mixed_mesh_row_suggests_takes_that_mesh()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NavmeshGeometry = Game.Geometry(game.Interior, 5));
+        game.Mod("ModB.esm", (m, b, c) => Game.NavIn(m, c, game.Navmesh).NNAM = Nnam(9));
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, new[] { "*Base.esm", "*ModA.esm", "*ModB.esm" });
+        var (code0, stdout0, stderr0) = ExeTests.RunSplit("patch", "--data", game.Data, "--plugins", txt, "--out", game.Out, "--quiet");
+        Assert.True(code0 == 0, stdout0 + stderr0);
+        Assert.Contains($"--pick {game.Navmesh}:NavmeshGeometry=ModA.esm", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+        Directory.Delete(game.Out, true);
+        var (code, stdout, stderr) = ExeTests.RunSplit("patch", "--data", game.Data, "--plugins", txt, "--out", game.Out, "--quiet",
+            "--pick", $"{game.Navmesh}:NavmeshGeometry=ModA.esm");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.DoesNotContain("was not used", stdout + stderr);
+        var n = Assert.Single(game.OpenPatch().EnumerateMajorRecords<INavigationMeshGetter>());
+        Assert.Equal(5f, Assert.Single(n.NavmeshGeometry!.Vertices).Point.X);
+        Assert.Null(n.NNAM);   // ModA's whole mesh: its NNAM is Base's (none), not ModB's
+        Assert.Contains("whole mesh is used", File.ReadAllText(Path.Combine(game.Out, "patch-report.md")));
+        CheckIsClean(game);
+    }
+
+    [Fact]
+    public void A_cell_that_failed_to_build_but_is_a_parent_says_so()
+    {
+        var plan = new PatchCommand.Plan();
+        var fk = FormKey.Factory("000801:Base.esm");
+        plan.NotBuilt.Add(new(fk, "Cell", "B_Cell", "it could not be built (X: y)", new()));
+        PatchCommand.NoteNotBuiltParent(plan, fk, "1 patched placed object");
+        var row = Assert.Single(plan.NotBuilt);
+        Assert.StartsWith("it could not be built (X: y); it is in the patch only as the parent of 1 patched placed object", row.Why);
+        Assert.EndsWith("so its own lost changes are still not patched", row.Why);
     }
 
     // step 8c: both change the geometry: the winner's mesh stays unless --pick takes another plugin's whole mesh
@@ -550,6 +603,11 @@ public class PatchCellsTests
         // blobs of other lengths, and a value that isn't a blob
         Assert.False(SfModCheck.Conflict.Impact.TextBlobCaseOnly(new byte[] { 0x61 }, new byte[] { 0x41, 0 }));
         Assert.False(SfModCheck.Conflict.Impact.TextBlobCaseOnly("a", "A"));
+        // code review 0.13.0, round 1: a number or flags kept as bytes is no file name (65 against 97, "AB" against "ab")
+        Assert.False(SfModCheck.Conflict.Impact.TextBlobCaseOnly(new byte[] { 0x41, 0, 0, 0 }, new byte[] { 0x61, 0, 0, 0 }));
+        Assert.False(SfModCheck.Conflict.Impact.TextBlobCaseOnly(new byte[] { 0x41, 0x42 }, new byte[] { 0x61, 0x62 }));
+        Assert.False(SfModCheck.Conflict.Impact.TextBlobCaseOnly(new byte[] { 0x41, 0x42, 0x43, 0x44 }, new byte[] { 0x61, 0x62, 0x63, 0x64 }));
+        Assert.True(SfModCheck.Conflict.Impact.TextBlobCaseOnly(new byte[] { 0x41, 0x2E, 0x42, 0 }, new byte[] { 0x61, 0x2E, 0x62, 0 }));
     }
 
     // step 8d: official files load before every mod (BlueprintShips files aside), even when Plugins.txt lists one after

@@ -620,8 +620,9 @@ public static class PatchCommand
         // in as the game uses it today (the same rule as a worldspace below): no other mod's change to the cell is undone.
         foreach (var r in plan.Records.Where(r => IsCellChild(r.Record)))
             Log.Write($"patch: {(r.Record is INavigationMeshGetter ? "navmesh" : "placed object")} {r.EditorID} [{r.FormKey}] goes in {plan.RefPlaces[r.FormKey]}");
+        var planKeys = plan.Records.Select(r => r.FormKey).ToHashSet();
         var cellsNeeded = plan.Records.Where(r => IsCellChild(r.Record)).Select(r => plan.RefPlaces[r.FormKey].Cell)
-            .Where(c => !plan.Records.Any(r => r.FormKey == c)).ToHashSet();
+            .Where(c => !planKeys.Contains(c)).ToHashSet();
         if (cellsNeeded.Count > 0)
         {
             var cv = new Dictionary<FormKey, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>>();
@@ -655,6 +656,7 @@ public static class PatchCommand
                 plan.Records.Add(new(c, "Cell", edid, rec, new(), vs.Select(v => v.Plugin.FileName).ToList(),
                     source.ToDictionary(s => s.Key, s => vs[s.Value].Rec), new()) { Parent = true });
                 plan.Notes.RemoveAll(n => n.Contains($"[{c}]") && n.EndsWith("so it is left out"));
+                NoteNotBuiltParent(plan, c, ChildrenText(refs.Select(r => r.Record)));
                 plan.Notes.Add($"Cell {edid} [{c}] is in the patch as the parent of {ChildrenText(refs.Select(r => r.Record))}: " +
                                "the record as the game uses it today, with no field changed");
                 Log.Write($"patch: cell {edid} [{c}] added as the parent of {ChildrenText(refs.Select(r => r.Record))}, as the game uses it today (from {vs.Count} versions), in {plan.Places[c]}");
@@ -666,8 +668,9 @@ public static class PatchCommand
         // the worldspace is undone, and nothing of its own is changed.
         foreach (var r in plan.Records.Where(r => r.Record is ICellGetter).ToList())
             Log.Write($"patch: cell {r.EditorID} [{r.FormKey}] goes in {plan.Places[r.FormKey]}");
+        planKeys = plan.Records.Select(r => r.FormKey).ToHashSet();
         var worldsNeeded = plan.Records.Where(r => r.Record is ICellGetter).Select(r => plan.Places[r.FormKey].World).OfType<FormKey>()
-            .Where(w => !plan.Records.Any(r => r.FormKey == w)).ToHashSet();
+            .Where(w => !planKeys.Contains(w)).ToHashSet();
         if (worldsNeeded.Count > 0)
         {
             var wv = new Dictionary<FormKey, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>>();
@@ -714,6 +717,17 @@ public static class PatchCommand
     }
 
     /// <summary>"2 patched placed objects and 1 patched navmesh": what a parent cell is in the patch for.</summary>
+    /// <summary>A cell whose own build failed (a "Not built" row) can still be needed as the parent of patched placed
+    /// objects or navmeshes. It then goes in as the game uses it today, and its row says so, so the report doesn't seem to
+    /// list it twice for no reason: its own lost changes still need redoing (code review 0.13.0, round 1).</summary>
+    internal static void NoteNotBuiltParent(Plan plan, FormKey cell, string children)
+    {
+        for (int k = 0; k < plan.NotBuilt.Count; k++)
+            if (plan.NotBuilt[k].FormKey == cell)
+                plan.NotBuilt[k] = plan.NotBuilt[k] with { Why = plan.NotBuilt[k].Why + $"; it is in the patch only as the parent of {children}, " +
+                    "as the game uses it today, so its own lost changes are still not patched" };
+    }
+
     static string ChildrenText(IEnumerable<IMajorRecordGetter> children)
     {
         var list = children.ToList();
@@ -825,12 +839,20 @@ public static class PatchCommand
         // 0.13.0: a record holds one component of each kind (the city cells on 2026-11-22: every version had exactly one
         // CityMapsUsageComponent), so a component's kind is its identity. Without it, two versions of one component
         // whose file name differs only in letter case both went in, a duplicate. A kind Mutagen doesn't know gets none.
-        static string? Identity(object? x) => x switch
+        // Code review 0.13.0, round 1: only while no list in the merge holds two components of that kind (multiKinds, set
+        // by each Merge call); a kind that appears twice anywhere has no identity, so a second one is added, not swapped in.
+        var multiKinds = new HashSet<string>();
+        string? Identity(object? x) => x switch
         {
             IActorReactionGetter ar => "Actor:" + ar.Actor.FormKey,
-            IAComponentGetter c when ComponentKind(c) is { } kind => "Component:" + kind,
+            IAComponentGetter c when ComponentKind(c) is { } kind && !multiKinds.Contains(kind) => "Component:" + kind,
             _ => null,
         };
+        static void AddMultiKinds(HashSet<string> into, IEnumerable<object?> list)
+        {
+            foreach (var g in list.OfType<IAComponentGetter>().Select(ComponentKind).OfType<string>().GroupBy(k => k))
+                if (g.Count() > 1) into.Add(g.Key);
+        }
         bool isLocation = vs[^1].Rec is ILocationGetter;
         // A location's Master* lists hold the base game's own entries, and full-copy mods leave them empty: the patch
         // takes them from the last official version that has them, as the in-game-proven builder does.
@@ -900,6 +922,10 @@ public static class PatchCommand
             var baseBag = mv.Count > 0 ? mvBags[^1] : new Bag(H);
             var lBag = BagOf(lHeld);
             var stateBag = BagOf(state.Select(x => x.Held));
+            multiKinds.Clear();
+            AddMultiKinds(multiKinds, lHeld);
+            AddMultiKinds(multiKinds, state.Select(x => x.Held));
+            foreach (var j in mv) AddMultiKinds(multiKinds, Items(Held(field, j)));
             for (int k = 0; k < lHeld.Count; k++)
             {
                 if (baseBag.Contains(lHeld[k]) || stateBag.Contains(lHeld[k])) continue;
@@ -1044,8 +1070,27 @@ public static class PatchCommand
         {
             var unit = NavmeshUnit.Where(byName.ContainsKey).ToList();
             var picked = unit.Select(f => forwarded.FirstOrDefault(x => x.Field == f && x.Picked)).OfType<ForwardedField>().LastOrDefault();
-            int u = picked is not null ? IndexOf(picked.From) : unit.Contains("NavmeshGeometry") ? source["NavmeshGeometry"] : -1;
-            bool mixed = u >= 0 && picked is null && unit.Any(f => source[f] != u && !FieldCompare.DeepEq(Held(f, source[f]), Held(f, u), 0));
+            // A pick on a mesh field the loops above didn't use (the geometry is usually a plain forwarded field, not a
+            // choice): the report's mixed-mesh row prints such a pick, so it is taken here (code review 0.13.0, round 1).
+            var direct = picked is not null ? null : picks.Where(pk => pk.FormKey == fk && (pk.Field is null || unit.Contains(pk.Field)))
+                .Where(pk => IndexOf(pk.Plugin) is var pi && pi >= 0 && unit.Any(f => FieldCompare.Provides(vs[pi].Rec, byName[f], out _)))
+                .OrderBy(pk => pk.Field is null ? 0 : 1).LastOrDefault();
+            if (direct is not null)
+            {
+                direct.Used = true;
+                var di = IndexOf(direct.Plugin);
+                forwarded.RemoveAll(x => unit.Contains(x.Field));
+                plan.Choices.RemoveAll(c => c.FormKey == fk && unit.Contains(c.Field) && !c.Picked);
+                if (unit.Any(f => di != today[f] && !FieldCompare.DeepEq(Held(f, di), Held(f, today[f]), 0)))
+                {
+                    picked = new ForwardedField(unit[0], direct.Plugin, "picked with --pick", Picked: true);
+                    forwarded.Add(picked);
+                }
+                plan.Choices.Add(new(fk, first.RecordType, first.EditorID, unit[0], vs[^1].Plugin.FileName, direct.Plugin, true, $"--pick: {direct.Plugin}'s whole mesh is used"));
+                Log.Write($"patch: navmesh {fk}: --pick takes {direct.Plugin}'s whole mesh");
+            }
+            int u = direct is not null ? IndexOf(direct.Plugin) : picked is not null ? IndexOf(picked.From) : unit.Contains("NavmeshGeometry") ? source["NavmeshGeometry"] : -1;
+            bool mixed = u >= 0 && picked is null && direct is null &&unit.Any(f => source[f] != u && !FieldCompare.DeepEq(Held(f, source[f]), Held(f, u), 0));
             if (mixed)
             {
                 var who = forwarded.Where(x => unit.Contains(x.Field)).Select(x => x.From).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

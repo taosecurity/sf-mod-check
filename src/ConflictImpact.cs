@@ -489,13 +489,17 @@ public static class Impact
 
     /// <summary>True when two byte blobs hold the same text that differs only in letter case (0.13.0): same length,
     /// each holds printable ASCII text up to its first zero byte (or its end), every differing byte lies in that text and
-    /// is the same ASCII letter in the other case. A raw file name (a city-map component's MOD2 path buffer) is such a
+    /// is the same ASCII letter in the other case, and the text looks like a file name (three characters or more, with a
+    /// dot or a path separator). A raw file name (a city-map component's MOD2 path buffer) is such a
     /// blob; game paths ignore letter case, as the string rule above says. Any other byte difference stays a real one.</summary>
     internal static bool TextBlobCaseOnly(object a, object b)
     {
         if (!SfModCheck.Overrides.TryBlob(a, out var sa) || !SfModCheck.Overrides.TryBlob(b, out var sb) || sa.Length != sb.Length || sa.Length == 0) return false;
         int ta = TextLength(sa), tb = TextLength(sb);
         if (ta <= 0 || ta != tb) return false;
+        // only a file name: at least "a.b" long and holding a dot or a path separator, so a small number or a flags
+        // field kept as bytes (0x41 against 0x61) stays a real change (code review 0.13.0, round 1)
+        if (ta < 3 || !sa[..ta].ContainsAny((byte)'.', (byte)'\\', (byte)'/')) return false;
         bool differs = false;
         for (int i = 0; i < sa.Length; i++)
         {
