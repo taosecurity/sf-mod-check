@@ -476,6 +476,26 @@ public class ReleaseRulesTests
     }
 
     [Fact]
+    public void Patch_archive_with_an_unloaded_part_is_told_the_patch_name_not_the_base_name()
+    {
+        // code review round 4 (2026-11-23): with Foo.esm and "Foo - Patch.esm" both there and neither part loading,
+        // "Foo - Patch - Sounds.ba2" belongs to the longer name, so the advice must not attach it to Foo.esm
+        using var s = new Sandbox();
+        var f = One(Rules(s, MakeZip(s, "Foo-0.1.0.zip", ("Foo.esm", Plugin()), ("Foo - Patch.esm", Plugin()), ("Foo - Patch - Sounds.ba2", MainBa2()))), "archive-name");
+        Assert.Equal(Level.Warning, f.Level);
+        Assert.Contains("to Foo - Patch - Main.ba2", f.Text);
+        // the same for plugins outside the zips
+        using var t = new Sandbox();
+        var masters = t.Sub("masters");
+        File.WriteAllBytes(Path.Combine(masters, "BaseMod.esm"), Plugin());
+        File.WriteAllBytes(Path.Combine(masters, "BaseMod - Patch.esm"), Plugin());
+        var o = new ReleaseOptions();
+        o.MastersDirs.Add(masters);
+        var g = One(Rules(t, o, MakeZip(t, "Patch-0.1.0.zip", ("MyPatch.esm", Plugin()), ("BaseMod - Patch - Sounds.ba2", MainBa2()))), "archive-name");
+        Assert.Contains("to BaseMod - Patch - Main.ba2", g.Text);
+    }
+
+    [Fact]
     public void Docs_name_the_0151_archive_part_warning()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

@@ -238,10 +238,11 @@ public static class ReleaseRules
             var dir = DirOf(norm);
             var file = norm[(dir.Length == 0 ? 0 : dir.Length + 1)..];
             var stem = file[..^4];
-            // with Foo.esm and "Foo - Patch.esm" both there, "Foo - Patch - Main.ba2" belongs to the one whose part loads
+            // with Foo.esm and "Foo - Patch.esm" both there, "Foo - Patch - Main.ba2" belongs to the one whose part loads,
+            // else to the longest name (review round 4: "Foo - Patch - Sounds.ba2" is the patch's, not Foo's)
             var owners = plugins.Where(pl => DirOf(pl) == dir)
                 .Select(pl => Path.GetFileNameWithoutExtension(pl[(dir.Length == 0 ? 0 : dir.Length + 1)..]))
-                .Where(s => stem.StartsWith(s + " - ", StringComparison.Ordinal)).ToList();
+                .Where(s => stem.StartsWith(s + " - ", StringComparison.Ordinal)).OrderByDescending(s => s.Length).ToList();
             var owner = owners.FirstOrDefault(s => LoadedPart.IsMatch(stem[(s.Length + 3)..])) ?? owners.FirstOrDefault();
             if (owner != null)
             {
@@ -351,7 +352,7 @@ public static class ReleaseRules
 
     /// <summary>The plugin outside the zips (in the Data folder or a --masters-dir folder) that an archive's name starts
     /// with, followed by " - ", or null. When several match (Foo.esm and "Foo - Patch.esm"), the one whose part the game
-    /// loads wins, else the shortest name. The stem is lower case, so plugin names are compared ignoring case (Linux file
+    /// loads wins, else the longest name (review round 4). The stem is lower case, so plugin names are compared ignoring case (Linux file
     /// names are case-sensitive).</summary>
     static string? OutsideOwner(ReleaseContext c, string stem)
     {
@@ -367,7 +368,7 @@ public static class ReleaseRules
                 if (names.TryGetValue(stem[..i] + ext, out var real))
                 {
                     if (LoadedPart.IsMatch(stem[(i + 3)..])) return real;
-                    first ??= real;
+                    first = real;   // later matches are longer names
                 }
         return first;
     }
