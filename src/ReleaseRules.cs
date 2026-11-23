@@ -9,7 +9,8 @@
 //                     archive stores them as is; Archive2 compresses by default)
 //   ba2-unreadable    an archive whose header or records don't add up
 //   archive-name      (0.14.0) a .ba2 not named "<plugin> - <part>.ba2" for a plugin in the zips, Data or --masters-dir:
-//                     PROBLEM in a zip with a plugin, WARNING in one without or when an INI in the zip lists it
+//                     PROBLEM in a zip with a plugin, WARNING in one without or when an INI in the zip lists it;
+//                     (0.15.1) WARNING when <part> isn't Main or Textures (optionally 01-99) or a numbered part has a gap
 //   file-name         (0.14.0, WARNING) a non-ASCII character in a loose path or a name inside an archive; a loose
 //                     data-relative path over 200 characters
 // House rules (RuleKind.House, a WARNING in the basic profile):
@@ -216,10 +217,14 @@ public static class ReleaseRules
     /// never loads); in a zip with no plugin it is a WARNING (it may be meant for an INI). An archive named after a plugin
     /// in the Data folder or a --masters-dir folder (the game's own, or the mod this one patches) is fine, and one that an
     /// INI in the zip lists is a WARNING. The Xbox twin ("... - Main_xbox.ba2") carries the same name and passes the same
-    /// way.</summary>
+    /// way. 0.15.1: the game's own loader opens only the parts Main and Textures, each also numbered 01 to 99 and stopping
+    /// at the first missing number (NOTES "RE: archive loader (0.15.0)"), so a plugin's archive with another part, or a
+    /// numbered one after a gap, is a WARNING (an INI can still load it on purpose).</summary>
     static IEnumerable<ReleaseFinding> ArchiveNames(ReleaseContext c, ReleasePackage p, Func<string, string> rel, Func<string, string> show)
     {
         var o = new List<ReleaseFinding>();
+        // numbered Main and Textures archives by folder, plugin, part and Xbox suffix (all lower case)
+        var numbered = new Dictionary<(string Dir, string Plugin, string Part, string Xbox), List<(int N, string Path)>>();
         // every plugin in the zips, by its folder in Data and its stem
         var plugins = c.Packages.SelectMany(q => q.Plugins.Select(pl => InData(Ba2Names.Normalize(Path.GetRelativePath(q.Root, pl))))).ToList();
         var inis = p.Files.Where(f => f.EndsWith(".ini", StringComparison.Ordinal))
@@ -230,13 +235,20 @@ public static class ReleaseRules
             var dir = DirOf(norm);
             var file = norm[(dir.Length == 0 ? 0 : dir.Length + 1)..];
             var stem = file[..^4];
-            var owner = plugins.Where(pl => DirOf(pl) == dir)
+            // with Foo.esm and "Foo - Patch.esm" both there, "Foo - Patch - Main.ba2" belongs to the one whose part loads
+            var owners = plugins.Where(pl => DirOf(pl) == dir)
                 .Select(pl => Path.GetFileNameWithoutExtension(pl[(dir.Length == 0 ? 0 : dir.Length + 1)..]))
-                .FirstOrDefault(s => stem.StartsWith(s + " - ", StringComparison.Ordinal));
-            if (owner != null) { Log.Write($"archive-name: {rel(a)} loads with {owner} (a plugin in the zips)"); continue; }
+                .Where(s => stem.StartsWith(s + " - ", StringComparison.Ordinal)).ToList();
+            var owner = owners.FirstOrDefault(s => LoadedPart.IsMatch(stem[(s.Length + 3)..])) ?? owners.FirstOrDefault();
+            if (owner != null)
+            {
+                CheckPart(a, dir, owner, stem[(owner.Length + 3)..], $"{owner} (a plugin in the zips)");
+                continue;
+            }
             if (dir.Length == 0 && OutsideOwner(c, stem) is { } outside)
             {
-                Log.Write($"archive-name: {rel(a)} loads with {outside}");
+                var plugin = Path.GetFileNameWithoutExtension(outside).ToLowerInvariant();
+                CheckPart(a, dir, plugin, stem[(plugin.Length + 3)..], outside);
                 continue;
             }
             var listedBy = inis.FirstOrDefault(t => t.Text.Contains(file, StringComparison.OrdinalIgnoreCase)).Rel;
@@ -262,8 +274,48 @@ public static class ReleaseRules
                 o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: {why}, and the zip holds no plugin, so it loads only if an INI lists it. {fix}"));
             }
         }
+        // 0.15.1: a numbered part loads only when every number from 01 up to it is there (the game stops at the first gap)
+        foreach (var g in numbered)
+        {
+            var have = g.Value.Select(x => x.N).ToHashSet();
+            var missing = Enumerable.Range(1, 99).First(n => !have.Contains(n));
+            foreach (var (n, a) in g.Value.Where(x => x.N > missing).OrderBy(x => x.N))
+            {
+                // the missing name in this archive's own spelling: its name with the two digits replaced
+                var name = Path.GetFileName(a);
+                var at = name.Length - ".ba2".Length - g.Key.Xbox.Length - 2;
+                var gap = $"{name[..at]}{missing:00}{name[(at + 2)..]}";
+                Log.Write($"archive-name: {rel(a)}: {gap} is missing: WARNING");
+                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads numbered archives from 01 upward and stops at the first missing number, and there is no {gap}, so the game doesn't load this archive by itself. {IniNote} Otherwise number the archives 01, 02 and so on without gaps."));
+            }
+        }
         return o;
+
+        // the part after "<plugin> - ": the game's loader tries only Main and Textures, each also numbered 01 to 99
+        void CheckPart(string a, string dir, string plugin, string part, string loadsWith)
+        {
+            var m = LoadedPart.Match(part);
+            if (!m.Success)
+            {
+                Log.Write($"archive-name: {rel(a)}: part \"{part}\" isn't Main or Textures: WARNING");
+                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99), so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {Path.GetFileName(a)[..plugin.Length]} - Main.ba2."));
+                return;
+            }
+            Log.Write($"archive-name: {rel(a)} loads with {loadsWith}");
+            if (m.Groups[2].Success)
+            {
+                var key = (Dir: dir, Plugin: plugin, Part: m.Groups[1].Value, Xbox: m.Groups[3].Value);
+                if (!numbered.TryGetValue(key, out var list)) numbered[key] = list = [];
+                list.Add((int.Parse(m.Groups[2].Value), a));
+            }
+        }
     }
+
+    /// <summary>The archive parts the game's plugin loader opens by itself (names are lower case here): Main or Textures,
+    /// optionally numbered 01 to 99, and the Xbox twin of each.</summary>
+    static readonly Regex LoadedPart = new(@"^(main|textures)(0[1-9]|[1-9][0-9])?(_xbox)?$", RegexOptions.CultureInvariant);
+
+    const string IniNote = "An INI archive list (for example sResourceIndexFileList in the [Archive] section) can still load it on purpose; if that is the plan, ignore this warning.";
 
     /// <summary>The plugin outside the zips (in the Data folder or a --masters-dir folder) that an archive's name starts
     /// with, followed by " - ", or null. The stem is lower case, so plugin names are compared ignoring case (Linux file
@@ -276,10 +328,15 @@ public static class ReleaseRules
             foreach (var f in Directory.EnumerateFiles(d))
                 if (Path.GetExtension(f).ToLowerInvariant() is ".esm" or ".esp" or ".esl")
                     names.TryAdd(Path.GetFileName(f), Path.GetFileName(f));
+        string? first = null;   // 0.15.1: prefer the plugin whose part the game loads (see ArchiveNames)
         for (int i = stem.IndexOf(" - ", StringComparison.Ordinal); i > 0; i = stem.IndexOf(" - ", i + 1, StringComparison.Ordinal))
             foreach (var ext in new[] { ".esm", ".esp", ".esl" })
-                if (names.TryGetValue(stem[..i] + ext, out var real)) return real;
-        return null;
+                if (names.TryGetValue(stem[..i] + ext, out var real))
+                {
+                    if (LoadedPart.IsMatch(stem[(i + 3)..])) return real;
+                    first ??= real;
+                }
+        return first;
     }
 
     static string SafeRead(string path)

@@ -512,7 +512,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    never geometry, texture or sound data, and it doesn't check face data, voice files or music.
    `release` also looks for each new or changed NPC face's baked files (rule `face-missing`, a NOTE when none of
    the five is there, and since 0.15.0 a NOTE that the face is stale when an override changes it but every face
-   file found is the master's), archives named so that the game never loads them (rule `archive-name`), and file
+   file found is the master's), archives named so that the game never loads them (rule `archive-name`; since
+   0.15.1 also a WARNING for a plugin's archive whose part isn't `Main` or `Textures`, optionally numbered `01` to
+   `99`, or whose number comes after a gap, since the game loads it only through an INI archive list), and file
    names with non-ASCII characters or loose paths over 200 characters (rule `file-name`, a WARNING; since 0.15.0
    `triage` reports the same file names as LOOKs in its Files section).
 4. A patch `conflict` suggests or `patch` builds holds other authors' data: it is for the player's own game, never

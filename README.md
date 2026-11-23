@@ -579,7 +579,7 @@ is now. It reads files only and changes nothing.
 **Example** (made-up mods: NewModA.esm was updated and changed a record the patch holds, and NewModC.esm was added):
 
     > sf-mod-check patch check sf-mod-check-patch\ConflictPatch.esm
-    sf-mod-check 0.15.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
+    sf-mod-check 0.15.1 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
     Loaded 160 plugins (0 load-order problems) in 1 s
     REVIEW [updated] master NewModA.esm changed since the build (size 48211 -> 48390) and changed 1 record ConflictPatch.esm holds (00E39C:Starfield.esm): rebuild ConflictPatch.esm.
     REVIEW [new-editor] new plugin NewModC.esm changes 2 records ConflictPatch.esm holds (00E39C:Starfield.esm, 0012AB:Starfield.esm): rebuild ConflictPatch.esm to include it.
@@ -713,8 +713,8 @@ Data folder.
 `MyMod_Extra.ba2` and a loose texture `textures\mymod\café.dds`:
 
     > sf-mod-check release MyMod-0.1.0.zip
-    sf-mod-check 0.15.0 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
-    sf-mod-check 0.15.0 release (basic profile): MyMod-0.1.0.zip (4 files, 1 plugins, 2 archives)
+    sf-mod-check 0.15.1 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
+    sf-mod-check 0.15.1 release (basic profile): MyMod-0.1.0.zip (4 files, 1 plugins, 2 archives)
     PROBLEM  [archive-name] MyMod-0.1.0.zip: archive MyMod_Extra.ba2: its name has no " - " part, so the game never loads it. The game loads an archive only when it is named "<plugin> - <part>.ba2" (with spaces around the dash) beside a plugin of that name, or when an INI lists it; rename it, for example MyMod - Main.ba2 for MyMod.esm
     WARNING  [file-name] MyMod-0.1.0.zip: textures\mymod\café.dds has a character outside plain ASCII (letters with accents, other scripts, symbols); archive tools and the game may not find it. Rename it with plain letters, digits and - _ .
     NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked.
@@ -723,8 +723,9 @@ Data folder.
     RESULT: FAIL (1 problems, 0 to review, 1 warnings)
 
 The exit code is 1: the game would never load `MyMod_Extra.ba2`. Renaming it `MyMod - Main01.ba2` fixes the PROBLEM
-(beside `MyMod - Main.ba2`, the game also loads `MyMod - Main01.ba2` to `MyMod - Main99.ba2` and
-`MyMod - Textures.ba2`),
+(beside `MyMod - Main.ba2`, the game also loads `MyMod - Main01.ba2` to `MyMod - Main99.ba2` without gaps, and
+`MyMod - Textures.ba2` and `MyMod - Textures01.ba2` onward the same way; since 0.15.1 any other part, such as
+`MyMod - Sounds.ba2`, or a number after a gap is a WARNING),
 and renaming the texture (and the material that names it) to plain ASCII clears the WARNING. A missing material,
 texture, `.mesh` geometry or sound shows the same way, as a WARNING line that names the file and the record, `.nif`,
 `.mat` or sound bank that needs it.
@@ -734,7 +735,7 @@ texture, `.mesh` geometry or sound shows the same way, as a WARNING line that na
 | `plugin-name` | basic, house | A plugin named `...-ShatteredSpace.esm`, `-Constellation`, `-Starfield`, `-OldMars` or `-SFBGS...`, or `BlueprintShips-...`: Starfield drops it from Plugins.txt and it stops loading. Rename it, for example `-ShatteredSpaceAddon.esm`. |
 | `voice-compressed` | basic, house | `.wem` or `.ffxanim` stored compressed in a `.ba2`: the game plays them silent. Pack with Archive2 `-compression=None`. |
 | `ba2-unreadable` | basic, house | An archive whose header or records don't add up. |
-| `archive-name` | basic, house | 0.14.0: a `.ba2` the game never loads, because it isn't named `<plugin> - <part>.ba2` (with spaces around the dash, `MyMod - Main.ba2` for `MyMod.esm`) beside a plugin in the zips, in the Data folder or in a `--masters-dir` folder. The Xbox twin (`MyMod - Main_xbox.ba2`) carries the same name and passes. A WARNING instead when the zip holds no plugin, or when an INI in the zip lists the archive (it loads only through that INI). |
+| `archive-name` | basic, house | 0.14.0: a `.ba2` the game never loads, because it isn't named `<plugin> - <part>.ba2` (with spaces around the dash, `MyMod - Main.ba2` for `MyMod.esm`) beside a plugin in the zips, in the Data folder or in a `--masters-dir` folder. The Xbox twin (`MyMod - Main_xbox.ba2`) carries the same name and passes. A WARNING instead when the zip holds no plugin, or when an INI in the zip lists the archive (it loads only through that INI). Since 0.15.1, a WARNING also when the part after `<plugin> - ` isn't `Main` or `Textures`, optionally numbered `01` to `99` (`MyMod - Sounds.ba2`), or when a numbered archive comes after a gap (`MyMod - Main03.ba2` with no `MyMod - Main02.ba2`; the numbers start at `01`): the game doesn't load it by itself, though an INI archive list such as `sResourceIndexFileList` in the `[Archive]` section can load it on purpose. |
 | `file-name` | never (WARNING) | 0.14.0: a file in the zip, or a name inside one of its archives, with a character outside plain ASCII (accented letters, other scripts, symbols), which archive tools and the game may not find; or a loose file whose path inside Data is over 200 characters, which passes Windows' 260-character limit under Steam's usual Data folder (a longer install path lowers the limit). Two kinds of files the game never loads are skipped: the zip's `fomod` folder, and the files at the top of Data other than plugins, archives and INI files (a README or an image there). Files in any other folder are checked. Up to 5 files are named per zip, then one line counts the rest; `--verbose` lists them all. |
 | `script-missing`, `model-missing` | basic, house (models: WARNING) | A script a plugin attaches, or a model it names, is in none of the zip's files and archives, the `--masters-dir` mods' archives or the game's archives. |
 | `material-missing`, `texture-missing` | basic, house (WARNING) | 0.14.0: a material or texture the plugin's records, or its own `.nif` and `.mat` files, name is in none of those places (a material may also be one of the game's own, in its material database). A `.nif` or `.mat` that can't be read is a NOTE. Left out with `--dmmdeps`, which reports these files itself. |

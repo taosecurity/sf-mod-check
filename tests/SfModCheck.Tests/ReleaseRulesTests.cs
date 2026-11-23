@@ -387,6 +387,75 @@ public class ReleaseRulesTests
         Assert.Contains("MyMod.ini", ini.Text);
     }
 
+    // ---------------------------------------------------------------- 0.15.1: parts the game loads by itself
+
+    [Fact]
+    public void Archive_part_other_than_main_or_textures_is_a_warning()
+    {
+        using var s = new Sandbox();
+        var f = One(Rules(s, MakeZip(s, "MyMod-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Main.ba2", MainBa2()), ("MyMod - Sounds.ba2", MainBa2()))), "archive-name");
+        Assert.Equal(Level.Warning, f.Level);
+        Assert.Contains("MyMod - Sounds.ba2", f.Text);
+        Assert.Contains("Main or Textures", f.Text);
+        Assert.Contains("sResourceIndexFileList", f.Text);
+        Assert.Contains("rename it, for example to MyMod - Main.ba2", f.Text);   // the fix names the plugin
+    }
+
+    [Fact]
+    public void Numbered_archive_after_a_gap_is_a_warning()
+    {
+        using var s = new Sandbox();
+        var f = One(Rules(s, MakeZip(s, "MyMod-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Main01.ba2", MainBa2()), ("MyMod - Main03.ba2", MainBa2()))), "archive-name");
+        Assert.Equal(Level.Warning, f.Level);
+        Assert.Contains("MyMod - Main03.ba2", f.Text);
+        Assert.Contains("there is no MyMod - Main02.ba2", f.Text);
+        // the numbered loop starts at 01 even when the unnumbered archive is there
+        var alone = One(Rules(s, MakeZip(s, "B-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Textures.ba2", MainBa2()), ("MyMod - Textures02.ba2", MainBa2()))), "archive-name");
+        Assert.Contains("MyMod - Textures02.ba2", alone.Text);
+        Assert.Contains("there is no MyMod - Textures01.ba2", alone.Text);
+    }
+
+    [Fact]
+    public void Main_and_textures_numbered_without_gaps_and_their_xbox_twins_are_quiet()
+    {
+        using var s = new Sandbox();
+        None(Rules(s, MakeZip(s, "MyMod-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Main.ba2", MainBa2()), ("MyMod - Main01.ba2", MainBa2()),
+            ("MyMod - Main02.ba2", MainBa2()), ("MyMod - Textures.ba2", MainBa2()), ("MyMod - Textures01.ba2", MainBa2()),
+            ("MyMod - Main_xbox.ba2", MainBa2()), ("MyMod - Textures_xbox.ba2", MainBa2()))), "archive-name");
+        // "Foo - Patch - Main.ba2" belongs to "Foo - Patch.esm", not to Foo.esm with a part "Patch - Main"
+        None(Rules(s, MakeZip(s, "Foo-0.1.0.zip", ("Foo.esm", Plugin()), ("Foo - Patch.esm", Plugin()), ("Foo - Patch - Main.ba2", MainBa2()))), "archive-name");
+    }
+
+    [Fact]
+    public void Patch_archive_for_a_plugin_outside_the_zips_gets_the_part_check_too()
+    {
+        using var s = new Sandbox();
+        var masters = s.Sub("masters");
+        File.WriteAllBytes(Path.Combine(masters, "BaseMod.esm"), Plugin());
+        var o = new ReleaseOptions();
+        o.MastersDirs.Add(masters);
+        var f = One(Rules(s, o, MakeZip(s, "Patch-0.1.0.zip", ("MyPatch.esm", Plugin()), ("BaseMod - Voices.ba2", MainBa2()))), "archive-name");
+        Assert.Equal(Level.Warning, f.Level);
+        Assert.Contains("to BaseMod - Main.ba2", f.Text);
+    }
+
+    [Fact]
+    public void Docs_name_the_0151_archive_part_warning()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "ReleaseRules.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src/ReleaseRules.cs not found above " + AppContext.BaseDirectory);
+        string Doc(string n) => File.ReadAllText(Path.Combine(dir!.FullName, n)).Replace("\r\n", "\n");
+        var readme = Doc("README.md");
+        Assert.Contains("Since 0.15.1, a WARNING also when the part after `<plugin> - ` isn't `Main` or `Textures`", readme);
+        Assert.Contains("`MyMod - Main01.ba2` to `MyMod - Main99.ba2` without gaps", readme);
+        Assert.Contains("0.15.1 also a WARNING for a plugin's archive whose part isn't `Main` or `Textures`", Doc("AGENTS.md"));
+        var changes = Doc("CHANGELOG.md").Split("\n## 0.15.0")[0];
+        Assert.Contains("## 0.15.1", changes);
+        Assert.Contains("WARNING  [archive-name] MyMod-0.1.0.zip: archive MyMod - Sounds.ba2", changes);
+        Assert.Contains("there is no MyMod - Main02.ba2", changes);
+    }
+
     [Fact]
     public void Non_ascii_names_loose_and_in_an_archive_are_warnings()
     {
