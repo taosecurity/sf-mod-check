@@ -226,6 +226,8 @@ public static class ReleaseRules
         var o = new List<ReleaseFinding>();
         // numbered Main and Textures archives by folder, plugin, part and Xbox suffix (all lower case)
         var numbered = new Dictionary<(string Dir, string Plugin, string Part, string Xbox), List<(int N, string Path)>>();
+        // rename advice already given in this zip (folder\name, lower case), so two archives are never told the same name
+        var suggested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // every plugin in the zips, by its folder in Data and its stem
         var plugins = c.Packages.SelectMany(q => q.Plugins.Select(pl => InData(Ba2Names.Normalize(Path.GetRelativePath(q.Root, pl))))).ToList();
         var inis = p.Files.Where(f => f.EndsWith(".ini", StringComparison.Ordinal))
@@ -300,7 +302,7 @@ public static class ReleaseRules
             if (!m.Success)
             {
                 Log.Write($"archive-name: {rel(a)}: part \"{part}\" isn't Main, Textures or Voices_<language>: WARNING");
-                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99) or a voice archive such as Voices_en, so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {FreeMainName(c, dir, Path.GetFileName(a)[..plugin.Length])}."));
+                o.Add(new(Level.Warning, "archive-name", $"{p.Name}: archive {rel(a)}: the game loads a plugin's archives by itself only when the part after \" - \" is Main or Textures (optionally numbered 01 to 99) or a voice archive such as Voices_en, so it doesn't load this one by itself. {IniNote} Otherwise rename it, for example to {FreeMainName(c, dir, Path.GetFileName(a)[..plugin.Length], part.EndsWith("_xbox", StringComparison.Ordinal) ? Path.GetFileNameWithoutExtension(a)[^5..] : "", suggested)}."));
                 return;
             }
             Log.Write($"archive-name: {rel(a)} loads with {loadsWith}");
@@ -324,10 +326,13 @@ public static class ReleaseRules
     /// <summary>A rename the part check can suggest that takes no archive already there (0.15.1 review round 2):
     /// "&lt;plugin&gt; - Main.ba2" when it is free, else the first free "&lt;plugin&gt; - MainNN.ba2". Taken names are the
     /// archives beside it in the zips and, at the top level, the files in the Data folder and the --masters-dir folders,
-    /// so the advice never overwrites the mod's own Main archive or the patched mod's.</summary>
-    static string FreeMainName(ReleaseContext c, string dir, string plugin)
+    /// so the advice never overwrites the mod's own Main archive or the patched mod's. An Xbox archive keeps its "_xbox"
+    /// suffix (in its own spelling), and a name already suggested for another archive of the zip counts as taken
+    /// (review round 3).</summary>
+    static string FreeMainName(ReleaseContext c, string dir, string plugin, string xbox, HashSet<string> suggested)
     {
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in suggested) if (DirOf(s) == dir) taken.Add(s[(dir.Length == 0 ? 0 : dir.Length + 1)..]);
         foreach (var q in c.Packages)
             foreach (var a in q.Archives)
             {
@@ -337,9 +342,11 @@ public static class ReleaseRules
         if (dir.Length == 0)
             foreach (var d in new[] { c.DataDir }.Concat(c.Options.MastersDirs).Where(Directory.Exists))
                 foreach (var f in Directory.EnumerateFiles(d, "*.ba2")) taken.Add(Path.GetFileName(f));
-        var main = $"{plugin} - Main.ba2";
-        if (!taken.Contains(main)) return main;
-        return Enumerable.Range(1, 99).Select(n => $"{plugin} - Main{n:00}.ba2").FirstOrDefault(s => !taken.Contains(s)) ?? main;
+        var main = $"{plugin} - Main{xbox}.ba2";
+        var pick = !taken.Contains(main) ? main
+            : Enumerable.Range(1, 99).Select(n => $"{plugin} - Main{n:00}{xbox}.ba2").FirstOrDefault(s => !taken.Contains(s)) ?? main;
+        suggested.Add(dir.Length == 0 ? pick : $"{dir}\\{pick}");
+        return pick;
     }
 
     /// <summary>The plugin outside the zips (in the Data folder or a --masters-dir folder) that an archive's name starts

@@ -402,6 +402,17 @@ public class ReleaseRulesTests
         Assert.Contains("rename it, for example to MyMod - Main01.ba2", f.Text);
         var free = One(Rules(s, MakeZip(s, "B-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Sounds.ba2", MainBa2()))), "archive-name");
         Assert.Contains("rename it, for example to MyMod - Main.ba2", free.Text);
+        // review round 3: an Xbox twin keeps its suffix, and two archives are never told the same new name
+        var twins = Rules(s, MakeZip(s, "C-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Sounds.ba2", MainBa2()), ("MyMod - Sounds_xbox.ba2", MainBa2())))
+            .Where(x => x.Rule == "archive-name").ToList();
+        Assert.Equal(2, twins.Count);
+        Assert.Contains(twins, x => x.Text.Contains("archive MyMod - Sounds.ba2") && x.Text.Contains("rename it, for example to MyMod - Main.ba2"));
+        Assert.Contains(twins, x => x.Text.Contains("archive MyMod - Sounds_xbox.ba2") && x.Text.Contains("rename it, for example to MyMod - Main_xbox.ba2"));
+        var two = Rules(s, MakeZip(s, "D-0.1.0.zip", ("MyMod.esm", Plugin()), ("MyMod - Sounds.ba2", MainBa2()), ("MyMod - Music.ba2", MainBa2())))
+            .Where(x => x.Rule == "archive-name").ToList();
+        Assert.Equal(2, two.Count);
+        Assert.Single(two, x => x.Text.Contains("for example to MyMod - Main.ba2"));
+        Assert.Single(two, x => x.Text.Contains("for example to MyMod - Main01.ba2"));
     }
 
     [Fact]
