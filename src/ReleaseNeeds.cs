@@ -204,7 +204,8 @@ public static class ReleaseNeeds
     }
 
     /// <summary>The zips' possessive for the messages: "MyMod-1.0.0.zip's" or "the zips'".</summary>
-    static string Zips(ReleaseContext c) => c.Packages.Count == 1 ? c.Packages[0].Name + "'s" : "the zips'";
+    static string Zips(ReleaseContext c) =>
+        c.Packages.Count != 1 ? "the zips'" : c.Packages[0].Name == ReleaseCommand.LooseName ? "the given" : c.Packages[0].Name + "'s";
 
     /// <summary>The folders holding the zips' plugins, each once, in zip order.</summary>
     static List<string> PluginDirs(ReleaseContext c) =>

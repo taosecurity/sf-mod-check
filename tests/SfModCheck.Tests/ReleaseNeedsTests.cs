@@ -84,6 +84,23 @@ public class ReleaseNeedsTests
     }
 
     [Fact]
+    public void A_loose_plugin_input_names_the_given_files_not_loose_files_s()
+    {
+        // bug hunt 2026-11-23: a plugin given on its own read "in none of loose files's loose files or archives"
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        Write(data, "Starfield.esm", (_, _) => { });
+        var dir = s.Sub("build");
+        Write(dir, "RnLoose.esm", (_, misc) => misc.VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = { new ScriptEntry { Name = "RnLoose:Gone" } } });
+        var o = new ReleaseOptions { DataDir = data, DataGiven = true };
+        var c = new ReleaseContext { Options = o, Packages = [ReleaseCommand.FromFolder(dir, ReleaseCommand.LooseName)], Work = s.Sub("work") };
+        var f = ReleaseNeeds.Run(c).ToList();
+        var m = Assert.Single(f, x => x.Rule == "script-missing");
+        Assert.Contains("is in none of the given loose files or archives", m.Text);
+        Assert.DoesNotContain("loose files's", m.Text);
+    }
+
+    [Fact]
     public void Scripts_are_still_checked_when_a_master_is_missing()
     {
         using var s = new Sandbox();

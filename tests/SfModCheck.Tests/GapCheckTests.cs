@@ -258,6 +258,7 @@ public class GapCheckTests
         Assert.Equal(2, code);
         var lines = Out(stdout);
         Assert.StartsWith("master NoSuch.esm not found in ", lines[0]);   // the line tools\gap_parity.py looks for
+        Assert.Contains(" or ", lines[0]);   // the folders read apart even when they hold spaces (bug hunt, 2026-11-23)
         Assert.Equal("RESULT: CANNOT CHECK (master NoSuch.esm not found)", lines[^1]);
         Assert.Contains("--masters-dir", stderr);
     }

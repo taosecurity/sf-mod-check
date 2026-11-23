@@ -140,7 +140,7 @@ public class PatchCheckTests
     }
 
     /// <summary>An official file loads before every mod wherever Plugins.txt lists it, so it never moves after the
-    /// patch (found on the real Zacha-Test run, 2026-11-23: sfta02.esm and sfta05.esm were called moved).</summary>
+    /// patch (found on a real load order, 2026-11-23: sfta02.esm and sfta05.esm were called moved).</summary>
     [Fact]
     public void An_official_master_listed_after_the_patch_hasnt_moved()
     {

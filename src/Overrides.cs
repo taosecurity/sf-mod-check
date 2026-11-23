@@ -1,6 +1,6 @@
 // itm: overrides that are identical to the master version they override ("identical to master", ITM). Such a record
 // changes nothing itself, but it still wins over earlier mods' edits to the same record, so it can quietly undo them.
-// The comparison comes from FactionQuestCompletion\tools\itm-check (2026-10-28); that tool stays where it is.
+// The comparison comes from an earlier stand-alone ITM checker (2026-10-28).
 //   - the master version is the winning one among the plugin's masters (Mutagen link cache)
 //   - every public field is compared by value: lists item by item, structs by Equals, byte blobs byte by byte
 //   - child records (a cell's placed references, a quest's topics and scenes, worldspace blocks) are separate records
@@ -78,8 +78,8 @@ public static class Overrides
             {
                 // A parent that holds child records in the plugin (a cell with placed references, a worldspace with
                 // cells, a quest or topic with dialogue) has to be there for its children, even when it changed nothing
-                // itself; xEdit's "Remove ITM" keeps those too. (Sweep 2026-11-09: TrackersAllianceFixes, ZeeOgre,
-                // the Paradiso conflict patch.)
+                // itself; xEdit's "Remove ITM" keeps those too. (Sweep 2026-11-09 over three real
+                // plugins, a conflict patch among them.)
                 if (rec is IMajorRecordGetterEnumerable holder && holder.EnumerateMajorRecords().Any(c => c.FormKey != rec.FormKey)) { parents++; continue; }
                 var started = tResolve.Elapsed;
                 tResolve.Start();

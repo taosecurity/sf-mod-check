@@ -22,7 +22,7 @@ public static class GapCheck
 
     /// <summary>A master the plugin (or one of its masters) names isn't in any of the folders searched.</summary>
     public sealed class MasterNotFoundException(string master, IReadOnlyList<string> dirs)
-        : Exception($"master {master} not found in {string.Join(" ", dirs)}")
+        : Exception($"master {master} not found in {string.Join(" or ", dirs)}")
     {
         public string Master { get; } = master;
     }
