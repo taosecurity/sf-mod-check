@@ -269,7 +269,8 @@ public static class PatchCheck
         if (self is null) Log.Write($"patch check: {name} is listed but didn't load (see the load-order problems); checked from {selfPath}");
         int patchAt = at.TryGetValue(name, out var pa) ? pa : int.MaxValue;
         // Where a plugin is listed. An official file loads before every mod wherever Plugins.txt lists it (as
-        // LoadOrderSetup orders them), and a BlueprintShips file after every plugin, so neither is ever "moved".
+        // LoadOrderSetup orders them), and a BlueprintShips file after every plugin. An official file is never "moved";
+        // a BlueprintShips file always sits after the patch, so each caller skips it with IsBlueprint itself.
         int Pos(string n) => LoadOrderSetup.IsBlueprint(n) ? int.MaxValue : LoadOrderSetup.IsOfficial(n) ? -1 : at.TryGetValue(n, out var x) ? x : -1;
 
         // the patch file the game loads now against the build the manifest describes
