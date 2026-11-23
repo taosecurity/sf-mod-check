@@ -62,7 +62,7 @@ public static class Impact
 
     /// <summary>An exception as one short line, "IOException: first line of its message" (0.5.3: one helper for every
     /// read-problem note in conflict).</summary>
-    public static string Summary(Exception e) => $"{e.GetType().Name}: {OneLine(e.Message.Split('\n')[0])}";
+    public static string Summary(Exception e) => $"{e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}";
 
     // What a field means to a player, by field name. Anything not listed falls back to its split-up name.
     static readonly Dictionary<string, string> FieldMeaning = new()
@@ -390,7 +390,8 @@ public static class Impact
         {
             if (FieldCompare.IsEmpty(a) && FieldCompare.IsEmpty(b)) return;  // "" vs not set: no real change
             // Script names and paths are case-insensitive, so a letter-case-only difference changes nothing.
-            if (a is string sa && b is string sb && sa.Equals(sb, StringComparison.OrdinalIgnoreCase))
+            // 0.13.0: the same for a file name held as raw bytes (a city-map component's MOD2 path buffer).
+            if ((a is string sa && b is string sb && sa.Equals(sb, StringComparison.OrdinalIgnoreCase)) || (a is not null && b is not null && TextBlobCaseOnly(a, b)))
             {
                 res.Add(new(Label(path), "case", "", "", true));
                 return;
@@ -486,6 +487,36 @@ public static class Impact
         return (Part(sa, at), Part(sb, at));
     }
 
+    /// <summary>True when two byte blobs hold the same text that differs only in letter case (0.13.0): same length,
+    /// each holds printable ASCII text up to its first zero byte (or its end), every differing byte lies in that text and
+    /// is the same ASCII letter in the other case. A raw file name (a city-map component's MOD2 path buffer) is such a
+    /// blob; game paths ignore letter case, as the string rule above says. Any other byte difference stays a real one.</summary>
+    internal static bool TextBlobCaseOnly(object a, object b)
+    {
+        if (!SfModCheck.Overrides.TryBlob(a, out var sa) || !SfModCheck.Overrides.TryBlob(b, out var sb) || sa.Length != sb.Length || sa.Length == 0) return false;
+        int ta = TextLength(sa), tb = TextLength(sb);
+        if (ta <= 0 || ta != tb) return false;
+        bool differs = false;
+        for (int i = 0; i < sa.Length; i++)
+        {
+            if (sa[i] == sb[i]) continue;
+            if (i >= ta || (sa[i] ^ sb[i]) != 0x20 || !char.IsAsciiLetter((char)sa[i]) || !char.IsAsciiLetter((char)sb[i])) return false;
+            differs = true;
+        }
+        return differs;
+    }
+
+    // The length of a blob's leading printable ASCII text (up to the first zero byte or the end); -1 when a byte before it isn't printable.
+    static int TextLength(ReadOnlySpan<byte> s)
+    {
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (s[i] == 0) return i;
+            if (s[i] < 0x20 || s[i] > 0x7E) return -1;
+        }
+        return s.Length;
+    }
+
     static string Part(ReadOnlySpan<byte> s, int at) => Short(s) ??   // a short one in full, as BlobText
         $"{s.Length} bytes of data" + (at < s.Length ? $" (from byte {at}: {Hex(s.Slice(at, Math.Min(8, s.Length - at)))}{(s.Length - at > 8 ? " …" : "")})" : "");
 
@@ -511,8 +542,8 @@ public static class Impact
             var p = item.GetType().GetProperty(prop);
             object? v;
             try { v = p?.GetValue(item); } catch (Exception e) when (Fatal.Recoverable(e)) { continue; }
-            if (v is string s && s.Length > 0) return $"\"{OneLine(s)}\"";
-            if (v is IFormLinkGetter fl && !fl.IsNull) return $"({Words(prop)} {OneLine(name(fl))})";
+            if (v is string s && s.Length > 0) return $"\"{SafeText.OneLine(s)}\"";
+            if (v is IFormLinkGetter fl && !fl.IsNull) return $"({Words(prop)} {SafeText.OneLine(name(fl))})";
             if (v is not null && v.GetType().IsPrimitive) return $"{prop} {v}";
         }
         var d = Describe(item, name, 1);
@@ -520,17 +551,15 @@ public static class Impact
     }
 
     // Text from a plugin stays on one line in the reports, so a crafted value can't start a new Markdown line or list
-    // item (0.5.0 security review); control characters and Unicode line breaks become spaces.
-    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(s))]
-    public static string? OneLine(string? s) => s is null ? null :
-        string.Concat(s.Select(c => char.IsControl(c) || c == '\u2028' || c == '\u2029' ? ' ' : c));
+    // item (0.5.0 security review): SafeText.OneLine (since 0.13.0 control, line-break and format characters are
+    // escaped as \n or \uXXXX; before, they became spaces).
 
     static string Plain(object? v, Func<IFormLinkGetter, string> name) => v switch
     {
         null => "not set",
-        IFormLinkGetter fl => fl.IsNull ? "not set" : OneLine(name(fl)),
-        ITranslatedStringGetter ts => $"\"{OneLine(ts.String)}\"",
-        string s => $"\"{OneLine(s)}\"",
+        IFormLinkGetter fl => fl.IsNull ? "not set" : SafeText.OneLine(name(fl)),
+        ITranslatedStringGetter ts => $"\"{SafeText.OneLine(ts.String)}\"",
+        string s => $"\"{SafeText.OneLine(s)}\"",
         _ when BlobText(v) is { } blob => blob,
         IEnumerable e => $"a list of {e.Cast<object?>().Count()}",
         _ when v.GetType().IsValueType => v.ToString() ?? "",

@@ -48,15 +48,23 @@ public sealed class DeepCompare
     public bool IgnoreUnknown { get; init; }
 
     /// <summary>Rule 7 (diff, 0.11.0). Leave out the members Mutagen names as padding: "Unused", "Unused1", "Unused2"
-    /// and so on (the 3 padding bytes after a condition's flags, a leveled-list entry's bytes 2-3 and 11). Longer
-    /// names such as UnusedConditions or UnusedWorldspaceParent hold data and stay compared.</summary>
+    /// and so on (a leveled-list entry's bytes 2-3 and 11). Longer names such as UnusedConditions or
+    /// UnusedWorldspaceParent hold data and stay compared. Since 0.13.0 also a condition's (CTDA) padding, which
+    /// Mutagen 0.54.4 names Unknown1 (the 3 bytes after the operator and flags) and Unknown2 (the 2 bytes after the
+    /// function index) on Condition only; every other Unknown* member, ConditionData.Unknown3 (the third
+    /// parameter) among them, stays compared.</summary>
     public bool IgnorePadding { get; init; }
 
     /// <summary>Whether a member name is one of Mutagen's padding names (rule 7).</summary>
     public static bool IsPadding(string name) =>
         name.StartsWith("Unused", StringComparison.Ordinal) && name.AsSpan(6).IndexOfAnyExceptInRange('0', '9') < 0;
 
-    bool Skipped(string name) => (IgnoreUnknown && name.StartsWith("Unknown")) || (IgnorePadding && IsPadding(name));
+    /// <summary>Whether a member of holder is padding (rule 7): a padding name, or a condition's CTDA padding.</summary>
+    public static bool IsPadding(Type holder, string name) =>
+        IsPadding(name) || (name is "Unknown1" or "Unknown2" && typeof(IConditionGetter).IsAssignableFrom(holder));
+
+    bool Skipped(Type holder, string name) =>
+        (IgnoreUnknown && name.StartsWith("Unknown")) || (IgnorePadding && IsPadding(holder, name));
 
     /// <summary>Rule 8 (diff, 0.11.0). Compare a list of scripts, or of script properties, by name instead of by
     /// position: Papyrus finds scripts and properties by name, so a resave that only reorders them changes nothing in
@@ -116,10 +124,10 @@ public sealed class DeepCompare
     readonly ConcurrentDictionary<Type, FieldInfo[]> fields = new();
 
     public PropertyInfo[] Properties(Type t) => props.GetOrAdd(t, t =>
-        IgnoreUnknown || IgnorePadding ? SelectProperties(t).Where(p => !Skipped(p.Name)).ToArray() : SelectProperties(t));
+        IgnoreUnknown || IgnorePadding ? SelectProperties(t).Where(p => !Skipped(t, p.Name)).ToArray() : SelectProperties(t));
 
     public FieldInfo[] Fields(Type t) => fields.GetOrAdd(t, t => t.GetFields(BindingFlags.Public | BindingFlags.Instance)
-        .Where(f => !Skipped(f.Name)).ToArray());
+        .Where(f => !Skipped(t, f.Name)).ToArray());
 
     /// <summary>Whether a and b hold the same value. depth: how deep the walk is (0 for a record's field).</summary>
     public bool Eq(object? a, object? b, int depth) => Eq(a, b, depth, false);

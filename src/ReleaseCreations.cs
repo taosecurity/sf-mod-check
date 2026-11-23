@@ -80,8 +80,38 @@ public static class ReleaseCreations
     // \z, not $: in .NET $ also matches before a final newline, so "Starfield.esm\n" would count as official
     // (0.10.1 code review). CultureInvariant, as Checker's pattern, so case folding doesn't follow the PC's language
     // (round 2).
-    static Regex Wildcard(string p) =>
-        new("^" + Regex.Escape(p).Replace("\\*", ".*") + "\\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    // Shapes as Python's fnmatch reads them (0.13.0): * any characters, ? one character, [...] one character from a
+    // class ([0-9A-F], [!x] for "not x"); an unclosed [ is a literal [. Everything else is matched literally.
+    internal static Regex Wildcard(string p)
+    {
+        var sb = new System.Text.StringBuilder("^");
+        for (int i = 0; i < p.Length; i++)
+        {
+            char ch = p[i];
+            if (ch == '*') { sb.Append(".*"); continue; }
+            if (ch == '?') { sb.Append('.'); continue; }
+            if (ch == '[')
+            {
+                int j = i + 1;
+                if (j < p.Length && p[j] == '!') j++;
+                if (j < p.Length && p[j] == ']') j++;
+                while (j < p.Length && p[j] != ']') j++;
+                if (j < p.Length)
+                {
+                    var body = p[(i + 1)..j];
+                    bool negate = body.StartsWith('!');
+                    if (negate) body = body[1..];
+                    // inside a .NET class only \, ] , [ and ^ need care; - keeps its range meaning
+                    var esc = body.Replace("\\", "\\\\").Replace("[", "\\[").Replace("]", "\\]").Replace("^", "\\^");
+                    sb.Append('[').Append(negate ? "^" : "").Append(esc).Append(']');
+                    i = j;
+                    continue;
+                }
+            }
+            sb.Append(Regex.Escape(ch.ToString()));
+        }
+        return new(sb.Append("\\z").ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
 
     /// <summary>The Xbox twin's file name of a PC archive: "MyMod - Main.ba2" gives "MyMod - Main_xbox.ba2".</summary>
     public static string XboxTwin(string archive) => Path.GetFileNameWithoutExtension(archive) + "_xbox.ba2";
@@ -110,7 +140,7 @@ public static class ReleaseCreations
     {
         if (c.Options.Profile != "creations") return [];
         var f = new List<ReleaseFinding>();
-        void Add(Level l, string rule, string text) { text = OneLine(text); f.Add(new(l, rule, text)); Log.Write($"creations: {ReleaseCommand.Label(l).Trim()} [{rule}] {text}"); }
+        void Add(Level l, string rule, string text) { text = SafeText.OneLine(text); f.Add(new(l, rule, text)); Log.Write($"creations: {ReleaseCommand.Label(l).Trim()} [{rule}] {text}"); }
 
         foreach (var p in c.Packages)
         {
@@ -210,17 +240,17 @@ public static class ReleaseCreations
             // compiled scripts, loose and in archives
             foreach (var (label, data, error) in Scripts(p))
             {
-                if (data == null) { Log.Write(OneLine($"creations: {label}: not read ({error})")); continue; }
+                if (data == null) { Log.Write(SafeText.OneLine($"creations: {label}: not read ({error})")); continue; }
                 PexFile pex;
                 try { pex = Pex.Read(data, label); }
-                catch (InvalidDataException e) { Log.Write(OneLine($"creations: {label}: not a readable script ({e.Message})")); continue; }
+                catch (InvalidDataException e) { Log.Write(SafeText.OneLine($"creations: {label}: not a readable script ({e.Message})")); continue; }
                 var fw = Frameworks(pex);
                 var names = fw.Count > 0 ? IsPluginInstalledNames(pex) : null;
                 var tested = names == null ? null : Targets(names);
                 // user, 2026-11-21 (0.10.1, option b): a check that tests only official plugins (every name a string
                 // matching [official]) doesn't guard an SFSE framework, so it stays a PROBLEM.
                 var officialOnly = names != null && names.All(n => n != null && IsOfficial(n));
-                if (names != null) Log.Write(OneLine($"creations: {label}: Game.IsPluginInstalled tests {string.Join(", ", tested!)}{(officialOnly ? " (official plugins only: not a framework guard)" : "")}"));
+                if (names != null) Log.Write(SafeText.OneLine($"creations: {label}: Game.IsPluginInstalled tests {string.Join(", ", tested!)}{(officialOnly ? " (official plugins only: not a framework guard)" : "")}"));
                 if (tested != null && officialOnly)
                     Add(Level.Problem, "creations-framework", $"{label}: names {string.Join(", ", fw)}, which come{(fw.Count == 1 ? "s" : "")} from SFSE plugins. Its Game.IsPluginInstalled calls test only official plugins ({string.Join(", ", tested)}), which doesn't guard the framework. Creations can't run SFSE, so those calls fail; remove them, guard them with Game.IsPluginInstalled on the framework's own plugin in this script, or keep the mod on PC (Nexus).");
                 else if (tested != null)
@@ -312,7 +342,7 @@ public static class ReleaseCreations
         names.Select(t => t == null ? "a name held in a variable" : Quoted(t)).ToList();
 
     /// <summary>A string from a script, in quotes, safe for a one-line finding: backslashes and quotes escaped, the
-    /// characters <see cref="OneLine"/> escapes escaped the same way, and cut to 80 characters with "..." (never
+    /// characters <see cref="SafeText.OneLine"/> escapes escaped the same way, and cut to 80 characters with "..." (never
     /// inside a surrogate pair). Code review round 8: a name with a newline split the WARNING in two.</summary>
     public static string Quoted(string s)
     {
@@ -325,35 +355,11 @@ public static class ReleaseCreations
             {
                 '\\' => "\\\\",
                 '"' => "\\\"",
-                _ => Escape(ch) ?? ch.ToString(),
+                _ => SafeText.Escape(ch) ?? ch.ToString(),
             });
         if (cut) sb.Append("...");
         return sb.Append('"').ToString();
     }
-
-    /// <summary>Text for a one-line finding or log line: control characters (Cc), the Unicode line and paragraph
-    /// separators (Zl, Zp) and every format character (Cf: the bidi controls such as U+202E and U+061C, zero-width
-    /// characters, U+FEFF) are written as \n, \r, \t or \uXXXX, so names taken from a script or a zip can't split a
-    /// finding, hide characters or reorder it on screen (code review rounds 9 and 10). Everything else, backslashes
-    /// in paths included, stays as it is.</summary>
-    public static string OneLine(string s)
-    {
-        if (!s.Any(c => Escape(c) != null)) return s;
-        var sb = new System.Text.StringBuilder(s.Length + 8);
-        foreach (var ch in s) sb.Append(Escape(ch) ?? ch.ToString());
-        return sb.ToString();
-    }
-
-    static string? Escape(char ch) => ch switch
-    {
-        '\n' => "\\n",
-        '\r' => "\\r",
-        '\t' => "\\t",
-        _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
-        _ => char.GetUnicodeCategory(ch) is System.Globalization.UnicodeCategory.LineSeparator
-            or System.Globalization.UnicodeCategory.ParagraphSeparator
-            or System.Globalization.UnicodeCategory.Format ? $"\\u{(int)ch:x4}" : null,
-    };
 
     /// <summary>(object, function) for each Debug.Notification or Debug.MessageBox call the player would see: not in a
     /// function named for debugging, and not inside a block that runs only when a debug switch is on. A switch is

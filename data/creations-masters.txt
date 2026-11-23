@@ -1,9 +1,10 @@
 # sf-mod-check data file: masters a Bethesda Creation may require, for `release --profile creations` (0.10.0).
 # Taken 2026-11-18 from the plugins Bethesda ships with the game and its DLC on Steam, and from the Creations rules in
 # the Creation Kit's "Publish to Bethesda Creations" guide. A Creation may only require plugins that are themselves on
-# Creations for every platform it targets. Bethesda's own plugins are allowed by the name patterns below (* matches
-# any characters). Another author's plugin is added only after it has been seen on creations.bethesda.net for every
-# platform; a user can allow one for a single run with --creations-master <plugin>.
+# Creations for every platform it targets. Bethesda's own plugins are allowed by the name patterns below, read as
+# Python's fnmatch reads them, without regard to case (0.13.0): * any characters, ? one character, [0-9A-F] one
+# character of a class. Another author's plugin is added only after it has been seen on creations.bethesda.net for
+# every platform; a user can allow one for a single run with --creations-master <plugin>.
 #
 # [frameworks] lists Papyrus script names that come from SFSE plugins (script extenders). Consoles can't run SFSE, so
 # a Creation's compiled scripts must not call them.
@@ -14,8 +15,10 @@ Constellation.esm
 OldMars.esm
 ShatteredSpace.esm
 BlueprintShips-Starfield.esm
-SFBGS*.esm
-SFTA*.esm
+SFBGS[0-9A-F][0-9A-F][0-9A-F].esm
+SFTA[0-9][0-9].esm
+BlueprintShips-SFBGS[0-9A-F][0-9A-F][0-9A-F].esm
+BlueprintShips-SFTA[0-9][0-9].esm
 
 [masters]
 

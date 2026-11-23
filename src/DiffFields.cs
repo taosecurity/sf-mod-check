@@ -67,7 +67,7 @@ public static class DiffFields
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            error = $"Mutagen can't open {Path.GetFileName(ix.Path)} ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})";
+            error = $"Mutagen can't open {Path.GetFileName(ix.Path)} ({e.GetType().Name}: {SafeText.OneLine(e.Message)})";
             return null;
         }
         handle = mod;
@@ -82,7 +82,7 @@ public static class DiffFields
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            error = $"Mutagen stopped reading {Path.GetFileName(ix.Path)} ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})";
+            error = $"Mutagen stopped reading {Path.GetFileName(ix.Path)} ({e.GetType().Name}: {SafeText.OneLine(e.Message)})";
             return null;
         }
         return found;
@@ -90,7 +90,7 @@ public static class DiffFields
 
     /// <summary>The top-level fields compared: conflict's (FieldCompare.Fields: bookkeeping such as the form version and
     /// version control, and child records, left out; child records are compared as records of their own).</summary>
-    public static PropertyInfo[] Compared(Type t) => Conflict.FieldCompare.Fields(t).Where(p => !DeepCompare.IsPadding(p.Name)).ToArray();
+    public static PropertyInfo[] Compared(Type t) => Conflict.FieldCompare.Fields(t).Where(p => !DeepCompare.IsPadding(t, p.Name)).ToArray();
 
     /// <summary>The top-level fields where a and b differ. A field that can't be read counts as different
     /// ("Name (unreadable)"). The record flags are compared without the compressed bit; the partial-form bit counts.</summary>
@@ -149,7 +149,7 @@ public static class DiffFields
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(name)}: entries can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
+            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(name)}: entries can't be read ({e.GetType().Name}: {SafeText.OneLine(e.Message)})");
             return;
         }
         if (ea == null || eb == null) return;
@@ -179,7 +179,7 @@ public static class DiffFields
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(name)}: base object can't be read ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)})");
+            Log.Write($"diff: {c.Old.Sig} {c.Key.Show(name)}: base object can't be read ({e.GetType().Name}: {SafeText.OneLine(e.Message)})");
         }
     }
 

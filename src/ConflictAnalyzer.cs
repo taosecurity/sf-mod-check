@@ -125,8 +125,8 @@ public static class Analyzer
         for (var x = e; x is not null; x = x.InnerException)
         {
             if (x is not Mutagen.Bethesda.Plugins.Exceptions.RecordException re || (re.FormKey is null && re.EditorID is null)) continue;
-            var s = string.Join(" ", new[] { Impact.OneLine(re.EditorID), re.FormKey is { } fk ? $"[{fk}]" : null }.Where(t => !string.IsNullOrEmpty(t)));
-            if (x is Mutagen.Bethesda.Plugins.Exceptions.SubrecordException se) s += $", subrecord {Impact.OneLine(se.Subrecord.ToString())}";
+            var s = string.Join(" ", new[] { SafeText.OneLine(re.EditorID), re.FormKey is { } fk ? $"[{fk}]" : null }.Where(t => !string.IsNullOrEmpty(t)));
+            if (x is Mutagen.Bethesda.Plugins.Exceptions.SubrecordException se) s += $", subrecord {SafeText.OneLine(se.Subrecord.ToString())}";
             return s;
         }
         return "";
@@ -609,7 +609,7 @@ public static class Analyzer
                     if (!same && onlySet is not null && onlySet.Contains(versions[i].Plugin.FileName))
                     {
                         var r = versions[i].Rec;
-                        recChanges.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, Impact.OneLine(r.EditorID),
+                        recChanges.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, SafeText.OneLine(r.EditorID),
                             versions[origin].Plugin.FileName, b >= 0 ? versions[b].Plugin.FileName : "", fields[f].Name,
                             b >= 0 ? FieldCompare.Show(versions[b].Rec, fields[f].Name, 160) : "(not set)", FieldCompare.Show(r, fields[f].Name, 160)));
                     }
@@ -621,7 +621,7 @@ public static class Analyzer
                     && !(versions[i].Rec is IQuestGetter && versions[i].Rec is IMajorRecordGetterEnumerable kids && kids.EnumerateMajorRecords().Any()))
                 {
                     var r = versions[i].Rec;
-                    recItms.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, Impact.OneLine(r.EditorID)));
+                    recItms.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, SafeText.OneLine(r.EditorID)));
                 }
             }
 
@@ -694,8 +694,8 @@ public static class Analyzer
             {
                 var (loseRec, winRec) = (versions[i].Rec, versions[k].Rec);
                 string? recName = null;
-                try { recName = versions.Select(v => (v.Rec as ITranslatedNamedGetter)?.Name?.String).LastOrDefault(s => !string.IsNullOrEmpty(s)); recName = recName is null ? null : Impact.OneLine(recName); } catch (Exception err) when (Fatal.Recoverable(err)) { }
-                recLost.Add(new(formKey, loseRec.Registration.ClassType.Name, Impact.OneLine(winRec.EditorID ?? loseRec.EditorID), recName,
+                try { recName = versions.Select(v => (v.Rec as ITranslatedNamedGetter)?.Name?.String).LastOrDefault(s => !string.IsNullOrEmpty(s)); recName = recName is null ? null : SafeText.OneLine(recName); } catch (Exception err) when (Fatal.Recoverable(err)) { }
+                recLost.Add(new(formKey, loseRec.Registration.ClassType.Name, SafeText.OneLine(winRec.EditorID ?? loseRec.EditorID), recName,
                     versions[origin].Plugin.FileName, versions[i].Plugin.FileName, versions[i].Plugin.Official,
                     versions[k].Plugin.FileName, versions[k].Plugin.Official, lost) { Injected = injected });
             }
@@ -713,7 +713,7 @@ public static class Analyzer
                         List<Difference> d;
                         try { d = Impact.Differences(fields[f].Name, vals[lt, f], vals[e, f], Name); } catch (Exception err) when (Fatal.Recoverable(err)) { d = new() { new("?", false) }; }
                         if (d.Count == 0 || d.All(x => x.Minor)) continue;
-                        recCost.Add(((pe.FileName, pl.FileName), $"{versions[lt].Rec.Registration.ClassType.Name} {Impact.OneLine(versions[lt].Rec.EditorID ?? formKey.ToString())}: {fields[f].Name}"));
+                        recCost.Add(((pe.FileName, pl.FileName), $"{versions[lt].Rec.Registration.ClassType.Name} {SafeText.OneLine(versions[lt].Rec.EditorID ?? formKey.ToString())}: {fields[f].Name}"));
                     }
                 }
 

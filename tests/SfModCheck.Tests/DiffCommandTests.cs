@@ -637,6 +637,63 @@ public class DiffCommandTests
         Assert.Equal(0, real.Total(true).Noise);
     }
 
+    // ---- 0.13.0 step 4: condition (CTDA) padding is noise ----
+
+    /// <summary>Mod.esm with one magic effect carrying one condition; pad1 and pad2 go in the CTDA padding (in
+    /// Mutagen 0.54.4 these are Condition.Unknown1, the three bytes after the operator and flags, and
+    /// Condition.Unknown2, the two bytes after the function index), value is the condition's comparison value
+    /// (a real change).</summary>
+    static string Conditioned(Sandbox s, string sub, byte[]? pad1 = null, ushort pad2 = 0, float value = 1) =>
+        Build(s, sub, "Mod.esm", PluginStyle.Full, (mod, _) =>
+        {
+            var mgef = mod.MagicEffects.AddNew(new FormKey(mod.ModKey, 0x800));
+            mgef.EditorID = "MOD_Effect";
+            mgef.Conditions.Add(new ConditionFloat
+            {
+                CompareOperator = CompareOperator.EqualTo, Unknown1 = pad1 ?? new byte[3], Unknown2 = pad2,
+                Data = new GetIsIDConditionData(), ComparisonValue = value,
+            });
+        });
+
+    [Fact]
+    public void Condition_padding_only_differences_are_noise()
+    {
+        using var s = new Sandbox();
+        var plain = Conditioned(s, "plain");
+        var padded = Conditioned(s, "padded", pad1: [0xAB, 0xCD, 0xEF], pad2: 0x1234);
+        var valued = Conditioned(s, "valued", value: 2);
+        Assert.False(File.ReadAllBytes(plain).AsSpan().SequenceEqual(File.ReadAllBytes(padded)));   // the bytes do differ
+
+        var noise = CompareFields(plain, padded);
+        Assert.False(noise.Differences);
+        var mgef = noise.Types["MGEF"].Own;
+        Assert.Equal((0, 1), (mgef.Changed, mgef.Noise));
+        Assert.Empty(noise.Changed);
+        Assert.Equal(0x800u, Assert.Single(noise.Noise).Key.Local);
+
+        var real = CompareFields(plain, valued);
+        Assert.True(real.Differences);
+        Assert.Equal(["Conditions"], Assert.Single(real.Changed).Fields);
+        Assert.Equal(0, real.Total(true).Noise);
+
+        // padding and a real change together: still one change, field Conditions
+        var both = CompareFields(padded, valued);
+        Assert.Equal(["Conditions"], Assert.Single(both.Changed).Fields);
+    }
+
+    [Fact]
+    public void Exe_diff_exits_0_on_condition_padding_only()
+    {
+        using var s = new Sandbox();
+        var plain = Conditioned(s, "plain");
+        var padded = Conditioned(s, "padded", pad1: [1, 2, 3], pad2: 9);
+        var noise = Run("diff", plain, padded, "--quiet", "--data", s.Sub("nodata"));
+        Assert.Equal(0, noise.Code);
+        Assert.Equal("RESULT: NO DIFFERENCES (1 plugin compared, 0 changed, 0 added, 0 removed; records: 0 added, 0 removed, 0 changed, 0 renumbered, 1 noise)",
+            ExeTests.ResultLine(noise.Stdout));
+        Assert.Contains("MGEF  own: 1 noise  |  overrides: -", noise.Stdout);
+    }
+
     // ---- plan step 9a: scripts and script properties are compared by name (order is noise) ----
 
     /// <summary>Mod.esm with one misc item carrying two scripts; the first has three properties. reorder writes the
@@ -857,6 +914,18 @@ public class DiffCommandTests
         Assert.False(DeepCompare.Conflict.IgnorePadding);
         Assert.Contains(DeepCompare.Conflict.Properties(typeof(LeveledItemEntry)), p => p.Name == "Unused");
         Assert.DoesNotContain(DeepCompare.DiffIgnoringPadding.Properties(typeof(LeveledItemEntry)), p => p.Name is "Unused" or "Unused2");
+
+        // 0.13.0: a condition's CTDA padding is Unknown1 and Unknown2 in Mutagen 0.54.4, padding on Condition only
+        foreach (var t in new[] { typeof(ConditionFloat), typeof(ConditionGlobal) })
+        {
+            Assert.True(DeepCompare.IsPadding(t, "Unknown1"), t.Name);
+            Assert.True(DeepCompare.IsPadding(t, "Unknown2"), t.Name);
+            Assert.DoesNotContain(DeepCompare.DiffIgnoringPadding.Properties(t), p => p.Name is "Unknown1" or "Unknown2");
+            Assert.Contains(DeepCompare.Conflict.Properties(t), p => p.Name == "Unknown1");
+        }
+        Assert.False(DeepCompare.IsPadding(typeof(GetIsIDConditionData), "Unknown3"));   // the third parameter: data
+        Assert.Contains(DeepCompare.DiffIgnoringPadding.Properties(typeof(GetIsIDConditionData)), p => p.Name == "Unknown3");
+        Assert.False(DeepCompare.IsPadding(typeof(LeveledItemEntry), "Unknown1"));       // other types' Unknown* stay compared
     }
 
     // ---- the exe ----
@@ -982,6 +1051,50 @@ public class DiffCommandTests
         Assert.Equal(["mod.esm", "new.esm"], Directory.GetFiles(folder).Select(f => Path.GetFileName(f).ToLowerInvariant()).Order());
     }
 
+    // 0.13.0 (PMTUpkeep A1 step 3, choice (a)): in JSON mode the RESULT line stays last on stdout, after the JSON;
+    // --out gives a file with only the JSON and leaves stdout with only the RESULT line.
+    [Fact]
+    public void Exe_json_on_stdout_ends_with_the_result_line_and_out_holds_only_json()
+    {
+        using var s = new Sandbox();
+        var a = Simple(s, "a", "MOD_Misc");
+        var b = Simple(s, "b", "MOD_Other");
+
+        var r = Run("diff", a, b, "--quiet", "--json", "--data", s.Sub("nodata"));
+        Assert.Equal(1, r.Code);
+        var lines = r.Stdout.TrimEnd().Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+        Assert.StartsWith("RESULT: DIFFERENCES (", lines[^1]);
+        Assert.Single(lines, l => l.StartsWith("RESULT:", StringComparison.Ordinal));
+        Assert.Equal("{", lines[0]);
+        var jsonPart = r.Stdout[..r.Stdout.LastIndexOf("RESULT:", StringComparison.Ordinal)];
+        using (var doc = System.Text.Json.JsonDocument.Parse(jsonPart))
+            Assert.True(doc.RootElement.GetProperty("differences").GetBoolean());
+        Assert.DoesNotContain("RESULT:", r.Stderr);
+
+        var outFile = Path.Combine(s.Dir, "diff.json");
+        var o = Run("diff", a, b, "--quiet", "--json", "--out", outFile, "--data", s.Sub("nodata"));
+        Assert.Equal(1, o.Code);
+        Assert.StartsWith(lines[^1], ExeTests.ResultLine(o.Stdout));   // same counts; --out adds where the report went
+        Assert.Single(o.Stdout.TrimEnd().Split('\n'));   // only the RESULT line
+        var fileText = File.ReadAllText(outFile);
+        Assert.DoesNotContain("RESULT:", fileText);
+        using (var doc = System.Text.Json.JsonDocument.Parse(fileText))
+            Assert.Equal(DiffCommand.JsonSchema, doc.RootElement.GetProperty("schema").GetInt32());
+    }
+
+    [Fact]
+    public void Readme_agents_and_usage_say_where_the_json_result_line_goes()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Program.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\Program.cs not found above " + AppContext.BaseDirectory);
+        string Flat(string t) => System.Text.RegularExpressions.Regex.Replace(t.ReplaceLineEndings(" "), @"\s+", " ");
+        Assert.Contains("On stdout the RESULT line still comes last, after the JSON", Flat(File.ReadAllText(Path.Combine(dir.FullName, "README.md"))));
+        Assert.Contains("the RESULT line follows the JSON on stdout, so stdout is not pure JSON", Flat(File.ReadAllText(Path.Combine(dir.FullName, "AGENTS.md"))));
+        Assert.Contains("the RESULT line follows the JSON on stdout", Flat(File.ReadAllText(Path.Combine(dir.FullName, "CHANGELOG.md"))));
+        Assert.Contains("on stdout the RESULT line follows the JSON, so use --out", Flat(DiffCommand.Usage));
+    }
+
     [Fact]
     public void Exe_bad_input_exits_2_with_the_fix()
     {
@@ -997,9 +1110,9 @@ public class DiffCommandTests
         Assert.Contains("only one input", args.Stderr);
         Assert.Contains("usage: sf-mod-check diff <old> <new>", args.Stderr);
 
-        var help = Run("diff", "--help");
-        Assert.Equal(2, help.Code);
-        foreach (var o in new[] { "--data", "--json", "--out", "--quiet", "--verbose", "--log", "--all" }) Assert.Contains(o, help.Stderr);
+        var help = Run("diff", "--help");   // 0.13.0: asked-for help goes to stdout with exit 0
+        Assert.Equal(0, help.Code);
+        foreach (var o in new[] { "--data", "--json", "--out", "--quiet", "--verbose", "--log", "--all" }) Assert.Contains(o, help.Stdout);
     }
 
     // ---- step 4: the detail views ----

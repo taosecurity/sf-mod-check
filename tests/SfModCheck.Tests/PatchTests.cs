@@ -508,10 +508,11 @@ public class PatchTests
     public void Bad_picks_are_refused(string text) => Assert.Null(PatchCommand.ParsePick(text));
 
     [Fact]
-    public void Records_inside_cells_and_dialogue_are_left_to_xEdit()
+    public void Dialogue_is_left_to_xEdit()
     {
-        Assert.NotNull(PatchCommand.WhyNotBuilt(typeof(IPlacedObjectGetter)));
-        Assert.NotNull(PatchCommand.WhyNotBuilt(typeof(ICellGetter)));
+        Assert.Null(PatchCommand.WhyNotBuilt(typeof(INavigationMeshGetter)));   // built since 0.13.0 (PatchCellsTests)
+        Assert.Null(PatchCommand.WhyNotBuilt(typeof(IPlacedObjectGetter)));   // built since 0.13.0 (PatchCellsTests)
+        Assert.Null(PatchCommand.WhyNotBuilt(typeof(ICellGetter)));   // built since 0.13.0 (PatchCellsTests)
         Assert.NotNull(PatchCommand.WhyNotBuilt(typeof(IDialogResponsesGetter)));
         Assert.Null(PatchCommand.WhyNotBuilt(typeof(IMiscItemGetter)));
         Assert.Null(PatchCommand.WhyNotBuilt(typeof(IQuestGetter)));

@@ -169,7 +169,7 @@ public static class TriagePlugins
             try { run(); return true; }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                c.Report.Incomplete.Add($"Plugins: {what} stopped early ({e.GetType().Name}: {Impact.OneLine(e.Message)})");
+                c.Report.Incomplete.Add($"Plugins: {what} stopped early ({e.GetType().Name}: {SafeText.OneLine(e.Message)})");
                 Log.Write($"triage plugins: {what} stopped: {e}");
                 return false;
             }
@@ -438,7 +438,7 @@ public static class TriagePlugins
         catch (Exception e) when (Fatal.Recoverable(e))
         {
             Log.Write($"triage plugins: check {p.Name} stopped: {e}");
-            note(p.Rel, $"sf-mod-check's plugin check stopped on it ({e.GetType().Name}: {Impact.OneLine(e.Message)})");
+            note(p.Rel, $"sf-mod-check's plugin check stopped on it ({e.GetType().Name}: {SafeText.OneLine(e.Message)})");
             return;
         }
         Log.Write($"triage plugins: check {p.Name}: {r.Summary}, {r.Errors} errors, {r.Warnings} warnings, {sw.Elapsed.TotalSeconds:F1} s, " +
@@ -465,7 +465,7 @@ public static class TriagePlugins
         {
             var n = g.Count();
             var text = $"sf-mod-check's plugin check: {n:N0} {(g.Key.Severity == "ERROR" ? "error" : "warning")}{(n == 1 ? "" : "s")} in its {g.Key.Check} check " +
-                       $"({Impact.OneLine(g.First().Text)}{(n > 1 ? $"; all {n:N0} are in the table" : "")})";
+                       $"({SafeText.OneLine(g.First().Text)}{(n > 1 ? $"; all {n:N0} are in the table" : "")})";
             if (g.Key.Severity == "ERROR") look(p.Rel, text); else note(p.Rel, text);
         }
         if (r.CannotCheckLinks && c.HasGame && p.MissingMasters.Count == 0)
@@ -514,7 +514,7 @@ public static class TriagePlugins
         try { lo = LoadOrderSetup.Build(c.DataDir, txt, extra); }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
-            note("", $"the game's plugins couldn't be loaded ({e.GetType().Name}: {Impact.OneLine(e.Message)}), so nothing was compared with them");
+            note("", $"the game's plugins couldn't be loaded ({e.GetType().Name}: {SafeText.OneLine(e.Message)}), so nothing was compared with them");
             return;
         }
         var oldLimit = Analyzer.MaxManagedBytes;
@@ -540,13 +540,13 @@ public static class TriagePlugins
             try { UnusedMasters(plugins, ours, lo, note); }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                c.Report.Incomplete.Add($"Plugins: the unused-masters step stopped early ({e.GetType().Name}: {Impact.OneLine(e.Message)})");
+                c.Report.Incomplete.Add($"Plugins: the unused-masters step stopped early ({e.GetType().Name}: {SafeText.OneLine(e.Message)})");
                 Log.Write($"triage plugins: unused masters stopped: {e}");
             }
             try { Scripts(c, plugins, ours, lo, note, look); }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                c.Report.Incomplete.Add($"Plugins: the attached-scripts step stopped early ({e.GetType().Name}: {Impact.OneLine(e.Message)})");
+                c.Report.Incomplete.Add($"Plugins: the attached-scripts step stopped early ({e.GetType().Name}: {SafeText.OneLine(e.Message)})");
                 Log.Write($"triage plugins: scripts stopped: {e}");
             }
             GC.Collect();
@@ -583,7 +583,7 @@ public static class TriagePlugins
                 catch (Exception e) when (Fatal.Recoverable(e))
                 {
                     Log.Write($"triage plugins: comparison stopped: {e}");
-                    note("", $"the comparison with the game stopped while {Analyzer.Where} ({e.GetType().Name}: {Impact.OneLine(e.Message)})");
+                    note("", $"the comparison with the game stopped while {Analyzer.Where} ({e.GetType().Name}: {SafeText.OneLine(e.Message)})");
                 }
                 finally { Analyzer.Where = ""; }
             }
@@ -593,7 +593,7 @@ public static class TriagePlugins
             catch (Exception e) when (Fatal.Recoverable(e))
             {
                 Log.Write($"triage plugins: raw comparison stopped: {e}");
-                note("", $"the comparison of records in cells and worldspaces stopped ({e.GetType().Name}: {Impact.OneLine(e.Message)}), so those aren't listed");
+                note("", $"the comparison of records in cells and worldspaces stopped ({e.GetType().Name}: {SafeText.OneLine(e.Message)}), so those aren't listed");
             }
             Log.Write($"triage plugins: comparison done, peak working set {System.Diagnostics.Process.GetCurrentProcess().PeakWorkingSet64 / 1e9:F2} GB");
             Results(c, plugins, changes, undone, note, look);

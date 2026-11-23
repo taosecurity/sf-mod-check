@@ -247,6 +247,59 @@ public class ExeTests
         Assert.Contains($"stopped: plugin {p}: no such file", File.ReadAllText(Path.Combine(s.Dir, "run.log")));
     }
 
+    // 0.13.0: help that was asked for (--help, -h, <command> --help) prints the usage on stdout, exits 0 and prints no
+    // RESULT line. Until 0.12.0 every form exited 2 and five printed "RESULT: CANNOT ...".
+    [Theory]
+    [InlineData("usage: sf-mod-check check", "--help")]
+    [InlineData("usage: sf-mod-check check", "-h")]
+    [InlineData("usage: sf-mod-check check", "check", "--help")]
+    [InlineData("usage: sf-mod-check check", "check", "-h")]
+    [InlineData("usage: sf-mod-check check", "check", "--quiet", "--help")]
+    [InlineData("usage: sf-mod-check conflict", "conflict", "--help")]
+    [InlineData("usage: sf-mod-check conflict", "conflict", "-h")]
+    [InlineData("usage: sf-mod-check patch", "patch", "--help")]
+    [InlineData("usage: sf-mod-check patch", "patch", "-h")]
+    [InlineData("usage: sf-mod-check diff", "diff", "--help")]
+    [InlineData("usage: sf-mod-check diff", "diff", "a.esm", "-h")]
+    [InlineData("usage: sf-mod-check release", "release", "--help")]
+    [InlineData("usage: sf-mod-check release", "release", "-h")]
+    [InlineData("usage: sf-mod-check triage", "triage", "--help")]
+    [InlineData("usage: sf-mod-check triage", "triage", "-h")]
+    public void Asked_for_help_exits_0_on_stdout_with_no_result_line(string usageStart, params string[] args)
+    {
+        var (code, stdout, stderr) = RunSplit(args);
+        Assert.Equal(0, code);
+        Assert.Contains(usageStart, stdout);
+        Assert.DoesNotContain("RESULT:", stdout);
+        Assert.DoesNotContain("RESULT:", stderr);
+    }
+
+    // A bad argument still exits 2 with its RESULT line, also when --help comes after it (the error is found first).
+    [Theory]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "check", "--no-such-option")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "check", "--no-such-option", "--help")]
+    [InlineData("RESULT: CANNOT CHECK (bad arguments; see the message above)", "conflict", "--no-such-option")]
+    [InlineData("RESULT: CANNOT BUILD (bad arguments; see the message above)", "patch", "--no-such-option")]
+    [InlineData("RESULT: CANNOT DIFF (bad arguments; see the message above)", "diff", "--no-such-option", "--help")]
+    public void A_bad_argument_still_exits_2_with_a_result_line(string result, params string[] args)
+    {
+        var (code, stdout, stderr) = RunSplit(args);
+        Assert.Equal(2, code);
+        Assert.Equal(result, ResultLine(stdout));
+        Assert.Contains("unknown option --no-such-option", stderr);
+    }
+
+    [Fact]
+    public void Readme_and_agents_say_help_exits_0()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Program.cs"))) dir = dir.Parent;
+        Assert.True(dir != null, "src\\Program.cs not found above " + AppContext.BaseDirectory);
+        foreach (var file in new[] { "README.md", "AGENTS.md" })
+            Assert.Contains("`--help`, `-h` and `<command> --help` print the help on stdout and exit 0 with no RESULT line",
+                File.ReadAllText(Path.Combine(dir.FullName, file)).ReplaceLineEndings(" ").Replace("  ", " "));
+    }
+
     [Fact]
     public void Every_option_is_in_the_usage_readme_and_agents()
     {

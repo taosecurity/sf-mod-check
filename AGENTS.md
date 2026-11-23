@@ -116,7 +116,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 
        sf-mod-check check MyMod.esm --log sf-mod-check-log.txt
 
-   `--verbose` prints the same log lines on the screen (stderr) instead.
+   `--verbose` prints the same log lines on the screen (stderr) instead. A name with a control or invisible format
+   character shows it escaped (`\n`, `\t`, `\u202E`), and the later lines of one multi-line log entry are indented
+   by two spaces.
 
 6. Fewer lines: `--max 20` (at most 20 lines per check), `--no-hints` (no HINT lines), `--quiet` (no summary line).
    The `assets` check (missing scripts and models) is on by default: `--no-assets` turns it off (for a plugin whose
@@ -207,7 +209,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     texture archives with no `_xbox.ba2` twin, and a zip over 2 GB (each zip is checked on its own). It warns about other archives with no twin, PC-format sound, and
     `Debug.Notification` or `Debug.MessageBox` calls players would see (they show nothing on consoles). A script that
     calls an SFSE plugin and also calls `Game.IsPluginInstalled` is a WARNING, not a failure: confirm the guard. If that
-    script tests only official plugins (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS*`, `SFTA*`), it stays a failure (0.10.1). A master by
+    script tests only official plugins (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS###`, `sftaNN` and their `BlueprintShips-` files), it stays a failure (0.10.1). A master by
     another author that the user has seen on Creations for every platform: `--creations-master OtherMod.esm`. Never add
     one on your own judgement; ask the user.
 
@@ -240,11 +242,11 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     kept, so usually nothing to choose; if the user wants one mod's whole list instead, add
     `--pick <FormKey>:<Field>=<plugin>` for it). For any other field the winner's value is kept unless the user wants the other one,
     then run `patch` again with the `--pick` line the report prints for it, for example
-    `--pick 0012AB:Starfield.esm:Value=NewModA.esm`. "Not built" records (cells, worldspaces, placed objects,
-    navmeshes, dialogue, scenes) must be done in xEdit; give the user the report's list. The navmesh info map (NAVI)
+    `--pick 0012AB:Starfield.esm:Value=NewModA.esm`. "Not built" records (dialogue,
+    scenes; cells, worldspaces, placed objects and navmeshes are built since 0.13.0) must be done in xEdit; give the user the report's list. The navmesh info map (NAVI)
     is listed there too but must not be copied by hand. The `conflict` run on `Plugins-with-patch.txt` still lists
     those records, Choices that kept the winner's value, and harmless lost changes (only a reorder, letter case or
-    undocumented fields), which `patch` leaves alone by design. Exit 1 means the read-back
+    undocumented fields; letter case includes a file name stored as raw bytes since 0.13.0), which `patch` leaves alone by design. Exit 1 means the read-back
     found a difference: tell the user not to install that patch. Other options: `--plugins`, `--data`,
     `--extra-data`, `--max-memory`, `--log` as for `conflict`; `--out <folder>` (never the Data folder); `--name
     <Patch.esm>` (default `ConflictPatch.esm`). Run it again after any of the patch's masters is added, removed or
@@ -307,7 +309,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   on stdout, or in the `--out` file (text, or JSON with `--json`), then always one last line on stdout:
   `RESULT: NO DIFFERENCES (...)`, `RESULT: DIFFERENCES (...)` or `RESULT: CANNOT DIFF (...)`. Exit codes: 0 = no
   differences (noise only counts as none), 1 = differences, 2 = bad input or setup. Scripts should read the exit code
-  and the JSON. The JSON shape (`schema` 1; a key that doesn't apply is null, not left out):
+  and the JSON. With `--json` and no `--out`, the RESULT line follows the JSON on stdout, so stdout is not pure JSON:
+  use `--json --out diff.json` and load the file (stdout then gets only the RESULT line). The JSON shape (`schema` 1; a key that doesn't apply is null, not left out):
   - Top level: `schema`, `tool`, `old` and `new` (each `path`, `kind` plugin, folder, zip, 7z or rar, `files` (a
     count), `skipped` (a count)), `plugins`, `files`, `archives`, `scripts`, `differences` (true or false),
     `exit_code`.
@@ -343,6 +346,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     only, never code).
 - **Exit codes (`check`):** 0 = no errors (warnings allowed); 1 = errors; 2 = couldn't check (bad arguments, a missing file or
   folder, a file it couldn't open, or it ran out of memory: then no result is shown for an unfinished check).
+- **Help (every command):** `--help`, `-h` and `<command> --help` print the help on stdout and exit 0 with no RESULT line (since 0.13.0; 0.12.0 and earlier exited 2). A bad argument still exits 2 with its RESULT line.
 - **Log:** only when asked: `--log <file>` writes it to that file (a relative name is in the current folder; overwritten each run; a plugin or archive name is refused), `--verbose` to stderr. It
   holds the version, the arguments, the plugin, the Data folder and why it was chosen, where each master was found (or
   every place looked), the caches used or rebuilt, the time per stage, a count of findings per check, and on a crash
@@ -412,8 +416,11 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    archives; neither reads what is inside a script, model or archive, and textures, materials and sounds aren't
    looked up.
 4. A patch `conflict` suggests or `patch` builds holds other authors' data: it is for the player's own game, never
-   for publishing. `patch` doesn't build records inside cells, worldspaces, quests or dialogue topics (the report
-   lists them for xEdit).
+   for publishing. `patch` doesn't build the records inside quests or dialogue topics (the report lists them for
+   xEdit). Since 0.13.0 it builds cells and worldspaces themselves (without their other records or RNAM/OFST/CLSZ),
+   and placed objects and navmeshes, each inside its cell; a cell or worldspace brought in only as a parent goes in
+   as the game uses it today, with no field changed. A navmesh's mesh (geometry, NNAM, pre-cut entries) comes whole
+   from one plugin; when two plugins each changed a different part of it, today's mesh is kept and the report says so.
    Mod Organizer 2 keeps mods out of the Data folder. Run outside MO2, `conflict` and `patch` see only the plugins
    in the real Data folder: each MO2 mod in the load order is a load-order problem ("listed but not found in Data")
    and is left out, so the results are incomplete. Starting sf-mod-check from MO2 (added as an executable) should

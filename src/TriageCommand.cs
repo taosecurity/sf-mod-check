@@ -7,6 +7,7 @@
 // Exit 0 = report written, 2 = bad input or setup. There is no "fail" exit.
 // The sections live in TriageFiles.cs (files, replaces vanilla), TriagePlugins.cs, TriageScripts.cs and
 // TriageBinaries.cs; the report writer in TriageReport.cs.
+using System.Diagnostics.CodeAnalysis;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 
@@ -23,6 +24,8 @@ public static class RelPath
     // the file system is passed to Path as it is (a backslash is a legal name character on Linux; review)
     static string? Unix(string? s) => s == null || Path.IsPathRooted(s) ? s : s.Replace('\\', '/');
     static string? Back(string? s, string? original) => s != null && original != null && !Path.IsPathRooted(original) && original.Contains('\\') && !OperatingSystem.IsWindows() ? s.Replace('/', '\\') : s;
+    // null only for a null path, as Path.GetFileName: the attribute tells callers with a non-null path so (0.13.0)
+    [return: NotNullIfNotNull(nameof(s))]
     public static string? FileName(string? s) => Path.GetFileName(Unix(s));
     public static string FileNameWithoutExtension(string? s) => Path.GetFileNameWithoutExtension(Unix(s)) ?? "";
     public static string Extension(string? s) => Path.GetExtension(Unix(s)) ?? "";
@@ -78,7 +81,10 @@ public sealed class TriageContext
     public bool HasGame { get => hasGameGiven ?? hasGame.Value; init => hasGameGiven = value; }
     readonly bool? hasGameGiven;
     readonly Lazy<bool> hasGame;
-    public TriageContext() => hasGame = new Lazy<bool>(() => TriageCommand.HasStarfield(DataDir));
+    // a method group, not a lambda: inside the constructor the compiler counts the required DataDir as not yet set
+    // (CS8604), though the Lazy only runs after the object initializer has set it
+    public TriageContext() => hasGame = new Lazy<bool>(FindGame);
+    bool FindGame() => TriageCommand.HasStarfield(DataDir);
     /// <summary>Files the input holds that triage didn't read, each with why (a link, which is never followed; a second
     /// file whose name differs only in case). The Files section lists them.</summary>
     public List<(string File, string Why)> Skipped { get; init; } = [];
@@ -327,7 +333,7 @@ public static class TriageCommand
                     logFile = lf; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
-                case "-h": case "--help": Console.Error.WriteLine(Usage); return 2;
+                case "-h": case "--help": Console.WriteLine(Usage); return 0;   // asked-for help: stdout, exit 0 (0.13.0)
                 default:
                     if (a[i].StartsWith("--"))
                     {

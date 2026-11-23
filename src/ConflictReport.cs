@@ -104,7 +104,7 @@ public static class Report
             md.AppendLine(Md(Hints.For("assets")));
             md.AppendLine();
             foreach (var (archive, why) in a.UnreadableArchives)
-                md.AppendLine($"- **WARNING** archive {Md(archive)} can't be read ({Md(Impact.OneLine(why))}), so its files count as missing.");
+                md.AppendLine($"- **WARNING** archive {Md(archive)} can't be read ({Md(SafeText.OneLine(why))}), so its files count as missing.");
             if (a.UnreadableArchives.Count > 0) md.AppendLine();
             if (a.MissingAssets.Count == 0) { md.AppendLine(a.AssetsFailed != null ? "None found before the check stopped." : "None found."); md.AppendLine(); }
             foreach (var g in AssetsByPlugin(a))
@@ -144,7 +144,7 @@ public static class Report
                 md.AppendLine("|---|---|---|---|---|---|---|");
                 var rows = a.Benign.SelectMany(l => l.Fields.Select(f => (l, f))).ToList();
                 foreach (var (l, f) in rows.Take(BenignRows))
-                    md.AppendLine($"| {Md(l.RecordType)} {Md(Impact.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(LoadOrderSetup.Display(l.Winner))} | {Md(LoadOrderSetup.Display(l.Loser))} | {Md(f.Field)} | {table.NameOf(l, f)} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
+                    md.AppendLine($"| {Md(l.RecordType)} {Md(SafeText.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(LoadOrderSetup.Display(l.Winner))} | {Md(LoadOrderSetup.Display(l.Loser))} | {Md(f.Field)} | {table.NameOf(l, f)} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
                 if (rows.Count > BenignRows) md.AppendLine($"\n… {rows.Count - BenignRows} more fields in conflicts.json");
                 md.AppendLine();
             }
@@ -157,7 +157,7 @@ public static class Report
         md.AppendLine("| Plugin | ITM records | Examples |");
         md.AppendLine("|---|---|---|");
         foreach (var g in a.Itms.GroupBy(i => i.Plugin).OrderByDescending(g => g.Count()))
-            md.AppendLine($"| {Md(g.Key)} | {g.Count()} | {string.Join(", ", g.Take(5).Select(i => $"{Md(i.RecordType)} {Md(Impact.OneLine(i.EditorID ?? i.FormKey.ToString()))}"))} |");
+            md.AppendLine($"| {Md(g.Key)} | {g.Count()} | {string.Join(", ", g.Take(5).Select(i => $"{Md(i.RecordType)} {Md(SafeText.OneLine(i.EditorID ?? i.FormKey.ToString()))}"))} |");
         md.AppendLine();
 
         md.AppendLine("## Load order used");
@@ -165,7 +165,7 @@ public static class Report
         md.AppendLine("| # | Plugin | Official | Masters |");
         md.AppendLine("|---|---|---|---|");
         foreach (var p in lo.Plugins)
-            md.AppendLine($"| {p.Index} | {Md(p.FileName)} | {(p.Official ? "yes: " + LoadOrderSetup.OfficialName(p.FileName) : "")} | {Md(Impact.OneLine(string.Join(", ", p.Masters)))} |");
+            md.AppendLine($"| {p.Index} | {Md(p.FileName)} | {(p.Official ? "yes: " + LoadOrderSetup.OfficialName(p.FileName) : "")} | {Md(SafeText.OneLine(string.Join(", ", p.Masters)))} |");
         md.AppendLine();
 
         md.AppendLine("## What this report does not check");
@@ -183,7 +183,7 @@ public static class Report
             md.AppendLine("Fields Mutagen could not read were skipped, so conflicts in them are not reported.");
             md.AppendLine();
             foreach (var (k, v) in a.UnreadableFields.OrderByDescending(kv => kv.Value)) md.AppendLine($"- {Md(k)}: {v} times");
-            foreach (var e in a.Errors.Take(50)) md.AppendLine($"- {Md(Impact.OneLine(e))}");
+            foreach (var e in a.Errors.Take(50)) md.AppendLine($"- {Md(SafeText.OneLine(e))}");
             if (a.Errors.Count > 50) md.AppendLine($"- … and {a.Errors.Count - 50} more errors (see conflicts.json)");
             md.AppendLine();
         }
@@ -419,7 +419,7 @@ public static class Report
             md.AppendLine("|---|---|---|---|---|---|");
             foreach (var l in g.Take(RowsPerGroup))
                 foreach (var f in l.Fields)
-                    md.AppendLine($"| {Md(l.RecordType)} {Md(Impact.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(f.Field)} | {Impact.Kind(l, f)} | {(a.CriticalFields.Contains(f) ? CriticalNote : "")}{Md(Impact.Flat(Impact.ForField(l, f)))} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
+                    md.AppendLine($"| {Md(l.RecordType)} {Md(SafeText.OneLine(l.EditorID))} {Code(l.FormKey.ToString())} | {Md(f.Field)} | {Impact.Kind(l, f)} | {(a.CriticalFields.Contains(f) ? CriticalNote : "")}{Md(Impact.Flat(Impact.ForField(l, f)))} | {Cut(f.LoserValue)} | {Cut(f.WinnerValue)} |");
             if (g.Count() > RowsPerGroup) md.AppendLine($"\n… {g.Count() - RowsPerGroup} more records in conflicts.json");
             md.AppendLine();
         }

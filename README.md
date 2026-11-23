@@ -188,6 +188,12 @@ plugin's path, size and date and its header (light, medium or full; its masters)
 looked when it wasn't); each cache read, rebuilt or not writable, with its path; how long each stage took; the number
 of findings per check; and, when sf-mod-check itself fails, the full error with its stack trace.
 
+Names taken from a plugin, a script or a zip are written on one line, here and in the findings: a control character
+(a newline, a tab), a Unicode line break or an invisible format character (a right-to-left mark such as U+202E, a
+zero-width space) shows as `\n`, `\t` or `\uXXXX`. Ordinary names, accented letters and dashes print as they are.
+When one log entry runs over several lines (an error with its stack trace), the lines after the first are indented
+by two spaces.
+
 The log names folders on your PC (your user name may be in them). Read it before you attach it to an
 [issue](https://github.com/taosecurity/sf-mod-check/issues).
 
@@ -219,6 +225,8 @@ plugin's full path.
 | 1 | errors |
 | 2 | couldn't check: bad arguments, a missing file, a file it couldn't open, or it ran out of memory (the RESULT line then says `CANNOT CHECK`) |
 
+For every command, `--help`, `-h` and `<command> --help` print the help on stdout and exit 0 with no RESULT line (since 0.13.0; earlier versions exited 2). A bad argument still exits 2 with its RESULT line, also when `--help` comes after it.
+
 A record or field Mutagen can't read is listed as a finding and the check carries on. Running out of memory is
 different: the check stops with `CANNOT CHECK` and exit code 2, so a result is never shown for a check that didn't
 finish.
@@ -244,7 +252,8 @@ Scripts should read the exit code and the lines that start with `ERROR `, `WARNI
 
 Each lost field is labeled **Forwardable** (the winner didn't mean to change it, so a patch can copy the lost value
 forward safely), **Choice** (both changed it, so you pick), **No effect** (they differ only in list order, letter
-case or undocumented fields) or, since 0.12.0, **Lost** (an official `BlueprintShips-*.esm` file wins, and nothing
+case or undocumented fields; since 0.13.0 letter case also covers a file name stored as raw bytes, such as a city-map
+component's file) or, since 0.12.0, **Lost** (an official `BlueprintShips-*.esm` file wins, and nothing
 can bring the change back, so there is nothing to choose). Each conflict gets a recommendation: load-order moves when one is safe, an update to
 look for, or a small local patch. [`sf-mod-check patch`](#build-a-conflict-patch-sf-mod-check-patch) builds that
 patch for you (0.9.0); the report also gives the steps for xEdit and a prompt you can give to an AI coding assistant.
@@ -485,11 +494,31 @@ That `conflict` run still lists the records the patch didn't build, any Choice t
 lost changes that `conflict` already calls harmless ("probably has no visible effect": a change that only reorders a
 list, changes letter case or touches undocumented fields), which the patch leaves alone.
 
-**What it doesn't build yet:** records that live inside other records: cells, worldspaces, placed objects, navmeshes,
-dialogue topics, dialogue lines and scenes. Patching those means copying the parent record too (a cell's or a
-worldspace's header), which can undo other mods' changes to it, so the report lists them for xEdit instead. A quest's
-own fields are patched; its dialogue and scenes are not copied into the patch. The navmesh info map (NAVI) is never
-patched: each plugin's copy lists only its own navmeshes, so a merged copy would hide entries.
+**Cells and worldspaces** (since 0.13.0) are patched like other records, but only the record itself: a cell goes in
+without its placed objects and navmeshes, and a worldspace without its cells. An exterior cell can only sit inside its
+worldspace, so when the patch has no reason of its own to hold that worldspace, it goes in as the game uses it today,
+with no field changed, and the report says so. A patched worldspace never carries its large-reference table (RNAM) or
+cell offsets (OFST, CLSZ): they index the objects and cells of the plugin that holds them, Creation Kit overrides don't
+carry them either, and a stray RNAM table in a winning worldspace has crashed the game on landing. A cell's traversals
+are one value: the patch takes them whole from one plugin, never entry by entry.
+
+**Placed objects** (since 0.13.0; REFR, ACHR and the other placed types) are patched like other records too. Each one
+goes into the cell, and the cell's persistent or temporary list, where the last plugin holding it has it. A placed
+object can only sit inside its cell, so when the patch has no reason of its own to hold that cell, the cell goes in as
+the game uses it today, with no field changed and none of its other objects, and the report says so (an exterior
+cell then brings its worldspace by the rule above).
+
+**Navmeshes** (since 0.13.0) go into their cell the same way, with the cell as the game uses it today when the patch
+has no reason of its own to hold it. A navmesh's mesh (its geometry, its NNAM data and its pre-cut entries) describes
+one mesh as the Creation Kit finalized it, so the patch takes all three from one plugin, never field by field or entry
+by entry. When one plugin changed one part and another plugin's copy differs in another part, a mix would be a mesh
+nobody made: the patch keeps today's mesh and the report lists it under choices. A `--pick` on a mesh field takes
+that plugin's whole mesh.
+
+**What it doesn't build yet:** dialogue topics, dialogue lines and scenes, so the report
+lists them for xEdit instead. A quest's own fields are patched; its dialogue and scenes are not copied into the patch.
+The navmesh info map (NAVI) is never patched: each plugin's copy lists only its own navmeshes, so a merged copy would
+hide entries.
 
 **Rebuild it when your mods change.** The patch lists every plugin it took values from as a master. After you add,
 remove or update one of them, run the same command again (the old patch is replaced).
@@ -558,8 +587,8 @@ zip, the game folder or the Data folder.
 | `master`, `one-plugin`, `script-source`, `root-md`, `private-file` | house only | A `BlueprintShips` master; more than one plugin in a zip; `.psc` sources in the zip; a root `.md` such as `README.md` with no mod name in it (it overwrites another mod's copy in Data; use `README-<ModName>.md`); a file such as `PERMISSION.md` that should never ship. |
 | `papyrus-lint` | never | Lint findings (WARNING only). |
 | `creations-ini`, `creations-sfse` | creations | An INI file, or a DLL, EXE, ASI or file in an `SFSE` folder: Creations take none of them on any platform. A mod that needs SFSE stays a PC (Nexus) mod. |
-| `creations-framework` | creations | A compiled script that names a script from an SFSE plugin (ConsoleAPI, PapyrusUtil and others in `data\creations-masters.txt`). Consoles can't run SFSE, so those calls fail. A WARNING instead when the same script calls `Game.IsPluginInstalled`, so it may use the plugin only when it's there; the WARNING names the plugins the script tests, and a guard in another script isn't seen. Since 0.10.1 it stays a PROBLEM when every name the script tests is an official plugin's (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS*` and `SFTA*` plugins: the `[official]` list in `data\creations-masters.txt`), since such a check doesn't guard the framework; a name held in a variable still counts as a guard. |
-| `creations-master` | creations | A master that isn't Bethesda's (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS*` and `SFTA*` plugins) and isn't known to be on Creations. Make it optional in code (`Game.IsPluginInstalled`), or allow it with `--creations-master` once you have seen it there. |
+| `creations-framework` | creations | A compiled script that names a script from an SFSE plugin (ConsoleAPI, PapyrusUtil and others in `data\creations-masters.txt`). Consoles can't run SFSE, so those calls fail. A WARNING instead when the same script calls `Game.IsPluginInstalled`, so it may use the plugin only when it's there; the WARNING names the plugins the script tests, and a guard in another script isn't seen. Since 0.10.1 it stays a PROBLEM when every name the script tests is an official plugin's (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS###` and `sftaNN` plugins and their `BlueprintShips-` files: the `[official]` list in `data\creations-masters.txt`), since such a check doesn't guard the framework; a name held in a variable still counts as a guard. |
+| `creations-master` | creations | A master that isn't Bethesda's (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS###` and `sftaNN` plugins and their `BlueprintShips-` files, by exact name, so `SFBGS003Fixes.esm` isn't one) and isn't known to be on Creations. Make it optional in code (`Game.IsPluginInstalled`), or allow it with `--creations-master` once you have seen it there. |
 | `creations-xbox` | creations | A PC archive with textures and no `<name>_xbox.ba2` twin (the Creation Kit's Xbox pack refuses PC textures). Any other archive with no twin is a WARNING (Xbox gets no archive). |
 | `creations-size` | creations | A zip whose plugins and archives come to over 2 GB, the most a Creation may hold. Each zip is checked on its own, since each one becomes its own Creation. |
 | `creations-audio` | never | `.wem` or `.bnk` sound in an archive or loose (WARNING): PC-format audio is silent on Xbox and PlayStation until the Creation Kit makes their versions from WAV sources. |
@@ -614,7 +643,7 @@ plugin you name yourself is read even when it is a link, because you chose it; o
 
 Only real links count: a OneDrive placeholder or another kind of reparse point is read as a normal file or folder.
 An archive with more than 200,000 entries is refused. It reads compiled scripts as bytecode only:
-nothing is decompiled. On a large mod it uses memory like `check` does (NAPG-sized mods: about 5 GB).
+nothing is decompiled. On a large mod it uses memory like `check` does (city-sized mods: about 5 GB).
 
 ## Compare two versions of a mod: `sf-mod-check diff`
 
@@ -630,7 +659,9 @@ Run it when a mod you use or build on has a new version, to see what changed bet
   removed. Two plugins you name directly are compared whatever their names.
 - `--data <folder>`: the game's Data folder, for the EditorIDs of records in the masters (default: Steam's usual
   folder).
-- `--json`: the report as JSON instead of text. The JSON always lists everything.
+- `--json`: the report as JSON instead of text. The JSON always lists everything. On stdout the RESULT line still
+  comes last, after the JSON, as for every command. For a file that holds only the JSON (to load in a script), add
+  `--out diff.json`: the file gets the JSON and stdout gets only the RESULT line.
 - `--out <file>`: write the report to this file; stdout then gets only the RESULT line. It never writes over a
   plugin, an archive or a script, and never inside an input folder.
 - `--all`: list everything in the text report. Without it, long lists stop after a set number of lines (40 cells,
@@ -642,8 +673,8 @@ Run it when a mod you use or build on has a new version, to see what changed bet
 For each plugin the report counts the records added, removed, changed and renumbered per record type, split into the
 plugin's own records and its overrides of master records, lists the changed records with the fields that differ, and
 lists the renumbered records (same type and EditorID, new FormID) with their old and new FormIDs.
-A record whose bytes differ but whose fields are all equal (padding bytes, field order, -0 and +0, as a resave in the
-Creation Kit or xEdit leaves them) is counted as noise. Noise is no difference: it is shown, but it never makes the
+A record whose bytes differ but whose fields are all equal (padding bytes, a condition's among them, field order, -0
+and +0, as a resave in the Creation Kit or xEdit leaves them) is counted as noise. Noise is no difference: it is shown, but it never makes the
 result DIFFERENCES.
 
 Scripts attached to a record, and each script's properties, are matched by name, because the game

@@ -131,7 +131,7 @@ public static class ReleaseNeeds
                 Log.Write($"needs: {name}: scripts not checked: {e}");
                 // A missing master already fails the plugin check; otherwise an unchecked plugin is a problem of its own.
                 findings.Add(new(mastersMissing ? Level.Warning : Level.Problem, "script-missing",
-                    $"{name}: its attached scripts could not be checked ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)}). " +
+                    $"{name}: its attached scripts could not be checked ({e.GetType().Name}: {SafeText.OneLine(e.Message)}). " +
                     "Install its masters or give --masters-dir their folder; the plugin check below says more."));
             }
         }
@@ -543,7 +543,7 @@ public static class ReleaseNeeds
             }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                findings.Add(new(Level.Problem, "dmmdeps", $"{pkg.Name}: {Path.GetFileName(ba2)} can't be unpacked ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)}), " +
+                findings.Add(new(Level.Problem, "dmmdeps", $"{pkg.Name}: {Path.GetFileName(ba2)} can't be unpacked ({e.GetType().Name}: {SafeText.OneLine(e.Message)}), " +
                                                            "so DMMDeps can't see its files; rebuild the archive"));
             }
             Log.Write($"dmmdeps: {pkg.Name}: {Path.GetFileName(ba2)} ({type}) unpacked: {n} files" + (skipped > 0 ? $", {skipped} names outside Data skipped" : ""));
@@ -605,7 +605,7 @@ public static class ReleaseNeeds
             catch (Exception e) when (Fatal.Recoverable(e))
             {
                 Log.Write($"plugin-check: {name}: stopped: {e}");
-                findings.Add(new(Level.Problem, "plugin-check", $"{name}: could not check it ({e.GetType().Name}: {Conflict.Impact.OneLine(e.Message)}); " +
+                findings.Add(new(Level.Problem, "plugin-check", $"{name}: could not check it ({e.GetType().Name}: {SafeText.OneLine(e.Message)}); " +
                                                                $"run sf-mod-check check on it with --log for details"));
                 continue;
             }

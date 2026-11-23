@@ -96,7 +96,7 @@ public static class ReleaseCommand
         try { return RunLogged(a, version, byline); }
         catch (Exception e)
         {
-            Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK ({e.GetType().Name}: {e.Message})"));
+            Console.WriteLine(Fatal.ResultLine(e, () => $"RESULT: CANNOT CHECK ({e.GetType().Name}: {SafeText.OneLine(e.Message)})"));
             Fatal.AfterResult(() =>
             {
                 Console.Error.WriteLine(Log.On ? "The log has the full error." : "For the full error, run again with --log sf-mod-check-log.txt and look at that file.");
@@ -111,7 +111,7 @@ public static class ReleaseCommand
     {
         Console.Error.WriteLine(detail);
         Log.Write($"stopped: {detail}");
-        Console.WriteLine($"RESULT: CANNOT CHECK ({why})");
+        Console.WriteLine($"RESULT: CANNOT CHECK ({SafeText.OneLine(why)})");
         return 2;
     }
 
@@ -159,7 +159,7 @@ public static class ReleaseCommand
                     logFile = lf; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
-                case "-h": case "--help": Console.Error.WriteLine(Usage); return 2;
+                case "-h": case "--help": Console.WriteLine(Usage); return 0;   // asked-for help: stdout, exit 0 (0.13.0)
                 default:
                     if (a[i].StartsWith("--"))
                     {
@@ -263,11 +263,11 @@ public static class ReleaseCommand
             int problems = shown.Count(f => f.Level == Level.Problem), review = shown.Count(f => f.Level == Level.Review),
                 warnings = shown.Count(f => f.Level == Level.Warning);
             if (!quiet)
-                Console.WriteLine($"sf-mod-check {version} release ({o.Profile} profile): {string.Join(", ", packages.Select(p => p.Name))} " +
+                Console.WriteLine($"sf-mod-check {version} release ({o.Profile} profile): {SafeText.OneLine(string.Join(", ", packages.Select(p => p.Name)))} " +
                                   $"({packages.Sum(p => p.Files.Count)} files, {packages.Sum(p => p.Plugins.Count)} plugins, {packages.Sum(p => p.Archives.Count)} archives)");
             foreach (var lvl in new[] { Level.Problem, Level.Review, Level.Warning, Level.Note })
                 foreach (var f in shown.Where(f => f.Level == lvl))
-                    Console.WriteLine($"{Label(lvl)} [{f.Rule}] {f.Text}");
+                    Console.WriteLine($"{Label(lvl)} [{f.Rule}] {SafeText.OneLine(f.Text)}");   // every step's names, one rule (0.13.0)
             Console.WriteLine($"RESULT: {(problems > 0 ? "FAIL" : "OK")} ({problems} problems, {review} to review, {warnings} warnings)");
             Log.Write($"result: {(problems > 0 ? "FAIL" : "OK")}, exit code {(problems > 0 ? 1 : 0)}");
             return problems > 0 ? 1 : 0;

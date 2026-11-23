@@ -281,6 +281,9 @@ public class TriageCommandTests
         }
         Assert.Equal("data\\mod.esm", RelPath.DirectoryName("data\\mod.esm\\x")?.Replace('/', '\\'));
         Assert.Equal("mod.esm", RelPath.FileName("data\\mod.esm"));
+        // null only for a null path (its NotNullIfNotNull attribute, 0.13.0, says so to the compiler)
+        Assert.Null(RelPath.FileName(null));
+        Assert.Equal("", RelPath.FileName("data\\"));
     }
 
     [Fact]

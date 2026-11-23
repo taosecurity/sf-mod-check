@@ -58,12 +58,19 @@ public static class Log
     }
 
     /// <summary>Writes a log line. A log file that stops working (disk full, network share gone) is closed with one
-    /// note on stderr, and the check carries on, so its result is the same with or without the log.</summary>
+    /// note on stderr, and the check carries on, so its result is the same with or without the log.
+    /// 0.13.0: every line passes through <see cref="SafeText.OneLine"/>, so a name holding a control or format
+    /// character (U+202E, a zero-width space) can't hide or reorder text, and the lines after the first of a
+    /// multi-line text (a full error with its stack trace, or a name holding a newline) are indented by two spaces,
+    /// so they can't pass for a log line of their own.</summary>
     public static void Write(string text)
     {
         if (!On) return;
-        foreach (var line in text.Replace("\r", "").Split('\n'))
+        var first = true;
+        foreach (var part in text.Replace("\r", "").Split('\n'))
         {
+            var line = (first ? "" : "  ") + SafeText.OneLine(part);
+            first = false;
             if (toStderr) Console.Error.WriteLine($"log: {line}");
             ToFileOnly(line);
         }
@@ -87,8 +94,9 @@ public static class Log
     public static void Mutagen(string text)
     {
         var lines = text.Replace("\r", "").TrimEnd('\n').Split('\n');
-        foreach (var line in lines)
+        foreach (var raw in lines)
         {
+            var line = SafeText.OneLine(raw);   // Mutagen's text can quote a record's own strings (0.13.0)
             Console.Error.WriteLine($"mutagen: {line}");   // once, with or without --verbose
             ToFileOnly($"mutagen: {line}");
         }

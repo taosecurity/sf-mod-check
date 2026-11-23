@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.13.0
+
+### Changed
+
+- `--help`, `-h` and `<command> --help` print the help on stdout and exit 0, with no RESULT line, for every command.
+- Before, they exited 2, and `check`, `conflict` and `patch` added a `RESULT: CANNOT ...` line.
+- A bad argument still exits 2 with its RESULT line, also when `--help` comes after it.
+- `--version` says 0.13.0.
+- `diff --json`: the README, AGENTS.md and the help now say that the RESULT line follows the JSON on stdout. For a file with only the JSON, add `--out <file>`. The output itself is unchanged.
+- One rule for names from a plugin, script or zip, everywhere: control, line-break and invisible format characters print as `\n`, `\t` or `\uXXXX`.
+- `conflict`, `patch`, `diff`, the reports and conflicts.json used to turn those characters into spaces; they now show the escape, as `release --profile creations` did.
+- `release` escapes them in every step's findings, the header line and the RESULT line, not only in the creations step.
+- The `--log` and `--verbose` lines escape them too, and the later lines of one multi-line entry (a stack trace) are indented by two spaces.
+- Ordinary names, accented letters and dashes print as before.
+- `conflict` rates a file name stored as raw bytes (a city-map component's file) that differs only in letter case as "No effect", as it does a text field. `patch` leaves such a change alone.
+- Raw bytes count as a file name only when they hold printable text, and only letters in that text may differ.
+
+### Added
+
+- `patch` builds cells and worldspaces: the record itself, without a cell's placed objects and navmeshes or a worldspace's cells.
+- An exterior cell brings its worldspace into the patch as the game uses it today, with no field changed; the report says so.
+- A patched worldspace never carries RNAM, OFST or CLSZ, as Creation Kit overrides don't.
+- A cell's traversals are taken whole from one plugin, never merged entry by entry.
+- `patch` builds placed objects (REFR, ACHR and the other placed types), each in its cell's persistent or temporary list.
+- A placed object brings its cell into the patch as the game uses it today, with no field changed and none of its other objects.
+- `patch` builds navmeshes, each in its cell, with the cell brought in as the game uses it today when needed.
+- A navmesh's mesh (geometry, NNAM, pre-cut entries) comes whole from one plugin, never field by field.
+- When two plugins each changed a different part of one navmesh's mesh, today's mesh is kept and listed under choices.
+- With `--include-official`, cells, worldspaces, placed objects and navmeshes one official plugin loses to another are restored too.
+- `--verbose` logs where each patched cell, placed object and navmesh goes, and each cell or worldspace added as a parent.
+- `patch --verbose` logs one line for every record it decides on: built (with the fields forwarded and the lists merged), left out as equal to today's, or not built and why.
+- Dialogue and scenes are still listed under "Not built".
+
+### Fixed
+
+- `diff`: a condition (CTDA) whose only difference is its padding bytes is now noise, as the README said. Before, the record counted as changed (field `Conditions`) and `diff` exited 1.
+- The padding left out is the 3 bytes after a condition's operator and the 2 bytes after its function index.
+- A condition's parameters, the third one included, are still compared. `check` and `conflict` are unchanged.
+- `release --profile creations`: Bethesda's own masters are now matched by exact name shape (`SFBGS` plus three hex digits, `sfta` plus two digits, and their `BlueprintShips-` files), as `check` does.
+- Before, the `SFBGS*` and `SFTA*` patterns also let a mod such as `SFBGS003Fixes.esm` pass as official.
+- The `[official]` patterns in `data\creations-masters.txt` now read `?` and `[...]` classes as Python's fnmatch does.
+
+### Example
+
+Build a patch for a made-up load order in which two mods change different fields of one exterior cell, and a third mod changes only the cell's worldspace (the tests build these files):
+
+    sf-mod-check patch --data Data --plugins Plugins.txt --out patch
+
+What it prints (a real run, with the first line left out):
+
+    Loaded 4 plugins (0 load-order problems) in 0 s
+    5 records overridden by mods
+    RESULT: OK, patch ...\patch\ConflictPatch.esm: 2 records, 1 fields forwarded, 0 picks used, 0 shared lists merged, 0 choices kept the winner's value, 0 records not built, 4 masters (report: ...\patch\patch-report.md; 1 s)
+
+The report's list of records in the patch:
+
+    - Cell B_Ext [000807:Base.esm]
+      - WaterHeight from ModA.esm: changes water height from not set to 7
+    - Worldspace B_World [000804:Base.esm]
+      - the parent of patched cells, as the game uses it today (no field changed)
+
+The worldspace keeps the third mod's change, and it goes in without RNAM, OFST and CLSZ. On the same files, 0.12.0 listed the cell under "Not built", so the change from `ModA.esm` stayed lost.
+
 ## 0.12.0 (2026-11-21)
 
 ### Changed
@@ -41,11 +104,11 @@ The ship's changed field is labeled **Lost** in the report's table. On the same 
 
 ### Added
 
-- `diff <old> <new>`: compares two versions of a plugin, or of a mod (a .zip, .7z or .rar download, or a folder). Plugins in two mods are paired by file name, and a plugin in only one of them is listed as added or removed. Options `--data`, `--json`, `--out`, `--quiet`, `--verbose` and `--log`. Exit 0 = no differences, 1 = differences, 2 = bad input or setup.
+- A new command, `diff <old> <new>`, compares two versions of a plugin, or of a mod (a .zip, .7z or .rar download, or a folder). Plugins in two mods are paired by file name, and a plugin in only one of them is listed as added or removed. Its options are `--data`, `--json`, `--out`, `--quiet`, `--verbose` and `--log`. It exits with 0 for no differences, 1 for differences and 2 for bad input or setup.
 - `diff` compares records by their fields, not only their bytes, and names the top-level fields that changed. Own records that kept their type and EditorID under a new FormID are listed as renumbered (old and new FormID). A record whose bytes differ but whose fields are all equal (padding bytes, field order, -0 and +0) is counted as noise, which is no difference: a version that differs only by noise exits 0. Scripts and script properties are matched by name, since the game finds them by name, so scripts or properties that only changed places are noise; a changed name, flag or value, or one added or removed, is a change. Names are compared exactly (a change of letter case alone is a change, although the game ignores case), and an array property's elements keep their order.
-- `diff` detail views: placed objects and the other cell records grouped by their cell (added, removed, changed and moved to another cell), leveled-list entries added and removed (level, reference, count), and base-object swaps. EditorIDs of master records come from the masters in the mod or the Data folder (`--data`).
+- `diff` has detail views: placed objects and the other cell records grouped by their cell (added, removed, changed and moved to another cell), leveled-list entries added and removed (level, reference, count), and base-object swaps. EditorIDs of master records come from the masters in the mod or the Data folder (`--data`).
 - `diff` is read-only: `--out` and `--log` never write onto an input, a plugin, an archive or a script, or inside an input folder (symbolic links and junctions on the way are followed for this check, also for the inputs; a path through a mounted volume or a device path is refused, and so is an NTFS stream name such as `A.esm:r.txt` or `mod::$INDEX_ALLOCATION\r.txt`; a link whose target doesn't exist yet is followed too, and a path is refused when this account can't look inside a folder on the way, so a link there can't be seen; hard links and 8.3 short names aren't detected), and they must be different files. The log is checked before it is opened, so a bad `--log` never empties an input.
-- `diff` option `--all`: lists everything in the text report, including each cell's records (long lists are cut short otherwise; the JSON always lists everything).
+- The `diff` option `--all` lists everything in the text report, including each cell's records (long lists are cut short otherwise; the JSON always lists everything).
 - `diff` compares the other files of two mods: loose files by SHA-256, each archive's files (archives paired by name, each file hashed as stored), and changed scripts (.pex, loose or in an archive) by their objects, states and functions, names only. Any file difference is a difference; the RESULT line counts the files added, removed and changed. JSON keys `files`, `archives` and `scripts`.
 - `diff` with `--verbose` or `--log` records what it read, how it paired plugins, archives and loose files, what it left out and why, each header change, renumbered record, changed record and changed file, and the result. Errors name the file and say what to do. The README has an Example with real output, and AGENTS.md lists every JSON key.
 
@@ -91,7 +154,7 @@ The full output and a JSON excerpt are in the README, section "Compare two versi
 ### Fixed
 
 - `release --profile creations`: a name that ends with a newline (`"Starfield.esm\n"`) no longer matches an official plugin's name.
-- The same fix for the official-name checks of `check` and `conflict` (ITM and load-order rules).
+- The same fix applies to the official-name checks of `check` and `conflict` (ITM and load-order rules).
 - `release --profile creations`: official names now match the same way on every PC language (a Turkish Windows didn't match `BLUEPRINTSHIPS-STARFIELD.ESM`).
 - `release`: the plugin-name rule (names Starfield drops from Plugins.txt), the `BlueprintShips` master rule, the private-file rule (permission records, comparison notes) and the game-script-source rule also match the same way on every PC language. On a Turkish Windows, `MyMod-CONSTELLATION.ESM` and `PERMISSION.md` slipped through.
 - `release --dmmdeps`: the game's own archives (`BLUEPRINTSHIPS-STARFIELD - Main.ba2`, `CONTENTRESOURCES.ZIP`) are also recognized the same way on every PC language.
@@ -104,12 +167,12 @@ The full output and a JSON excerpt are in the README, section "Compare two versi
 
 Check a mod's release zip against the Creations rules:
 
-    sf-mod-check release --profile creations CleanHit-0.1.12.zip
+    sf-mod-check release --profile creations MyMod-0.1.0.zip
 
-What it prints (a real run, with the NOTE lines and the second warning left out; this mod has no SFSE calls, so its findings are the same as in 0.10.0):
+What it prints (a real run on a test mod's zip, its file names changed to MyMod here, with the NOTE lines and the second warning left out; this mod has no SFSE calls, so its findings are the same as in 0.10.0):
 
-    sf-mod-check 0.10.1 release (creations profile): CleanHit-0.1.12.zip (5 files, 1 plugins, 1 archives)
-    WARNING  [creations-xbox] CleanHit-0.1.12.zip:CleanHit - Main.ba2: no CleanHit - Main_xbox.ba2, so Xbox gets no archive (the Creation Kit warns "Creation for XBox that has no archives"); build the Xbox archive with Archive2's Xbox settings.
+    sf-mod-check 0.10.1 release (creations profile): MyMod-0.1.0.zip (5 files, 1 plugins, 1 archives)
+    WARNING  [creations-xbox] MyMod-0.1.0.zip:MyMod - Main.ba2: no MyMod - Main_xbox.ba2, so Xbox gets no archive (the Creation Kit warns "Creation for XBox that has no archives"); build the Xbox archive with Archive2's Xbox settings.
     RESULT: OK (0 problems, 0 to review, 2 warnings)
 
 A mod whose script calls ConsoleAPI after checking only `Game.IsPluginInstalled("ShatteredSpace.esm")` now gets a `creations-framework` PROBLEM that says its check tests only official plugins, which doesn't guard the framework.
@@ -228,7 +291,7 @@ Two of the four notes in the report are about the junction. The Files section sa
 
 ### Not yet
 
-- The ITM step still loads whole cells, so `check` and `triage` on very large mods (NAPG-sized) still peak at about 5 GB of memory.
+- The ITM step still loads whole cells, so `check` and `triage` on very large mods (city-sized) still peak at about 5 GB of memory.
 - On Linux, only the Files section names a case twin by its own spelling. The other sections, and a LOOK for a file whose hash couldn't be read, name the checked file by its lower-case name.
 - On Linux, a real file and a link whose names differ only in case show under one lower-case name.
 - On Linux, a case twin reached only through a linked parent folder is named by its lower-case name in its LOOK, not by its own spelling.
@@ -287,7 +350,7 @@ Check the patch before you install it, then install `ConflictPatch.esm` with you
 
 ### Not built yet
 
-- Records that live inside other records: cells, worldspaces, placed objects, navmeshes, dialogue and scenes. The report lists them for xEdit.
+- Records that live inside other records aren't built yet: cells, worldspaces, placed objects, navmeshes, dialogue and scenes. The report lists them for xEdit.
 - The navmesh info map (NAVI) is never patched, because each plugin's copy lists only its own navmeshes.
 - Lost changes that `conflict` already calls harmless (only a reorder, letter case or undocumented fields) are left alone.
 
@@ -304,19 +367,19 @@ Check the patch before you install it, then install `ConflictPatch.esm` with you
   folder (`%LOCALAPPDATA%\sfmodcheck`) and the `SFMODCHECK_*` environment variables keep their names. dotnet tool
   users: `dotnet tool uninstall --global sfmodcheck`, then install `sf-mod-check`. `conflict`'s default report folder
   is now `sf-mod-check-conflict`, and the example log name is `sf-mod-check-log.txt`.
-- New command `sf-mod-check triage <mod>`: a first-pass, offline report on someone else's mod (a .zip, .7z or .rar
-  download, a folder, or one plugin), written as HTML, text and JSON. It is triage, not a verdict: each finding is a
-  NOTE or a LOOK (worth a person's look) with the file and the reason. Sections: Files (every file with its SHA-256,
+- A new command, `sf-mod-check triage <mod>`, writes a first-pass, offline report on someone else's mod (a .zip, .7z or .rar
+  download, a folder, or one plugin) as HTML, text and JSON. It is triage, not a verdict: each finding is a
+  NOTE or a LOOK (worth a person's look) with the file and the reason. Its sections are Files (every file with its SHA-256,
   archive contents, versions in names, archives no plugin loads), Replaces vanilla (loose files and archive entries
   that replace the game's own, from a cached index of the game's archive names), Plugins (header, records added,
   overridden and deleted, ITMs, official changes undone, changed fields, ONAM, missing scripts, `check`'s findings),
   Scripts (each `.pex` read from its bytecode: calls, logging, calls worth a look; nothing is decompiled) and Binaries
   (each DLL, EXE and ASI plugin read from its bytes: imports by group, URLs, SFSE plugin version data, PDB path, signature checked
   offline, and optionally Manalyze with offline plugins only). It never runs the mod's code and never uploads
-  anything. Exit 0 = report written, 2 = bad input. Reading `.7z` and `.rar` uses SharpCompress 0.50.7 (MIT).
+  anything. It exits with 0 when the report is written and 2 for bad input. Reading `.7z` and `.rar` uses SharpCompress 0.50.7 (MIT).
 - `check` (and `release`, `conflict`'s ITM count): when a lookup of an overridden cell's master version comes back
   empty, its placed references and navmeshes are now counted in the "couldn't be compared" WARNING. Before, they
-  counted as "not identical" with no warning. Seen only with the .NET heap capped at 1 GB (NAPGR 0.1.6: 1 warning
+  counted as "not identical" with no warning. This was seen only with the .NET heap capped at 1 GB (a large test mod: 1 warning
   instead of 95); a normal run is unchanged.
 - `check`: Bethesda's own plugins are recognized by their exact names (as `conflict` has done since 0.5.0). Before, any
   name starting with `SFBGS` or `BlueprintShips-` counted as official, so a mod named like `SFBGS003Fixes.esm` had its
@@ -324,7 +387,7 @@ Check the patch before you install it, then install `ConflictPatch.esm` with you
 
 ## 0.7.0 (2026-11-19)
 
-- New command `sfmodcheck release <zip>...`: one OK or FAIL for the zip you are about to upload. It unpacks each zip
+- A new command, `sfmodcheck release <zip>...`, gives one OK or FAIL for the zip you are about to upload. It unpacks each zip
   into a temp folder (removed at the end) and checks: plugin names the game drops from Plugins.txt; sound files
   (`.wem`, `.ffxanim`) stored compressed in an archive (the game plays them silent); archives that can't be read;
   scripts a plugin attaches (and, without DMMDeps, models it names) that are in none of the zip's files and archives,
@@ -335,13 +398,13 @@ Check the patch before you install it, then install `ConflictPatch.esm` with you
   rules: a BlueprintShips master, more than one plugin per zip, `.psc` sources in the zip, a root `.md` without the
   mod's name, files that must never ship (permission records, private comparison notes). In `basic` these are
   WARNING lines.
-- Optional `--dmmdeps <exe>`: runs DMMDeps (the reviewed v0.4.1 build only, by SHA-256) on a copy of the zip's
+- An optional `--dmmdeps <exe>` runs DMMDeps (the reviewed v0.4.1 build only, by SHA-256) on a copy of the zip's
   contents to find files a plugin needs that the zip lacks; its known gaps (its issues #175 to #177) are REVIEW lines.
   It stops after 15 minutes. Without it, one NOTE says only scripts and models were checked.
-- Optional `--papyrus <exe> --ck-sources <ContentResources.zip>`: Papyrus lint of the `.psc` sources a zip ships,
-  WARNING lines only; skipped with a WARNING when papyrus-tools isn't the tested v0.16.3 build or the vanilla sources
+- An optional `--papyrus <exe> --ck-sources <ContentResources.zip>` runs a Papyrus lint of the `.psc` sources a zip ships,
+  with WARNING lines only; it is skipped with a WARNING when papyrus-tools isn't the tested v0.16.3 build or the vanilla sources
   are missing.
-- `--master-archive <ba2>` (repeatable): the archive of a mod the plugin patches; its scripts and models count as
+- `--master-archive <ba2>` (repeatable) names the archive of a mod the plugin patches; its scripts and models count as
   present.
 - The gap check (data Mutagen 0.54.4 loses when writing, missing ONAM) is built in; its lines start with the plugin
   name. A master that isn't installed is one WARNING ("gap check could not run on <plugin>: master X not found").
@@ -352,27 +415,27 @@ Check the patch before you install it, then install `ConflictPatch.esm` with you
 
 ## 0.6.0 (2026-11-19)
 
-- New `assets` check in `check`: every script a record attaches (attached scripts, and the fragment and alias scripts
+- `check` has a new `assets` check: every script a record attaches (attached scripts, and the fragment and alias scripts
   of quests, scenes, perks, topic infos and packages) must have its `.pex`, an ERROR when missing (the script never
   runs); every model path a record names must have its file, a WARNING when missing. A file counts when it is loose in
   the Data folder (or a `--masters-dir` folder) or inside an archive the game loads: `<plugin> - *.ba2` for the plugin
   and its masters (other languages' voice archives left out) plus the archives `Starfield.ini` and
-  `StarfieldCustom.ini` list. Archive names are read from each archive's name table; nothing is unpacked. New options
-  `--no-assets`, `--ini <file>` and `--language <code>`. Not checked yet: textures and materials, `.mesh` geometry,
+  `StarfieldCustom.ini` list. Archive names are read from each archive's name table; nothing is unpacked. The new options are
+  `--no-assets`, `--ini <file>` and `--language <code>`. These aren't checked yet: textures and materials, `.mesh` geometry,
   files the game finds by name (voice, lip and face animation, animations, LOD, Wwise), a script's parents and
   imports, SFSE plugins, and which copy of a file wins (README).
-- The `assets` check in `conflict` too: every mod plugin in the load order is checked against the archives of every
+- `conflict` has the `assets` check too: every mod plugin in the load order is checked against the archives of every
   active plugin, the INIs' archive lists and loose files (the `--extra-data` folder, then Data); Bethesda's own
-  plugins aren't checked. Same options as `check` (`--no-assets`, `--ini`, `--language`). The RESULT line adds
+  plugins aren't checked. It takes the same options as `check` (`--no-assets`, `--ini`, `--language`). The RESULT line adds
   ", N missing assets (S scripts, M models)" and ", N archives that can't be read" when there are any. report.html
   and report.md get a "Missing assets" section (by plugin, scripts before models, with the archives read, any archive
   that can't be read, and how to fix it), a Summary row, and a recommended action per plugin (Medium when a script is
   missing, Low for models only) and per unreadable archive (Medium). conflicts.json gets `assetsChecked`,
   `archivesRead`, `missingAssets` (plugin, severity, kind, path, script, users, finding) and `unreadableArchives`
   (archive, why). With `--no-assets` the section says the check was off.
-- `assets`, both modes: a missing script or model in an override isn't reported when the version it overrides names
+- In both modes of `assets`, a missing script or model in an override isn't reported when the version it overrides names
   the same path (the masters' winning version: in `conflict`, the record in the last of the plugin's masters, in
-  load order, that has it). Found on the Star Wars Genesis load order, where four mods were blamed for scripts
+  load order, that has it). This was found on a large load order, where four mods were blamed for scripts
   vanilla MQ305, City_NA_Well01 and two MagPerk perks attach and the game doesn't ship. `--verbose`/`--log` lists
   each use left out; conflicts.json gets `inheritedAssetUses` and the report's "Missing assets" intro says how many.
   In `conflict` these lookups obey `--max-memory`: past it they stop and every missing path is reported, with a line
@@ -394,11 +457,11 @@ Check the patch before you install it, then install `ConflictPatch.esm` with you
   archives are found whatever their case, Data folders whose names differ only in case stay apart, and an INI's
   `C:\...` archive path is reported not found. On every system, a record path with a part ending in a dot or space
   (`foo.`, `.. `) never counts as found, and an INI archive name with one leading `\` is looked up under Data.
-- README "Known gaps": a plugin's archives are every `<plugin> - *.ba2`, which can be a little wider than what the
+- README "Known gaps" now says that a plugin's archives are every `<plugin> - *.ba2`, which can be a little wider than what the
   game opens.
 - `conflict` counts the archives the game would load, general (GNRL) and texture (DX10) separately, and warns when
   either is over the game's 256 slots: the RESULT line adds ", WARNING N general archives (over 256)" (or texture),
-  the report a WARNING in "Missing assets" and a High recommended action. The counts are always in the report's
+  the report gets a WARNING in "Missing assets" and a High recommended action. The counts are always in the report's
   Summary and in conflicts.json (`archiveCounts` gnrl, dx10, slots; `archiveLimitWarnings`), with `--no-assets` too
   (headers only). The list matches Mutagen's `GetApplicableArchivePaths` for each plugin, less other languages'
   voice archives (test). Each archive is counted by its header type (GNRL general, DX10 texture), as the game does
@@ -417,7 +480,7 @@ Check the patch before you install it, then install `ConflictPatch.esm` with you
   stopped" message and held to `--max-memory` during the read, like every other read.
 - `conflict`: the "record type has no known signature" fallback is gone. Every Starfield record type has one (a test
   checks them all); a future Mutagen without one stops with a clear message instead of guessing.
-- "a"/"an" before record signatures spelled out letter by letter: "an FLST", "an LVLI", "an MGEF", "an FSTP" (before:
+- The text now uses "a"/"an" before record signatures spelled out letter by letter: "an FLST", "an LVLI", "an MGEF", "an FSTP" (before:
   "a FLST"). Signatures said as words keep the first-letter rule ("a MISC", "a LCTN"). Every Starfield signature that
   could take "an" is sorted into one list or the other, and a test fails on a new one.
 - `--version` and the byline read the version from the build, so the program can't disagree with the package.
@@ -429,7 +492,7 @@ Check the patch before you install it, then install `ConflictPatch.esm` with you
 
 ## 0.5.3 (2026-11-18)
 
-Fixes from the 0.5.2 code reviews.
+This release has the fixes from the 0.5.2 code reviews.
 
 - `conflict`: a report that fails part way (a full disk, a report file another program holds open) no longer leaves new
   and old report files mixed. All three files are removed on any failure, as they already were when memory ran out;
@@ -452,7 +515,7 @@ Fixes from the 0.5.2 code reviews.
 - `conflict`: the record-type pass's notes under "Tool limits hit" share one wording ("its file header could not be
   read (reason), so ..."; joined to the plugin's own line as "... also could not be read (reason), so ..."), and a file
   header that can't be read now gives its reason.
-- Code: one helper for exception summaries; the itm property lists are cached once, not twice.
+- Code: one helper now makes exception summaries, and the itm property lists are cached once, not twice.
 
 ## 0.5.2 (2026-11-17)
 
@@ -471,13 +534,13 @@ other. A plugin whose record types can't all be read says so under "Tool limits 
 read problem when it has one. `check` already reported these as a links ERROR; its links hint now carries the same
 explanation.
 
-One rule for errors that must stop a run. A record or field that can't be read is still skipped and listed, as before.
+One rule now covers errors that must stop a run. A record or field that can't be read is still skipped and listed, as before.
 Running out of memory (and conflict's `--max-memory` stop, and a thread running out of stack) now always ends the run:
 `check` with `RESULT: CANNOT CHECK` and exit code 2; `conflict` with `RESULT: CANNOT CHECK` and exit code 2 and no
 report (`--max-memory` keeps exit code 3). In 0.5.1 some inner catches turned such an error into "unreadable" text and
-carried on, so a report could look whole when it wasn't. Covered, in `check`: opening the masters and the plugin,
+carried on, so a report could look whole when it wasn't. In `check`, this covers opening the masters and the plugin,
 reading each record and its links, the conditions, scenes and EditorIDs of each record, learning the official scene
-list, the EditorID check, the condition walk, the itm comparison and the land-flags text. In `conflict`: reading each
+list, the EditorID check, the condition walk, the itm comparison and the land-flags text. In `conflict`, it covers reading each
 plugin's header and opening it, every catch in the comparison, the field hash and value text, the impact text (the
 field walk, value descriptions and entry names), the land-flags text and the new record-type pass. An error wrapped in
 another counts (inner exceptions are followed, and every error inside an AggregateException, not only the first).
@@ -487,7 +550,7 @@ The RESULT line after such an error is built once the run's memory is released, 
 Code: check's itm comparison and conflict's field comparison are one comparer (DeepCompare) with six options where
 the two differ, so each keeps exactly its earlier answers: proved by running the 0.5.1 code beside the new one on
 awkward values and on every field of real records in the tests, and by identical `check` output on all 18 official
-masters and four mods and identical `conflict` findings on a 149-plugin load order. No option changed. 175 tests (17 new; one 0.5.1 test moved into the new ones). After a run that runs out of memory while writing its report, the report files are removed, so a half-written report never stays behind.
+masters and four mods and identical `conflict` findings on a 149-plugin load order. No option changed. There are 175 tests (17 new; one 0.5.1 test moved into the new ones). After a run that runs out of memory while writing its report, the report files are removed, so a half-written report never stays behind.
 
 ## 0.5.1 (2026-11-17)
 
@@ -501,7 +564,7 @@ compared either: "Tool limits hit" counts those, so no conflict is reported with
 versions can't be compared is skipped the same way, with none of its results kept. If a run still stops, the RESULT
 line names the plugin and record it was reading or comparing.
 
-Other `conflict` fixes, from the 0.5.0 code review:
+These are the other `conflict` fixes, from the 0.5.0 code review:
 - report.md escapes plugin text everywhere it appears (load-order problems, recommendations, headings, the summary
   and ITM tables, impact lines, "Tool limits hit"), and also escapes backtick, `*` and `_`, so a name can't start a
   code span, emphasis, a link or HTML, or break a table. FormKeys sit in a code span that holds any backticks.
@@ -513,19 +576,19 @@ Other `conflict` fixes, from the 0.5.0 code review:
 - Speed: recommendations are worked out once per conflict pair (they were worked out about 8 times), and report.html
   is no longer copied in memory to place its menu.
 
-Code: one set of command-line helpers for `check` and `conflict` (Cli.cs); the load-order problem list is read-only
-outside the code that cleans each entry. The new skip-and-carry-on catches in conflict let an out-of-memory error (and the --max-memory stop) through, so those still end the run. No option or output format changed. 159 tests (17 new).
+Code: `check` and `conflict` share one set of command-line helpers (Cli.cs); the load-order problem list is read-only
+outside the code that cleans each entry. The new skip-and-carry-on catches in conflict let an out-of-memory error (and the --max-memory stop) through, so those still end the run. No option or output format changed. There are 159 tests (17 new).
 
 ## 0.5.0 (2026-11-16)
 
-New command `sfmodcheck conflict`: reads a whole load order (a Plugins.txt) and reports the changes it throws away
+A new command, `sfmodcheck conflict`, reads a whole load order (a Plugins.txt) and reports the changes it throws away
 (official changes undone by mods, one mod's changes lost to another, ITMs, load-order problems), labels each lost
 field Forwardable, Choice or No effect, and recommends what to do (a safe load-order move, an update to look for, or a
-local patch with a prompt for building it). Report folder with `report.html`, `report.md` and `conflicts.json`.
-Options `--plugins`, `--data`, `--extra-data`, `--out`, `--max-memory`, `--quiet`, `--verbose`, `--log`; exit codes
+local patch with a prompt for building it). It writes a report folder with `report.html`, `report.md` and `conflicts.json`.
+Its options are `--plugins`, `--data`, `--extra-data`, `--out`, `--max-memory`, `--quiet`, `--verbose` and `--log`, and its exit codes are
 0, 2 and 3.
 
-It comes from the author's private StarfieldConflictCheck (in use since 2026-10-28), after a fix of its memory
+It comes from an older private tool of the author's (in use since 2026-10-28), after a fix of its memory
 runaway on 2026-11-16. Before that fix, a load order with city cells and navmeshes grew past 10 GB and didn't finish.
 Three things held the memory: Mutagen's link cache kept every placed object, cell and navmesh of every plugin once
 one was looked up (and still missed the originals of most placed objects, so they were never compared); naming record
@@ -549,7 +612,7 @@ assistant that can run commands. Now EditorIDs in the prompt keep only EditorID 
 breaks, control characters, quotes and backticks and are quoted, and the prompt says they are data, not instructions.
 Text from plugins also stays on one line everywhere in report.md and report.html.
 
-Fixes from the release's code review (`conflict`):
+These fixes come from the release's code review (`conflict`):
 - A Bethesda Creation switched off in Plugins.txt (its file stays in Data) is no longer analyzed as if loaded,
   nor is its ship-blueprint file.
 - Bethesda's files are recognized by their exact names (SFBGS + 3 hex digits, sfta + 2 digits, their
@@ -567,7 +630,7 @@ Fixes from the release's code review (`conflict`):
 - Cell grids show their point and land flags without the junk bytes, and a change description only mentions the
   land flags when their real byte differs.
 - Plugin text containing the page's menu placeholder no longer gets the menu pasted into it; load-order problems
-  stay on one line in report.md; "mods (item modification)" instead of "mod (item modification)s".
+  stay on one line in report.md; the text says "mods (item modification)" instead of "mod (item modification)s".
 - `--max-memory` takes a number of GB from 0.000001 to 1000000 and says so for anything else (NaN, Infinity,
   values so small they would mean no limit).
 - Byte data (navmeshes, undocumented blobs) compares and hashes by its bytes in one step, as in `check`.
@@ -590,12 +653,12 @@ Fix (both commands): a cell's grid (XCLC) holds X, Y, one byte of land flags and
 flags and the unused bytes as one value, and Bethesda's files leave junk in the unused bytes. `check` could call
 such a cell override different from its master when it isn't, so a cell ITM could be missed (no cell was affected in
 practice, because cells that hold placed objects are skipped). `conflict` skipped the flags completely, so a real
-land-flag change went unseen. Both now compare the grid point and the land-flag byte only. Same findings as before
+land-flag change went unseen. Both now compare the grid point and the land-flag byte only. The findings are the same as before
 on six test load orders.
 
 ## 0.4.1 (2026-11-16)
 
-Security and bug-fix release, from a code review and a security review. Built on BuildKit 0.3.1.
+This is a security and bug-fix release, from a code review and a security review. It is built on BuildKit 0.3.1.
 
 Security:
 - A plugin whose master list holds a path instead of a file name (a network path such as `\\server\share\x.esm`,
@@ -625,25 +688,25 @@ Attribution:
 
 ## 0.4.0 (2026-11-09)
 
-First public release. Built on Mutagen.Bethesda.Starfield 0.54.4 (through BuildKit 0.2.0).
+This is the first public release. It is built on Mutagen.Bethesda.Starfield 0.54.4 (through BuildKit 0.2.0).
 
-- `sfmodcheck check <plugin>`: structure, header, ids, read, links, conditions, dialogue, scenes, navi, editorids,
+- `sfmodcheck check <plugin>` runs the structure, header, ids, read, links, conditions, dialogue, scenes, navi, editorids,
   itm and records checks, with ERROR / WARNING lines, one RESULT line and exit codes 0, 1 and 2.
-- HINT lines: after each check's findings, one line on how to fix them in xEdit or the Creation Kit. `--no-hints`
+- HINT lines: after each check's findings, one line says how to fix them in xEdit or the Creation Kit. `--no-hints`
   turns them off.
 - The official scene list is learned from your own Data folder and cached in `%LOCALAPPDATA%\sfmodcheck\`.
-- A note on stderr before checking an official master or a plugin with more than 500,000 records (Starfield.esm
+- A note on stderr appears before checking an official master or a plugin with more than 500,000 records (Starfield.esm
   needs over 30 GB of memory).
 - Drag and drop: a plugin dropped on `sfmodcheck.exe` is checked in its own window, which stays open at the end. With
   no `--data` and no game in Steam's usual folder, a plugin inside a Data folder uses that folder.
-- Two downloads: a dotnet tool package and a stand-alone `sfmodcheck.exe` (win-x64, .NET built in).
+- There are two downloads: a dotnet tool package and a stand-alone `sfmodcheck.exe` (win-x64, .NET built in).
 - Troubleshooting log: `--log <file>` writes what sfmodcheck read (plugin, Data folder and why, where each master was
   found, caches used or rebuilt), the time per stage, the findings per check and any error in full; `--verbose` prints
   the same on stderr. The findings and the RESULT line don't change.
 - Errors for wrong arguments name the file or option and the fix (a missing option value or a bad `--max` used to end
   in a stack trace). A `--data` folder that doesn't exist stops at once with exit code 2.
 - `SFMODCHECK_CACHE_DIR` moves the caches.
-- AGENTS.md: step-by-step install and use instructions for AI assistants (also in both downloads). README notes for
+- AGENTS.md gives step-by-step install and use instructions for AI assistants (also in both downloads). The README has notes for
   Game Pass, Vortex and Mod Organizer 2 installs.
 
 Earlier versions (0.1.0 to 0.3.0, 2026-11-06 to 2026-11-08) were private, under the name StarfieldPluginCheck.

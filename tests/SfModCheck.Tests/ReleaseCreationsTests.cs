@@ -76,6 +76,39 @@ public class ReleaseCreationsTests
         Assert.Equal("MyMod - Main_xbox.ba2", ReleaseCreations.XboxTwin("MyMod - Main.ba2"));
     }
 
+    // 0.13.0: the [official] list uses Bethesda's exact name shapes, as check does, not SFBGS*/SFTA* prefixes.
+    [Theory]
+    [InlineData("SFBGS003.esm", true)]
+    [InlineData("sfbgs00a.ESM", true)]
+    [InlineData("SFBGS003Fixes.esm", false)]
+    [InlineData("SFBGSExtras.esm", false)]
+    [InlineData("sfta01.esm", true)]
+    [InlineData("SFTA1.esm", false)]
+    [InlineData("SFTA100.esm", false)]
+    [InlineData("BlueprintShips-SFBGS050.esm", true)]
+    [InlineData("BlueprintShips-sfta01.esm", true)]
+    [InlineData("BlueprintShips-SFBGS050Fixes.esm", false)]
+    [InlineData("SFBGS003.esm\n", false)]
+    public void Official_names_follow_Bethesdas_exact_shapes(string name, bool official)
+    {
+        Assert.Equal(official, ReleaseCreations.IsOfficial(name));
+        // the same answer check gives for the same name
+        Assert.Equal(official, Checker.IsOfficial(name));
+    }
+
+    [Theory]
+    [InlineData("A?C.esm", "ABC.esm", true)]
+    [InlineData("A?C.esm", "AC.esm", false)]
+    [InlineData("X[0-9].esm", "x7.esm", true)]
+    [InlineData("X[0-9].esm", "XA.esm", false)]
+    [InlineData("X[!0-9].esm", "XA.esm", true)]
+    [InlineData("X[!0-9].esm", "X7.esm", false)]
+    [InlineData("X[.esm", "X[.esm", true)]
+    [InlineData("A.esm", "AXesm", false)]
+    [InlineData("*.esm", "Any Name.esm", true)]
+    public void Wildcards_read_like_fnmatch(string pattern, string name, bool match) =>
+        Assert.Equal(match, ReleaseCreations.Wildcard(pattern).IsMatch(name));
+
     [Fact]
     public void Other_profiles_run_none_of_these_rules()
     {
@@ -299,8 +332,8 @@ public class ReleaseCreationsTests
     [Fact]
     public void OneLine_escapes_line_breaks_but_keeps_paths()
     {
-        Assert.Equal(@"Scripts\My Mod.pex", ReleaseCreations.OneLine(@"Scripts\My Mod.pex"));
-        var s = ReleaseCreations.OneLine("Obj\nWARNING [x] fake\u2028more\u202E\u0001");
+        Assert.Equal(@"Scripts\My Mod.pex", SafeText.OneLine(@"Scripts\My Mod.pex"));
+        var s = SafeText.OneLine("Obj\nWARNING [x] fake\u2028more\u202E\u0001");
         Assert.Equal("Obj\\nWARNING [x] fake\\u2028more\\u202e\\u0001", s);
         Assert.DoesNotContain(s, c => char.IsControl(c) || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.LineSeparator or System.Globalization.UnicodeCategory.ParagraphSeparator);
     }
@@ -309,10 +342,10 @@ public class ReleaseCreationsTests
     public void OneLine_escapes_every_format_character()
     {
         // Code review round 10: U+061C (a bidi mark) and the zero-width characters weren't escaped.
-        var s = ReleaseCreations.OneLine("A؜B​C‍D⁠E﻿F‎G⁦H");
+        var s = SafeText.OneLine("A\u061CB\u200BC\u200DD\u2060E\uFEFFF\u200EG\u2066H");
         Assert.Equal("A\\u061cB\\u200bC\\u200dD\\u2060E\\ufeffF\\u200eG\\u2066H", s);
-        Assert.Equal("\"x\\u061c\"", ReleaseCreations.Quoted("x؜"));
-        Assert.Equal("Ünïcødé – ok", ReleaseCreations.OneLine("Ünïcødé – ok"));
+        Assert.Equal("\"x\\u061c\"", ReleaseCreations.Quoted("x\u061C"));
+        Assert.Equal("Ünïcødé – ok", SafeText.OneLine("Ünïcødé – ok"));
     }
 
     [Fact]

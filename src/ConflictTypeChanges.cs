@@ -93,7 +93,7 @@ public static class TypeChanges
                 w.Walk();
                 // a damaged spot ends the walk of its file or group, so later records were never seen (code review)
                 if (w.StoppedEarly is { } why)
-                    Problem(p, "some of its records' types", Impact.OneLine(why), "a record type it changes there may be missing");
+                    Problem(p, "some of its records' types", SafeText.OneLine(why), "a record type it changes there may be missing");
             }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
@@ -120,7 +120,7 @@ public static class TypeChanges
                 body = d;
             }
             foreach (var (type, data) in Subrecords.Parse(body, out _))
-                if (type == "EDID") return Impact.OneLine(System.Text.Encoding.UTF8.GetString(data).TrimEnd('\0'));
+                if (type == "EDID") return SafeText.OneLine(System.Text.Encoding.UTF8.GetString(data).TrimEnd('\0'));
             return null;
         }
         catch (Exception e) when (Fatal.Recoverable(e)) { return null; }

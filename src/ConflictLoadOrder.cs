@@ -104,7 +104,7 @@ public class LoadOrderSetup
     public IReadOnlyList<string> Problems => problems;
 
     /// <summary>Adds a load-order problem on one line: it may quote plugin and master names from file headers (0.5.0).</summary>
-    public void AddProblem(string text) => problems.Add(Impact.OneLine(text));
+    public void AddProblem(string text) => problems.Add(SafeText.OneLine(text));
     public string OrderSource { get; private set; } = "";
 
     public static LoadOrderSetup Build(string dataDir, string? pluginsTxt, string? extraDir = null)

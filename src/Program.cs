@@ -206,7 +206,8 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
                     return 2;
                 }
                 o.Language = lang; break;
-            case "-h": case "--help": plugin = null; i = a.Length; break;
+            // Help that was asked for: stdout, exit 0, no RESULT line (0.13.0; until then exit 2 with a RESULT line).
+            case "-h": case "--help": Console.WriteLine(Usage); return 0;
             default:
                 if (a[i].StartsWith("--"))
                 {

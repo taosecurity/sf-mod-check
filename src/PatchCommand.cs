@@ -6,8 +6,9 @@
 //   - copies every Forwardable field forward from the plugin that lost it (the winner didn't change that field, so
 //     nothing the winner meant is undone);
 //   - for Choice fields (both plugins changed it) keeps the winner's value unless --pick names another plugin.
-// Records that live inside cells, worldspaces, quests or dialogue topics (placed objects, navmeshes, cells, dialogue)
-// are not built in this version: the report lists them for xEdit. Nor is the navmesh info map (NAVI), whose copies
+// Cells, worldspaces, placed objects and navmeshes are built since 0.13.0 (each record itself only; a placed object's or
+// navmesh's cell and an exterior cell's worldspace come along as the game uses them today). The records inside quests or
+// dialogue topics are not built in this version: the report lists them for xEdit. Nor is the navmesh info map (NAVI), whose copies
 // each list only one plugin's navmeshes. Records that end up equal to today's winner are
 // left out (no ITMs). It reads plugins and writes only its output folder: never the Data folder, never Plugins.txt.
 //   sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
@@ -71,14 +72,62 @@ public static class PatchCommand
         return FormKey.TryFactory(left[..colon], out var fk) ? new(fk, field, plugin) : null;
     }
 
-    // Record kinds that live inside another record's group. Building them needs the parent record too (a cell's or a
-    // worldspace's header), which can undo other mods' changes to the parent, so this version leaves them to xEdit.
+    // Record kinds that live inside another record's group and aren't built yet: dialogue and scenes (inside a quest or
+    // topic). Cells and worldspaces are built since 0.13.0 (only the record itself, never its placed objects, navmeshes
+    // or blocks; see CellOnly and WorldOnly below), and so are placed objects and navmeshes: each one goes into its
+    // cell's Persistent, Temporary or NavigationMeshes list, with the cell as the game uses it today when the cell isn't
+    // a patch record of its own. A navmesh's mesh (geometry, NNAM, pre-cut entries) is one value: see NavmeshUnit.
     static readonly Type[] NotBuilt =
     [
-        typeof(ICellGetter), typeof(IWorldspaceGetter), typeof(IPlacedGetter), typeof(INavigationMeshGetter),
         typeof(IDialogTopicGetter), typeof(IDialogResponsesGetter), typeof(ISceneGetter),
         typeof(IDialogBranchGetter),
     ];
+
+    // 0.13.0: a cell goes into the patch without its placed objects and navmeshes (records of their own), and a
+    // worldspace without its cells, its persistent cell, its large-reference table (RNAM) and its cell offsets (OFST,
+    // CLSZ). RNAM, OFST and CLSZ index the objects and cells of the plugin that holds them; a patch has none of those,
+    // and Creation Kit overrides carry none either. A winning worldspace with a few RNAM entries made every landing at
+    // one city crash in the game's cell loader (2026-11-07, the in-game-proven cells builder's notes), so they're
+    // always left out. The compare already ignores all three (FieldCompare's Ignored list).
+    static readonly Cell.TranslationMask CellOnly = new(true) { Persistent = false, Temporary = false, NavigationMeshes = false };
+    static readonly Worldspace.TranslationMask WorldOnly = new(true)
+        { SubCells = false, TopCell = false, LargeReferences = false, OffsetData = false, CellSizeData = false };
+
+    /// <summary>A copy of one version of a record, holding only the record itself (0.13.0: a cell without its child
+    /// records, a worldspace without its cells and RNAM/OFST/CLSZ).</summary>
+    public static IMajorRecord CopyOf(IMajorRecordGetter r) => r switch
+    {
+        ICellGetter c => c.DeepCopy(CellOnly),
+        IWorldspaceGetter w => w.DeepCopy(WorldOnly),
+        _ => (IMajorRecord)r.DeepCopy(),
+    };
+
+    /// <summary>Where a cell sits in the plugin that holds it: an interior cell block and sub-block, or a worldspace's
+    /// persistent cell, or an exterior block and sub-block of a worldspace (0.13.0).</summary>
+    public sealed record CellPlace(FormKey? World, bool Persistent, int Block, int SubBlock, short X, short Y, short SubX, short SubY)
+    {
+        public override string ToString() => World is null ? $"interior block {Block}, sub-block {SubBlock}"
+            : Persistent ? $"the persistent cell of worldspace {World}" : $"worldspace {World}, block {X},{Y}, sub-block {SubX},{SubY}";
+    }
+
+    /// <summary>Where a placed object or navmesh sits in the plugin that holds it: its cell, and that cell's persistent
+    /// or temporary list, or its navmeshes (0.13.0).</summary>
+    public sealed record RefPlace(FormKey Cell, bool Persistent, bool Navmesh = false)
+    {
+        public override string ToString() => $"cell {Cell}, {(Navmesh ? "navmeshes" : Persistent ? "persistent references" : "temporary references")}";
+    }
+
+    /// <summary>A record that is written inside a cell: a placed object or a navmesh (0.13.0).</summary>
+    public static bool IsCellChild(IMajorRecordGetter r) => r is IPlacedGetter or INavigationMeshGetter;
+
+    /// <summary>A navmesh's mesh: its geometry (NVNM), its NNAM data and its pre-cut map entries. They describe one mesh
+    /// as the Creation Kit finalized it, so the patch takes all three from one version, never field by field or entry
+    /// by entry (0.13.0).</summary>
+    public static readonly string[] NavmeshUnit = ["NavmeshGeometry", "NNAM", "PreCutMapEntries"];
+
+    /// <summary>A record in a log line: its type, its EditorID when it has one (one line, escaped), and its FormKey.</summary>
+    static string LogName(string recordType, string? editorId, FormKey fk) =>
+        string.IsNullOrEmpty(editorId) ? $"{recordType} [{fk}]" : $"{recordType} {SafeText.OneLine(editorId)} [{fk}]";
 
     /// <summary>Why a record type can't be built, or null when it can.</summary>
     public static string? WhyNotBuilt(Type getter)
@@ -91,9 +140,7 @@ public static class PatchCommand
                    "don't copy it by hand either (the Creation Kit rebuilds it when a navmesh is finalized)";
         var hit = NotBuilt.FirstOrDefault(t => t.IsAssignableFrom(getter));
         if (hit is null) return null;
-        return hit == typeof(ICellGetter) || hit == typeof(IWorldspaceGetter)
-            ? "cells and worldspaces are not built by this version (their placed objects and blocks would come along); copy the fields in xEdit"
-            : "records that live inside a cell, worldspace, quest or dialogue topic are not built by this version; copy the fields in xEdit";
+        return "dialogue and scenes (records inside a quest or dialogue topic) are not built by this version; copy the fields in xEdit";
     }
 
     /// <summary>Why a record that loses to an official BlueprintShips file isn't built (0.12.0).</summary>
@@ -121,7 +168,7 @@ public static class PatchCommand
             {
                 var where = Analyzer.Where.Length > 0 ? $" while {Analyzer.Where}" : "";
                 var rec = Analyzer.RecordOf(e) is { Length: > 0 } r ? $" at {r}" : "";
-                return $"RESULT: CANNOT BUILD ({e.GetType().Name}{rec}{where}: {Impact.OneLine(e.Message.Split('\n')[0])})";
+                return $"RESULT: CANNOT BUILD ({e.GetType().Name}{rec}{where}: {SafeText.OneLine(e.Message.Split('\n')[0])})";
             }));
             Fatal.AfterResult(() =>
             {
@@ -177,7 +224,7 @@ public static class PatchCommand
                     if (ParsePick(pk) is not { } pick)
                     {
                         Console.Error.WriteLine($"--pick needs <FormKey>=<plugin> or <FormKey>:<Field>=<plugin>, for example --pick 064F3C:Starfield.esm=ModA.esm " +
-                                                $"or --pick 064F3C:Starfield.esm:Value=ModA.esm (the patch report prints ready-made lines), not \"{Impact.OneLine(pk)}\"");
+                                                $"or --pick 064F3C:Starfield.esm:Value=ModA.esm (the patch report prints ready-made lines), not \"{SafeText.OneLine(pk)}\"");
                         return 2;
                     }
                     picks.Add(pick); break;
@@ -195,9 +242,9 @@ public static class PatchCommand
                 case "--verbose": verbose = true; break;
                 case "--include-official": includeOfficial = true; break;
                 case "--quiet": quiet = true; break;
-                case "-h": case "--help":
-                    Console.Error.WriteLine(Usage);
-                    return 2;
+                case "-h": case "--help":   // help that was asked for: stdout, exit 0, no RESULT line (0.13.0)
+                    Console.WriteLine(Usage);
+                    return 0;
                 default:
                     Console.Error.WriteLine(a[i].StartsWith("--") ? $"unknown option {a[i]}" : $"unexpected argument {a[i]} (patch reads the whole load order; give its Plugins.txt with --plugins)");
                     Console.Error.WriteLine(Usage);
@@ -223,7 +270,7 @@ public static class PatchCommand
         if (!GameData.IsPlainPluginName(name) || !name.EndsWith(".esm", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".esp", StringComparison.OrdinalIgnoreCase))
         {
             cantWhy = "bad --name";
-            Console.Error.WriteLine($"--name needs a plain plugin file name ending in .esm or .esp, with no folder, for example --name MyPatch.esm (not \"{Impact.OneLine(name)}\")");
+            Console.Error.WriteLine($"--name needs a plain plugin file name ending in .esm or .esp, with no folder, for example --name MyPatch.esm (not \"{SafeText.OneLine(name)}\")");
             return 2;
         }
         if (ReleaseRules.IsDroppedPluginName(name))
@@ -322,8 +369,8 @@ public static class PatchCommand
             {
                 if (!byName.TryGetValue(o, out var op))
                 {
-                    cantWhy = $"--only {Impact.OneLine(o)} is not in the load order";
-                    Console.Error.WriteLine($"--only {Impact.OneLine(o)}: that plugin isn't active in {orderTxt} (or it couldn't be loaded; see the load-order problems with --verbose). " +
+                    cantWhy = $"--only {SafeText.OneLine(o)} is not in the load order";
+                    Console.Error.WriteLine($"--only {SafeText.OneLine(o)}: that plugin isn't active in {orderTxt} (or it couldn't be loaded; see the load-order problems with --verbose). " +
                                             "Give the file names of active plugins, separated by commas.");
                     return 2;
                 }
@@ -331,8 +378,8 @@ public static class PatchCommand
             }
             foreach (var pk in picks.Where(pk => !byName.ContainsKey(pk.Plugin)))
             {
-                cantWhy = $"--pick names {Impact.OneLine(pk.Plugin)}, which is not in the load order";
-                Console.Error.WriteLine($"--pick {pk.FormKey}{(pk.Field is null ? "" : ":" + pk.Field)}={Impact.OneLine(pk.Plugin)}: that plugin isn't active in the load order.");
+                cantWhy = $"--pick names {SafeText.OneLine(pk.Plugin)}, which is not in the load order";
+                Console.Error.WriteLine($"--pick {pk.FormKey}{(pk.Field is null ? "" : ":" + pk.Field)}={SafeText.OneLine(pk.Plugin)}: that plugin isn't active in the load order.");
                 return 2;
             }
 
@@ -407,11 +454,21 @@ public static class PatchCommand
     /// <param name="Sources">for each field copied whole, the plugin's version of the record its value came from</param>
     /// <param name="Merged">for each list field merged entry by entry, its entries as the plugins hold them</param>
     public sealed record PatchRecord(FormKey FormKey, string RecordType, string? EditorID, IMajorRecord Record, List<ForwardedField> Fields, List<string> Plugins,
-        Dictionary<string, IMajorRecordGetter> Sources, Dictionary<string, List<object?>> Merged);
+        Dictionary<string, IMajorRecordGetter> Sources, Dictionary<string, List<object?>> Merged)
+    {
+        /// <summary>A worldspace that is in the patch only because a patched exterior cell sits in it, or a cell only
+        /// because a patched placed object sits in it: the record as the game uses it today, with no field changed
+        /// (0.13.0).</summary>
+        public bool Parent { get; init; }
+    }
 
     public sealed class Plan
     {
         public List<PatchRecord> Records { get; } = new();
+        /// <summary>Where each patched cell goes (0.13.0).</summary>
+        public Dictionary<FormKey, CellPlace> Places { get; } = new();
+        /// <summary>Which cell (and which of its lists) each patched placed object goes in (0.13.0).</summary>
+        public Dictionary<FormKey, RefPlace> RefPlaces { get; } = new();
         public List<ChoiceField> Choices { get; } = new();
         public List<NotBuiltRecord> NotBuilt { get; } = new();
         public List<string> Notes { get; } = new();
@@ -449,11 +506,13 @@ public static class PatchCommand
             if (getter is null)
             {
                 plan.NotBuilt.Add(new(g.Key, cls, g.First().EditorID, $"sf-mod-check doesn't know the record type {cls}", fwdFields));
+                Log.Write($"patch: {LogName(cls, g.First().EditorID, g.Key)} not built: sf-mod-check doesn't know the record type");
                 continue;
             }
             if (WhyNotBuilt(getter) is { } why)
             {
                 plan.NotBuilt.Add(new(g.Key, cls, g.First().EditorID, why, fwdFields));
+                Log.Write($"patch: {LogName(cls, g.First().EditorID, g.Key)} not built: {why}");
                 continue;
             }
             targets[g.Key] = (getter, cls);
@@ -502,47 +561,223 @@ public static class PatchCommand
             }
         }
 
+        // 0.13.0: where each cell sits (interior block, or which worldspace and exterior block), from the last plugin
+        // that holds it.
+        var cellTargets = targets.Where(t => t.Value.Getter == typeof(ICellGetter)).Select(t => t.Key).ToHashSet();
+        if (cellTargets.Count > 0)
+            foreach (var p in lo.Plugins)
+            {
+                Analyzer.Where = $"finding where cells sit in {p.FileName} for the patch";
+                FindPlaces(p.Mod, cellTargets, plan.Places);
+            }
+        // 0.13.0: which cell (persistent or temporary list, or its navmeshes) each placed object and navmesh sits in, from
+        // the last plugin that holds it.
+        var refTargets = targets.Where(t => typeof(IPlacedGetter).IsAssignableFrom(t.Value.Getter) || t.Value.Getter == typeof(INavigationMeshGetter))
+            .Select(t => t.Key).ToHashSet();
+        if (refTargets.Count > 0)
+            foreach (var p in lo.Plugins)
+            {
+                Analyzer.Where = $"finding the cells of placed objects and navmeshes in {p.FileName} for the patch";
+                foreach (var c in AllCells(p.Mod))
+                {
+                    foreach (var r in c.Persistent) if (refTargets.Contains(r.FormKey)) plan.RefPlaces[r.FormKey] = new(c.FormKey, true);
+                    foreach (var r in c.Temporary) if (refTargets.Contains(r.FormKey)) plan.RefPlaces[r.FormKey] = new(c.FormKey, false);
+                    foreach (var n in c.NavigationMeshes) if (refTargets.Contains(n.FormKey)) plan.RefPlaces[n.FormKey] = new(c.FormKey, false, true);
+                }
+            }
+
         foreach (var g in byRecord)
         {
             if (!targets.ContainsKey(g.Key)) continue;
             if (!versions.TryGetValue(g.Key, out var vs) || vs.Count == 0)
             {
                 plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, "its versions could not be read again", new()));
+                Log.Write($"patch: {g.First().RecordType} {g.Key} not built: its versions could not be read again");
+                continue;
+            }
+            if (cellTargets.Contains(g.Key) && !plan.Places.ContainsKey(g.Key))
+            {
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, "the cell's place (an interior block or a worldspace) could not be found", new()));
+                Log.Write($"patch: cell {g.Key} not built: no interior block or worldspace holds it");
+                continue;
+            }
+            if (refTargets.Contains(g.Key) && !plan.RefPlaces.ContainsKey(g.Key))
+            {
+                var kind = targets[g.Key].Getter == typeof(INavigationMeshGetter) ? "navmesh" : "placed object";
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, $"the {kind}'s cell could not be found", new()));
+                Log.Write($"patch: {kind} {g.Key} not built: no cell holds it");
                 continue;
             }
             try { BuildRecord(g.Key, g.ToList(), vs, picks, plan, MastersOf, Name); }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, $"it could not be built ({e.GetType().Name}: {Impact.OneLine(e.Message)})", new()));
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, $"it could not be built ({e.GetType().Name}: {SafeText.OneLine(e.Message)})", new()));
                 Log.Write($"patch: {g.Key} not built: {e}");
             }
         }
+
+        // 0.13.0: a placed object or navmesh can only be written inside its cell, so a cell the patch doesn't hold yet goes
+        // in as the game uses it today (the same rule as a worldspace below): no other mod's change to the cell is undone.
+        foreach (var r in plan.Records.Where(r => IsCellChild(r.Record)))
+            Log.Write($"patch: {(r.Record is INavigationMeshGetter ? "navmesh" : "placed object")} {r.EditorID} [{r.FormKey}] goes in {plan.RefPlaces[r.FormKey]}");
+        var cellsNeeded = plan.Records.Where(r => IsCellChild(r.Record)).Select(r => plan.RefPlaces[r.FormKey].Cell)
+            .Where(c => !plan.Records.Any(r => r.FormKey == c)).ToHashSet();
+        if (cellsNeeded.Count > 0)
+        {
+            var cv = new Dictionary<FormKey, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>>();
+            foreach (var p in lo.Plugins)
+            {
+                Analyzer.Where = $"reading the parent cells of placed objects from {p.FileName} for the patch";
+                foreach (var c in AllCells(p.Mod))
+                    if (cellsNeeded.Contains(c.FormKey))
+                    {
+                        if (!cv.TryGetValue(c.FormKey, out var list)) cv[c.FormKey] = list = new();
+                        if (list.Count == 0 || list[^1].Plugin != p) list.Add((p, c));
+                    }
+                FindPlaces(p.Mod, cellsNeeded, plan.Places);
+            }
+            foreach (var c in cellsNeeded)
+            {
+                var refs = plan.Records.Where(r => IsCellChild(r.Record) && plan.RefPlaces[r.FormKey].Cell == c).ToList();
+                if (!cv.TryGetValue(c, out var vs) || vs.Count == 0 || !plan.Places.ContainsKey(c))
+                {
+                    // can't happen when the object was found in it; keep the patch writable by leaving its objects out
+                    foreach (var o in refs)
+                    {
+                        plan.Records.Remove(o);
+                        plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, $"its cell {c} could not be read again", new()));
+                        Log.Write($"patch: {o.RecordType} {o.FormKey} not built: its cell {c} could not be read again");
+                    }
+                    continue;
+                }
+                var (rec, source, _) = Compose(vs, new Copies(vs));
+                var edid = vs[^1].Rec.EditorID;
+                plan.Records.Add(new(c, "Cell", edid, rec, new(), vs.Select(v => v.Plugin.FileName).ToList(),
+                    source.ToDictionary(s => s.Key, s => vs[s.Value].Rec), new()) { Parent = true });
+                plan.Notes.RemoveAll(n => n.Contains($"[{c}]") && n.EndsWith("so it is left out"));
+                plan.Notes.Add($"Cell {edid} [{c}] is in the patch as the parent of {ChildrenText(refs.Select(r => r.Record))}: " +
+                               "the record as the game uses it today, with no field changed");
+                Log.Write($"patch: cell {edid} [{c}] added as the parent of {ChildrenText(refs.Select(r => r.Record))}, as the game uses it today (from {vs.Count} versions), in {plan.Places[c]}");
+            }
+        }
+
+        // 0.13.0: an exterior cell can only be written inside its worldspace, so a worldspace the patch doesn't hold yet
+        // goes in as the game uses it today (each field from the last plugin that supplies it): no other mod's change to
+        // the worldspace is undone, and nothing of its own is changed.
+        foreach (var r in plan.Records.Where(r => r.Record is ICellGetter).ToList())
+            Log.Write($"patch: cell {r.EditorID} [{r.FormKey}] goes in {plan.Places[r.FormKey]}");
+        var worldsNeeded = plan.Records.Where(r => r.Record is ICellGetter).Select(r => plan.Places[r.FormKey].World).OfType<FormKey>()
+            .Where(w => !plan.Records.Any(r => r.FormKey == w)).ToHashSet();
+        if (worldsNeeded.Count > 0)
+        {
+            var wv = new Dictionary<FormKey, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>>();
+            foreach (var p in lo.Plugins)
+                foreach (var w in p.Mod.Worldspaces)
+                    if (worldsNeeded.Contains(w.FormKey))
+                    {
+                        if (!wv.TryGetValue(w.FormKey, out var list)) wv[w.FormKey] = list = new();
+                        list.Add((p, w));
+                    }
+            foreach (var w in worldsNeeded)
+            {
+                var cells = plan.Records.Where(r => r.Record is ICellGetter && plan.Places[r.FormKey].World == w).ToList();
+                if (!wv.TryGetValue(w, out var vs) || vs.Count == 0)
+                {
+                    // can't happen when the cell was found in it; keep the patch writable by leaving its cells out
+                    foreach (var c in cells)
+                    {
+                        plan.Records.Remove(c);
+                        plan.NotBuilt.Add(new(c.FormKey, c.RecordType, c.EditorID, $"its worldspace {w} could not be read again", new()));
+                        foreach (var o in plan.Records.Where(o => IsCellChild(o.Record) && plan.RefPlaces[o.FormKey].Cell == c.FormKey).ToList())
+                        {
+                            plan.Records.Remove(o);
+                            plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, $"the worldspace {w} of its cell could not be read again", new()));
+                        }
+                    }
+                    continue;
+                }
+                var (rec, source, _) = Compose(vs, new Copies(vs));
+                var edid = vs[^1].Rec.EditorID;
+                plan.Records.Add(new(w, "Worldspace", edid, rec, new(), vs.Select(v => v.Plugin.FileName).ToList(),
+                    source.ToDictionary(s => s.Key, s => vs[s.Value].Rec), new()) { Parent = true });
+                // it may have been left out above as equal to today's record; it is in now, as the cells' parent
+                plan.Notes.RemoveAll(n => n.Contains($"[{w}]") && n.EndsWith("so it is left out"));
+                plan.Notes.Add($"Worldspace {edid} [{w}] is in the patch as the parent of {cells.Count} patched cell{(cells.Count == 1 ? "" : "s")}: " +
+                               "the record as the game uses it today, with no field changed");
+                Log.Write($"patch: worldspace {edid} [{w}] added as the parent of {cells.Count} cell(s), as the game uses it today (from {vs.Count} versions)");
+            }
+        }
+        if (plan.Records.Any(r => r.Record is IWorldspaceGetter))
+            plan.Notes.Add("Worldspaces go in without their large-reference table (RNAM) and cell offsets (OFST, CLSZ), as Creation Kit overrides do: " +
+                           "they index objects and cells of the plugin that holds them, which a patch doesn't have");
         return plan;
+    }
+
+    /// <summary>"2 patched placed objects and 1 patched navmesh": what a parent cell is in the patch for.</summary>
+    static string ChildrenText(IEnumerable<IMajorRecordGetter> children)
+    {
+        var list = children.ToList();
+        int navs = list.Count(x => x is INavigationMeshGetter), refs = list.Count - navs;
+        var parts = new List<string>();
+        if (refs > 0) parts.Add($"{refs} patched placed object{(refs == 1 ? "" : "s")}");
+        if (navs > 0) parts.Add($"{navs} patched navmesh{(navs == 1 ? "" : "es")}");
+        return string.Join(" and ", parts);
+    }
+
+    /// <summary>Every cell one plugin holds: interior cells, and each worldspace's persistent cell and exterior cells.</summary>
+    static IEnumerable<ICellGetter> AllCells(IStarfieldModGetter mod)
+    {
+        foreach (var b in mod.Cells)
+            foreach (var s in b.SubBlocks)
+                foreach (var c in s.Cells) yield return c;
+        foreach (var w in mod.Worldspaces)
+        {
+            if (w.TopCell is { } tc) yield return tc;
+            foreach (var b in w.SubCells)
+                foreach (var s in b.Items)
+                    foreach (var c in s.Items) yield return c;
+        }
+    }
+
+    /// <summary>Records where each wanted cell sits in one plugin (an interior block, a worldspace's persistent cell or
+    /// an exterior block). A later plugin's place replaces an earlier one's.</summary>
+    static void FindPlaces(IStarfieldModGetter mod, HashSet<FormKey> want, Dictionary<FormKey, CellPlace> places)
+    {
+        foreach (var b in mod.Cells)
+            foreach (var s in b.SubBlocks)
+                foreach (var c in s.Cells)
+                    if (want.Contains(c.FormKey)) places[c.FormKey] = new(null, false, b.BlockNumber, s.BlockNumber, 0, 0, 0, 0);
+        foreach (var w in mod.Worldspaces)
+        {
+            if (w.TopCell is { } tc && want.Contains(tc.FormKey)) places[tc.FormKey] = new(w.FormKey, true, 0, 0, 0, 0, 0, 0);
+            foreach (var b in w.SubCells)
+                foreach (var s in b.Items)
+                    foreach (var c in s.Items)
+                        if (want.Contains(c.FormKey))
+                            places[c.FormKey] = new(w.FormKey, false, 0, 0, b.BlockNumberX, b.BlockNumberY, s.BlockNumberX, s.BlockNumberY);
+        }
     }
 
     // A deep copy per version, made only when one of its fields is needed.
     sealed class Copies(List<(PluginInfo Plugin, IMajorRecordGetter Rec)> versions)
     {
         readonly Dictionary<int, IMajorRecord> made = new();
-        public IMajorRecord Of(int i) => made.TryGetValue(i, out var c) ? c : made[i] = (IMajorRecord)versions[i].Rec.DeepCopy();
+        public IMajorRecord Of(int i) => made.TryGetValue(i, out var c) ? c : made[i] = CopyOf(versions[i].Rec);
     }
 
-    static void BuildRecord(FormKey fk, List<LostChange> lost, List<(PluginInfo Plugin, IMajorRecordGetter Rec)> vs, List<Pick> picks, Plan plan,
-        Func<PluginInfo, HashSet<string>> mastersOf, Func<IFormLinkGetter, string> name)
+    /// <summary>The record as the game uses it today: the last full version, with each later (partial) version's own
+    /// fields laid over it. Source says which version each field's value comes from (an index into vs).</summary>
+    static (IMajorRecord Rec, Dictionary<string, int> Source, PropertyInfo[] Fields) Compose(List<(PluginInfo Plugin, IMajorRecordGetter Rec)> vs, Copies copies)
     {
-        var copies = new Copies(vs);
-        // Start from the last full version, then lay each later (partial) version's own fields over it: the record as
-        // the game uses it today.
         int baseIdx = vs.FindLastIndex(v => !FieldCompare.IsPartial(v.Rec));
         if (baseIdx < 0) baseIdx = 0;
-        var rec = (IMajorRecord)vs[baseIdx].Rec.DeepCopy();
+        var rec = CopyOf(vs[baseIdx].Rec);
         // Only fields the record really stores: a reader's own bookkeeping (QuestBinaryOverlay.QuestSubGroupTriggerSpecs,
         // where in the file a group starts) has no counterpart in the record and is never copied.
         var getterFields = FieldCompare.Fields(vs[^1].Rec.GetType())
             .Where(p => p.Name == "MajorRecordFlagsRaw" || rec.GetType().GetProperty(p.Name) is not null).ToArray();
-        var byName = getterFields.ToDictionary(p => p.Name);
-        // Where each field's value comes from (an index into vs). Values are compared as the plugins hold them, the way
-        // conflict compares them, never as Mutagen's in-memory copies (an empty list and no list read back the same).
+        // Values are compared as the plugins hold them, the way conflict compares them, never as Mutagen's in-memory
+        // copies (an empty list and no list read back the same).
         var source = getterFields.ToDictionary(p => p.Name, _ => baseIdx);
         for (int j = baseIdx + 1; j < vs.Count; j++)
             foreach (var p in getterFields)
@@ -552,6 +787,15 @@ public static class PatchCommand
                     source[p.Name] = j;
                 }
         rec.MajorRecordFlagsRaw &= ~PartialFlag;
+        return (rec, source, getterFields);
+    }
+
+    static void BuildRecord(FormKey fk, List<LostChange> lost, List<(PluginInfo Plugin, IMajorRecordGetter Rec)> vs, List<Pick> picks, Plan plan,
+        Func<PluginInfo, HashSet<string>> mastersOf, Func<IFormLinkGetter, string> name)
+    {
+        var copies = new Copies(vs);
+        var (rec, source, getterFields) = Compose(vs, copies);
+        var byName = getterFields.ToDictionary(p => p.Name);
         var today = new Dictionary<string, int>(source);
         object? Held(string field, int i) => FieldCompare.Get(byName[field], vs[i].Rec);
 
@@ -562,9 +806,11 @@ public static class PatchCommand
         // List fields are merged entry by entry (the rule of the author's in-game-proven merge builder, 2026-11-06):
         // each plugin's own additions are added and its own removals removed, against the version it was built on, so
         // two plugins that both add entries (a DLC and a mod adding references to one location) both keep them.
-        // A cell's traversals are one value and are never merged (they don't reach the patch anyway: cells aren't built).
+        // A cell's traversals (XTV2) are one value and are never merged: each entry carries data Mutagen calls Unknown*,
+        // and merging entry by entry kept the game's version of entries a DLC had changed (the cells builder, 2026-11-10).
         var merged = new Dictionary<string, List<(object? Held, object? Mut, int Origin)>>(StringComparer.Ordinal);
-        bool Mergeable(string field) => field != "Traversals" && rec.GetType().GetProperty(field) is { } mp
+        bool isNavmesh = vs[^1].Rec is INavigationMeshGetter;
+        bool Mergeable(string field) => field != "Traversals" && !(isNavmesh && NavmeshUnit.Contains(field)) && rec.GetType().GetProperty(field) is { } mp
             && mp.PropertyType != typeof(byte[]) && typeof(IList).IsAssignableFrom(mp.PropertyType);
         static List<object?> Items(object? v) => v is IEnumerable e and not string ? e.Cast<object?>().ToList() : new();
         List<object?> MutItems(int i, string field) => Items(copies.Of(i).GetType().GetProperty(field)!.GetValue(copies.Of(i)));
@@ -576,7 +822,15 @@ public static class PatchCommand
         Bag BagOf(IEnumerable<object?> items) { var b = new Bag(H); foreach (var x in items) b.Add(x); return b; }
         // Entries that stand for one thing, so a list holds one of them: a companion reaction per actor. Location lists
         // can name one reference twice (a marker with two reference types), so they have no identity.
-        static string? Identity(object? x) => x is IActorReactionGetter ar ? "Actor:" + ar.Actor.FormKey : null;
+        // 0.13.0: a record holds one component of each kind (the city cells on 2026-11-22: every version had exactly one
+        // CityMapsUsageComponent), so a component's kind is its identity. Without it, two versions of one component
+        // whose file name differs only in letter case both went in, a duplicate. A kind Mutagen doesn't know gets none.
+        static string? Identity(object? x) => x switch
+        {
+            IActorReactionGetter ar => "Actor:" + ar.Actor.FormKey,
+            IAComponentGetter c when ComponentKind(c) is { } kind => "Component:" + kind,
+            _ => null,
+        };
         bool isLocation = vs[^1].Rec is ILocationGetter;
         // A location's Master* lists hold the base game's own entries, and full-copy mods leave them empty: the patch
         // takes them from the last official version that has them, as the in-game-proven builder does.
@@ -681,7 +935,7 @@ public static class PatchCommand
         // One line for the report: what the merge added and removed for this plugin, over the list the patch already had.
         string MergedText(string field, string winner)
         {
-            if (did.Added == 0 && did.Changed == 0 && did.Removed == 0) return Impact.OneLine($"nothing new over {winner}'s list");
+            if (did.Added == 0 && did.Changed == 0 && did.Removed == 0) return SafeText.OneLine($"nothing new over {winner}'s list");
             var parts = new List<string>();
             if (did.Added > 0)
             {
@@ -691,7 +945,7 @@ public static class PatchCommand
             }
             if (did.Changed > 0) parts.Add($"changes {did.Changed} {(did.Changed == 1 ? "entry" : "entries")}");
             if (did.Removed > 0) parts.Add($"removes {did.Removed} {(did.Removed == 1 ? "entry" : "entries")}");
-            return Impact.OneLine(string.Join(" and ", parts));
+            return SafeText.OneLine(string.Join(" and ", parts));
         }
         // Forwardable fields, earlier losers first, so a later loser's value wins a field two of them changed.
         foreach (var l in lost.OrderBy(l => IndexOf(l.Loser)))
@@ -718,7 +972,7 @@ public static class PatchCommand
                 source[f.Field] = li;
                 setBy[f.Field] = l.Loser;
                 var change = f.LoserChanges.Where(d => !d.Minor).Select(d => d.Text).FirstOrDefault() ?? "";
-                forwarded.Add(new(f.Field, l.Loser, Impact.OneLine(change)));
+                forwarded.Add(new(f.Field, l.Loser, SafeText.OneLine(change)));
             }
         }
         // A --pick on a field two losers both changed: the named plugin's whole value is used instead of the later one's.
@@ -754,7 +1008,7 @@ public static class PatchCommand
                 var pick = picks.Where(pk => pk.FormKey == fk && (pk.Field is null || pk.Field == f.Field))
                     .Where(pk => IndexOf(pk.Plugin) is var pi && pi >= 0 && FieldCompare.Provides(vs[pi].Rec, field, out _))
                     .OrderBy(pk => pk.Field is null ? 0 : 1).LastOrDefault();
-                var change = Impact.OneLine(f.LoserChanges.Where(d => !d.Minor).Select(d => d.Text).FirstOrDefault() ?? "");
+                var change = SafeText.OneLine(f.LoserChanges.Where(d => !d.Minor).Select(d => d.Text).FirstOrDefault() ?? "");
                 if (pick is not null)
                 {
                     pick.Used = true;
@@ -781,6 +1035,42 @@ public static class PatchCommand
                 plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Winner, l.Loser, false,
                     $"both changed it; the winner {l.Winner}'s value is kept{(change.Length > 0 ? $" ({l.Loser} {change})" : "")}"));
             }
+
+        // 0.13.0: a navmesh's mesh (NavmeshUnit) comes from one version. A --pick on any of its fields takes that
+        // plugin's whole mesh. Otherwise the mesh follows its geometry's version when the other parts there hold the same
+        // values as the versions they'd come from; when they don't (one plugin changed the geometry, another the pre-cut
+        // entries), a mix would describe no mesh the Creation Kit made, so today's mesh is kept and the report says so.
+        if (isNavmesh)
+        {
+            var unit = NavmeshUnit.Where(byName.ContainsKey).ToList();
+            var picked = unit.Select(f => forwarded.FirstOrDefault(x => x.Field == f && x.Picked)).OfType<ForwardedField>().LastOrDefault();
+            int u = picked is not null ? IndexOf(picked.From) : unit.Contains("NavmeshGeometry") ? source["NavmeshGeometry"] : -1;
+            bool mixed = u >= 0 && picked is null && unit.Any(f => source[f] != u && !FieldCompare.DeepEq(Held(f, source[f]), Held(f, u), 0));
+            if (mixed)
+            {
+                var who = forwarded.Where(x => unit.Contains(x.Field)).Select(x => x.From).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                foreach (var f in unit)
+                {
+                    if (source[f] != today[f] && !SetField(rec, f, copies.Of(today[f]))) throw new InvalidOperationException($"field {f} can't be set");
+                    source[f] = today[f];
+                }
+                forwarded.RemoveAll(x => unit.Contains(x.Field));
+                if (who.Count > 0)
+                    plan.Choices.Add(new(fk, first.RecordType, first.EditorID, "NavmeshGeometry", vs[^1].Plugin.FileName, who[^1], false,
+                        $"the navmesh's geometry, NNAM and pre-cut entries are one mesh, and {string.Join(" and ", who)} changed only part of it while " +
+                        $"another plugin's copy differs in the rest; today's mesh is kept (a mix would be a mesh no one made; redo the change in the Creation Kit if it is needed)"));
+                Log.Write($"patch: navmesh {fk}: its mesh would mix versions ({string.Join(", ", unit.Select(f => $"{f} from {vs[source[f]].Plugin.FileName}"))}); today's mesh is kept");
+            }
+            else if (u >= 0)
+            {
+                foreach (var f in unit.Where(f => source[f] != u))
+                {
+                    if (!SetField(rec, f, copies.Of(u))) throw new InvalidOperationException($"field {f} can't be set");
+                    source[f] = u;
+                }
+                Log.Write($"patch: navmesh {fk}: its mesh (geometry, NNAM, pre-cut entries) comes whole from {vs[u].Plugin.FileName}");
+            }
+        }
 
         // The merged lists go into the record (same order as their entries were collected).
         foreach (var (field, state) in merged)
@@ -816,11 +1106,15 @@ public static class PatchCommand
         if (!changed)
         {
             plan.Notes.Add($"{first.RecordType} {first.EditorID} [{fk}]: the patched record would equal today's, so it is left out");
+            Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)} left out: the patched record would equal today's");
             return;
         }
         // A quest's dialogue and scenes are records of their own: only the quest record itself goes in.
         ClearChildRecords(rec);
         var plugins = vs.Select(v => v.Plugin.FileName).ToList();
+        Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)} built: {forwarded.Count} field(s) forwarded" +
+                  (forwarded.Count > 0 ? $" ({string.Join(", ", forwarded.Select(f => $"{f.Field} from {f.From}").Distinct())})" : "") +
+                  (merged.Count > 0 ? $", {merged.Count} list(s) merged ({string.Join(", ", merged.Keys)})" : ""));
         plan.Records.Add(new(fk, first.RecordType, first.EditorID, rec, forwarded, plugins,
             source.Where(s => !merged.ContainsKey(s.Key)).ToDictionary(s => s.Key, s => vs[s.Value].Rec),
             merged.ToDictionary(m => m.Key, m => m.Value.Select(x => x.Held).ToList())));
@@ -886,11 +1180,25 @@ public static class PatchCommand
     {
         var patch = Plugin.New(name, PluginStyle.Light, "sf-mod-check patch", "Local conflict patch for one load order. For your own game only: it holds other authors' data.");
         if (name.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) patch.ModHeader.Flags &= ~StarfieldModHeader.HeaderFlag.Master;
-        foreach (var r in plan.Records)
+        // Worldspaces go in before the cells: an exterior cell is written inside its worldspace's block (0.13.0).
+        foreach (var r in plan.Records.Where(r => r.Record is not Cell and not IPlaced and not NavigationMesh))
         {
             var group = ((IMod)patch).TryGetTopLevelGroup(r.Record.GetType())
                 ?? throw new InvalidOperationException($"no top-level group for {r.RecordType}");
             group.AddUntyped(r.Record);
+        }
+        foreach (var r in plan.Records.Where(r => r.Record is Cell))
+            Place(patch, (Cell)r.Record, plan.Places[r.FormKey]);
+        // and each placed object into its cell's persistent or temporary list, each navmesh into its cell's navmeshes
+        // (the cell is in the patch by now)
+        var cellsIn = plan.Records.Where(r => r.Record is Cell).ToDictionary(r => r.FormKey, r => (Cell)r.Record);
+        foreach (var r in plan.Records.Where(r => r.Record is IPlaced or NavigationMesh))
+        {
+            var at = plan.RefPlaces[r.FormKey];
+            var cell = cellsIn.GetValueOrDefault(at.Cell)
+                ?? throw new InvalidOperationException($"{r.RecordType} {r.FormKey} sits in cell {at.Cell}, which isn't in the patch");
+            if (r.Record is NavigationMesh n) cell.NavigationMeshes.Add(n);
+            else (at.Persistent ? cell.Persistent : cell.Temporary).Add((IPlaced)r.Record);
         }
         // Masters: every plugin that has a version of a patched record (so the patch loads after all of them), and
         // every plugin a copied value points into, in load order.
@@ -899,7 +1207,7 @@ public static class PatchCommand
         foreach (var r in plan.Records) masterSet.Add(r.FormKey.ModKey.FileName);
         foreach (var l in patch.EnumerateFormLinks()) if (!l.IsNull) masterSet.Add(l.FormKey.ModKey.FileName);
         var missing = masterSet.Where(m => !index.ContainsKey(m)).ToList();
-        if (missing.Count > 0) throw new InvalidOperationException($"the patch would need masters that aren't loaded: {string.Join(", ", missing.Select(Impact.OneLine))}");
+        if (missing.Count > 0) throw new InvalidOperationException($"the patch would need masters that aren't loaded: {string.Join(", ", missing.Select(m => SafeText.OneLine(m)))}");
         var masters = masterSet.OrderBy(m => index[m]).Select(m => lo.Plugins[index[m]].FileName).ToList();
         // A BlueprintShips file can become a master (a copied value points at a record it defines, or it holds a
         // version of a patched record). That file still loads after the patch, as after every plugin, so say so in
@@ -937,6 +1245,38 @@ public static class PatchCommand
             foreach (var line in captured.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)) Log.Write("writer: " + line.TrimEnd());
         }
         return masters;
+    }
+
+    /// <summary>A component's kind (its class, the same for a plugin's copy and an in-memory one), or null for a kind
+    /// Mutagen reads only as unknown data.</summary>
+    static string? ComponentKind(IAComponentGetter c)
+    {
+        var n = c.GetType().Name;
+        if (n.EndsWith("BinaryOverlay", StringComparison.Ordinal)) n = n[..^"BinaryOverlay".Length];
+        return n.Contains("Unknown", StringComparison.OrdinalIgnoreCase) ? null : n;
+    }
+
+    /// <summary>Puts a patched cell where the plugin it comes from has it: an interior block and sub-block, a
+    /// worldspace's persistent cell, or an exterior block and sub-block of its worldspace (already in the patch).</summary>
+    static void Place(StarfieldMod patch, Cell cell, CellPlace at)
+    {
+        if (at.World is not { } wk)
+        {
+            var block = patch.Cells.FirstOrDefault(b => b.BlockNumber == at.Block);
+            if (block is null) patch.Cells.Add(block = new CellBlock { BlockNumber = at.Block, GroupType = GroupTypeEnum.InteriorCellBlock });
+            var sub = block.SubBlocks.FirstOrDefault(s => s.BlockNumber == at.SubBlock);
+            if (sub is null) block.SubBlocks.Add(sub = new CellSubBlock { BlockNumber = at.SubBlock, GroupType = GroupTypeEnum.InteriorCellSubBlock });
+            sub.Cells.Add(cell);
+            return;
+        }
+        var world = patch.Worldspaces.FirstOrDefault(w => w.FormKey == wk)
+            ?? throw new InvalidOperationException($"cell {cell.FormKey} sits in worldspace {wk}, which isn't in the patch");
+        if (at.Persistent) { world.TopCell = cell; return; }
+        var wb = world.SubCells.FirstOrDefault(b => b.BlockNumberX == at.X && b.BlockNumberY == at.Y);
+        if (wb is null) world.SubCells.Add(wb = new WorldspaceBlock { BlockNumberX = at.X, BlockNumberY = at.Y, GroupType = GroupTypeEnum.ExteriorCellBlock });
+        var ws = wb.Items.FirstOrDefault(s => s.BlockNumberX == at.SubX && s.BlockNumberY == at.SubY);
+        if (ws is null) wb.Items.Add(ws = new WorldspaceSubBlock { BlockNumberX = at.SubX, BlockNumberY = at.SubY, GroupType = GroupTypeEnum.ExteriorCellSubBlock });
+        ws.Items.Add(cell);
     }
 
     /// <summary>Opens the written patch and compares every field of every record with what was meant. Returns one line
@@ -983,7 +1323,7 @@ public static class PatchCommand
     // Plugin text (EditorIDs, field values, plugin file names) in patch-report.md: one line, then the same escaping as
     // conflict's report.md (Report.Md in ConflictReport.cs: \ | < > [ ] ` * _), so a mod's text can't make a link, an image or HTML
     // when the report is opened in a Markdown viewer (/security-review 0.9.0).
-    static string Md(string? s) => SfModCheck.Conflict.Report.Md(Impact.OneLine(s ?? ""));
+    static string Md(string? s) => SfModCheck.Conflict.Report.Md(SafeText.OneLine(s ?? ""));
     static string Md(FormKey k) => Md(k.ToString());
 
     static void WriteReport(string path, Plan plan, LoadOrderSetup lo, string name, List<string>? masters, List<string>? mismatches, string version)
@@ -1025,6 +1365,16 @@ public static class PatchCommand
             foreach (var r in plan.Records)
             {
                 sb.AppendLine($"- {Md(r.RecordType)} {Md(r.EditorID)} [{Md(r.FormKey)}]");
+                if (r.Parent)
+                {
+                    var kids = r.Record is ICellGetter
+                        ? plan.Records.Where(o => IsCellChild(o.Record) && plan.RefPlaces.TryGetValue(o.FormKey, out var at) && at.Cell == r.FormKey).ToList()
+                        : new();
+                    var what = r.Record is not ICellGetter ? "cells"
+                        : kids.Any(k => k.Record is INavigationMeshGetter) && kids.Any(k => k.Record is not INavigationMeshGetter) ? "placed objects and navmeshes"
+                        : kids.Any(k => k.Record is INavigationMeshGetter) ? "navmeshes" : "placed objects";
+                    sb.AppendLine($"  - the parent of patched {what}, as the game uses it today (no field changed)");
+                }
                 foreach (var f in r.Fields) sb.AppendLine($"  - {Md(f.Field)} from {Md(f.From)}{(f.Text.Length > 0 ? $": {Md(f.Text)}" : "")}");
             }
             sb.AppendLine();
@@ -1044,7 +1394,7 @@ public static class PatchCommand
             {
                 sb.AppendLine($"- {Md(c.RecordType)} {Md(c.EditorID)} [{Md(c.FormKey)}], {Md(c.Field)}: {Md(c.Text)}");
                 // the ready-to-copy option sits in a code span, which shows its text as is (no escapes to strip)
-                if (!c.Picked) sb.AppendLine($"  - to use {Md(c.Other)}'s: {SfModCheck.Conflict.Report.Code(Impact.OneLine($"--pick {c.FormKey}:{c.Field}={c.Other}"))}");
+                if (!c.Picked) sb.AppendLine($"  - to use {Md(c.Other)}'s: {SfModCheck.Conflict.Report.Code(SafeText.OneLine($"--pick {c.FormKey}:{c.Field}={c.Other}"))}");
             }
             sb.AppendLine();
         }

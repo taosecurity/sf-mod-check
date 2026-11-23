@@ -39,7 +39,7 @@ public static class ConflictCommand
             {
                 var where = Analyzer.Where.Length > 0 ? $" while {Analyzer.Where}" : "";
                 var rec = Analyzer.RecordOf(e) is { Length: > 0 } r ? $" at {r}" : "";
-                return $"RESULT: CANNOT CHECK ({e.GetType().Name}{rec}{where}: {Impact.OneLine(e.Message.Split('\n')[0])})";
+                return $"RESULT: CANNOT CHECK ({e.GetType().Name}{rec}{where}: {SafeText.OneLine(e.Message.Split('\n')[0])})";
             }));
             Fatal.AfterResult(() =>
             {
@@ -111,10 +111,10 @@ public static class ConflictCommand
         Log.Write($"field priorities: on (xEdit's, data\\field-priorities.txt): {before} lost-change entries before; {analysis.Lost.Count} kept " +
                   $"({critical} with a critical field, listed first), {analysis.Benign.Count} benign entries shown apart");
         foreach (var l in analysis.Benign)
-            Log.Write($"field priorities: shown apart: {l.RecordType} {Impact.OneLine(l.EditorID)} [{l.FormKey}] {l.Winner} over {l.Loser}: " +
+            Log.Write($"field priorities: shown apart: {l.RecordType} {SafeText.OneLine(l.EditorID)} [{l.FormKey}] {l.Winner} over {l.Loser}: " +
                       string.Join(", ", l.Fields.Select(f => $"{f.Field} ({table.NameOf(l, f)})")));
         foreach (var l in analysis.Lost.Where(l => l.Fields.Any(analysis.CriticalFields.Contains)))
-            Log.Write($"field priorities: critical: {l.RecordType} {Impact.OneLine(l.EditorID)} [{l.FormKey}] {l.Winner} over {l.Loser}: " +
+            Log.Write($"field priorities: critical: {l.RecordType} {SafeText.OneLine(l.EditorID)} [{l.FormKey}] {l.Winner} over {l.Loser}: " +
                       string.Join(", ", l.Fields.Where(analysis.CriticalFields.Contains).Select(f => f.Field)) +
                       (l.Injected == true ? $" (injected: {l.FormKey.ModKey.FileName} holds no version)"
                        : l.Injected is null && FieldPriorityTable.IsInjected(l) ? $" (taken as injected: {l.FormKey.ModKey.FileName} or its version of the record couldn't be read in full)" : ""));
@@ -205,9 +205,9 @@ public static class ConflictCommand
                         return 2;
                     }
                     language = lang; break;
-                case "-h": case "--help":
-                    Console.Error.WriteLine(Usage);
-                    return 2;
+                case "-h": case "--help":   // help that was asked for: stdout, exit 0, no RESULT line (0.13.0)
+                    Console.WriteLine(Usage);
+                    return 0;
                 default:
                     Console.Error.WriteLine(a[i].StartsWith("--") ? $"unknown option {a[i]}" : $"unexpected argument {a[i]} (conflict reads the whole load order; give its Plugins.txt with --plugins)");
                     Console.Error.WriteLine(Usage);
@@ -331,7 +331,7 @@ public static class ConflictCommand
             }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
-                analysis.AssetsFailed = $"{e.GetType().Name}: {Impact.OneLine(e.Message)}";
+                analysis.AssetsFailed = $"{e.GetType().Name}: {SafeText.OneLine(e.Message)}";
                 analysis.Errors.Add($"the {(noAssets ? "archive count" : "assets check")} stopped while {Analyzer.Where} ({analysis.AssetsFailed}), " +
                                     "so its results are missing or incomplete");
                 analysis.AssetNotes++;

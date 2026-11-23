@@ -78,7 +78,8 @@ public static class DiffCommand
         "         loose files (by SHA-256), each archive's files (paired by name) and the objects, states and functions of\n" +
         "         changed scripts (.pex; names only, never code).\n" +
         "         --data      the game's Data folder, for the EditorIDs of records in the masters (default: Steam's usual folder)\n" +
-        "         --json      the report as JSON instead of text (always complete)\n" +
+        "         --json      the report as JSON instead of text (always complete); on stdout the RESULT line follows\n" +
+        "                     the JSON, so use --out for a file that holds only the JSON\n" +
         "         --out       write the report to this file (stdout then gets only the RESULT line)\n" +
         "         --all       list everything in the text report (long lists are cut short otherwise), and each cell's records\n" +
         "         Records whose bytes differ but whose fields are all equal count as noise, which is no difference.\n" +
@@ -532,7 +533,7 @@ public static class DiffCommand
     static int RunLogged(string[] a, string version, string byline)
     {
         var parsed = Parse(a);
-        if (parsed.Help) { Console.Error.WriteLine(Usage); return 2; }
+        if (parsed.Help) { Console.WriteLine(Usage); return 0; }   // asked-for help: stdout, exit 0, no RESULT line (0.13.0)
         if (parsed.Options is not { } o)
         {
             Console.Error.WriteLine(parsed.Error);
