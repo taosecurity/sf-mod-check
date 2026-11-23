@@ -311,19 +311,17 @@ public class ExeTests
     [Fact]
     public void Readme_and_agents_name_the_release_and_triage_exit_2_result_lines()
     {
-        // 0.13.0 code review round 9: the README's release and triage sections named only the success forms.
+        // 0.13.0: the README's release and triage sections named only the success forms of their RESULT lines.
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Program.cs"))) dir = dir.Parent;
         Assert.True(dir != null, "src\\Program.cs not found above " + AppContext.BaseDirectory);
-        foreach (var file in new[] { "README.md", "AGENTS.md" })
-        {
-            var text = File.ReadAllText(Path.Combine(dir.FullName, file));
-            Assert.Contains("RESULT: CANNOT CHECK (", text);
-            Assert.Contains("RESULT: NO REPORT (", text);
-        }
         var readme = File.ReadAllText(Path.Combine(dir.FullName, "README.md")).ReplaceLineEndings(" ");
-        Assert.Contains("`RESULT: OK|FAIL (n problems, n to review, n warnings)`, or `RESULT: CANNOT CHECK (...)`", readme);
-        Assert.Contains("<path>`, or `RESULT: NO REPORT (...)` on bad arguments or setup (exit 2)", readme);
+        Assert.Contains("`RESULT: OK|FAIL (n problems, n to review, n warnings)`, or `RESULT: CANNOT CHECK (...)` when it can't check (exit 2)", readme);
+        Assert.Contains("<path>`, or `RESULT: NO REPORT (...)` on bad arguments, bad setup or an error that stops the run (exit 2)", readme);
+        var agents = System.Text.RegularExpressions.Regex.Replace(
+            File.ReadAllText(Path.Combine(dir.FullName, "AGENTS.md")), @"\s+", " ");
+        Assert.Contains("then `RESULT: OK|FAIL (n problems, n to review, n warnings)` (or `RESULT: CANNOT CHECK (...)`). Exit codes: 0 OK, 1 FAIL, 2 can't check", agents);
+        Assert.Contains("<html path>` or `RESULT: NO REPORT (...)`. Exit codes: 0 = report written", agents);
     }
 
     [Fact]

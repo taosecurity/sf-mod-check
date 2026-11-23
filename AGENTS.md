@@ -296,7 +296,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   `--verbose` log lines (`log: ...`).
 - **`release`:** input is one or more zips. Output (stdout) is `PROBLEM`, `REVIEW`, `WARNING` and `NOTE` lines, each as
   `<LEVEL> [rule] text`, then `RESULT: OK|FAIL (n problems, n to review, n warnings)` (or `RESULT: CANNOT CHECK (...)`).
-  Exit codes: 0 OK, 1 FAIL, 2 can't check. Scripts should read the exit code and the `PROBLEM ` and `RESULT: ` lines.
+  Exit codes: 0 OK, 1 FAIL, 2 can't check (bad arguments, a bad zip, a missing file or an error that stops the check). Scripts should read the exit code and the `PROBLEM ` and `RESULT: ` lines.
 - **`triage`:** input is one .zip, .7z or .rar (unpacked into a temp folder that is removed at the end;
   password-protected archives are refused), a mod folder (read where it is; the game's install, its Data or Content folder, or a folder inside them is refused) or
   one plugin (with the archives beside it that share its name). Output: `<out>\<name>-triage.html`, `.txt` and
@@ -305,8 +305,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   `incomplete` (sections that stopped early), `findings` (each `level` NOTE or LOOK, `section`, `file`, `text`) and
   `tables` (`section`, `title`, `columns`, `rows`). On stdout: a summary line, one `LOOK [section] ...` line per LOOK,
   `INCOMPLETE ...` lines, and always one last line `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <html path>` or
-  `RESULT: NO REPORT (...)`. Exit codes: 0 = report written (whatever it found: there is no "fail"); 2 = bad input or
-  setup. Scripts should read the exit code and the JSON.
+  `RESULT: NO REPORT (...)`. Exit codes: 0 = report written (whatever it found: there is no "fail"); 2 = bad input,
+  setup or an error that stops the run. Scripts should read the exit code and the JSON.
 - **`diff`:** input is two plugins, or two mods (each a .zip, .7z or .rar, unpacked into a temp folder that is
   removed at the end, or a folder read where it is); plugins in two mods are paired by file name. Output: the report
   on stdout, or in the `--out` file (text, or JSON with `--json`), then always one last line on stdout:
