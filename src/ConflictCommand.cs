@@ -196,7 +196,7 @@ public static class ConflictCommand
                     Console.WriteLine(Usage);
                     return 0;
                 default:
-                    Console.Error.WriteLine(a[i].StartsWith("--") ? $"unknown option {a[i]}" : $"unexpected argument {a[i]} (conflict reads the whole load order; give its Plugins.txt with --plugins)");
+                    Console.Error.WriteLine(a[i].StartsWith("--") ? $"unknown option {a[i]}" : $"unexpected argument {a[i]} (conflict reads the whole load order; give its Plugins.txt with --plugins, or with MO2 the instance folder with --mo2)");
                     Console.Error.WriteLine(Usage);
                     return 2;
             }
@@ -225,7 +225,7 @@ public static class ConflictCommand
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
         {
             cantWhy = $"the load order can't be read: {e.GetType().Name}";
-            Console.Error.WriteLine($"can't read the load order: {e.Message} Close any program that has a plugin open (xEdit, the Creation Kit) and try again.");
+            Console.Error.WriteLine($"can't read the load order: {e.Message} Check that this account can read that file or folder, close any program that has a plugin open (xEdit, the Creation Kit), and try again.");
             Log.Write($"stopped: reading the load order: {e}");
             return 2;
         }

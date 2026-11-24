@@ -202,7 +202,7 @@ public static class PatchCheck
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
         {
             return Cant($"the load order can't be read: {e.GetType().Name}",
-                $"can't read the load order: {e.Message} Close any program that has a plugin open (xEdit, the Creation Kit) and try again.");
+                $"can't read the load order: {e.Message} Check that this account can read that file or folder, close any program that has a plugin open (xEdit, the Creation Kit), and try again.");
         }
         try
         {

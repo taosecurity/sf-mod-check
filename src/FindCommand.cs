@@ -157,7 +157,7 @@ public static class FindCommand
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
         {
             cantWhy = $"the load order can't be read: {e.GetType().Name}";
-            Console.Error.WriteLine($"can't read the load order: {e.Message} Close any program that has a plugin open (xEdit, the Creation Kit) and try again.");
+            Console.Error.WriteLine($"can't read the load order: {e.Message} Check that this account can read that file or folder, close any program that has a plugin open (xEdit, the Creation Kit), and try again.");
             Log.Write($"stopped: reading the load order: {e}");
             return 2;
         }

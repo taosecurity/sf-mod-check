@@ -15,7 +15,7 @@ namespace SfModCheck;
 
 public sealed class Mo2Profile
 {
-    /// <summary>How an MO2 load order's source line starts (the report's load-order line; patch's next steps read it).</summary>
+    /// <summary>How an MO2 load order's source line starts (the report's load-order line).</summary>
     public const string SourcePrefix = "MO2 profile ";
 
     public string Instance { get; private init; } = "";
@@ -34,8 +34,8 @@ public sealed class Mo2Profile
     static readonly Regex IniLine = new(@"^\s*([^=\[;#]+?)\s*=\s*(.*)$", RegexOptions.CultureInvariant);
     static readonly Regex ByteArray = new(@"^@ByteArray\((.*)\)$", RegexOptions.CultureInvariant);
 
-    /// <summary>{key: value} from ModOrganizer.ini, keys in any case; @ByteArray(...) unwrapped and doubled
-    /// backslashes made single. The first value of a key wins. A missing ini gives an empty map.</summary>
+    /// <summary>{key: value} from ModOrganizer.ini, keys in any case; QSettings' escapes undone (doubled backslashes,
+    /// quotes, \xNN for non-ASCII text) and @ByteArray(...) unwrapped. The first value of a key wins. A missing ini gives an empty map.</summary>
     public static Dictionary<string, string> ReadIni(string instance)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -45,13 +45,48 @@ public sealed class Mo2Profile
         {
             var m = IniLine.Match(line);
             if (!m.Success) continue;
-            var v = m.Groups[2].Value.Trim();
-            if (ByteArray.Match(v) is { Success: true } b) v = b.Groups[1].Value;
-            // QSettings quotes a value with a comma, a semicolon or spaces at either end
-            else if (v.Length >= 2 && v[0] == '"' && v[^1] == '"') v = v[1..^1].Replace("\\\"", "\"");
-            map.TryAdd(m.Groups[1].Value, v.Replace(@"\\", @"\"));
+            var v = Unescape(m.Groups[2].Value.Trim());
+            if (ByteArray.Match(v) is { Success: true } b) v = Utf8FromBytes(b.Groups[1].Value);
+            else if (v.StartsWith("@@", StringComparison.Ordinal)) v = v[1..];
+            map.TryAdd(m.Groups[1].Value, v);
         }
         return map;
+    }
+
+    /// <summary>Undoes QSettings' ini escaping: quotes (QSettings quotes a value with a comma, a semicolon or spaces at
+    /// either end) are dropped, \\ \" \' \t \n \r are unescaped, and \xNNNN gives the character with that code, which
+    /// is how Qt 5's MO2 writes non-ASCII text (C:/Users/J\xf6rg).</summary>
+    static string Unescape(string v)
+    {
+        var sb = new System.Text.StringBuilder(v.Length);
+        for (var i = 0; i < v.Length; i++)
+        {
+            var c = v[i];
+            if (c == '"') continue;
+            if (c != '\\' || i + 1 >= v.Length) { sb.Append(c); continue; }
+            var e = v[++i];
+            if (e == 'x')
+            {
+                var j = i + 1;
+                var code = 0;
+                while (j < v.Length && j - i <= 4 && Uri.IsHexDigit(v[j])) code = code * 16 + Convert.ToInt32(v[j++].ToString(), 16);
+                if (j == i + 1) { sb.Append('\\').Append('x'); continue; }
+                sb.Append((char)code);
+                i = j - 1;
+                continue;
+            }
+            sb.Append(e switch { 't' => '\t', 'n' => '\n', 'r' => '\r', _ => e });
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>A @ByteArray's text holds the value's UTF-8 bytes one per character (Qt 5 writes the bytes above 0x7F
+    /// as \xNN); decode them. Text that isn't such bytes (a file saved as UTF-8 text) is kept as it is.</summary>
+    static string Utf8FromBytes(string s)
+    {
+        if (s.All(ch => ch < 0x80) || s.Any(ch => ch > 0xFF)) return s;
+        try { return new System.Text.UTF8Encoding(false, true).GetString(s.Select(ch => (byte)ch).ToArray()); }
+        catch (System.Text.DecoderFallbackException) { return s; }
     }
 
     /// <summary>A single folder name: not empty, no folder separators, not "." or "..", no characters Windows refuses

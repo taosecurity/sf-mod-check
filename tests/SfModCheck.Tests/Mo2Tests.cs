@@ -298,6 +298,26 @@ public class Mo2Tests
             p => p.GetString() == "ModC.esm: listed but not found in Data or the extra and MO2 mod folders");
     }
 
+    // code review round 3 (0.16.0): the top usage, the unexpected-argument errors and a missing --mo2 value didn't
+    // name --mo2
+    [Fact]
+    public void The_usage_and_argument_errors_name_mo2_for_conflict_and_patch()
+    {
+        var (_, stdout, stderr) = ExeTests.RunSplit();
+        var usage = stdout + stderr;
+        Assert.Contains("sf-mod-check conflict [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]", usage);
+        Assert.Contains("sf-mod-check patch [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]", usage);
+        foreach (var cmd in new[] { "conflict", "patch" })
+        {
+            var (code, _, err) = ExeTests.RunSplit(cmd, "C:\\Modding\\MO2");
+            Assert.Equal(2, code);
+            Assert.Contains("or with MO2 the instance folder with --mo2", err);
+        }
+        var (c2, o2, e2) = ExeTests.RunSplit("find", "B_Misc", "--mo2");
+        Assert.Equal(2, c2);
+        Assert.Contains("--mo2 \"C:\\Modding\\MO2\"", o2 + e2);
+    }
+
     [Fact]
     public void ReadIni_unwraps_ByteArray_and_keeps_the_first_value_of_a_key()
     {
@@ -310,6 +330,21 @@ public class Mo2Tests
         Assert.Equal("C:\\Games\\Starfield", ini["GAMEPATH"]);
         Assert.Equal("D:/Games, MO2/mods", ini["mod_directory"]);   // QSettings quotes a value with a comma (round 2)
         Assert.False(Mo2Profile.IsFolderName(".."));
+    }
+
+    [Fact]
+    public void ReadIni_decodes_the_escapes_Qt_writes_for_non_ASCII_folder_names()
+    {
+        // Round 3: Qt 5's QSettings writes ö as \xf6 in text and its UTF-8 bytes as \xc3\xb6 inside @ByteArray(...).
+        using var s = new Sandbox();
+        File.WriteAllLines(Path.Combine(s.Dir, "ModOrganizer.ini"),
+            ["[General]", "gamePath=@ByteArray(C:\\\\Users\\\\J\\xc3\\xb6rg\\\\Game)", "[Settings]", "base_directory=C:/Users/J\\xf6rg/MO2",
+             "mod_directory=D:/\\x41\\x42/mods", "overwrite_directory=C:/Users/Jörg/ow"]);
+        var ini = Mo2Profile.ReadIni(s.Dir);
+        Assert.Equal("C:\\Users\\Jörg\\Game", ini["gamePath"]);
+        Assert.Equal("C:/Users/Jörg/MO2", ini["base_directory"]);
+        Assert.Equal("D:/AB/mods", ini["mod_directory"]);
+        Assert.Equal("C:/Users/Jörg/ow", ini["overwrite_directory"]);   // a UTF-8 ini is read as it is
         Assert.False(Mo2Profile.IsFolderName("a\\b"));
         Assert.True(Mo2Profile.IsFolderName("My Mod 1.2"));
     }

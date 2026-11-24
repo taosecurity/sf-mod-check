@@ -24,6 +24,8 @@ public static class Cli
         "--data" => "\"D:\\XboxGames\\Starfield\\Content\\Data\"",
         "--masters-dir" => "\"C:\\MyBuild\\out\"",
         "--extra-data" => "\"C:\\MyBuild\\out\"",
+        "--mo2" => "\"C:\\Modding\\MO2\"",
+        "--type" => "LCTN",
         "--out" => "conflict-report",
         "--max" => "20",
         "--max-memory" => "8",

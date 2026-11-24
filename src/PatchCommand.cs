@@ -261,7 +261,7 @@ public static class PatchCommand
                     Console.WriteLine(Usage);
                     return 0;
                 default:
-                    Console.Error.WriteLine(a[i].StartsWith("--") ? $"unknown option {a[i]}" : $"unexpected argument {a[i]} (patch reads the whole load order; give its Plugins.txt with --plugins)");
+                    Console.Error.WriteLine(a[i].StartsWith("--") ? $"unknown option {a[i]}" : $"unexpected argument {a[i]} (patch reads the whole load order; give its Plugins.txt with --plugins, or with MO2 the instance folder with --mo2)");
                     Console.Error.WriteLine(Usage);
                     return 2;
             }
@@ -335,18 +335,24 @@ public static class PatchCommand
                 File.WriteAllLines(orderTxt, lines.Where(l => !IsPatch(l.Trim().TrimStart('*'))));
                 order = LoadOrderSetup.ReadPluginsTxt(orderTxt);
             }
-            else order = order with
+            else
             {
-                Listed = order.Listed.Where(n => !IsPatch(n)).ToList(),
-                TurnedOff = new HashSet<string>(order.TurnedOff.Where(n => !IsPatch(n)), StringComparer.OrdinalIgnoreCase),
-            };
+                var kept = order.Listed.Where(n => !IsPatch(n)).ToList();
+                order = order with
+                {
+                    Listed = kept,
+                    TurnedOff = new HashSet<string>(order.TurnedOff.Where(n => !IsPatch(n)), StringComparer.OrdinalIgnoreCase),
+                    Source = order.Source.Replace($", {order.Listed.Count} active entries", $", {kept.Count} active entries"),
+                };
+            }
             if (!quiet) Console.Error.WriteLine($"note: your load order already has {name}; it is left out while the new one is built (the new one replaces it)");
             Log.Write($"{name} is in the load order: analyzed without it ({(input.Mo2 is null ? orderTxt : "the MO2 profile's order, in memory")})");
         }
         // Plugins-with-patch.txt is this plus the patch: the Plugins.txt lines, or with --mo2 the profile's active order
         // (turned-off plugins kept as unstarred lines, so a later --plugins run doesn't load a turned-off official Creation)
         IEnumerable<string> withoutPatch = input.Mo2 is null ? File.ReadAllLines(orderTxt)
-            : order.Listed.Select(n => "*" + n).Concat(order.TurnedOff.Where(n => !order.Listed.Contains(n, StringComparer.OrdinalIgnoreCase))).ToList();
+            : order.Listed.Select(n => "*" + n).Concat(order.TurnedOff.Where(n => !order.Listed.Contains(n, StringComparer.OrdinalIgnoreCase))
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)).ToList();
 
         var sw = Stopwatch.StartNew();
         Analyzer.Info = quiet ? _ => { } : Console.Error.WriteLine;
@@ -356,7 +362,7 @@ public static class PatchCommand
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
         {
             cantWhy = $"the load order can't be read: {e.GetType().Name}";
-            Console.Error.WriteLine($"can't read the load order: {e.Message} Close any program that has a plugin open (xEdit, the Creation Kit) and try again.");
+            Console.Error.WriteLine($"can't read the load order: {e.Message} Check that this account can read that file or folder, close any program that has a plugin open (xEdit, the Creation Kit), and try again.");
             return 2;
         }
         try

@@ -33,12 +33,12 @@ const string DefaultData = Cli.SteamData;
 const string Usage =
     "usage: sf-mod-check check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]\n" +
     "                                 [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]\n" +
-    "       sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
-    "                           [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]\n" +
+    "       sf-mod-check conflict [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>] [--extra-data <folder>]\n" +
+    "                           [--out <folder>] [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]\n" +
     "                           [--quiet] [--verbose] [--log <file>]\n" +
     "       sf-mod-check release <zip>... [--profile basic|house|creations] [--dmmdeps <exe>] [...]   (sf-mod-check release --help)\n" +
     "       sf-mod-check triage <mod.zip | .7z | .rar | folder | plugin> [--game <folder>] [--out <folder>] [...]   (sf-mod-check triage --help)\n" +
-    "       sf-mod-check patch [--plugins <Plugins.txt>] [--only <a.esm>,<b.esm>] [--pick <FormKey>=<plugin>]... [--out <folder>] [...]   (sf-mod-check patch --help)\n" +
+    "       sf-mod-check patch [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--only <a.esm>,<b.esm>] [--pick <FormKey>=<plugin>]... [--out <folder>] [...]   (sf-mod-check patch --help)\n" +
     "       sf-mod-check patch check <patch.esm> [--plugins <Plugins.txt>] [--json <file>] [...]   (sf-mod-check patch check --help)\n" +
     "       sf-mod-check diff <old> <new> [--data <Data folder>] [--json] [--out <file>] [...]   (sf-mod-check diff --help)\n" +
     "       sf-mod-check gap <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [...]   (sf-mod-check gap --help)\n" +
