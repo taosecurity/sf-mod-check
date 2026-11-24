@@ -202,6 +202,27 @@ public class FindPluginTests
         Assert.Contains("RESULT: CANNOT CHECK (a console FormID with --plugin)", stdout);
     }
 
+    /// <summary>Code review round 3: stage 0 and alias 0 are real values and print; on 2f07bb8 these came out as
+    /// GetStageDone(quest) and GetIsAliasRef(). An unused number parameter of 0 still stays out.</summary>
+    [Fact]
+    public void A_condition_parameter_of_0_still_prints()
+    {
+        var text = typeof(FindCommand).GetMethod("ConditionText", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        string Link(IFormLinkGetter l) => $"[{l.FormKey}]";
+        string Run(IConditionGetter c) => (string)text.Invoke(null, [c, (Func<IFormLinkGetter, string>)Link])!;
+        var quest = FormKey.Factory("000800:BaseQ.esm");
+        var stage = new GetStageDoneConditionData();
+        stage.FirstParameter.Link.SetTo(quest);
+        Assert.Equal($"GetStageDone([{quest}], 0) == 1 (run on Subject)",
+            Run(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, Data = stage, ComparisonValue = 1 }));
+        Assert.Equal("GetIsAliasRef(0) == 1 (run on Subject)",
+            Run(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, Data = new GetIsAliasRefConditionData(), ComparisonValue = 1 }));
+        var stageOf = new GetStageConditionData();
+        stageOf.FirstParameter.Link.SetTo(quest);
+        Assert.Equal($"GetStage([{quest}]) >= 10 (run on Subject)",
+            Run(new ConditionFloat { CompareOperator = CompareOperator.GreaterThanOrEqualTo, Data = stageOf, ComparisonValue = 10 }));
+    }
+
     [Fact]
     public void An_MO2_profile_also_searches_the_My_Games_Data_folder_after_the_mods()
     {

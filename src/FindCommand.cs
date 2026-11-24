@@ -549,6 +549,11 @@ public static class FindCommand
         object? Prop(string n) => t.GetProperty(n)?.GetValue(d);
         var p1 = t.GetProperty("FirstParameter") != null ? ParamText(Prop("FirstParameter"), link) : null;
         var p2 = t.GetProperty("SecondParameter") != null ? ParamText(Prop("SecondParameter"), link) : null;
+        // Mutagen keeps a function's unused number parameters as 0, so 0 usually means "not used" and is left out. Where 0
+        // is a real value it still prints: an alias function's alias index (GetIsAliasRef(0)) and GetStageDone's stage.
+        var fn = d.Function.ToString();
+        if (p1 is { Empty: true } e1 && Prop("FirstParameter") is int && fn.Contains("Alias", StringComparison.Ordinal)) p1 = (e1.Text, false);
+        if (p2 is { Empty: true } e2 && Prop("SecondParameter") is int && fn == "GetStageDone") p2 = (e2.Text, false);
         var ps = new List<string>();
         if (p1 != null && (p1.Value.Text is { } a) && (!p1.Value.Empty || p2 is { Empty: false })) ps.Add(a);
         if (p2 is { Empty: false } q2) ps.Add(q2.Text);
