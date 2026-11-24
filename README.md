@@ -860,7 +860,10 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   own masters first) and then the plugin. Each master is looked for in the plugin's own folder, then in each
   `--masters-dir` in the order given, then in `--data` (default: Steam's usual Data folder). A master in none of them
   stops with exit 2 and says where to put it. Light and medium masters are read from their own headers, so a link to
-  a light master's record shows that master's FormKey and EditorID.
+  a light master's record shows that master's FormKey and EditorID. With `--plugin`, give the record as an EditorID
+  or a FormKey: a console FormID stops with exit 2, because its first digits need the game's whole load order. If
+  the plugin itself can't be opened, `find` stops with exit 2 and prints the load-order problem, rather than answer
+  from a master's copy.
 - **With no record given, `find --plugin` lists every record the plugin holds** (new records and overrides, group by group), each with the same fields as a
   lookup. It prints at most `--max <n>` records (default 100; `--max 0` lists them all), then a line that counts the
   rest, and always a summary of all of them: `<plugin> holds n records: n new, n overrides; by type: QUST 2, ...`.

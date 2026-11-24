@@ -37,6 +37,7 @@ public static class FindCommand
         "  --type    keep only records of this four-letter type, for example LCTN, MISC, NPC_\n" +
         "  --plugin  read only this plugin and its masters, with no Plugins.txt; with no record given, list every record\n" +
         "            the plugin holds. Masters are looked for in the plugin's own folder, then each --masters-dir, then --data.\n" +
+        "            Give the record as an EditorID or FormKey: a console FormID needs the whole load order.\n" +
         "  --masters-dir  another folder that holds the plugin's masters (can be given more than once)\n" +
         "  --max     with --plugin and no record: list at most this many records (default 100; 0 lists them all)\n" +
         "Exit 0 = found, 1 = not found, 2 = could not run.";
@@ -181,6 +182,15 @@ public static class FindCommand
             cantWhy = "not a FormKey";
             return 2;
         }
+        if (kind == Kind.FormId && input.Plugin != null)
+        {
+            // A console FormID's first two digits are a place in the game's whole load order, and --plugin loads only
+            // the plugin and its masters, so it would name the wrong plugin (code review round 2, 0.16.1).
+            Console.Error.WriteLine($"{SafeText.OneLine(q)} is a console FormID, which depends on the game's whole load order, and --plugin loads only the plugin and its masters. " +
+                                    "Give the record's FormKey (six hex digits, a colon and the plugin's file name, for example 000800:MyMod.esm) or its EditorID, or leave out --plugin and give --plugins or --mo2.");
+            cantWhy = "a console FormID with --plugin";
+            return 2;
+        }
         if (!input.Resolve(out var why)) { cantWhy = why; return 2; }
 
         var sw = Stopwatch.StartNew();
@@ -198,6 +208,7 @@ public static class FindCommand
             Log.Write($"loaded {lo.Plugins.Count} plugins, {lo.Problems.Count} load-order problems");
             foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
             if (!quiet && !json) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
+            if (input.Plugin != null && Unloaded(lo, input.Plugin) is { } unloadedWhy) { cantWhy = unloadedWhy; return 2; }
             if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, version, sw, out resultPrinted, out cantWhy);
 
             var unread = new List<string>();
@@ -271,6 +282,19 @@ public static class FindCommand
         foreach (var m in matches) (m.Fields, m.Entries) = FieldsOf(m.Winner.Rec, Link);
     }
 
+    /// <summary>With --plugin, why the plugin itself didn't load (its load-order problems go to stderr), or null when it
+    /// loaded. Both the listing and a record lookup stop with exit 2 then, so a lookup never answers from a master's copy
+    /// or says "not found" for a plugin that wasn't read (code review round 2, 0.16.1).</summary>
+    static string? Unloaded(LoadOrderSetup lo, string pluginPath)
+    {
+        var name = Path.GetFileName(pluginPath);
+        if (lo.Plugins.Any(p => p.FileName.Equals(name, StringComparison.OrdinalIgnoreCase))) return null;
+        var why = lo.Problems.FirstOrDefault(p => p.StartsWith(name, StringComparison.OrdinalIgnoreCase)) ?? lo.Problems.FirstOrDefault() ?? "it didn't load";
+        foreach (var p in lo.Problems) Console.Error.WriteLine($"load-order problem: {p}");
+        Log.Write($"stopped: {name} didn't load");
+        return $"{SafeText.OneLine(name)} can't be read: {why}";
+    }
+
     /// <summary>find --plugin with no record (0.16.1): every record the plugin holds, group by group as Mutagen reads
     /// them, at most max (0 = all), each through the same printer, then a summary of all of them.</summary>
     static int ListPlugin(LoadOrderSetup lo, string pluginPath, string? type, int max, bool json, bool quiet, string version,
@@ -280,15 +304,7 @@ public static class FindCommand
         cantWhy = "";
         var name = Path.GetFileName(pluginPath);
         var source = lo.OrderSource;
-        var target = lo.Plugins.FirstOrDefault(p => p.FileName.Equals(name, StringComparison.OrdinalIgnoreCase));
-        if (target == null)
-        {
-            var why = lo.Problems.FirstOrDefault(p => p.StartsWith(name, StringComparison.OrdinalIgnoreCase)) ?? lo.Problems.FirstOrDefault() ?? "it didn't load";
-            foreach (var p in lo.Problems) Console.Error.WriteLine($"load-order problem: {p}");
-            cantWhy = $"{SafeText.OneLine(name)} can't be read: {why}";
-            Log.Write($"stopped: {name} didn't load");
-            return 2;
-        }
+        var target = lo.Plugins.First(p => p.FileName.Equals(name, StringComparison.OrdinalIgnoreCase));
         var unread = new List<string>();
         var all = new List<IMajorRecordGetter>();
         var seen = new HashSet<FormKey>();

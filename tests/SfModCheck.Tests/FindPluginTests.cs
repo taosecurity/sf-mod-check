@@ -178,6 +178,30 @@ public class FindPluginTests
         Assert.Contains("CANNOT CHECK", stdout);
     }
 
+    // code review round 2 (0.16.1): a record lookup in a --plugin that didn't load stops with exit 2, not an answer
+    // from a master's copy; a console FormID with --plugin is refused, since only the plugin and its masters are loaded
+    [Fact]
+    public void A_lookup_in_a_plugin_that_did_not_load_and_a_console_FormID_with_plugin_stop_with_exit_2()
+    {
+        using var s = new Set();
+        var bytes = File.ReadAllBytes(s.Patch);
+        // the header stays readable; the first top-level GRUP's size (4 bytes into it) now runs far past the file
+        int grup = 24 + BitConverter.ToInt32(bytes, 4);
+        Assert.Equal("GRUP", System.Text.Encoding.ASCII.GetString(bytes, grup, 4));
+        BitConverter.GetBytes(0x7FFFFFF0).CopyTo(bytes, grup + 4);
+        var bad = Path.Combine(s.Sub("bad"), "Patch.esm");
+        File.WriteAllBytes(bad, bytes);
+        var (code, stdout, stderr) = s.Find("BQ_Effect", "--plugin", bad, "--masters-dir", s.Masters);
+        Assert.True(code == 2, stdout + stderr);
+        Assert.DoesNotContain("winner: BaseQ.esm", stdout);
+        Assert.Contains("RESULT: CANNOT CHECK (Patch.esm can't be read: ", stdout);
+
+        (code, stdout, stderr) = s.Find("01000800", "--plugin", s.Patch, "--masters-dir", s.Masters);
+        Assert.Equal(2, code);
+        Assert.Contains("is a console FormID, which depends on the game's whole load order", stderr);
+        Assert.Contains("RESULT: CANNOT CHECK (a console FormID with --plugin)", stdout);
+    }
+
     [Fact]
     public void An_MO2_profile_also_searches_the_My_Games_Data_folder_after_the_mods()
     {
