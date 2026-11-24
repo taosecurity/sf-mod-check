@@ -198,7 +198,9 @@ public static class FindCommand
                 var hint = (kind == Kind.EditorId ? "EditorIDs must match exactly (letter case doesn't matter). " : "") +
                            $"The load order searched was {source}" +
                            (lo.Problems.Count > 0 ? $", with {lo.Problems.Count} load-order problems (plugins that didn't load are not searched; --verbose lists them)" : "") + ". " +
-                           "If the mod isn't in that load order, give its Plugins.txt with --plugins (with Mod Organizer 2: --mo2 <MO2 folder>), or name the folder that holds the plugin with --extra-data." +
+                           (input.Mo2 != null
+                               ? "If the mod isn't in that load order, check that it is enabled in this MO2 profile (or name another one with --profile), or name the folder that holds the plugin with --extra-data."
+                               : "If the mod isn't in that load order, give its Plugins.txt with --plugins (with Mod Organizer 2: --mo2 <MO2 folder>), or name the folder that holds the plugin with --extra-data.") +
                            (kind == Kind.FormId ? " A console FormID depends on the load order; the FormKey form (01295A:Starfield.esm) doesn't." : "");
                 resultPrinted = true;
                 if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "not found", hint));
@@ -249,6 +251,8 @@ public static class FindCommand
             var style = Style.Full;
             try { style = RawHeader.Read(p.Path)?.Style ?? Style.Full; }
             catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"console FormID: {p.FileName}'s header can't be read ({e.GetType().Name}); counted as a full plugin"); }
+            // the game loads a .esl file as a light plugin whatever its header flags say
+            if (p.FileName.EndsWith(".esl", StringComparison.OrdinalIgnoreCase)) style = Style.Light;
             (style == Style.Light ? light : style == Style.Medium ? medium : full).Add(p);
         }
         Log.Write($"console FormID: {full.Count} full, {medium.Count} medium and {light.Count} light plugins");

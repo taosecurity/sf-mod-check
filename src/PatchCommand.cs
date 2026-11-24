@@ -426,7 +426,7 @@ public static class PatchCommand
                 if (File.Exists(withPatchTxt)) File.Delete(withPatchTxt);
                 // and its manifest, which would describe that patch (0.15.0)
                 if (File.Exists(sourcesPath)) File.Delete(sourcesPath);
-                WriteReport(reportPath, plan, lo, name, null, null, version);
+                WriteReport(reportPath, plan, lo, name, null, null, version, input.Mo2);
                 resultPrinted = true;
                 Console.WriteLine($"RESULT: OK, nothing to patch: {plan.Forwarded} forwardable fields, {plan.NotBuilt.Count} records not built " +
                                   $"(report: {reportPath}; {sw.Elapsed.TotalSeconds:F0} s)");
@@ -445,7 +445,7 @@ public static class PatchCommand
             PatchSources.Write(sourcesPath, sources);
             Log.Write($"patch-sources: {sourcesPath}: {sources.Masters.Count} masters, {sources.Records.Count} records, " +
                       $"{sources.Records.Sum(r => r.Editors.Count(e => e.Hash is null))} editor copies without a hash");
-            WriteReport(reportPath, plan, lo, name, masters, mismatches, version);
+            WriteReport(reportPath, plan, lo, name, masters, mismatches, version, input.Mo2);
             foreach (var m in mismatches.Take(10)) Console.WriteLine($"ERROR [patch] {m}");
             resultPrinted = true;
             var choiceKept = plan.Choices.Count(c => !c.Picked && !c.Forward);
@@ -1656,7 +1656,7 @@ public static class PatchCommand
     static string Md(string? s) => SfModCheck.Conflict.Report.Md(SafeText.OneLine(s ?? ""));
     static string Md(FormKey k) => Md(k.ToString());
 
-    static void WriteReport(string path, Plan plan, LoadOrderSetup lo, string name, List<string>? masters, List<string>? mismatches, string version)
+    static void WriteReport(string path, Plan plan, LoadOrderSetup lo, string name, List<string>? masters, List<string>? mismatches, string version, Mo2Profile? mo2 = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"# Conflict patch: {name}");
@@ -1681,11 +1681,11 @@ public static class PatchCommand
         {
             sb.AppendLine("## Next steps");
             sb.AppendLine();
-            if (lo.OrderSource.StartsWith(Mo2Profile.SourcePrefix, StringComparison.Ordinal))
+            if (mo2 != null)
             {
                 // MO2 (0.16.0): the patch goes in as a mod of its own; the check runs on the profile again
                 sb.AppendLine($"1. In MO2, use Create empty mod, copy `{name}` from this folder into the new mod's folder, enable the mod, and put `{name}` at the end of the plugin list.");
-                sb.AppendLine("2. Check it: run `sf-mod-check conflict --mo2 <your MO2 folder>` again: these lost changes should be gone. (`sf-mod-check check` doesn't read MO2 profiles yet, so it would report the masters kept in MO2 mod folders as not installed.)");
+                sb.AppendLine($"2. Check it: run `sf-mod-check conflict --mo2 \"{SafeText.OneLine(mo2.Instance)}\" --profile \"{SafeText.OneLine(mo2.Profile)}\"` again: these lost changes should be gone. (`sf-mod-check check` doesn't read MO2 profiles yet, so it would report the masters kept in MO2 mod folders as not installed.)");
             }
             else
             {

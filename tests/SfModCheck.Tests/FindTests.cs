@@ -107,6 +107,22 @@ public class FindTests
         Assert.Contains("this load order has 1 light plugins, so none has index 1", stdout);
     }
 
+    // code review round 2 (0.16.0): the game loads a .esl file as light whatever its header flags say
+    [Fact]
+    public void A_esl_file_without_the_light_flag_counts_as_a_light_plugin_for_console_FormIDs()
+    {
+        using var game = new Game();
+        var esl = Plugin.New("FindEsl.esm", PluginStyle.Full, "test", "made-up mod");
+        esl.Keywords.AddNew("EslKeyword");
+        using (var g = new GameData(game.Data)) PluginWriter.Write(esl, game.Data, g, NoGap);
+        File.Move(Path.Combine(game.Data, "FindEsl.esm"), Path.Combine(game.Data, "FindEsl.esl"));
+        File.WriteAllLines(game.PluginsTxt, ["*FindBase.esm", "*FindMedium.esm", "*FindEsl.esl", "*FindLight.esm"]);
+        // FindEsl.esl is light plugin FE 000, so FindLight.esm is FE 001
+        var (code, stdout, _) = game.Find($"FE001{game.LightDup.ID:X3}");
+        Assert.Equal(0, code);
+        Assert.Contains($"Dup [{game.LightDup}] KYWD", stdout);
+    }
+
     [Fact]
     public void Type_keeps_only_records_of_that_type()
     {

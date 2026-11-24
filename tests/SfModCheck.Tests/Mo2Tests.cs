@@ -276,15 +276,39 @@ public class Mo2Tests
         Assert.Contains(mo.Problems, p => p.StartsWith("no modlist.txt"));
     }
 
+    // code review round 2 (0.16.0): the patch report's check line named no profile, find's hint said to give --mo2
+    // to a run that had it, and a missing plugin was "not found in Data" though the MO2 mod folders were searched too
+    [Fact]
+    public void Under_MO2_the_patch_check_line_find_hint_and_missing_plugin_text_name_the_MO2_profile_and_folders()
+    {
+        using var mo2 = new Mo2();
+        var outDir = Path.Combine(mo2.Dir, "patch");
+        var (code, _, _) = ExeTests.RunSplit("patch", "--mo2", mo2.Instance, "--out", outDir, "--quiet");
+        Assert.Equal(0, code);
+        Assert.Contains($"conflict --mo2 \"{mo2.Instance}\" --profile \"Main\"", File.ReadAllText(Path.Combine(outDir, "patch-report.md")));
+
+        string stdout;
+        (code, stdout, _) = ExeTests.RunSplit("find", "NoSuchRecord", "--mo2", mo2.Instance);
+        Assert.Equal(1, code);
+        Assert.Contains("check that it is enabled in this MO2 profile", stdout);
+        Assert.DoesNotContain("with Mod Organizer 2: --mo2", stdout);
+
+        var (_, _, _, json) = mo2.Conflict();
+        Assert.Contains(json.GetProperty("loadOrderProblems").EnumerateArray(),
+            p => p.GetString() == "ModC.esm: listed but not found in Data or the extra and MO2 mod folders");
+    }
+
     [Fact]
     public void ReadIni_unwraps_ByteArray_and_keeps_the_first_value_of_a_key()
     {
         using var s = new Sandbox();
         File.WriteAllLines(Path.Combine(s.Dir, "ModOrganizer.ini"),
-            ["[General]", "selected_profile=@ByteArray(Main)", "gamePath=@ByteArray(C:\\\\Games\\\\Starfield)", "[Other]", "selected_profile=Later"]);
+            ["[General]", "selected_profile=@ByteArray(Main)", "gamePath=@ByteArray(C:\\\\Games\\\\Starfield)", "[Other]", "selected_profile=Later",
+             "[Settings]", "mod_directory=\"D:/Games, MO2/mods\""]);
         var ini = Mo2Profile.ReadIni(s.Dir);
         Assert.Equal("Main", ini["selected_profile"]);
         Assert.Equal("C:\\Games\\Starfield", ini["GAMEPATH"]);
+        Assert.Equal("D:/Games, MO2/mods", ini["mod_directory"]);   // QSettings quotes a value with a comma (round 2)
         Assert.False(Mo2Profile.IsFolderName(".."));
         Assert.False(Mo2Profile.IsFolderName("a\\b"));
         Assert.True(Mo2Profile.IsFolderName("My Mod 1.2"));

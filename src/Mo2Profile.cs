@@ -47,6 +47,8 @@ public sealed class Mo2Profile
             if (!m.Success) continue;
             var v = m.Groups[2].Value.Trim();
             if (ByteArray.Match(v) is { Success: true } b) v = b.Groups[1].Value;
+            // QSettings quotes a value with a comma, a semicolon or spaces at either end
+            else if (v.Length >= 2 && v[0] == '"' && v[^1] == '"') v = v[1..^1].Replace("\\\"", "\"");
             map.TryAdd(m.Groups[1].Value, v.Replace(@"\\", @"\"));
         }
         return map;

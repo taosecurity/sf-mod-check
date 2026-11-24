@@ -170,7 +170,7 @@ public class LoadOrderSetup
         void Add(string name)
         {
             if (wanted.Contains(name, StringComparer.OrdinalIgnoreCase)) return;
-            if (!onDisk.TryGetValue(name, out var real)) { setup.AddProblem($"{name}: listed but not found in Data"); return; }
+            if (!onDisk.TryGetValue(name, out var real)) { setup.AddProblem($"{name}: listed but not found in Data{(overDirs.Count > 0 ? " or the extra and MO2 mod folders" : "")}"); return; }
             wanted.Add(real);
         }
         // The game loads Bethesda's files whether or not Plugins.txt lists them (SFBGS00D etc. usually are not listed).
