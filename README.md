@@ -404,7 +404,7 @@ folder. `--mo2` reads the profile the way MO2 builds that merged folder:
   give no `--data`), and the profiles, mods and overwrite folders, with `%BASE_DIR%` filled in. A portable instance
   and a global one work the same way: give the folder that holds `ModOrganizer.ini`.
 - **Problems** go in the report's load-order problems: an enabled mod with no folder, a `modlist.txt` line that isn't
-  a single folder name, or a profile with no `modlist.txt` (then only Data is searched).
+  a single folder name, or a profile with no `modlist.txt` (then only Overwrite, the My Games Data folder and Data are searched).
 - **Limits:** archives listed only in a profile's own INI files (MO2's profile-specific INIs) aren't read; give them
   with `--ini`. `check`, `triage` and `patch check` don't take `--mo2` yet: give `check` the plugin's path inside
   `mods\` with `--masters-dir` (see "Where your game's Data folder is"). Which of the My Games Data folder and the
