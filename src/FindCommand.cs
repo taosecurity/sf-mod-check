@@ -182,7 +182,7 @@ public static class FindCommand
                 if (!lo.Plugins.Any(p => p.FileName.Equals(key.ModKey.FileName, StringComparison.OrdinalIgnoreCase)))
                     notFoundWhy = $"{key.ModKey.FileName} isn't in this load order";
                 matches = Copies(new HashSet<FormKey> { key }, new(), lo.Plugins, unread)
-                    .Where(m => type == null || m.Type == type).ToList();
+                    .Where(m => type == null || Checker.SigsOf(m.Winner.Rec.GetType())?.Contains(type) == true).ToList();
             }
             foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
 

@@ -42,7 +42,7 @@ const string Usage =
     "       sf-mod-check patch check <patch.esm> [--plugins <Plugins.txt>] [--json <file>] [...]   (sf-mod-check patch check --help)\n" +
     "       sf-mod-check diff <old> <new> [--data <Data folder>] [--json] [--out <file>] [...]   (sf-mod-check diff --help)\n" +
     "       sf-mod-check gap <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [...]   (sf-mod-check gap --help)\n" +
-    "       sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt>] [--json] [...]   (sf-mod-check find --help)\n" +
+    "       sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--json] [...]   (sf-mod-check find --help)\n" +
     "       sf-mod-check --version";
 // A plugin past this many records (the header's count) gets the memory note on stderr. Mods stay far below it; the
 // official Starfield.esm has about 3.8 million and needs over 30 GB of memory to check.

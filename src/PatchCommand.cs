@@ -344,7 +344,9 @@ public static class PatchCommand
             Log.Write($"{name} is in the load order: analyzed without it ({(input.Mo2 is null ? orderTxt : "the MO2 profile's order, in memory")})");
         }
         // Plugins-with-patch.txt is this plus the patch: the Plugins.txt lines, or with --mo2 the profile's active order
-        IEnumerable<string> withoutPatch = input.Mo2 is null ? File.ReadAllLines(orderTxt) : order.Listed.Select(n => "*" + n).ToList();
+        // (turned-off plugins kept as unstarred lines, so a later --plugins run doesn't load a turned-off official Creation)
+        IEnumerable<string> withoutPatch = input.Mo2 is null ? File.ReadAllLines(orderTxt)
+            : order.Listed.Select(n => "*" + n).Concat(order.TurnedOff.Where(n => !order.Listed.Contains(n, StringComparer.OrdinalIgnoreCase))).ToList();
 
         var sw = Stopwatch.StartNew();
         Analyzer.Info = quiet ? _ => { } : Console.Error.WriteLine;
@@ -1683,7 +1685,7 @@ public static class PatchCommand
             {
                 // MO2 (0.16.0): the patch goes in as a mod of its own; the check runs on the profile again
                 sb.AppendLine($"1. In MO2, use Create empty mod, copy `{name}` from this folder into the new mod's folder, enable the mod, and put `{name}` at the end of the plugin list.");
-                sb.AppendLine("2. Check it: `sf-mod-check check " + name + "` (with --data if your game isn't Steam's), then run `sf-mod-check conflict --mo2 <your MO2 folder>` again: these lost changes should be gone.");
+                sb.AppendLine("2. Check it: run `sf-mod-check conflict --mo2 <your MO2 folder>` again: these lost changes should be gone. (`sf-mod-check check` doesn't read MO2 profiles yet, so it would report the masters kept in MO2 mod folders as not installed.)");
             }
             else
             {

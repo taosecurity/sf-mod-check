@@ -61,9 +61,10 @@ public sealed class Mo2Profile
 
     static string IniDir(Dictionary<string, string> ini, string key, string instance, string fallback)
     {
-        if (!ini.TryGetValue(key, out var v) || v.Length == 0) return Path.Combine(instance, fallback);
         var baseDir = ini.TryGetValue("base_directory", out var b) && b.Length > 0 ? b : instance;
-        v = v.Replace("%BASE_DIR%", baseDir, StringComparison.OrdinalIgnoreCase);
+        // MO2's own default for a missing key is %BASE_DIR%/<fallback>, so a moved base directory moves these too.
+        if (!ini.TryGetValue(key, out var v) || v.Length == 0) v = Path.Combine(baseDir, fallback);
+        else v = v.Replace("%BASE_DIR%", baseDir, StringComparison.OrdinalIgnoreCase);
         return Path.GetFullPath(Path.IsPathRooted(v) ? v : Path.Combine(instance, v));
     }
 
@@ -125,9 +126,9 @@ public sealed class Mo2Profile
         Log.Write($"MO2: instance {instance}, profile {profile} ({(profileOption != null ? "from --profile" : "selected_profile in ModOrganizer.ini")}), mods {modsDir}, overwrite {overwrite}");
 
         var modlist = Path.Combine(pdir, "modlist.txt");
+        if (Directory.Exists(overwrite)) mo.ModDirs.Add(overwrite);   // MO2's Overwrite folder wins over every mod
         if (File.Exists(modlist))
         {
-            if (Directory.Exists(overwrite)) mo.ModDirs.Add(overwrite);   // MO2's Overwrite folder wins over every mod
             foreach (var (name, on) in ReadModlist(modlist))
             {
                 if (!on) continue;
@@ -142,7 +143,7 @@ public sealed class Mo2Profile
             }
             Log.Write($"MO2: {mo.ModDirs.Count} folders win over Data (Overwrite first, then enabled mods from the top of modlist.txt)");
         }
-        else mo.Problems.Add($"no modlist.txt in {pdir}, so no mod folders were searched (only Data); open the profile in MO2 once so it writes the file");
+        else mo.Problems.Add($"no modlist.txt in {pdir}, so no mod folders were searched (only Overwrite and Data); open the profile in MO2 once so it writes the file");
 
         // loadorder.txt holds the order (turned-off plugins too); plugins.txt holds the on/off marks.
         var marks = LoadOrderSetup.ReadPluginsTxt(ptxt);

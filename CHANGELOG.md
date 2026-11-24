@@ -7,7 +7,7 @@
 - A new command, `find`, looks up one record in your load order and changes nothing. Give it an exact EditorID (letter case doesn't matter), a FormKey such as `01295A:Starfield.esm`, or an 8-digit FormID as the game's console shows it, such as `0001295A`.
 - For each record it finds, it prints the EditorID, FormKey, record type and name, the plugin that defines the record, the plugin that wins it in the load order, the other plugins with a copy, and the winning copy's main fields (links as `EditorID [FormKey]`, lists as a count, at most 40 lines).
 - `--type <SIG>` keeps only records of one type, such as `LCTN` or `MISC`. `--json` prints one JSON object instead of the text.
-- The load order comes from `--plugins` (default: the game's own Plugins.txt), `--data` and `--extra-data`, the same options `conflict` reads.
+- The load order comes from `--plugins` (default: the game's own Plugins.txt), `--data` and `--extra-data`, the same options `conflict` reads, or from an MO2 profile with `--mo2` (below).
 - A console FormID is read the way the game numbers plugins: full plugins `00` to `FC`, medium plugins `FD` and one more byte, light plugins `FE` and three more hex digits, from each plugin's header flags.
 - Exit codes: 0 found, 1 not found (with a `HINT:` line that says what was searched), 2 couldn't run. `find --help` exits 0.
 - `conflict`, `patch` and `find` read a Mod Organizer 2 profile with `--mo2 <MO2 folder>` and `--profile <name>` (default: the profile selected in MO2). Before, they saw only the real Data folder, so under MO2 they missed every mod. The rules follow sf-load-order 0.2.2.

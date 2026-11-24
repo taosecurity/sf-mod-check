@@ -224,6 +224,58 @@ public class Mo2Tests
         Assert.Contains("an MO2 mod or Overwrite folder", err);
     }
 
+    // code review round 1 (0.16.0): the AI prompt named Data and a Plugins.txt copy, the report said to run check,
+    // and Plugins-with-patch.txt dropped turned-off plugins
+    [Fact]
+    public void Under_MO2_the_reports_name_MO2_steps_and_Plugins_with_patch_keeps_turned_off_plugins()
+    {
+        using var mo2 = new Mo2();
+        File.WriteAllLines(Path.Combine(mo2.Profile, "plugins.txt"), ["# made-up", "*Base.esm", "*ModB.esm", "*ModA.esm", "ModC.esm"]);
+        var (code, _, _, _) = mo2.Conflict();
+        Assert.Equal(0, code);
+        var text = string.Join("\n", Directory.EnumerateFiles(Path.Combine(mo2.Dir, "report"), "*", SearchOption.AllDirectories)
+            .Where(f => !f.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).Select(File.ReadAllText));
+        Assert.Contains("Put the patch in a new empty MO2 mod", text);
+        Assert.Contains("run sf-mod-check conflict --mo2 ", text);
+        Assert.Contains("where my MO2 instance", text);
+        Assert.DoesNotContain("copy of my load order", text);
+
+        var outDir = Path.Combine(mo2.Dir, "patch");
+        (code, _, _) = ExeTests.RunSplit("patch", "--mo2", mo2.Instance, "--out", outDir, "--quiet");
+        Assert.Equal(0, code);
+        var report = File.ReadAllText(Path.Combine(outDir, "patch-report.md"));
+        Assert.DoesNotContain("`sf-mod-check check ConflictPatch.esm`", report);
+        Assert.Contains("doesn't read MO2 profiles yet", report);
+        var withPatch = File.ReadAllLines(Path.Combine(outDir, "Plugins-with-patch.txt"));
+        Assert.Contains("ModC.esm", withPatch);   // unstarred: turned off
+        Assert.DoesNotContain("*ModC.esm", withPatch);
+    }
+
+    // code review round 1 (0.16.0): MO2's default for a missing mod_directory or profiles_directory is
+    // %BASE_DIR%/mods (or profiles), and Overwrite doesn't need modlist.txt
+    [Fact]
+    public void A_moved_base_directory_moves_the_default_folders_and_Overwrite_is_read_without_modlist()
+    {
+        using var s = new Sandbox();
+        var inst = s.Sub("Instance");
+        var moved = s.Sub("Moved");
+        var profile = s.Sub(Path.Combine("Moved", "profiles", "Main"));
+        s.Sub(Path.Combine("Moved", "mods", "ModA"));
+        var overwrite = s.Sub(Path.Combine("Moved", "overwrite"));
+        File.WriteAllLines(Path.Combine(inst, "ModOrganizer.ini"),
+            ["[General]", "selected_profile=@ByteArray(Main)", "[Settings]", $"base_directory={moved.Replace("\\", "/")}"]);
+        File.WriteAllLines(Path.Combine(profile, "plugins.txt"), ["*ModA.esm"]);
+        File.WriteAllLines(Path.Combine(profile, "modlist.txt"), ["+ModA"]);
+        var mo = Mo2Profile.Read(inst, null, out var error);
+        Assert.True(mo != null, error);
+        Assert.Equal([overwrite, Path.Combine(moved, "mods", "ModA")], mo!.ModDirs);
+        File.Delete(Path.Combine(profile, "modlist.txt"));
+        mo = Mo2Profile.Read(inst, null, out error);
+        Assert.True(mo != null, error);
+        Assert.Equal([overwrite], mo!.ModDirs);
+        Assert.Contains(mo.Problems, p => p.StartsWith("no modlist.txt"));
+    }
+
     [Fact]
     public void ReadIni_unwraps_ByteArray_and_keeps_the_first_value_of_a_key()
     {

@@ -18,15 +18,17 @@ public static class Recommend
     public static string ReportDir { get; set; } = "sf-mod-check-conflict";
     public static string DataDir { get; set; } = "";
     public static string PluginsTxt { get; set; } = "";
+    // With --mo2 (0.16.0): the MO2 instance folder and profile name, so the prompts name MO2's folders and rerun; else null.
+    public static (string Instance, string Profile)? Mo2 { get; set; }
 
     // Worked out once per pair and analysis (0.5.1): the two reports and the menu asked about 8 times per pair. Every
     // caller groups the same Lost list by (winner, loser), and a pair's entries all sit in one section (official or
     // not depends on the loser alone), so the key names the group exactly.
     // The cache also remembers the load order and the paths the prompts name, and starts again when either changes
     // (code review: a second report from the same analysis must not reuse the first one's text).
-    sealed class Cached((LoadOrderSetup Lo, string ReportDir, string DataDir, string PluginsTxt) settings)
+    sealed class Cached((LoadOrderSetup Lo, string ReportDir, string DataDir, string PluginsTxt, (string, string)? Mo2) settings)
     {
-        public readonly (LoadOrderSetup Lo, string ReportDir, string DataDir, string PluginsTxt) Settings = settings;
+        public readonly (LoadOrderSetup Lo, string ReportDir, string DataDir, string PluginsTxt, (string, string)? Mo2) Settings = settings;
         public Dictionary<(string, string), IReadOnlyList<Recommendation>> ByPair { get; } = new();
     }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Analysis, Cached> Cache = new();
@@ -34,7 +36,7 @@ public static class Recommend
     // Recommendations for one winner/loser pair; empty when nothing needs doing (only "No effect" fields).
     public static IReadOnlyList<Recommendation> ForGroup(IGrouping<(string Winner, string Loser), LostChange> g, LoadOrderSetup lo, Analysis a)
     {
-        var settings = (lo, ReportDir, DataDir, PluginsTxt);   // LoadOrderSetup has no Equals of its own: compared by reference
+        var settings = (lo, ReportDir, DataDir, PluginsTxt, Mo2);   // LoadOrderSetup has no Equals of its own: compared by reference
         if (!Cache.TryGetValue(a, out var cached) || cached.Settings != settings)
         {
             cached = new Cached(settings);
@@ -146,13 +148,19 @@ public static class Recommend
         if (items.Count > 40) sb.AppendLine($"- … and {items.Count - 40} more: every lost entry in conflicts.json with these winner/loser pairs and WinnerChangedToo = false.");
         sb.AppendLine();
         sb.AppendLine("Requirements:");
-        sb.AppendLine($"- Read the plugins from my game's Data folder ({DataDir}). If you write code, Mutagen.Bethesda.Starfield 0.54.4 reads and writes these plugins.");
+        if (Mo2 is var (inst, _))
+            sb.AppendLine($"- Read the plugins where my MO2 instance ({inst}) keeps them: each mod in its own folder under its mods folder, then Overwrite, then the game's Data folder ({DataDir}). If you write code, Mutagen.Bethesda.Starfield 0.54.4 reads and writes these plugins.");
+        else
+            sb.AppendLine($"- Read the plugins from my game's Data folder ({DataDir}). If you write code, Mutagen.Bethesda.Starfield 0.54.4 reads and writes these plugins.");
         sb.AppendLine("- Make the patch a light (ESL-flagged) plugin that only overrides these records; no new records, and no other fields changed.");
         sb.AppendLine($"- Masters: whatever the copied records need ({string.Join(", ", items.SelectMany(x => new[] { x.l.Winner, x.l.Loser }).Distinct().Select(P))} and their masters). It must load after all of them, so put it at the end of the load order.");
         sb.AppendLine("- This is for my own game only; do not publish it (it contains other authors' data).");
         sb.AppendLine();
         sb.AppendLine("Verify:");
-        sb.AppendLine($"- Add the patch to the end of a copy of my load order ({PluginsTxt}) and run sf-mod-check conflict again with that copy. These entries should be gone and no new ones should appear.");
+        if (Mo2 is var (inst2, prof))
+            sb.AppendLine($"- Put the patch in a new empty MO2 mod, enable it, put it last in the load order, and run sf-mod-check conflict --mo2 \"{inst2}\" --profile \"{prof}\" again. These entries should be gone and no new ones should appear.");
+        else
+            sb.AppendLine($"- Add the patch to the end of a copy of my load order ({PluginsTxt}) and run sf-mod-check conflict again with that copy. These entries should be gone and no new ones should appear.");
         sb.AppendLine("- Run sf-mod-check check on the patch, and open it in xEdit, to look for errors.");
         sb.AppendLine("- Install it with my mod manager and try the affected places in game.");
         return sb.ToString().TrimEnd();
