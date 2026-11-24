@@ -179,6 +179,10 @@ public sealed class LoadOrderInput
     {
         cantWhy = "";
         var full = Path.GetFullPath(Plugin!);
+        if (Directory.Exists(full))
+            return Stop(out cantWhy, $"--plugin {full} is a folder",
+                $"can't read --plugin {full}: that is a folder. Give the plugin file itself (.esm, .esp or .esl), for example \"{Path.Combine(full, "MyMod.esm")}\".",
+                $"--plugin {full} is a folder");
         if (!File.Exists(full))
             return Stop(out cantWhy, $"the plugin {full} doesn't exist",
                 $"can't read --plugin {full}: that file doesn't exist. Check the path (a path with spaces needs quotes).", $"--plugin {full} doesn't exist");

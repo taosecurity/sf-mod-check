@@ -148,6 +148,10 @@ public class FindPluginTests
         Assert.Equal(2, code);
         Assert.Contains("can't find Patch.esm's master BaseQ.esm", stderr);
         Assert.Contains("give its folder with --masters-dir", stderr);
+        // a folder given as --plugin says so (bug hunt 0.16.1), not "that file doesn't exist"
+        (code, stdout, stderr) = s.Find("--plugin", s.Masters);
+        Assert.Equal(2, code);
+        Assert.Contains("that is a folder. Give the plugin file itself", stderr);
         // conflict doesn't take --plugin
         (code, _, stderr) = ExeTests.RunSplit("conflict", "--plugin", s.Patch, "--data", s.Data);
         Assert.Equal(2, code);
