@@ -276,6 +276,23 @@ public class Mo2Tests
         Assert.Contains(mo.Problems, p => p.StartsWith("no modlist.txt"));
     }
 
+    // code review round 4 (0.16.0): official files MO2 leaves out of plugins.txt lost their loadorder.txt place
+    [Fact]
+    public void Official_files_only_in_loadorder_txt_keep_their_place_unless_plugins_txt_turns_them_off()
+    {
+        using var s = new Sandbox();
+        var inst = s.Sub("Instance");
+        var profile = s.Sub(Path.Combine("Instance", "profiles", "Main"));
+        File.WriteAllLines(Path.Combine(inst, "ModOrganizer.ini"), ["[General]", "selected_profile=@ByteArray(Main)"]);
+        File.WriteAllLines(Path.Combine(profile, "plugins.txt"), ["*ModA.esm", "SFBGS004.esm", "ModB.esm"]);
+        File.WriteAllLines(Path.Combine(profile, "modlist.txt"), ["+ModA"]);
+        File.WriteAllLines(Path.Combine(profile, "loadorder.txt"),
+            ["Starfield.esm", "SFBGS00D.esm", "SFBGS004.esm", "SFBGS003.esm", "ModA.esm", "ModB.esm"]);
+        var mo = Mo2Profile.Read(inst, null, out var error);
+        Assert.True(mo != null, error);
+        Assert.Equal(["Starfield.esm", "SFBGS00D.esm", "SFBGS003.esm", "ModA.esm"], mo!.Order.Listed);
+    }
+
     // code review round 2 (0.16.0): the patch report's check line named no profile, find's hint said to give --mo2
     // to a run that had it, and a missing plugin was "not found in Data" though the MO2 mod folders were searched too
     [Fact]
@@ -286,6 +303,11 @@ public class Mo2Tests
         var (code, _, _) = ExeTests.RunSplit("patch", "--mo2", mo2.Instance, "--out", outDir, "--quiet");
         Assert.Equal(0, code);
         Assert.Contains($"conflict --mo2 \"{mo2.Instance}\" --profile \"Main\"", File.ReadAllText(Path.Combine(outDir, "patch-report.md")));
+        // round 4: --only names the profile, not its plugins.txt (ModC.esm is starred there, but its mod is off)
+        string stderr;
+        (code, _, stderr) = ExeTests.RunSplit("patch", "--mo2", mo2.Instance, "--out", outDir, "--quiet", "--only", "ModC.esm");
+        Assert.Equal(2, code);
+        Assert.Contains("isn't active in the MO2 profile Main", stderr);
 
         string stdout;
         (code, stdout, _) = ExeTests.RunSplit("find", "NoSuchRecord", "--mo2", mo2.Instance);

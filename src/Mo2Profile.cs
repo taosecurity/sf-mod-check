@@ -191,7 +191,9 @@ public sealed class Mo2Profile
         {
             var order = File.ReadAllLines(lopath).Select(l => l.Trim().TrimStart('*').Trim()).Where(l => l.Length > 0 && !l.StartsWith('#')).ToList();
             var known = new HashSet<string>(order, StringComparer.OrdinalIgnoreCase);
-            listed = order.Where(active.Contains).Concat(marks.Listed.Where(n => !known.Contains(n))).ToList();
+            // MO2 doesn't write the official files it always loads (Bethesda's, Creations) to plugins.txt: they keep
+            // their loadorder.txt place unless plugins.txt turns them off (0.16.0 code review round 4).
+            listed = order.Where(n => active.Contains(n) || (LoadOrderSetup.IsOfficial(n) && !marks.TurnedOff.Contains(n))).Concat(marks.Listed.Where(n => !known.Contains(n))).ToList();
             Log.Write($"MO2: order from {lopath}, on/off from {ptxt}");
         }
         else

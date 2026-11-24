@@ -409,7 +409,7 @@ public static class FindCommand
         var (winner, rec) = m.Winner;
         var name = NameOf(rec);
         Console.WriteLine();
-        Console.WriteLine($"{SafeText.OneLine(rec.EditorID) ?? "(no EditorID)"} [{m.Key}] {m.Type}{(name != null ? $" \"{name}\"" : "")}");
+        Console.WriteLine($"{(string.IsNullOrEmpty(rec.EditorID) ? "(no EditorID)" : SafeText.OneLine(rec.EditorID))} [{m.Key}] {m.Type}{(name != null ? $" \"{name}\"" : "")}");
         Console.WriteLine($"  defined in: {LoadOrderSetup.Display(m.Key.ModKey.FileName)}");
         Console.WriteLine($"  winner: {LoadOrderSetup.Display(winner.FileName)}");
         var others = m.Copies.Take(m.Copies.Count - 1).Select(c => c.Plugin.FileName)

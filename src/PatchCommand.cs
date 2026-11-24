@@ -377,7 +377,7 @@ public static class PatchCommand
                 if (!byName.TryGetValue(o, out var op))
                 {
                     cantWhy = $"--only {SafeText.OneLine(o)} is not in the load order";
-                    Console.Error.WriteLine($"--only {SafeText.OneLine(o)}: that plugin isn't active in {orderTxt} (or it couldn't be loaded; see the load-order problems with --verbose). " +
+                    Console.Error.WriteLine($"--only {SafeText.OneLine(o)}: that plugin isn't active in {(input.Mo2 is null ? orderTxt : $"the MO2 profile {input.Mo2.Profile}")} (or it couldn't be loaded; see the load-order problems with --verbose). " +
                                             "Give the file names of active plugins, separated by commas.");
                     return 2;
                 }
