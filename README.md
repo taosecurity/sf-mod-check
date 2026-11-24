@@ -3,7 +3,7 @@
 sf-mod-check finds problems in a Starfield plugin before you play it or release it. It only reads files and never
 changes a plugin, and it checks a typical mod in about 4 seconds.
 
-Download the exe zip from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it. It has seven
+Download the exe zip from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it. It has eight
 commands:
 
 - [`check`](#run-it) reads one plugin (`.esm`) and reports problems that would break it in the game: damaged files,
@@ -27,6 +27,8 @@ commands:
   rebuild it: its files, what it replaces in the game, its plugins, scripts and DLLs, in one offline report. It is
   triage, not a verdict: it shows a person where to start reading.
 - [`diff`](#compare-two-versions-of-a-mod-sf-mod-check-diff) compares two versions of a mod and lists what changed.
+- [`find`](#look-up-a-record-sf-mod-check-find) looks up one record in your load order by EditorID, FormKey or
+  console FormID, and says which plugin defines it, which wins it, and what its main fields hold.
 
 **First command:** drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
 
@@ -802,6 +804,44 @@ be on purpose; at most 200 are shown). A count line follows, then `RESULT: OK (0
 `RESULT: FAIL (n errors, n warnings)` or `RESULT: CANNOT CHECK (...)`. Exit codes: 0 no errors (warnings allowed),
 1 errors, 2 can't check (a missing plugin, a master in none of the folders searched, a file that isn't a plugin, or
 a bad argument). It only reads the plugin and its masters.
+
+## Look up a record: `sf-mod-check find`
+
+Use it when you need one record's FormKey, its type, or who wins it: for example, the location your quest should
+point at, or the resource a recipe needs (0.16.0). It reads your load order and changes nothing.
+
+    sf-mod-check find CityNewAtlantisLocation
+    sf-mod-check find 01295A:Starfield.esm --type LCTN
+    sf-mod-check find 0001295A --plugins "%LOCALAPPDATA%\Starfield\Plugins.txt" --json
+
+    sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt>] [--data <Data folder>]
+                      [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]
+
+- The record: an exact **EditorID** (letter case doesn't matter; there is no partial or fuzzy search), a **FormKey**
+  (`01295A:Starfield.esm`, the form `conflict` and `patch` print), or a **FormID** of 8 hex digits as the console
+  shows it (`0001295A`, with or without `0x`). A console FormID depends on the load order: its first digits pick the
+  plugin by its place in the load order (full plugins `00` to `FC`, medium plugins `FD` and one more byte, light
+  plugins `FE` and three more hex digits), so the same record can have another FormID in another load order.
+- `--type <SIG>`: keep only records of one four-letter type, such as `LCTN` (location), `MISC` (misc item), `NPC_`
+  or `QUST`. An unknown type stops with exit 2.
+- `--plugins`, `--data`, `--extra-data`: the load order, as for `conflict` (default: the game's own Plugins.txt and
+  Steam's usual Data folder). A plugin in the `--extra-data` folder wins over Data's copy.
+- `--json`: print one JSON object on stdout instead of the text: `tool`, `version`, `query`, `type`, `loadOrder`
+  (`source`, `plugins`), `matches` (each with `formKey`, `editorId`, `type`, `name`, `definedIn`, `winner`,
+  `plugins` in load order and `fields`), `result` (`found`, `not found` or `cannot run`), and `hint` or `error` when
+  there is one.
+- `--quiet`: no byline or progress on stderr. `--verbose`, `--log <file>`: as for `check`.
+
+For each record it prints the heading `EditorID [FormKey] TYPE "Name"`, then `defined in:` (the plugin the record
+comes from), `winner:` (the last plugin in the load order with a copy: the one the game uses), `also in:` (the other
+plugins with a copy, when there are any) and `fields:`, the winning copy's main values. Links show as
+`EditorID [FormKey]`, lists as a count (`(3 entries)`), and empty values are left out; at most 40 field lines are
+shown. A cell's references and a quest's dialogue are records of their own and aren't listed. The last line is
+`RESULT: FOUND n record(s)` or, after a `HINT:` line that says what was searched, `RESULT: NOT FOUND (...)`. Two
+records can share an EditorID; then both are printed.
+
+Exit codes: 0 found, 1 not found, 2 couldn't run (a bad option, no load order, a missing folder). An EditorID search
+reads every plugin in the load order: about 20 seconds for the game's own 18 plugins.
 
 ## Look over a downloaded mod: `sf-mod-check triage`
 

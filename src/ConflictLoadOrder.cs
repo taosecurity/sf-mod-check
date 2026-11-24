@@ -107,7 +107,12 @@ public class LoadOrderSetup
     public void AddProblem(string text) => problems.Add(SafeText.OneLine(text));
     public string OrderSource { get; private set; } = "";
 
-    public static LoadOrderSetup Build(string dataDir, string? pluginsTxt, string? extraDir = null)
+    public static LoadOrderSetup Build(string dataDir, string? pluginsTxt, string? extraDir = null) =>
+        Build(dataDir, pluginsTxt, extraDir is null ? [] : [extraDir]);
+
+    /// <param name="overDirs">folders whose plugins win over Data's, highest priority first (0.16.0: the --extra-data
+    /// folder now; an MO2 profile's Overwrite and mod folders plug in here too)</param>
+    public static LoadOrderSetup Build(string dataDir, string? pluginsTxt, IReadOnlyList<string> overDirs)
     {
         var setup = new LoadOrderSetup();
         List<string> listed;
@@ -135,10 +140,11 @@ public class LoadOrderSetup
         // Vortex writes names in lower case; use the real file names from Data.
         var onDisk = Directory.EnumerateFiles(dataDir).Select(Path.GetFileName)
             .ToDictionary(f => f!, f => f!, StringComparer.OrdinalIgnoreCase);
-        // Optional second folder (for example, patches not yet installed); its files win over Data's.
+        // Optional folders (for example, patches not yet installed); their files win over Data's, and the first folder
+        // wins over the later ones (so they are read lowest priority first).
         var fullPath = onDisk.Keys.ToDictionary(f => f, f => Path.Combine(dataDir, f), StringComparer.OrdinalIgnoreCase);
-        if (extraDir is not null)
-            foreach (var f in Directory.EnumerateFiles(extraDir))
+        foreach (var over in overDirs.Reverse())
+            foreach (var f in Directory.EnumerateFiles(over))
             {
                 var name = Path.GetFileName(f);
                 onDisk[name] = name;

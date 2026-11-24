@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.16.0 (not released yet)
+
+### What's new
+
+- A new command, `find`, looks up one record in your load order and changes nothing. Give it an exact EditorID (letter case doesn't matter), a FormKey such as `01295A:Starfield.esm`, or an 8-digit FormID as the game's console shows it, such as `0001295A`.
+- For each record it finds, it prints the EditorID, FormKey, record type and name, the plugin that defines the record, the plugin that wins it in the load order, the other plugins with a copy, and the winning copy's main fields (links as `EditorID [FormKey]`, lists as a count, at most 40 lines).
+- `--type <SIG>` keeps only records of one type, such as `LCTN` or `MISC`. `--json` prints one JSON object instead of the text.
+- The load order comes from `--plugins` (default: the game's own Plugins.txt), `--data` and `--extra-data`, the same options `conflict` reads.
+- A console FormID is read the way the game numbers plugins: full plugins `00` to `FC`, medium plugins `FD` and one more byte, light plugins `FE` and three more hex digits, from each plugin's header flags.
+- Exit codes: 0 found, 1 not found (with a `HINT:` line that says what was searched), 2 couldn't run. `find --help` exits 0.
+
+### Example
+
+A made-up `FindBase.esm` defines the misc item `FB_Misc` ("Made-up Widget", value 5), and two made-up mods, `FindMedium.esm` and `FindLight.esm`, change its value. All three are in `Plugins.txt`:
+
+    sf-mod-check find fb_misc --data Data --plugins Plugins.txt
+
+What it prints on stdout (a real run, with the folder shortened):
+
+    sf-mod-check 0.16.0 find: fb_misc in 3 plugins (Plugins.txt (...\example\Plugins.txt), 3 active entries)
+
+    FB_Misc [000800:FindBase.esm] MISC "Made-up Widget"
+      defined in: FindBase.esm
+      winner: FindLight.esm
+      also in: FindMedium.esm
+      fields:
+        Value: 9
+    RESULT: FOUND 1 record (1 s)
+
+The exit code is 0. A misspelled EditorID (`FB_Misk`) prints a `HINT:` line and `RESULT: NOT FOUND (no record with EditorID FB_Misk in 3 plugins)`, with exit code 1.
+
 ## 0.15.2 (2026-11-23)
 
 ### What's new

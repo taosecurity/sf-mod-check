@@ -44,6 +44,10 @@ one light plugin, loaded last, that copies each lost Forwardable change forward 
 Choice fields unless the user picks the other. Use it when `conflict` recommends a small local patch, for example
 after adding two mods that touch the same records (`--only` limits it to those mods).
 
+`sf-mod-check find <record>` (0.16.0) looks up one record in the load order by EditorID, FormKey or console FormID
+and prints its type, name, the plugin that defines it, the plugin that wins it and its main fields. Use it whenever you
+need a FormKey or want to know who wins a record, instead of writing a throwaway program to read the plugins.
+
 Don't use any of them to fix a plugin or change a load order (they never change existing files; `patch` only writes a
 new plugin to its own folder), or `check` on Bethesda's own masters (Starfield.esm needs over 30 GB of memory).
 
@@ -353,6 +357,20 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     it are `LEVEL [rule] text`: PROBLEM `[removed]`, REVIEW `[moved]`, `[updated]`, `[new-editor]`, `[duplicate]`
     and `[patch-changed]`, NOTE `[updated]` and `[patch-off]` (section 6 says what each means).
 
+18. Look up one record (0.16.0): its FormKey, type, the plugin that defines it, the plugin that wins it in the load
+    order, and its main fields. Use it instead of writing a program to read a plugin. Read only:
+
+        sf-mod-check find CityNewAtlantisLocation --type LCTN
+        sf-mod-check find 01295A:Starfield.esm --json
+        sf-mod-check find 0001295A --plugins "%LOCALAPPDATA%\Starfield\Plugins.txt"
+
+    The record is an exact EditorID (letter case ignored, no partial match), a FormKey, or a console FormID (8 hex
+    digits; it depends on the load order, so prefer the FormKey in anything you write down). `--plugins`, `--data`
+    and `--extra-data` give the load order as for `conflict`. Read the exit code and the last stdout line: exit 0 and
+    `RESULT: FOUND n record(s)`, exit 1 and `RESULT: NOT FOUND (...)` (the `HINT:` line before it names the load
+    order searched; check the spelling, or the mod isn't in that load order), exit 2 and `RESULT: CANNOT CHECK (...)`.
+    With `--json`, stdout is one JSON object (section 6) and nothing else.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -388,6 +406,15 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   `RESULT: OK (0 errors, n warnings)`, `RESULT: FAIL (n errors, n warnings)` or `RESULT: CANNOT CHECK (...)`. A
   missing master prints `master <name> not found in <folders>` before the CANNOT CHECK line. Exit codes: 0 = no
   errors, 1 = errors, 2 = can't check (missing plugin or master, not a plugin, bad argument).
+- **`find`:** input is one record (an EditorID, a FormKey or a console FormID) and a load order (`--plugins`,
+  `--data`, `--extra-data`). Output: a line naming the load order, then per record a heading
+  `EditorID [FormKey] TYPE "Name"`, `  defined in:`, `  winner:`, `  also in:` (when other plugins have a copy) and
+  `  fields:` (at most 40 lines), then always one last line `RESULT: FOUND n record(s) (n s)`,
+  `RESULT: NOT FOUND (...)` (after a `HINT:` line) or `RESULT: CANNOT CHECK (...)`. With `--json`, stdout is one
+  object instead: {`tool`, `version`, `query`, `type`, `loadOrder` {`source`, `plugins`}, `matches` [{`formKey`,
+  `editorId`, `type`, `name`, `definedIn`, `winner`, `plugins`, `fields`}], `result` (`found`, `not found`,
+  `cannot run`), and `hint` or `error`}; keys are only ever added. Exit codes: 0 = found, 1 = not found, 2 = can't
+  run (bad option, no load order, missing folder). `--help` exits 0.
 - **`diff`:** input is two plugins, or two mods (each a .zip, .7z or .rar, unpacked into a temp folder that is
   removed at the end, or a folder read where it is); plugins in two mods are paired by file name. Output: the report
   on stdout, or in the `--out` file (text, or JSON with `--json`), then always one last line on stdout:
