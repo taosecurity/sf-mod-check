@@ -158,6 +158,26 @@ public class FindPluginTests
         Assert.Contains("unknown option --plugin", stderr);
     }
 
+    // code review round 1 (0.16.1): a plugin whose records can't be read at all is a failed run (exit 2), not
+    // "NOT FOUND (no records)" with exit 1 as if it were empty
+    [Fact]
+    public void A_plugin_whose_records_cannot_be_read_stops_with_exit_2_not_not_found()
+    {
+        using var s = new Set();
+        var bytes = File.ReadAllBytes(s.Patch);
+        // TES4 header: 24 bytes plus its data size (offset 4). The first GRUP starts right after it; its first
+        // record's signature sits 24 bytes into the GRUP. Overwriting that record's size makes it run past the file.
+        int first = 24 + BitConverter.ToInt32(bytes, 4) + 24;
+        Assert.Equal("GRUP", System.Text.Encoding.ASCII.GetString(bytes, first - 24, 4));
+        BitConverter.GetBytes(0x7FFFFFF0).CopyTo(bytes, first + 4);
+        var bad = Path.Combine(s.Sub("bad"), "Patch.esm");
+        File.WriteAllBytes(bad, bytes);
+        var (code, stdout, stderr) = s.Find("--plugin", bad, "--masters-dir", s.Masters);
+        Assert.True(code == 2, stdout + stderr);
+        Assert.DoesNotContain("NOT FOUND", stdout);
+        Assert.Contains("CANNOT CHECK", stdout);
+    }
+
     [Fact]
     public void An_MO2_profile_also_searches_the_My_Games_Data_folder_after_the_mods()
     {

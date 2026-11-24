@@ -16,6 +16,10 @@ public class Mo2Tests
 {
     static readonly WriteOptions NoGap = new() { GapCheck = false, FixEffects = false };
 
+    /// <summary>A My Games Data folder that doesn't exist, so Mo2Profile.Read never adds the real one on the test PC
+    /// (code review round 1, 0.16.1).</summary>
+    static string NoMyGames(Sandbox s) => Path.Combine(s.Dir, "no My Games Data");
+
     /// <summary>The game folder Game\Data holds Base.esm (misc item B_Misc, value 5, weight 1). The MO2 instance
     /// Instance\ has ModOrganizer.ini (selected_profile Main, gamePath Game, mod_directory %BASE_DIR%/mymods) and the
     /// profile Main with modlist.txt (+ModB, a separator, -ModC, +ModA, top line first), plugins.txt and
@@ -266,11 +270,11 @@ public class Mo2Tests
             ["[General]", "selected_profile=@ByteArray(Main)", "[Settings]", $"base_directory={moved.Replace("\\", "/")}"]);
         File.WriteAllLines(Path.Combine(profile, "plugins.txt"), ["*ModA.esm"]);
         File.WriteAllLines(Path.Combine(profile, "modlist.txt"), ["+ModA"]);
-        var mo = Mo2Profile.Read(inst, null, out var error);
+        var mo = Mo2Profile.Read(inst, null, out var error, NoMyGames(s));
         Assert.True(mo != null, error);
         Assert.Equal([overwrite, Path.Combine(moved, "mods", "ModA")], mo!.ModDirs);
         File.Delete(Path.Combine(profile, "modlist.txt"));
-        mo = Mo2Profile.Read(inst, null, out error);
+        mo = Mo2Profile.Read(inst, null, out error, NoMyGames(s));
         Assert.True(mo != null, error);
         Assert.Equal([overwrite], mo!.ModDirs);
         Assert.Contains(mo.Problems, p => p.StartsWith("no modlist.txt"));
@@ -288,7 +292,7 @@ public class Mo2Tests
         File.WriteAllLines(Path.Combine(profile, "modlist.txt"), ["+ModA"]);
         File.WriteAllLines(Path.Combine(profile, "loadorder.txt"),
             ["Starfield.esm", "SFBGS00D.esm", "SFBGS004.esm", "SFBGS003.esm", "ModA.esm", "ModB.esm"]);
-        var mo = Mo2Profile.Read(inst, null, out var error);
+        var mo = Mo2Profile.Read(inst, null, out var error, NoMyGames(s));
         Assert.True(mo != null, error);
         Assert.Equal(["Starfield.esm", "SFBGS00D.esm", "SFBGS003.esm", "ModA.esm"], mo!.Order.Listed);
     }

@@ -183,9 +183,9 @@ public sealed class Mo2Profile
                 if (Directory.Exists(folder)) mo.ModDirs.Add(folder);
                 else mo.Problems.Add($"MO2 mod {name} is enabled but has no folder in {modsDir}; reinstall it in MO2 or disable it");
             }
-            Log.Write($"MO2: {mo.ModDirs.Count} folders win over Data (Overwrite first, then enabled mods from the top of modlist.txt)");
+            Log.Write($"MO2: {mo.ModDirs.Count} mod folders win over Data (Overwrite first, then enabled mods from the top of modlist.txt)");
         }
-        else mo.Problems.Add($"no modlist.txt in {pdir}, so no mod folders were searched (only Overwrite and Data); open the profile in MO2 once so it writes the file");
+        else mo.Problems.Add($"no modlist.txt in {pdir}, so no mod folders were searched (only Overwrite, the My Games Data folder and Data); open the profile in MO2 once so it writes the file");
         // MO2 also merges Documents\My Games\Starfield\Data into the view it shows the game (0.16.1). It goes after the
         // mods and before Data; which of it and Data wins a file found in both isn't verified.
         myGamesData ??= MyGamesData();

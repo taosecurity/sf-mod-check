@@ -295,6 +295,14 @@ public static class FindCommand
         Analyzer.Where = $"listing the records in {target.FileName}";
         try { foreach (var r in target.Mod.EnumerateMajorRecords()) if (seen.Add(r.FormKey)) all.Add(r); }
         catch (Exception e) when (Fatal.Recoverable(e)) { unread.Add($"{target.FileName} couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); its later records aren't listed"); }
+        if (all.Count == 0 && unread.Count > 0)
+        {
+            // Not an empty plugin: its records couldn't be read at all, so the run failed (exit 2), not "not found".
+            foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
+            cantWhy = $"{SafeText.OneLine(target.FileName)}'s records can't be read; check the file or download it again";
+            Log.Write($"stopped: no record of {target.FileName} could be read");
+            return 2;
+        }
         string Sig(IMajorRecordGetter r) => Checker.SigsOf(r.GetType())?.FirstOrDefault() ?? Analyzer.TypeShort(r.GetType());
         var byType = all.GroupBy(Sig).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
             .Select(g => (Type: g.Key, Count: g.Count())).ToList();
