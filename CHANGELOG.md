@@ -15,6 +15,7 @@
 - An enabled mod with no folder, or a profile with no `modlist.txt`, is a load-order problem in the report. `--mo2` with `--plugins`, or `--profile` without `--mo2`, stops with exit code 2.
 - With `--mo2`, the patch report says to add the patch in MO2 with Create empty mod. `--out` may not be an MO2 mod or Overwrite folder.
 - Not yet: archives listed only in a profile's own INI files, and `--mo2` for `check`, `triage` and `patch check`.
+- The README and AGENTS.md now say the Creations check runs on the `creations-out` folder that sf-mod-build writes, and AGENTS.md's "last run" note names this version.
 
 ### Example
 

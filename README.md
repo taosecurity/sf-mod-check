@@ -710,6 +710,7 @@ so the game plays them silent, and everything `check` finds in each plugin.
   rule, for a Creation you check in parts (a stage folder and its archives, say):
   `sf-mod-check release C:\Build\MyMod\Data "C:\Build\MyMod - Textures.ba2" --profile creations --size-total`.
   Without it each input is its own Creation. Without `--profile creations` it is a bad argument (exit 2).
+- The Creations check runs on `creations-out` (0.16.0 note): a mod built with sf-mod-build and `"xbox": true` writes the set you upload (the plugin, the PC archive and its `_xbox.ba2` twin) into a folder named `creations-out`. Check that folder, `sf-mod-check release creations-out --profile creations`, not the PC test zip, which has no Xbox archive.
 - `--tested <zip|ba2>` (0.15.0): the zip, or one of the `.ba2` archives, of the build you tested in the game. Each
   compiled script of the release (loose or in its archives) is compared with the tested build's copy by meaning, not
   by bytes: two builds of the same source never match byte for byte, so the comparison leaves out what changes on

@@ -1,7 +1,7 @@
 # sf-mod-check: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sf-mod-check. Every command
-here was run once on sf-mod-check 0.15.0 (2026-11-23) before release. The [README](README.md) has the full description.
+here was last run on sf-mod-check 0.16.0 (2026-11-24) before release. The [README](README.md) has the full description.
 Until 0.7.0 the tool was called **sfmodcheck**: the command is now `sf-mod-check` (the exe zip also holds a
 `sfmodcheck.cmd` that runs it under the old name, for one release). Old caches and `SFMODCHECK_*` variables still work.
 
@@ -242,6 +242,10 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     script tests only official plugins (Starfield, the DLC, `BlueprintShips-Starfield.esm`, `SFBGS###`, `sftaNN` and their `BlueprintShips-` files), it stays a failure (0.10.1). A master by
     another author that the user has seen on Creations for every platform: `--creations-master OtherMod.esm`. Never add
     one on your own judgement; ask the user.
+
+    A mod built with sf-mod-build and `"xbox": true` writes the set to upload into a folder named `creations-out`
+    (the plugin, the PC archive and the `_xbox.ba2` twin). Run this check on that folder, not on the PC test zip, which
+    has no Xbox archive: `sf-mod-check release creations-out --profile creations`.
 
     To check a build before it is zipped, or a Creation built from several parts (0.15.0), give the inputs as
     `release <zip|folder|ba2|plugin>...`:

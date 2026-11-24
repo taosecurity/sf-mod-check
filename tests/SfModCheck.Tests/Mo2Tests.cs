@@ -237,4 +237,49 @@ public class Mo2Tests
         Assert.False(Mo2Profile.IsFolderName("a\\b"));
         Assert.True(Mo2Profile.IsFolderName("My Mod 1.2"));
     }
+
+    [NeedsStarfieldFact]
+    public void Conflict_on_an_MO2_instance_whose_gamePath_is_the_real_game_finds_two_mods_changing_the_same_official_record()
+    {
+        // Two made-up mods each change the Iron misc item of the real Starfield.esm; MO2's gamePath is the real game
+        // folder, so Data comes from it. Set SFMODCHECK_MO2_KEEP to a folder to keep the instance and the report there.
+        var data = NeedsStarfieldFactAttribute.Data;
+        using var s = new Sandbox();
+        var inst = s.Sub("Instance");
+        var profile = s.Sub(Path.Combine("Instance", "profiles", "Main"));
+        using (var g = new GameData(data))
+        {
+            var iron = g.Open("Starfield.esm").MiscItems.First(m => m.EditorID == "InorgCommonIron");
+            foreach (var (folder, value) in new[] { ("IronMod1", 11), ("IronMod2", 22) })
+            {
+                var dir = s.Sub(Path.Combine("Instance", "mods", folder));
+                var mod = Plugin.New(folder + ".esm", PluginStyle.Light, "test", "made-up mod");
+                mod.MiscItems.GetOrAddAsOverride(iron).Value = value;
+                PluginWriter.Write(mod, dir, g, NoGap);
+            }
+        }
+        File.WriteAllLines(Path.Combine(inst, "ModOrganizer.ini"),
+            ["[General]", "gameName=Starfield", $"gamePath=@ByteArray({Path.GetDirectoryName(data)!.Replace("\\", "\\\\")})", "selected_profile=@ByteArray(Main)"]);
+        File.WriteAllLines(Path.Combine(profile, "modlist.txt"), ["# made-up", "+IronMod2", "+IronMod1"]);
+        File.WriteAllLines(Path.Combine(profile, "plugins.txt"), ["# made-up", "*IronMod1.esm", "*IronMod2.esm"]);
+        File.WriteAllLines(Path.Combine(profile, "loadorder.txt"), ["IronMod1.esm", "IronMod2.esm"]);
+        var outDir = Path.Combine(s.Dir, "report");
+        var (code, stdout, _) = ExeTests.RunSplit(["conflict", "--mo2", inst, "--out", outDir, "--quiet"]);
+        Assert.Equal(0, code);
+        Assert.Contains("1 mod vs mod)", ExeTests.ResultLine(stdout));
+        var lost = Assert.Single(JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "conflicts.json"))).RootElement.GetProperty("lost").EnumerateArray());
+        Assert.Equal(("IronMod1.esm", "IronMod2.esm"), (S(lost, "Loser"), S(lost, "Winner")));
+        if (Environment.GetEnvironmentVariable("SFMODCHECK_MO2_KEEP") is { Length: > 0 } keep)
+        {
+            Directory.CreateDirectory(keep);
+            foreach (var d in new[] { "Instance", "report" })
+                foreach (var f in Directory.EnumerateFiles(Path.Combine(s.Dir, d), "*", SearchOption.AllDirectories))
+                {
+                    var to = Path.Combine(keep, Path.GetRelativePath(s.Dir, f));
+                    Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+                    File.Copy(f, to, true);
+                }
+            File.WriteAllText(Path.Combine(keep, "stdout.txt"), stdout);
+        }
+    }
 }
