@@ -14,13 +14,9 @@ namespace SfModCheck;
 public static class ConflictCommand
 {
     public const string Usage =
-        "usage: sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
-        "                           [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]\n" +
-        "                           [--quiet] [--verbose] [--log <file>]";
-
-    // The game's own load order file (the game writes it; Vortex and the in-game Creations menu update it).
-    static string GamePluginsTxt() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Starfield", "Plugins.txt");
+        "usage: sf-mod-check conflict [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>]\n" +
+        "                           [--extra-data <folder>] [--out <folder>] [--max-memory <GB>] [--no-assets] [--no-priorities]\n" +
+        "                           [--ini <file>]... [--language <code>] [--quiet] [--verbose] [--log <file>]";
 
     public static int Run(string[] a, string version, string byline)
     {
@@ -155,25 +151,18 @@ public static class ConflictCommand
         Analyzer.MaxManagedBytes = 0; Analyzer.Progress = null; Analyzer.Where = "";   // fresh settings for every run in one process (0.5.0)
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
-        string? pluginsTxt = null, dataDir = null, extraDir = null, outDir = null, logFile = null;
+        string? outDir = null, logFile = null;
         double maxGb = 0;
         bool quiet = false, verbose = false, noAssets = false, noPriorities = false;
         var inis = new List<string>();
         var language = "en";
+        var input = new LoadOrderInput();
         string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
         for (int i = 0; i < a.Length; i++)
         {
+            if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }
             switch (a[i])
             {
-                case "--plugins":
-                    if (Value(ref i, "a Plugins.txt file") is not { } p) return 2;
-                    pluginsTxt = p; break;
-                case "--data":
-                    if (Value(ref i, "the game's Data folder") is not { } d) return 2;
-                    dataDir = d; break;
-                case "--extra-data":
-                    if (Value(ref i, "a folder") is not { } x) return 2;
-                    extraDir = x; break;
                 case "--out":
                     if (Value(ref i, "a folder") is not { } o) return 2;
                     outDir = o; break;
@@ -219,57 +208,11 @@ public static class ConflictCommand
         Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");
         Log.Write($"working folder: {Environment.CurrentDirectory}");
 
-        // Data folder: --data, else Steam's usual folder.
-        var dataWhy = dataDir != null ? "from --data" : "Steam's usual folder (no --data given)";
-        dataDir ??= Cli.SteamData;
-        if (!Directory.Exists(dataDir))
-        {
-            cantWhy = $"the Data folder {Path.GetFullPath(dataDir)} doesn't exist";
-            Console.Error.WriteLine($"can't find the game's Data folder: {Path.GetFullPath(dataDir)} doesn't exist ({dataWhy}). Run again with " +
-                                    "--data \"<the game's Data folder>\" (Game Pass: ...\\Starfield\\Content\\Data; a path with spaces needs quotes).");
-            Log.Write($"stopped: no Data folder at {Path.GetFullPath(dataDir)} ({dataWhy})");
-            return 2;
-        }
-        dataDir = Path.GetFullPath(dataDir);
-        Log.Write($"Data folder: {dataDir}: {dataWhy}; Starfield.esm {(TriageCommand.HasStarfield(dataDir) ? "found there" : "NOT there")}");
-        if (!TriageCommand.HasStarfield(dataDir))
-            Console.Error.WriteLine($"note: no Starfield.esm in {dataDir}. If that isn't your game's Data folder, run again with --data \"<the game's Data folder>\".");
-
-        // Load order: --plugins, else the game's own Plugins.txt. Without either it stops: guessing an order (every
-        // plugin in Data, alphabetical) gives wrong answers and can need a lot of memory.
-        string pluginsWhy;
-        if (pluginsTxt != null) pluginsWhy = "from --plugins";
-        else if (File.Exists(GamePluginsTxt())) { pluginsTxt = GamePluginsTxt(); pluginsWhy = "the game's own Plugins.txt (no --plugins given)"; }
-        else
-        {
-            cantWhy = "no load order: give --plugins";
-            Console.Error.WriteLine($"can't find your load order: no --plugins given and no game Plugins.txt at {GamePluginsTxt()}. Run again with " +
-                                    "--plugins \"<the Plugins.txt your mod manager uses>\" (MO2 keeps one per profile, in the profile's folder).");
-            Log.Write($"stopped: no --plugins and no {GamePluginsTxt()}");
-            return 2;
-        }
-        if (!File.Exists(pluginsTxt))
-        {
-            cantWhy = $"the Plugins.txt {Path.GetFullPath(pluginsTxt)} doesn't exist";
-            Console.Error.WriteLine($"can't read the load order: {Path.GetFullPath(pluginsTxt)} doesn't exist. Give --plugins the Plugins.txt your mod " +
-                                    "manager uses (the game's is %LOCALAPPDATA%\\Starfield\\Plugins.txt; MO2 keeps one per profile).");
-            Log.Write($"stopped: no Plugins.txt at {Path.GetFullPath(pluginsTxt)}");
-            return 2;
-        }
-        pluginsTxt = Path.GetFullPath(pluginsTxt);
-        Log.Write($"load order: {pluginsTxt}: {pluginsWhy}");
-        if (extraDir != null)
-        {
-            if (!Directory.Exists(extraDir))
-            {
-                cantWhy = $"the --extra-data folder {Path.GetFullPath(extraDir)} doesn't exist";
-                Console.Error.WriteLine($"can't use --extra-data {Path.GetFullPath(extraDir)}: that folder doesn't exist. Check the path (a path with spaces needs quotes).");
-                Log.Write($"stopped: --extra-data {Path.GetFullPath(extraDir)} doesn't exist");
-                return 2;
-            }
-            extraDir = Path.GetFullPath(extraDir);
-            Log.Write($"extra plugin folder (its files win over Data's): {extraDir}");
-        }
+        // The load order (LoadOrderInput, 0.16.0): --plugins, else the game's own Plugins.txt, or an MO2 profile with --mo2.
+        // Without one it stops: guessing an order (every plugin in Data, alphabetical) gives wrong answers.
+        if (!input.Resolve(out var why)) { cantWhy = why; return 2; }
+        var dataDir = input.DataDir;
+        var pluginsTxt = input.PluginsTxt!;
         outDir = Path.GetFullPath(outDir ?? "sf-mod-check-conflict");
         Log.Write($"report folder: {outDir}");
         if (maxGb > 0) { Analyzer.MaxManagedBytes = (long)(maxGb * 1e9); Log.Write($"memory limit: {maxGb.ToString(CultureInfo.InvariantCulture)} GB"); }
@@ -278,7 +221,7 @@ public static class ConflictCommand
         Analyzer.Info = quiet ? _ => { } : Console.Error.WriteLine;
         if (Log.On) Analyzer.Progress = Log.Write;
         LoadOrderSetup lo;
-        try { lo = LoadOrderSetup.Build(dataDir, pluginsTxt, extraDir); }
+        try { lo = input.Build(); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
         {
             cantWhy = $"the load order can't be read: {e.GetType().Name}";
@@ -309,7 +252,8 @@ public static class ConflictCommand
             // the assets check (0.6.0): every active plugin's archives load; each mod plugin's scripts, models, materials,
             // textures and sounds are looked up in them and in loose files (the --extra-data folder first, then Data)
             // the archive counts per registry are made either way (--no-assets reads only each archive's header)
-            var assetDirs = (extraDir != null ? new[] { extraDir, dataDir } : new[] { dataDir }).ToList();
+            // (with --mo2: MO2's Overwrite and enabled mod folders between them, in MO2's order)
+            var assetDirs = input.AssetDirs;
             // A failure here (a folder this account can't list, a disk error) is noted in the report's errors and the
             // report is still written: the slow analysis is done (code review 2026-11-18).
             try

@@ -10,6 +10,11 @@
 - The load order comes from `--plugins` (default: the game's own Plugins.txt), `--data` and `--extra-data`, the same options `conflict` reads.
 - A console FormID is read the way the game numbers plugins: full plugins `00` to `FC`, medium plugins `FD` and one more byte, light plugins `FE` and three more hex digits, from each plugin's header flags.
 - Exit codes: 0 found, 1 not found (with a `HINT:` line that says what was searched), 2 couldn't run. `find --help` exits 0.
+- `conflict`, `patch` and `find` read a Mod Organizer 2 profile with `--mo2 <MO2 folder>` and `--profile <name>` (default: the profile selected in MO2). Before, they saw only the real Data folder, so under MO2 they missed every mod. The rules follow sf-load-order 0.2.2.
+- With `--mo2`, the order comes from the profile's `loadorder.txt` (else its `plugins.txt`), and the on/off marks from `plugins.txt`. Plugins, archives and loose files are looked up in `--extra-data`, then MO2's Overwrite folder, then each enabled mod from the top of `modlist.txt` down, then Data. The Data folder is `--data`, else the `Data` folder in MO2's game path, else Steam's usual one.
+- An enabled mod with no folder, or a profile with no `modlist.txt`, is a load-order problem in the report. `--mo2` with `--plugins`, or `--profile` without `--mo2`, stops with exit code 2.
+- With `--mo2`, the patch report says to add the patch in MO2 with Create empty mod. `--out` may not be an MO2 mod or Overwrite folder.
+- Not yet: archives listed only in a profile's own INI files, and `--mo2` for `check`, `triage` and `patch check`.
 
 ### Example
 

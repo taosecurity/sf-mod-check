@@ -300,18 +300,23 @@ file is a mod's loss, so it is counted with the "mod vs mod" entries (the line k
 
 Then open `sf-mod-check-conflict\report.html` in a browser.
 
-    sf-mod-check conflict [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
-                        [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]
-                        [--quiet] [--verbose] [--log <file>]
+    sf-mod-check conflict [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>]
+                        [--extra-data <folder>] [--out <folder>] [--max-memory <GB>] [--no-assets] [--no-priorities]
+                        [--ini <file>]... [--language <code>] [--quiet] [--verbose] [--log <file>]
 
 - `--plugins`: the load order to check (default: the game's own, `%LOCALAPPDATA%\Starfield\Plugins.txt`, which
   Vortex and the game's Creations menu keep up to date). Only the lines marked active (`*`) count. Bethesda's own files
   (the DLCs, updates and Creations such as the Trackers Alliance ones) are always loaded first, as the game does.
   Without `--plugins` and without the game's file, it stops and asks for one rather than guess an order.
-- `--data`: the game's Data folder, where the plugins are read (default: Steam's usual one; Game Pass:
-  `--data "C:\XboxGames\Starfield\Content\Data"`).
+- `--mo2 <MO2 folder>` and `--profile <name>` (0.16.0): read the load order and the mods from a Mod Organizer 2
+  profile instead (see "Mod Organizer 2" below). `--mo2` takes the MO2 instance folder, the one that holds
+  `ModOrganizer.ini`, `profiles` and `mods`. `--profile` defaults to the profile selected in MO2. Give `--mo2` or
+  `--plugins`, not both (exit 2), and `--profile` only with `--mo2`.
+- `--data`: the game's Data folder, where the plugins are read (default: Steam's usual one; with `--mo2`, the
+  `Data` folder in MO2's game path first; Game Pass: `--data "C:\XboxGames\Starfield\Content\Data"`).
 - `--extra-data`: a second folder of plugins, read before the Data folder (its files win), for example a patch you
   have built but not installed yet. The load order still comes from `--plugins`, so add the patch's line there too.
+  With `--mo2` it wins over MO2's folders too.
 - `--out`: the report folder (default `sf-mod-check-conflict` in the current folder). It gets `report.html` (the one to
   read: summary, recommended actions, each conflict with its story, a filter box, light and dark themes), `report.md`
   (the same as Markdown) and `conflicts.json` (everything, for scripts).
@@ -320,7 +325,8 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
 - `--no-assets`, `--ini <file>`, `--language <code>`: the assets check, as for `check` (0.6.0).
   - **Where it looks:** in `conflict` it looks up every mod plugin's scripts, models, materials, textures and sounds
     in the archives of every active plugin (`<plugin> - *.ba2`), the archives the INIs list, and loose files (the `--extra-data` folder, then
-    Data).
+    with `--mo2` MO2's Overwrite folder and the enabled mods in MO2's order, then Data). Archives are found in the
+    same folders, in the same order.
   - **What it skips:** Bethesda's own plugins aren't checked. An override isn't blamed for a missing file the version
     it overrides already names (the record in the last of the plugin's masters, in load order, that has it, as in
     `check`). That one is reported once, against the plugin that added the path, or not at all when it's Bethesda's
@@ -381,16 +387,27 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
   used and why, the plugins loaded, each load-order problem, one line per record type (records, versions and memory),
   whether field priorities were on, each entry shown apart as benign and each critical entry, and the result.
 
-**Mod Organizer 2 (not tested):** MO2 keeps each mod in its own folder, so the game's Data folder doesn't hold your
-mods' plugins.
+**Mod Organizer 2 (0.16.0):** MO2 keeps each mod in its own folder and shows the game one merged Data folder only
+while the game runs, so a plain run sees only the plugins in the real Data folder. `--mo2` reads the profile the way
+MO2 builds that merged folder:
 
-- Run outside MO2, `conflict` (and `patch`) sees only the plugins in the real Data folder. Every MO2 mod in your load
-  order shows up as a load-order problem ("listed but not found in Data") and is left out, so the results are
-  incomplete.
-- The way that should work is to add sf-mod-check to MO2 as an executable (arguments `conflict --plugins
-  "<MO2>\profiles\<profile>\plugins.txt" --out "<a folder outside MO2>"`) and start it from MO2, so it sees the mods
-  through MO2's virtual Data folder.
-- We haven't tried that yet, so check the report's load-order problems before you trust a result.
+    sf-mod-check conflict --mo2 "C:\Modding\MO2" --profile Default
+
+- **The order** comes from the profile's `loadorder.txt` when it is there, and the on/off marks from its
+  `plugins.txt` (with no `loadorder.txt`, `plugins.txt` gives both). Bethesda's own files are placed as the game does.
+- **The files** (plugins, archives and loose files) are looked up in `--extra-data` first, then MO2's Overwrite
+  folder, then each enabled mod from the top of `modlist.txt` down (MO2's own priority, highest first), then Data.
+  Disabled mods, separators and unmanaged entries are skipped.
+- **The folders** come from `ModOrganizer.ini`: the selected profile, `gamePath` (its `Data` folder is used when you
+  give no `--data`), and the profiles, mods and overwrite folders, with `%BASE_DIR%` filled in. A portable instance
+  and a global one work the same way: give the folder that holds `ModOrganizer.ini`.
+- **Problems** go in the report's load-order problems: an enabled mod with no folder, a `modlist.txt` line that isn't
+  a single folder name, or a profile with no `modlist.txt` (then only Data is searched).
+- **Limits:** archives listed only in a profile's own INI files (MO2's profile-specific INIs) aren't read; give them
+  with `--ini`. `check`, `triage` and `patch check` don't take `--mo2` yet: give `check` the plugin's path inside
+  `mods\` with `--masters-dir` (see "Where your game's Data folder is").
+- It reads the instance only and never writes there. It was tested on made-up MO2 folders; check the report's
+  load-order line (`MO2 profile <name> (<folder>), <n> active entries`) and its problems the first time.
 
 **Time and memory:** on the author's PC, 148 plugins (about 2,650 records changed by mods, including city cells and
 navmeshes) took about 2 minutes and 8.4 to 8.8 GB at its peak; a small load order takes seconds. Large numbers of changed cells,
@@ -487,11 +504,15 @@ either. The navmesh info map keeps its own reason even when a BlueprintShips fil
 the patch copies points at a record a BlueprintShips file defines, the patch gets that file as a master, and the
 report's Notes say so: the game still loads that master after the patch, as it does for a mod with such a master.
 
-    sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]
+    sf-mod-check patch [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>]
+                       [--extra-data <folder>] [--out <folder>]
                        [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]] [--pick <FormKey>[:<Field>]=<plugin>]...
                        [--include-official] [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]
 
-- `--plugins`, `--data`, `--extra-data`, `--max-memory`, `--quiet`, `--verbose`, `--log`: as for `conflict`.
+- `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`, `--max-memory`, `--quiet`, `--verbose`, `--log`: as
+  for `conflict`. With `--mo2`, add the patch to MO2 as a mod of its own: Create empty mod, copy the patch into the new
+  mod's folder, enable it, and put the patch at the end of the plugin list (the patch report says so too). `--out` may
+  not be the Data folder, the `--extra-data` folder or an MO2 mod or Overwrite folder.
 - `--out`: the folder for the patch and its report (default `sf-mod-check-patch` in the current folder). It can't be
   the Data folder or the `--extra-data` folder: install the patch with your mod manager.
 - `--name`: the patch's file name (default `ConflictPatch.esm`). A name that ends in an official plugin's name (such
@@ -814,8 +835,8 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
     sf-mod-check find 01295A:Starfield.esm --type LCTN
     sf-mod-check find 0001295A --plugins "%LOCALAPPDATA%\Starfield\Plugins.txt" --json
 
-    sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt>] [--data <Data folder>]
-                      [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]
+    sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
+                      [--data <Data folder>] [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]
 
 - The record: an exact **EditorID** (letter case doesn't matter; there is no partial or fuzzy search), a **FormKey**
   (`01295A:Starfield.esm`, the form `conflict` and `patch` print), or a **FormID** of 8 hex digits as the console
@@ -824,8 +845,9 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   plugins `FE` and three more hex digits), so the same record can have another FormID in another load order.
 - `--type <SIG>`: keep only records of one four-letter type, such as `LCTN` (location), `MISC` (misc item), `NPC_`
   or `QUST`. An unknown type stops with exit 2.
-- `--plugins`, `--data`, `--extra-data`: the load order, as for `conflict` (default: the game's own Plugins.txt and
-  Steam's usual Data folder). A plugin in the `--extra-data` folder wins over Data's copy.
+- `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`: the load order, as for `conflict` (default: the game's
+  own Plugins.txt and Steam's usual Data folder). A plugin in the `--extra-data` folder wins over Data's copy. With
+  Mod Organizer 2, give `--mo2 <MO2 folder>` so the mods in MO2's own folders are searched too.
 - `--json`: print one JSON object on stdout instead of the text: `tool`, `version`, `query`, `type`, `loadOrder`
   (`source`, `plugins`), `matches` (each with `formKey`, `editorId`, `type`, `name`, `definedIn`, `winner`,
   `plugins` in load order and `fields`), `result` (`found`, `not found` or `cannot run`), and `hint` or `error` when

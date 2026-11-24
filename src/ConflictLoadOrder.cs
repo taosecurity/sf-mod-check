@@ -113,17 +113,33 @@ public class LoadOrderSetup
     /// <param name="overDirs">folders whose plugins win over Data's, highest priority first (0.16.0: the --extra-data
     /// folder now; an MO2 profile's Overwrite and mod folders plug in here too)</param>
     public static LoadOrderSetup Build(string dataDir, string? pluginsTxt, IReadOnlyList<string> overDirs)
+        => Build(dataDir, pluginsTxt is null ? null : ReadPluginsTxt(pluginsTxt), overDirs);
+
+    /// <summary>A load order as a list: the active plugins in order, the plugins turned off, and where it came from
+    /// (0.16.0: a Plugins.txt file, or an MO2 profile's loadorder.txt and plugins.txt).</summary>
+    public sealed record PluginOrder(List<string> Listed, HashSet<string> TurnedOff, string Source);
+
+    /// <summary>Reads a Plugins.txt: active lines start with '*'; '#' lines are comments; any other line is a plugin
+    /// turned off.</summary>
+    public static PluginOrder ReadPluginsTxt(string pluginsTxt, string? source = null)
+    {
+        var lines = File.ReadAllLines(pluginsTxt).Select(l => l.Trim()).ToList();
+        var listed = lines.Where(l => l.StartsWith('*')).Select(l => l[1..].Trim()).ToList();
+        var turnedOff = new HashSet<string>(lines.Where(l => l.Length > 0 && !l.StartsWith('*') && !l.StartsWith('#')), StringComparer.OrdinalIgnoreCase);
+        return new(listed, turnedOff, source ?? $"Plugins.txt ({pluginsTxt}), {listed.Count} active entries");
+    }
+
+    /// <param name="order">the load order as a list (null: every plugin in Data, alphabetical, as a guess)</param>
+    public static LoadOrderSetup Build(string dataDir, PluginOrder? order, IReadOnlyList<string> overDirs)
     {
         var setup = new LoadOrderSetup();
         List<string> listed;
         var turnedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (pluginsTxt is not null)
+        if (order is not null)
         {
-            // Active lines start with '*'; '#' lines are comments; any other line is a plugin turned off.
-            var lines = File.ReadAllLines(pluginsTxt).Select(l => l.Trim()).ToList();
-            listed = lines.Where(l => l.StartsWith('*')).Select(l => l[1..]).ToList();
-            foreach (var l in lines.Where(l => l.Length > 0 && !l.StartsWith('*') && !l.StartsWith('#'))) turnedOff.Add(l);
-            setup.OrderSource = $"Plugins.txt ({pluginsTxt}), {listed.Count} active entries";
+            listed = order.Listed;
+            turnedOff = order.TurnedOff;
+            setup.OrderSource = order.Source;
         }
         else
         {

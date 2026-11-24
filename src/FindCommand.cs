@@ -24,8 +24,8 @@ namespace SfModCheck;
 public static class FindCommand
 {
     public const string Usage =
-        "usage: sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt>] [--data <Data folder>]\n" +
-        "                         [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "usage: sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
+        "                         [--data <Data folder>] [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  EditorID  exact, letter case ignored: CityNewAtlantisLocation\n" +
         "  FormKey   <6 hex digits>:<plugin>: 01295A:Starfield.esm\n" +
         "  FormID    8 hex digits as the console shows them: 0001295A (the first digits pick the plugin by load order)\n" +
@@ -198,7 +198,7 @@ public static class FindCommand
                 var hint = (kind == Kind.EditorId ? "EditorIDs must match exactly (letter case doesn't matter). " : "") +
                            $"The load order searched was {source}" +
                            (lo.Problems.Count > 0 ? $", with {lo.Problems.Count} load-order problems (plugins that didn't load are not searched; --verbose lists them)" : "") + ". " +
-                           "If the mod isn't in that load order, give its Plugins.txt with --plugins, or name the folder that holds the plugin with --extra-data." +
+                           "If the mod isn't in that load order, give its Plugins.txt with --plugins (with Mod Organizer 2: --mo2 <MO2 folder>), or name the folder that holds the plugin with --extra-data." +
                            (kind == Kind.FormId ? " A console FormID depends on the load order; the FormKey form (01295A:Starfield.esm) doesn't." : "");
                 resultPrinted = true;
                 if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "not found", hint));

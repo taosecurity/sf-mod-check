@@ -40,7 +40,8 @@ namespace SfModCheck;
 public static class PatchCommand
 {
     public const string Usage =
-        "usage: sf-mod-check patch [--plugins <Plugins.txt>] [--data <Data folder>] [--extra-data <folder>] [--out <folder>]\n" +
+        "usage: sf-mod-check patch [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>]\n" +
+        "                          [--extra-data <folder>] [--out <folder>]\n" +
         "                          [--name <Patch.esm>] [--only <a.esm>[,<b.esm>...]]... [--pick <FormKey>[:<Field>]=<plugin>]...\n" +
         "                          [--include-official] [--max-memory <GB>] [--quiet] [--verbose] [--log <file>]\n" +
         "       sf-mod-check patch check <patch.esm> [...]   (is a patch still up to date? sf-mod-check patch check --help)";
@@ -210,7 +211,8 @@ public static class PatchCommand
         Analyzer.MaxManagedBytes = 0; Analyzer.Progress = null; Analyzer.Where = "";
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
-        string? pluginsTxt = null, dataDir = null, extraDir = null, outDir = null, logFile = null;
+        string? outDir = null, logFile = null;
+        var input = new LoadOrderInput();
         var name = DefaultName;
         double maxGb = 0;
         bool quiet = false, verbose = false, includeOfficial = false;
@@ -219,17 +221,9 @@ public static class PatchCommand
         string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
         for (int i = 0; i < a.Length; i++)
         {
+            if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }
             switch (a[i])
             {
-                case "--plugins":
-                    if (Value(ref i, "a Plugins.txt file") is not { } p) return 2;
-                    pluginsTxt = p; break;
-                case "--data":
-                    if (Value(ref i, "the game's Data folder") is not { } d) return 2;
-                    dataDir = d; break;
-                case "--extra-data":
-                    if (Value(ref i, "a folder") is not { } x) return 2;
-                    extraDir = x; break;
                 case "--out":
                     if (Value(ref i, "a folder") is not { } o) return 2;
                     outDir = o; break;
@@ -302,77 +296,61 @@ public static class PatchCommand
             return 2;
         }
 
-        var dataWhy = dataDir != null ? "from --data" : "Steam's usual folder (no --data given)";
-        dataDir ??= Cli.SteamData;
-        if (!Directory.Exists(dataDir))
-        {
-            cantWhy = $"the Data folder {Path.GetFullPath(dataDir)} doesn't exist";
-            Console.Error.WriteLine($"can't find the game's Data folder: {Path.GetFullPath(dataDir)} doesn't exist ({dataWhy}). Run again with " +
-                                    "--data \"<the game's Data folder>\" (Game Pass: ...\\Starfield\\Content\\Data; a path with spaces needs quotes).");
-            return 2;
-        }
-        dataDir = Path.GetFullPath(dataDir);
-        Log.Write($"Data folder: {dataDir}: {dataWhy}");
-
-        string pluginsWhy;
-        if (pluginsTxt != null) pluginsWhy = "from --plugins";
-        else if (File.Exists(GamePluginsTxt())) { pluginsTxt = GamePluginsTxt(); pluginsWhy = "the game's own Plugins.txt (no --plugins given)"; }
-        else
-        {
-            cantWhy = "no load order: give --plugins";
-            Console.Error.WriteLine($"can't find your load order: no --plugins given and no game Plugins.txt at {GamePluginsTxt()}. Run again with " +
-                                    "--plugins \"<the Plugins.txt your mod manager uses>\" (MO2 keeps one per profile, in the profile's folder).");
-            return 2;
-        }
-        if (!File.Exists(pluginsTxt))
-        {
-            cantWhy = $"the Plugins.txt {Path.GetFullPath(pluginsTxt)} doesn't exist";
-            Console.Error.WriteLine($"can't read the load order: {Path.GetFullPath(pluginsTxt)} doesn't exist. Give --plugins the Plugins.txt your mod " +
-                                    "manager uses (the game's is %LOCALAPPDATA%\\Starfield\\Plugins.txt; MO2 keeps one per profile).");
-            return 2;
-        }
-        pluginsTxt = Path.GetFullPath(pluginsTxt);
-        Log.Write($"load order: {pluginsTxt}: {pluginsWhy}");
-        if (extraDir != null)
-        {
-            if (!Directory.Exists(extraDir))
-            {
-                cantWhy = $"the --extra-data folder {Path.GetFullPath(extraDir)} doesn't exist";
-                Console.Error.WriteLine($"can't use --extra-data {Path.GetFullPath(extraDir)}: that folder doesn't exist. Check the path (a path with spaces needs quotes).");
-                return 2;
-            }
-            extraDir = Path.GetFullPath(extraDir);
-            Log.Write($"extra plugin folder (its files win over Data's): {extraDir}");
-        }
+        // The load order (LoadOrderInput, 0.16.0): --plugins, else the game's own Plugins.txt, or an MO2 profile with --mo2.
+        if (!input.Resolve(out var why)) { cantWhy = why; return 2; }
+        var dataDir = input.DataDir;
+        var pluginsTxt = input.PluginsTxt!;
+        var overDirs = input.OverDirs;
         outDir = Path.GetFullPath(outDir ?? "sf-mod-check-patch");
         // Never into the game's folders: the patch goes in with the mod manager, like any other mod.
-        if (SamePath(outDir, dataDir) || (extraDir != null && SamePath(outDir, extraDir)))
+        if (SamePath(outDir, dataDir) || overDirs.Any(d => SamePath(outDir, d)))
         {
             cantWhy = "--out is a plugin folder";
-            Console.Error.WriteLine($"--out {outDir} is the Data folder (or the --extra-data folder). Give --out a folder of its own; then install the patch with your mod manager.");
+            Console.Error.WriteLine($"--out {outDir} is the Data folder (or the --extra-data folder, or an MO2 mod or Overwrite folder). Give --out a folder of its own; then install the patch with your mod manager " +
+                                    "(in MO2: Create empty mod, then copy the patch into it).");
             return 2;
         }
         Log.Write($"output folder: {outDir}");
         if (maxGb > 0) { Analyzer.MaxManagedBytes = (long)(maxGb * 1e9); Log.Write($"memory limit: {maxGb.ToString(CultureInfo.InvariantCulture)} GB"); }
 
         // The load order without an older copy of this patch: the new patch replaces it, and must not be built on it.
-        var lines = File.ReadAllLines(pluginsTxt);
-        var withoutPatch = lines.Where(l => !string.Equals(l.Trim().TrimStart('*').Trim(), name, StringComparison.OrdinalIgnoreCase)).ToList();
         Directory.CreateDirectory(outDir);
         var orderTxt = pluginsTxt;
-        if (withoutPatch.Count != lines.Length)
+        LoadOrderSetup.PluginOrder order;
+        try { order = input.Order(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            orderTxt = Path.Combine(outDir, "Plugins-without-patch.txt");
-            File.WriteAllLines(orderTxt, withoutPatch);
-            if (!quiet) Console.Error.WriteLine($"note: your load order already has {name}; it is left out while the new one is built (the new one replaces it)");
-            Log.Write($"{name} is in the load order: analyzed without it ({orderTxt})");
+            cantWhy = $"the load order can't be read: {e.GetType().Name}";
+            Console.Error.WriteLine($"can't read the load order: {e.Message}");
+            return 2;
         }
+        bool IsPatch(string n) => string.Equals(n.Trim(), name, StringComparison.OrdinalIgnoreCase);
+        if (order.Listed.Any(IsPatch) || order.TurnedOff.Any(IsPatch))
+        {
+            if (input.Mo2 is null)
+            {
+                // a Plugins.txt copy without it, kept beside the patch (as before 0.16.0)
+                var lines = File.ReadAllLines(pluginsTxt);
+                orderTxt = Path.Combine(outDir, "Plugins-without-patch.txt");
+                File.WriteAllLines(orderTxt, lines.Where(l => !IsPatch(l.Trim().TrimStart('*'))));
+                order = LoadOrderSetup.ReadPluginsTxt(orderTxt);
+            }
+            else order = order with
+            {
+                Listed = order.Listed.Where(n => !IsPatch(n)).ToList(),
+                TurnedOff = new HashSet<string>(order.TurnedOff.Where(n => !IsPatch(n)), StringComparer.OrdinalIgnoreCase),
+            };
+            if (!quiet) Console.Error.WriteLine($"note: your load order already has {name}; it is left out while the new one is built (the new one replaces it)");
+            Log.Write($"{name} is in the load order: analyzed without it ({(input.Mo2 is null ? orderTxt : "the MO2 profile's order, in memory")})");
+        }
+        // Plugins-with-patch.txt is this plus the patch: the Plugins.txt lines, or with --mo2 the profile's active order
+        IEnumerable<string> withoutPatch = input.Mo2 is null ? File.ReadAllLines(orderTxt) : order.Listed.Select(n => "*" + n).ToList();
 
         var sw = Stopwatch.StartNew();
         Analyzer.Info = quiet ? _ => { } : Console.Error.WriteLine;
         if (Log.On) Analyzer.Progress = Log.Write;
         LoadOrderSetup lo;
-        try { lo = LoadOrderSetup.Build(dataDir, orderTxt, extraDir); }
+        try { lo = input.Build(order); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
         {
             cantWhy = $"the load order can't be read: {e.GetType().Name}";
@@ -454,7 +432,7 @@ public static class PatchCommand
             }
 
             Analyzer.Where = $"writing {patchPath}";
-            var masters = WritePatch(plan, lo, dataDir, extraDir, outDir, name);
+            var masters = WritePatch(plan, lo, dataDir, overDirs, outDir, name);
             File.WriteAllLines(withPatchTxt, withoutPatch.Append("*" + name));
             Analyzer.Where = $"reading {patchPath} back";
             var mismatches = ReadBack(patchPath, plan, lo);
@@ -1526,7 +1504,7 @@ public static class PatchCommand
 
     // ---------- writing ----------
 
-    static List<string> WritePatch(Plan plan, LoadOrderSetup lo, string dataDir, string? extraDir, string outDir, string name)
+    static List<string> WritePatch(Plan plan, LoadOrderSetup lo, string dataDir, IReadOnlyList<string> overDirs, string outDir, string name)
     {
         var patch = Plugin.New(name, PluginStyle.Light, "sf-mod-check patch", "Local conflict patch for one load order. For your own game only: it holds other authors' data.");
         if (name.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) patch.ModHeader.Flags &= ~StarfieldModHeader.HeaderFlag.Master;
@@ -1575,7 +1553,7 @@ public static class PatchCommand
             Log.Write($"patch: master {m} is a BlueprintShips file, which loads after the patch");
         }
 
-        using var game = new GameData(dataDir, extraDir != null ? [extraDir] : null);
+        using var game = new GameData(dataDir, overDirs.Count > 0 ? overDirs : null);
         foreach (var m in masters) game.Open(m);
         // PluginWriter reports on standard output; that goes to the log, so the RESULT line stays the program's own.
         var before = Console.Out;
@@ -1701,9 +1679,18 @@ public static class PatchCommand
         {
             sb.AppendLine("## Next steps");
             sb.AppendLine();
-            sb.AppendLine($"1. Install `{name}` from this folder with your mod manager (zip it, or add it as a mod), and put it at the end of the load order.");
-            sb.AppendLine("2. Check it: `sf-mod-check check " + name + "` (with --data if your game isn't Steam's), then run `sf-mod-check conflict` again: these lost changes should be gone.");
-            sb.AppendLine("   Before installing, `sf-mod-check conflict --plugins Plugins-with-patch.txt --extra-data <this folder>` does the same check.");
+            if (lo.OrderSource.StartsWith(Mo2Profile.SourcePrefix, StringComparison.Ordinal))
+            {
+                // MO2 (0.16.0): the patch goes in as a mod of its own; the check runs on the profile again
+                sb.AppendLine($"1. In MO2, use Create empty mod, copy `{name}` from this folder into the new mod's folder, enable the mod, and put `{name}` at the end of the plugin list.");
+                sb.AppendLine("2. Check it: `sf-mod-check check " + name + "` (with --data if your game isn't Steam's), then run `sf-mod-check conflict --mo2 <your MO2 folder>` again: these lost changes should be gone.");
+            }
+            else
+            {
+                sb.AppendLine($"1. Install `{name}` from this folder with your mod manager (zip it, or add it as a mod), and put it at the end of the load order.");
+                sb.AppendLine("2. Check it: `sf-mod-check check " + name + "` (with --data if your game isn't Steam's), then run `sf-mod-check conflict` again: these lost changes should be gone.");
+                sb.AppendLine("   Before installing, `sf-mod-check conflict --plugins Plugins-with-patch.txt --extra-data <this folder>` does the same check.");
+            }
             if (plan.IncludeOfficial)
                 sb.AppendLine("   Made with --include-official: it also restores changes one official plugin loses to another. `conflict` never lists those, so it can't show them restored.");
             sb.AppendLine("3. Try the affected places in game. Build the patch again whenever you add, remove or update a mod it lists as a master.");

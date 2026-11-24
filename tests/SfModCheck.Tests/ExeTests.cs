@@ -344,12 +344,13 @@ public class ExeTests
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Program.cs"))) dir = dir.Parent;
         Assert.True(dir != null, "src\\Program.cs not found above " + AppContext.BaseDirectory);
         HashSet<string> Options(string file) =>
-            System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(Path.Combine(dir!.FullName, "src", file)), @"case ""(--[a-z-]+)"":")
+            System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(Path.Combine(dir!.FullName, "src", file)), @"case ""(--[a-z0-9-]+)"":")
                 .Select(m => m.Groups[1].Value).Where(o => o != "--help").ToHashSet();
         var check = Options("Program.cs");
         Assert.Equal(new[] { "--data", "--ini", "--language", "--log", "--masters-dir", "--max", "--no-assets", "--no-hints", "--quiet", "--verbose" }, check.Order());
-        var conflict = Options("ConflictCommand.cs");
-        Assert.Equal(new[] { "--data", "--extra-data", "--ini", "--language", "--log", "--max-memory", "--no-assets", "--no-priorities", "--out", "--plugins", "--quiet", "--verbose" }, conflict.Order());
+        // 0.16.0: conflict's load-order options (with --mo2 and --profile) are read by LoadOrderInput.cs
+        var conflict = Options("ConflictCommand.cs").Union(Options("LoadOrderInput.cs")).ToHashSet();
+        Assert.Equal(new[] { "--data", "--extra-data", "--ini", "--language", "--log", "--max-memory", "--mo2", "--no-assets", "--no-priorities", "--out", "--plugins", "--profile", "--quiet", "--verbose" }, conflict.Order());
         var (_, usage) = Run("check");
         var (_, conflictUsage) = Run("conflict", "--help");
         foreach (var file in new[] { "README.md", "AGENTS.md" })

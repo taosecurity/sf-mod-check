@@ -305,8 +305,10 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     is listed there too but must not be copied by hand. The `conflict` run on `Plugins-with-patch.txt` still lists
     those records, Choices that kept the winner's value, and harmless lost changes (only a reorder, letter case or
     undocumented fields; letter case includes a file name stored as raw bytes since 0.13.0), which `patch` leaves alone by design. Exit 1 means the read-back
-    found a difference: tell the user not to install that patch. Other options: `--plugins`, `--data`,
-    `--extra-data`, `--max-memory`, `--log` as for `conflict`; `--out <folder>` (never the Data folder); `--name
+    found a difference: tell the user not to install that patch. Other options: `--plugins`, `--mo2`, `--profile`,
+    `--data`, `--extra-data`, `--max-memory`, `--log` as for `conflict`; `--out <folder>` (never the Data folder, the
+    `--extra-data` folder or an MO2 mod or Overwrite folder; with `--mo2` the user adds the patch in MO2 with Create
+    empty mod, as the patch report says); `--name
     <Patch.esm>` (default `ConflictPatch.esm`). Run it again after any of the patch's masters is added, removed or
     updated. `--include-official` (off by default; not with `--only`) also restores changes one official plugin loses
     to another; use it only when the user asks, since `conflict` never lists those losses and can't show them restored.
@@ -406,8 +408,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   `RESULT: OK (0 errors, n warnings)`, `RESULT: FAIL (n errors, n warnings)` or `RESULT: CANNOT CHECK (...)`. A
   missing master prints `master <name> not found in <folders>` before the CANNOT CHECK line. Exit codes: 0 = no
   errors, 1 = errors, 2 = can't check (missing plugin or master, not a plugin, bad argument).
-- **`find`:** input is one record (an EditorID, a FormKey or a console FormID) and a load order (`--plugins`,
-  `--data`, `--extra-data`). Output: a line naming the load order, then per record a heading
+- **`find`:** input is one record (an EditorID, a FormKey or a console FormID) and a load order (`--plugins`
+  or `--mo2` with `--profile`, `--data`, `--extra-data`). Output: a line naming the load order, then per record a heading
   `EditorID [FormKey] TYPE "Name"`, `  defined in:`, `  winner:`, `  also in:` (when other plugins have a copy) and
   `  fields:` (at most 40 lines), then always one last line `RESULT: FOUND n record(s) (n s)`,
   `RESULT: NOT FOUND (...)` (after a `HINT:` line) or `RESULT: CANNOT CHECK (...)`. With `--json`, stdout is one
@@ -464,7 +466,13 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   the full error. It names folders on your PC: read it before posting it anywhere.
 - **conflict input:** the active (`*`) lines of a Plugins.txt (`--plugins`, else the game's own
   `%LOCALAPPDATA%\Starfield\Plugins.txt`; with neither it stops with exit code 2), the plugins themselves from
-  `--extra-data` and then the Data folder (`--data`, else Steam's usual one). Bethesda's own files load first,
+  `--extra-data` and then the Data folder (`--data`, else Steam's usual one). Since 0.16.0, `--mo2 <MO2 instance
+  folder>` (the one with `ModOrganizer.ini`) and `--profile <name>` (default: MO2's selected profile) read a Mod
+  Organizer 2 profile instead: the order from its `loadorder.txt` (else `plugins.txt`), the on/off marks from
+  `plugins.txt`, and plugins, archives and loose files from `--extra-data`, then MO2's Overwrite, then the enabled
+  mods from the top of `modlist.txt` down, then Data (`--data`, else `<gamePath>\Data` from the ini, else Steam's).
+  `--mo2` with `--plugins`, or `--profile` without `--mo2`, is exit 2. `loadOrderSource` then starts `MO2 profile `.
+  An enabled mod with no folder is a `loadOrderProblems` line. Profile-local INIs aren't read (give `--ini`). Bethesda's own files load first,
   except the official `BlueprintShips-*.esm` files, which load after every plugin, oldest file first (since 0.12.0,
   as the game does; a Plugins.txt line for one doesn't move it). A change lost to one of them is a `lost` entry
   with that file as `Winner`; its recommendation says no load order or patch brings it back, and `patch` lists the
@@ -566,11 +574,11 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    and placed objects and navmeshes, each inside its cell; a cell or worldspace brought in only as a parent goes in
    as the game uses it today, with no field changed. A navmesh's mesh (geometry, NNAM, pre-cut entries) comes whole
    from one plugin; when two plugins each changed a different part of it, today's mesh is kept and the report says so.
-   Mod Organizer 2 keeps mods out of the Data folder. Run outside MO2, `conflict` and `patch` see only the plugins
-   in the real Data folder: each MO2 mod in the load order is a load-order problem ("listed but not found in Data")
-   and is left out, so the results are incomplete. Starting sf-mod-check from MO2 (added as an executable) should
-   let it see the mods through MO2's virtual Data folder, but that has never been tried: say so to the user, and
-   check the report's load-order problems before trusting a result.
+   Mod Organizer 2 keeps mods out of the Data folder: for `conflict`, `patch` and `find`, pass `--mo2 <the MO2
+   instance folder>` (and `--profile <name>` if it isn't the selected one) instead of `--plugins`. Without it, each
+   MO2 mod is a load-order problem ("listed but not found in Data") and is left out. `--mo2` was tested on made-up
+   MO2 folders only (0.16.0): check the report's load-order line and problems before trusting a result. `check`,
+   `triage` and `patch check` don't take `--mo2`.
 5. A missing master stops the link checks (the RESULT line says "links not checked"): install the master or point
    `--data` / `--masters-dir` at it, then run again.
 6. `check` isn't meant for Bethesda's own masters (Starfield.esm needs over 30 GB of memory and about 4 minutes).
