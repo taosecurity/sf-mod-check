@@ -223,6 +223,24 @@ public class FindPluginTests
             Run(new ConditionFloat { CompareOperator = CompareOperator.GreaterThanOrEqualTo, Data = stageOf, ComparisonValue = 10 }));
     }
 
+    /// <summary>Code review round 4: an enum parameter's first value is a real choice and prints; on 3e74e7b
+    /// GetIsSex(Male) came out as GetIsSex() and GetPos(X) as GetPos().</summary>
+    [Fact]
+    public void An_enum_condition_parameter_at_its_first_value_still_prints()
+    {
+        var text = typeof(FindCommand).GetMethod("ConditionText", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        string Link(IFormLinkGetter l) => $"[{l.FormKey}]";
+        string Run(IConditionGetter c) => (string)text.Invoke(null, [c, (Func<IFormLinkGetter, string>)Link])!;
+        var sex = new GetIsSexConditionData();
+        var sexName = sex.FirstParameter.ToString();
+        Assert.Equal($"GetIsSex({sexName}) == 1 (run on Subject)",
+            Run(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, Data = sex, ComparisonValue = 1 }));
+        var pos = new GetPosConditionData();
+        var axisName = pos.FirstParameter.ToString();
+        Assert.Equal($"GetPos({axisName}) > 100 (run on Subject)",
+            Run(new ConditionFloat { CompareOperator = CompareOperator.GreaterThan, Data = pos, ComparisonValue = 100 }));
+    }
+
     [Fact]
     public void An_MO2_profile_also_searches_the_My_Games_Data_folder_after_the_mods()
     {

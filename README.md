@@ -890,7 +890,8 @@ plugins with a copy, when there are any) and `fields:`, the winning copy's main 
       - GetGlobalValue(BQ_Global [000801:BaseQ.esm]) == 1 (run on Subject)
 
 A number parameter of 0 is left out, since the plugin stores an unused parameter as 0, except where 0 is a real
-value: an alias function's alias number (`GetIsAliasRef(0)`) and GetStageDone's stage.
+value: an alias function's alias number (`GetIsAliasRef(0)`) and GetStageDone's stage. A named choice such as
+`GetIsSex(Male)` or `GetPos(X)` always prints.
 A link to a record type that isn't fixed (a condition's "run on" reference, for example) shows its FormKey only.
 Fields nested deeper than a list's entries show one level down, cut at 200 characters. A cell's references and a
 quest's dialogue are records of their own and aren't listed under their parent (a whole-plugin listing lists them as

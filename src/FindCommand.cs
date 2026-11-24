@@ -590,7 +590,8 @@ public static class FindCommand
         if (v is IFormLinkGetter fl) return fl.IsNull ? ("None", true) : (link(fl), false);
         if (v is string s) return (Quote(s), s.Length == 0);
         var text = v.GetType().IsPrimitive || v.GetType().IsEnum ? Convert.ToString(v, CultureInfo.InvariantCulture) ?? "" : SafeText.OneLine(v.ToString());
-        return (text, FieldCompare.IsEmpty(v));
+        // An enum parameter is always in use (GetIsSex(Male), GetPos(X)), so its first value (0) is never "empty".
+        return (text, !v.GetType().IsEnum && FieldCompare.IsEmpty(v));
     }
 
     /// <summary>One value as text, or null when it is empty. A nested value (bounds, a model, a sound) shows its own
