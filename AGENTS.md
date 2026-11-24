@@ -1,7 +1,7 @@
 # sf-mod-check: instructions for AI assistants
 
 These steps are for an AI assistant (or anyone) helping a Starfield player or mod author use sf-mod-check. Every command
-here was last run on sf-mod-check 0.16.0 (2026-11-24) before release. The [README](README.md) has the full description.
+here was last run on sf-mod-check 0.16.1 (2026-11-24) before release. The [README](README.md) has the full description.
 Until 0.7.0 the tool was called **sfmodcheck**: the command is now `sf-mod-check` (the exe zip also holds a
 `sfmodcheck.cmd` that runs it under the old name, for one release). Old caches and `SFMODCHECK_*` variables still work.
 
@@ -46,7 +46,10 @@ after adding two mods that touch the same records (`--only` limits it to those m
 
 `sf-mod-check find <record>` (0.16.0) looks up one record in the load order by EditorID, FormKey or console FormID
 and prints its type, name, the plugin that defines it, the plugin that wins it and its main fields. Use it whenever you
-need a FormKey or want to know who wins a record, instead of writing a throwaway program to read the plugins.
+need a FormKey or want to know who wins a record, instead of writing a throwaway program to read the plugins. Since
+0.16.1, `find --plugin <file>` reads one plugin and its masters from any folder (a download, a patch not yet
+installed), and with no record given it lists every record that plugin holds, with each list's entries (conditions
+too) on their own lines.
 
 Don't use any of them to fix a plugin or change a load order (they never change existing files; `patch` only writes a
 new plugin to its own folder), or `check` on Bethesda's own masters (Starfield.esm needs over 30 GB of memory).
@@ -377,6 +380,18 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     order searched; check the spelling, or the mod isn't in that load order), exit 2 and `RESULT: CANNOT CHECK (...)`.
     With `--json`, stdout is one JSON object (section 6) and nothing else.
 
+    For a plugin outside Data whose masters are outside Data too (0.16.1), give the plugin and the folders that
+    hold its masters, with no Plugins.txt. With no record, it lists every record in the plugin (at most `--max`,
+    default 100; `--max 0` = all) and ends with a summary of all of them:
+
+        sf-mod-check find --plugin "C:\Downloads\SomePatch\SomePatch.esm" --masters-dir "C:\Downloads\SomeMod"
+        sf-mod-check find 1E3F4D:Starfield.esm --plugin "C:\Downloads\SomePatch\SomePatch.esm" --masters-dir "C:\Downloads\SomeMod"
+
+    Masters are looked for in the plugin's own folder, then each `--masters-dir` in order, then `--data` (Steam's
+    Data by default); a master in none of them is exit 2. `--plugin` with `--plugins`, `--mo2` or `--extra-data`,
+    and `--masters-dir` or `--max` without it, are exit 2. A list field prints its count and then one `      - ` line
+    per entry (at most 50); a condition reads `[OR ]Function(parameters) operator value (run on ...)`.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -418,9 +433,13 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   `  fields:` (at most 40 lines), then always one last line `RESULT: FOUND n record(s) (n s)`,
   `RESULT: NOT FOUND (...)` (after a `HINT:` line) or `RESULT: CANNOT CHECK (...)`. With `--json`, stdout is one
   object instead: {`tool`, `version`, `query`, `type`, `loadOrder` {`source`, `plugins`}, `matches` [{`formKey`,
-  `editorId`, `type`, `name`, `definedIn`, `winner`, `plugins`, `fields`}], `result` (`found`, `not found`,
-  `cannot run`), and `hint` or `error`}; keys are only ever added. Exit codes: 0 = found, 1 = not found, 2 = can't
-  run (bad option, no load order, missing folder). `--help` exits 0.
+  `editorId`, `type`, `name`, `definedIn`, `winner`, `plugins`, `fields`, and since 0.16.1 `entries` {field name:
+  [entry text, at most 50]}}], `result` (`found`, `not found`, `cannot run`), and `hint` or `error`}; keys are only
+  ever added. With `--plugin` and no record (0.16.1), the text lists every record (at most `--max`), then
+  `... and n more records (...)` when some were left out, then `<plugin> holds n records: n new, n overrides; by
+  type: ...`, then `RESULT: FOUND n record(s) in <plugin>[, n listed] (n s)`; the JSON adds `plugin`, `total`,
+  `listed` and `byType`, and `query` is null. Exit codes: 0 = found, 1 = not found (or a plugin with no records of
+  that `--type`), 2 = can't run (bad option, no load order, missing folder or master). `--help` exits 0.
 - **`diff`:** input is two plugins, or two mods (each a .zip, .7z or .rar, unpacked into a temp folder that is
   removed at the end, or a folder read where it is); plugins in two mods are paired by file name. Output: the report
   on stdout, or in the `--out` file (text, or JSON with `--json`), then always one last line on stdout:
@@ -474,7 +493,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   folder>` (the one with `ModOrganizer.ini`) and `--profile <name>` (default: MO2's selected profile) read a Mod
   Organizer 2 profile instead: the order from its `loadorder.txt` (else `plugins.txt`), the on/off marks from
   `plugins.txt`, and plugins, archives and loose files from `--extra-data`, then MO2's Overwrite, then the enabled
-  mods from the top of `modlist.txt` down, then Data (`--data`, else `<gamePath>\Data` from the ini, else Steam's).
+  mods from the top of `modlist.txt` down, then `Documents\My Games\Starfield\Data` when it exists (0.16.1), then Data (`--data`, else `<gamePath>\Data` from the ini, else Steam's).
   `--mo2` with `--plugins`, or `--profile` without `--mo2`, is exit 2. `loadOrderSource` then starts `MO2 profile `.
   An enabled mod with no folder is a `loadOrderProblems` line. Profile-local INIs aren't read (give `--ini`). Bethesda's own files load first,
   except the official `BlueprintShips-*.esm` files, which load after every plugin, oldest file first (since 0.12.0,

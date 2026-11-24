@@ -28,7 +28,8 @@ commands:
   triage, not a verdict: it shows a person where to start reading.
 - [`diff`](#compare-two-versions-of-a-mod-sf-mod-check-diff) compares two versions of a mod and lists what changed.
 - [`find`](#look-up-a-record-sf-mod-check-find) looks up one record in your load order by EditorID, FormKey or
-  console FormID, and says which plugin defines it, which wins it, and what its main fields hold.
+  console FormID, and says which plugin defines it, which wins it, and what its main fields hold. With `--plugin`
+  it reads one plugin and its masters from any folder, and with no record given it lists every record in that plugin.
 
 **First command:** drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
 
@@ -387,16 +388,17 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
   used and why, the plugins loaded, each load-order problem, one line per record type (records, versions and memory),
   whether field priorities were on, each entry shown apart as benign and each critical entry, and the result.
 
-**Mod Organizer 2 (0.16.0):** MO2 keeps each mod in its own folder and shows the game one merged Data folder only
-while the game runs, so a plain run sees only the plugins in the real Data folder. `--mo2` reads the profile the way
-MO2 builds that merged folder:
+**Mod Organizer 2 (0.16.0):** MO2 keeps each mod in its own folder and shows one merged Data folder to the game and
+to any program MO2 starts, only while that program runs, so a plain run sees only the plugins in the real Data
+folder. `--mo2` reads the profile the way MO2 builds that merged folder:
 
     sf-mod-check conflict --mo2 "C:\Modding\MO2" --profile Default
 
 - **The order** comes from the profile's `loadorder.txt` when it is there, and the on/off marks from its
   `plugins.txt` (with no `loadorder.txt`, `plugins.txt` gives both). Bethesda's own files are placed as the game does.
 - **The files** (plugins, archives and loose files) are looked up in `--extra-data` first, then MO2's Overwrite
-  folder, then each enabled mod from the top of `modlist.txt` down (MO2's own priority, highest first), then Data.
+  folder, then each enabled mod from the top of `modlist.txt` down (MO2's own priority, highest first), then
+  `Documents\My Games\Starfield\Data` when it exists (0.16.1: MO2 merges that folder into its view too), then Data.
   Disabled mods, separators and unmanaged entries are skipped.
 - **The folders** come from `ModOrganizer.ini`: the selected profile, `gamePath` (its `Data` folder is used when you
   give no `--data`), and the profiles, mods and overwrite folders, with `%BASE_DIR%` filled in. A portable instance
@@ -405,7 +407,8 @@ MO2 builds that merged folder:
   a single folder name, or a profile with no `modlist.txt` (then only Data is searched).
 - **Limits:** archives listed only in a profile's own INI files (MO2's profile-specific INIs) aren't read; give them
   with `--ini`. `check`, `triage` and `patch check` don't take `--mo2` yet: give `check` the plugin's path inside
-  `mods\` with `--masters-dir` (see "Where your game's Data folder is").
+  `mods\` with `--masters-dir` (see "Where your game's Data folder is"). Which of the My Games Data folder and the
+  game's Data folder wins a file that is in both hasn't been checked; this tool lets the My Games copy win.
 - It reads the instance only and never writes there. It was tested on made-up MO2 folders; check the report's
   load-order line (`MO2 profile <name> (<folder>), <n> active entries`) and its problems the first time.
 
@@ -835,9 +838,12 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
     sf-mod-check find CityNewAtlantisLocation
     sf-mod-check find 01295A:Starfield.esm --type LCTN
     sf-mod-check find 0001295A --plugins "%LOCALAPPDATA%\Starfield\Plugins.txt" --json
+    sf-mod-check find --plugin "C:\Downloads\SomePatch\SomePatch.esm" --masters-dir "C:\Downloads\SomeMod"
 
     sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
                       [--data <Data folder>] [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]
+    sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]
+                      [--data <Data folder>] [--json] [--quiet] [--verbose] [--log <file>]
 
 - The record: an exact **EditorID** (letter case doesn't matter; there is no partial or fuzzy search), a **FormKey**
   (`01295A:Starfield.esm`, the form `conflict` and `patch` print), or a **FormID** of 8 hex digits as the console
@@ -849,22 +855,47 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
 - `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`: the load order, as for `conflict` (default: the game's
   own Plugins.txt and Steam's usual Data folder). A plugin in the `--extra-data` folder wins over Data's copy. With
   Mod Organizer 2, give `--mo2 <MO2 folder>` so the mods in MO2's own folders are searched too.
+- `--plugin <plugin file>` (0.16.1): read only this plugin and its masters, from any folder, with no Plugins.txt.
+  Use it for a downloaded mod or a patch that isn't installed. The load order is the plugin's masters (each master's
+  own masters first) and then the plugin. Each master is looked for in the plugin's own folder, then in each
+  `--masters-dir` in the order given, then in `--data` (default: Steam's usual Data folder). A master in none of them
+  stops with exit 2 and says where to put it. Light and medium masters are read from their own headers, so a link to
+  a light master's record shows that master's FormKey and EditorID.
+- **With no record given, `find --plugin` lists every record the plugin holds** (new records and overrides, group by group), each with the same fields as a
+  lookup. It prints at most `--max <n>` records (default 100; `--max 0` lists them all), then a line that counts the
+  rest, and always a summary of all of them: `<plugin> holds n records: n new, n overrides; by type: QUST 2, ...`.
+  `--type` narrows the list. With a record given, it is looked up in that small load order. `--plugin` doesn't go
+  with `--plugins`, `--mo2` or `--extra-data` (exit 2: use `--masters-dir`), and `--masters-dir` and `--max` need
+  `--plugin`.
 - `--json`: print one JSON object on stdout instead of the text: `tool`, `version`, `query`, `type`, `loadOrder`
   (`source`, `plugins`), `matches` (each with `formKey`, `editorId`, `type`, `name`, `definedIn`, `winner`,
-  `plugins` in load order and `fields`), `result` (`found`, `not found` or `cannot run`), and `hint` or `error` when
-  there is one.
+  `plugins` in load order, `fields` and, 0.16.1, `entries`: each list field's entries as text), `result` (`found`,
+  `not found` or `cannot run`), and `hint` or `error` when there is one. A whole-plugin listing adds `plugin`,
+  `total` (the records that match `--type`), `listed` and `byType` (every record in the plugin, counted by type), and
+  its `query` is null.
 - `--quiet`: no byline or progress on stderr. `--verbose`, `--log <file>`: as for `check`.
 
 For each record it prints the heading `EditorID [FormKey] TYPE "Name"`, then `defined in:` (the plugin the record
 comes from), `winner:` (the last plugin in the load order with a copy: the one the game uses), `also in:` (the other
 plugins with a copy, when there are any) and `fields:`, the winning copy's main values. Links show as
-`EditorID [FormKey]`, lists as a count (`(3 entries)`), and empty values are left out; at most 40 field lines are
-shown. A cell's references and a quest's dialogue are records of their own and aren't listed. The last line is
-`RESULT: FOUND n record(s)` or, after a `HINT:` line that says what was searched, `RESULT: NOT FOUND (...)`. Two
-records can share an EditorID; then both are printed.
+`EditorID [FormKey]`, and empty values are left out; at most 40 field lines are shown. A list shows its count
+(`(3 entries)`) and then, since 0.16.1, each entry on its own line, at most 50 per list. A condition shows as
+`[OR ]Function(parameters) operator value (run on ...)`, for example:
 
-Exit codes: 0 found, 1 not found, 2 couldn't run (a bad option, no load order, a missing folder). An EditorID search
-reads every plugin in the load order: about 20 seconds for the game's own 18 plugins.
+    Conditions: (2 entries)
+      - OR GetValue(LM_Value [000800:LightM.esm]) == 0 (run on Subject)
+      - GetGlobalValue(BQ_Global [000801:BaseQ.esm]) == 1 (run on Subject)
+
+A link to a record type that isn't fixed (a condition's "run on" reference, for example) shows its FormKey only.
+Fields nested deeper than a list's entries show one level down, cut at 200 characters. A cell's references and a
+quest's dialogue are records of their own and aren't listed under their parent (a whole-plugin listing lists them as
+records). The last line is `RESULT: FOUND n record(s)` or, after a `HINT:` line that says what was searched,
+`RESULT: NOT FOUND (...)`. Two records can share an EditorID; then both are printed.
+
+Exit codes: 0 found, 1 not found (with `--plugin` and no record: the plugin holds no records, or none of that
+`--type`), 2 couldn't run (a bad option, no load order, a missing folder or master). An EditorID search reads every
+plugin in the load order: about 20 seconds for the game's own 18 plugins. A `--plugin` run reads only the plugin and
+its masters, but a master as big as Starfield.esm still takes about 10 seconds.
 
 ## Look over a downloaded mod: `sf-mod-check triage`
 

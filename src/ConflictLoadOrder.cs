@@ -116,8 +116,9 @@ public class LoadOrderSetup
         => Build(dataDir, pluginsTxt is null ? null : ReadPluginsTxt(pluginsTxt), overDirs);
 
     /// <summary>A load order as a list: the active plugins in order, the plugins turned off, and where it came from
-    /// (0.16.0: a Plugins.txt file, or an MO2 profile's loadorder.txt and plugins.txt).</summary>
-    public sealed record PluginOrder(List<string> Listed, HashSet<string> TurnedOff, string Source);
+    /// (0.16.0: a Plugins.txt file, or an MO2 profile's loadorder.txt and plugins.txt). Exact (0.16.1, find --plugin):
+    /// load only the listed plugins, without the official files the game always loads.</summary>
+    public sealed record PluginOrder(List<string> Listed, HashSet<string> TurnedOff, string Source, bool Exact = false);
 
     /// <summary>Reads a Plugins.txt: active lines start with '*'; '#' lines are comments; any other line is a plugin
     /// turned off.</summary>
@@ -173,20 +174,23 @@ public class LoadOrderSetup
             if (!onDisk.TryGetValue(name, out var real)) { setup.AddProblem($"{name}: listed but not found in Data{(overDirs.Count > 0 ? " or the extra and MO2 mod folders" : "")}"); return; }
             wanted.Add(real);
         }
+        bool exact = order?.Exact == true;
+        // An exact order (find --plugin): the listed plugins only, in the listed order.
+        if (exact) foreach (var n in listed) Add(n);
         // The game loads Bethesda's files whether or not Plugins.txt lists them (SFBGS00D etc. usually are not listed).
-        foreach (var o in OfficialOrder) if (onDisk.ContainsKey(o)) Add(o);
+        else foreach (var o in OfficialOrder) if (onDisk.ContainsKey(o)) Add(o);
         // A listed BlueprintShips line doesn't move the file: the game places those files itself (below).
-        foreach (var n in listed.Where(n => IsOfficial(n) && !IsBlueprint(n))) Add(n);
+        foreach (var n in listed.Where(n => !exact && IsOfficial(n) && !IsBlueprint(n))) Add(n);
         // Other Bethesda files in Data load too, unless Plugins.txt lists them turned off (a Creation switched off in
         // the game's Creations menu keeps its file in Data; 0.5.0).
-        foreach (var n in onDisk.Keys.Where(f => IsOfficial(f) && !IsBlueprint(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)
+        foreach (var n in onDisk.Keys.Where(f => !exact && IsOfficial(f) && !IsBlueprint(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)
                                                && !turnedOff.Contains(f))
                      .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)) Add(n);
-        foreach (var n in listed.Where(n => !IsOfficial(n))) Add(n);
+        foreach (var n in listed.Where(n => !exact && !IsOfficial(n))) Add(n);
         // The official BlueprintShips files load after every plugin, oldest file first (0.12.0; C13: 26 DeepScan runs,
         // LOOT, libloadorder). A ship-blueprint file goes with its plugin: left out when Plugins.txt turns that off.
         var blueprintFiles = new List<string>();
-        foreach (var f in onDisk.Keys.Where(f => IsBlueprint(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)))
+        foreach (var f in onDisk.Keys.Where(f => !exact && IsBlueprint(f) && f.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)))
         {
             var owner = f["BlueprintShips-".Length..];
             if (turnedOff.Contains(owner))

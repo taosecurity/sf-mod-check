@@ -2,6 +2,9 @@
 // record, the plugin that wins it, the other plugins with a copy, its type and name, and the winning copy's main fields.
 //   sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt>] [--data <Data folder>]
 //                     [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]
+// 0.16.1: a list field's entries print one per line (conditions as "Function(params) op value"), and --plugin <file>
+// reads just that plugin and its masters (found in its folder, each --masters-dir, then Data); with no record given,
+// it lists every record the plugin holds (at most --max, default 100).
 // Exit 0 = found, 1 = not found, 2 = could not run. The text output ends with one RESULT line; --json prints one object.
 using System.Collections;
 using System.Diagnostics;
@@ -26,14 +29,24 @@ public static class FindCommand
     public const string Usage =
         "usage: sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
         "                         [--data <Data folder>] [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "       sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]\n" +
+        "                         [--data <Data folder>] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  EditorID  exact, letter case ignored: CityNewAtlantisLocation\n" +
         "  FormKey   <6 hex digits>:<plugin>: 01295A:Starfield.esm\n" +
         "  FormID    8 hex digits as the console shows them: 0001295A (the first digits pick the plugin by load order)\n" +
         "  --type    keep only records of this four-letter type, for example LCTN, MISC, NPC_\n" +
+        "  --plugin  read only this plugin and its masters, with no Plugins.txt; with no record given, list every record\n" +
+        "            the plugin holds. Masters are looked for in the plugin's own folder, then each --masters-dir, then --data.\n" +
+        "  --masters-dir  another folder that holds the plugin's masters (can be given more than once)\n" +
+        "  --max     with --plugin and no record: list at most this many records (default 100; 0 lists them all)\n" +
         "Exit 0 = found, 1 = not found, 2 = could not run.";
 
     /// <summary>The field lines printed per record at most (the rest are counted on one line).</summary>
     public const int MaxFieldLines = 40;
+    /// <summary>The entries printed per list field at most (0.16.1).</summary>
+    public const int MaxEntries = 50;
+    /// <summary>The records the whole-plugin listing prints by default (0.16.1; --max changes it).</summary>
+    public const int DefaultMax = 100;
 
     enum Kind { EditorId, FormKey, FormId }
 
@@ -88,12 +101,22 @@ public static class FindCommand
         cantWhy = "bad arguments; see the message above";
         string? q = null, type = null, logFile = null;
         bool quiet = false, verbose = false, json = false;
-        var input = new LoadOrderInput();
+        int? max = null;
+        var input = new LoadOrderInput(allowPlugin: true);
         for (int i = 0; i < a.Length; i++)
         {
             if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }
             switch (a[i])
             {
+                case "--max":
+                    if (Cli.Value(a, ref i, "a number of records (0 = all)", Usage) is not { } mx) return 2;
+                    if (!int.TryParse(mx, NumberStyles.None, CultureInfo.InvariantCulture, out var mn))
+                    {
+                        Console.Error.WriteLine($"--max needs a whole number of records, 0 or more (0 lists them all), not \"{SafeText.OneLine(mx)}\".");
+                        cantWhy = "--max needs a whole number";
+                        return 2;
+                    }
+                    max = mn; break;
                 case "--type":
                     if (Cli.Value(a, ref i, "a four-letter record type", Usage) is not { } t) return 2;
                     type = t.ToUpperInvariant(); break;
@@ -120,14 +143,23 @@ public static class FindCommand
                     break;
             }
         }
-        if (string.IsNullOrEmpty(q))
+        bool listing = string.IsNullOrEmpty(q) && input.Plugin != null;
+        if (string.IsNullOrEmpty(q) && !listing)
         {
-            Console.Error.WriteLine("find needs the record to look up: an EditorID, a FormKey (01295A:Starfield.esm) or a console FormID (0001295A).");
+            Console.Error.WriteLine("find needs the record to look up: an EditorID, a FormKey (01295A:Starfield.esm) or a console FormID (0001295A). " +
+                                    "To list every record in one plugin, give --plugin \"<plugin file>\" instead.");
             Console.Error.WriteLine(Usage);
             cantWhy = "no record given";
             return 2;
         }
-        query = q;
+        if (max != null && !listing)
+        {
+            Console.Error.WriteLine("--max limits the whole-plugin listing, so it goes with --plugin \"<plugin file>\" and no record to look up.");
+            cantWhy = "--max without a plugin listing";
+            return 2;
+        }
+        q ??= "";
+        query = listing ? $"--plugin {Path.GetFileName(input.Plugin)}" : q;
         if (type != null && (!Signature.IsMatch(type) || !KnownSigs.Value.Contains(type)))
         {
             Console.Error.WriteLine($"--type needs a Starfield record type of four letters, digits or underscores, such as LCTN, MISC, NPC_ or QUST, not \"{type}\".");
@@ -166,6 +198,7 @@ public static class FindCommand
             Log.Write($"loaded {lo.Plugins.Count} plugins, {lo.Problems.Count} load-order problems");
             foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
             if (!quiet && !json) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
+            if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, version, sw, out resultPrinted, out cantWhy);
 
             var unread = new List<string>();
             string? notFoundWhy = null;
@@ -198,7 +231,9 @@ public static class FindCommand
                 var hint = (kind == Kind.EditorId ? "EditorIDs must match exactly (letter case doesn't matter). " : "") +
                            $"The load order searched was {source}" +
                            (lo.Problems.Count > 0 ? $", with {lo.Problems.Count} load-order problems (plugins that didn't load are not searched; --verbose lists them)" : "") + ". " +
-                           (input.Mo2 != null
+                           (input.Plugin != null
+                               ? "--plugin searches only that plugin and its masters; to search your whole load order, leave out --plugin (and give --plugins or --mo2)."
+                               : input.Mo2 != null
                                ? "If the mod isn't in that load order, check that it is enabled in this MO2 profile (or name another one with --profile), or name the folder that holds the plugin with --extra-data."
                                : "If the mod isn't in that load order, give its Plugins.txt with --plugins (with Mod Organizer 2: --mo2 <MO2 folder>), or name the folder that holds the plugin with --extra-data.") +
                            (kind == Kind.FormId ? " A console FormID depends on the load order; the FormKey form (01295A:Starfield.esm) doesn't." : "");
@@ -213,9 +248,7 @@ public static class FindCommand
                 return 1;
             }
 
-            var idCache = lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
-            string Link(IFormLinkGetter link) => LinkText(link, idCache);
-            foreach (var m in matches) m.Fields = FieldsOf(m.Winner.Rec, Link);
+            FillFields(matches, lo);
             resultPrinted = true;
             if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "found", null));
             else
@@ -230,6 +263,93 @@ public static class FindCommand
         finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }
     }
 
+    /// <summary>The winning copies' fields and list entries, links named from the load order.</summary>
+    static void FillFields(List<Match> matches, LoadOrderSetup lo)
+    {
+        var idCache = lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
+        string Link(IFormLinkGetter link) => LinkText(link, idCache);
+        foreach (var m in matches) (m.Fields, m.Entries) = FieldsOf(m.Winner.Rec, Link);
+    }
+
+    /// <summary>find --plugin with no record (0.16.1): every record the plugin holds, group by group as Mutagen reads
+    /// them, at most max (0 = all), each through the same printer, then a summary of all of them.</summary>
+    static int ListPlugin(LoadOrderSetup lo, string pluginPath, string? type, int max, bool json, bool quiet, string version,
+                          Stopwatch sw, out bool resultPrinted, out string cantWhy)
+    {
+        resultPrinted = false;
+        cantWhy = "";
+        var name = Path.GetFileName(pluginPath);
+        var source = lo.OrderSource;
+        var target = lo.Plugins.FirstOrDefault(p => p.FileName.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (target == null)
+        {
+            var why = lo.Problems.FirstOrDefault(p => p.StartsWith(name, StringComparison.OrdinalIgnoreCase)) ?? lo.Problems.FirstOrDefault() ?? "it didn't load";
+            foreach (var p in lo.Problems) Console.Error.WriteLine($"load-order problem: {p}");
+            cantWhy = $"{SafeText.OneLine(name)} can't be read: {why}";
+            Log.Write($"stopped: {name} didn't load");
+            return 2;
+        }
+        var unread = new List<string>();
+        var all = new List<IMajorRecordGetter>();
+        var seen = new HashSet<FormKey>();
+        Analyzer.Where = $"listing the records in {target.FileName}";
+        try { foreach (var r in target.Mod.EnumerateMajorRecords()) if (seen.Add(r.FormKey)) all.Add(r); }
+        catch (Exception e) when (Fatal.Recoverable(e)) { unread.Add($"{target.FileName} couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); its later records aren't listed"); }
+        string Sig(IMajorRecordGetter r) => Checker.SigsOf(r.GetType())?.FirstOrDefault() ?? Analyzer.TypeShort(r.GetType());
+        var byType = all.GroupBy(Sig).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => (Type: g.Key, Count: g.Count())).ToList();
+        int newCount = all.Count(r => r.FormKey.ModKey == target.Mod.ModKey);
+        var kept = all.Where(r => type == null || Checker.SigsOf(r.GetType())?.Contains(type) == true).ToList();
+        var listed = max == 0 ? kept : kept.Take(max).ToList();
+        Log.Write($"{target.FileName}: {all.Count} records ({newCount} new), {kept.Count} kept{(type != null ? $" of type {type}" : "")}, {listed.Count} listed");
+
+        var known = listed.ToDictionary(r => r.FormKey, r => new List<(PluginInfo, IMajorRecordGetter)> { (target, r) });
+        var byKey = Copies(known.Keys.ToHashSet(), known, lo.Plugins, unread).ToDictionary(m => m.Key);
+        var matches = listed.Select(r => byKey[r.FormKey]).ToList();
+        foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
+        FillFields(matches, lo);
+
+        var summary = $"{target.FileName} holds {all.Count} record{(all.Count == 1 ? "" : "s")}: {newCount} new, {all.Count - newCount} override{(all.Count - newCount == 1 ? "" : "s")}" +
+                      (byType.Count > 0 ? $"; by type: {string.Join(", ", byType.Select(t => $"{t.Type} {t.Count}"))}" : "");
+        resultPrinted = true;
+        if (kept.Count == 0)
+        {
+            var what = $"no records{(type != null ? $" of type {type}" : "")} in {target.FileName}";
+            if (json) Console.WriteLine(Json(version, null, type, source, lo.Plugins.Count, matches, "not found", null, root => ListJson(root, target.FileName, kept.Count, byType)));
+            else
+            {
+                Console.WriteLine(summary);
+                Console.WriteLine($"RESULT: NOT FOUND ({what})");
+            }
+            Log.Write($"result: not found ({what}), exit code 1, {sw.Elapsed.TotalSeconds:F1} s");
+            return 1;
+        }
+        if (json) Console.WriteLine(Json(version, null, type, source, lo.Plugins.Count, matches, "found", null, root => ListJson(root, target.FileName, kept.Count, byType)));
+        else
+        {
+            if (!quiet) Console.WriteLine($"sf-mod-check {version} find: every record{(type != null ? $" of type {type}" : "")} in {target.FileName} (load order: {source})");
+            foreach (var m in matches) Print(m);
+            Console.WriteLine();
+            if (kept.Count > listed.Count)
+                Console.WriteLine($"... and {kept.Count - listed.Count} more record{(kept.Count - listed.Count == 1 ? "" : "s")} (--max 0 lists them all, or --type narrows the list)");
+            Console.WriteLine(summary);
+            Console.WriteLine($"RESULT: FOUND {kept.Count} record{(kept.Count == 1 ? "" : "s")}{(type != null ? $" of type {type}" : "")} in {target.FileName}" +
+                              $"{(listed.Count < kept.Count ? $", {listed.Count} listed" : "")} ({sw.Elapsed.TotalSeconds:F0} s)");
+        }
+        Log.Write($"result: found {kept.Count}, listed {listed.Count}, exit code 0, {sw.Elapsed.TotalSeconds:F1} s");
+        return 0;
+    }
+
+    static void ListJson(JsonObject root, string plugin, int total, List<(string Type, int Count)> byType)
+    {
+        root["plugin"] = plugin;
+        root["total"] = total;
+        root["listed"] = root["matches"]!.AsArray().Count;
+        var bt = new JsonObject();
+        foreach (var (t, n) in byType) bt[t] = n;
+        root["byType"] = bt;
+    }
+
     /// <summary>One record and every copy of it in the load order (in load order; the last one wins).</summary>
     sealed class Match
     {
@@ -238,6 +358,8 @@ public static class FindCommand
         public (PluginInfo Plugin, IMajorRecordGetter Rec) Winner => Copies[^1];
         public string Type => Checker.SigsOf(Winner.Rec.GetType())?.FirstOrDefault() ?? Analyzer.TypeShort(Winner.Rec.GetType());
         public List<(string Name, string Value)> Fields = new();
+        /// <summary>A list field's entries as text (0.16.1), at most MaxEntries per field; the field's line has the count.</summary>
+        public Dictionary<string, (List<string> List, int Total)> Entries = new();
     }
 
     /// <summary>The plugin a console FormID points at, by the load order's runtime index: full plugins 00 to FC, medium
@@ -350,19 +472,96 @@ public static class FindCommand
 
     /// <summary>The winning copy's top-level fields as text: strings, numbers, enums and flags as they are, links as
     /// "EditorID [FormKey]", lists as their count; empty values are left out. Child records (a cell's references,
-    /// a quest's topics) are records of their own and aren't listed.</summary>
-    static List<(string, string)> FieldsOf(IMajorRecordGetter rec, Func<IFormLinkGetter, string> link)
+    /// a quest's topics) are records of their own and aren't listed. 0.16.1: a list's entries, one string each
+    /// (conditions as ConditionText, others through Value one level down), at most MaxEntries per list.</summary>
+    static (List<(string, string)>, Dictionary<string, (List<string>, int)>) FieldsOf(IMajorRecordGetter rec, Func<IFormLinkGetter, string> link)
     {
         var lines = new List<(string, string)>();
+        var entries = new Dictionary<string, (List<string>, int)>();
         foreach (var p in FieldCompare.Fields(rec.GetType()))
         {
             if (p.Name is "EditorID" or "Name") continue;   // in the heading
             string? text;
-            try { text = Value(FieldCompare.Get(p, rec), link, 0); }
+            try
+            {
+                var v = FieldCompare.Get(p, rec);
+                text = Value(v, link, 0);
+                if (text != null && IsList(v))
+                {
+                    var list = new List<string>();
+                    var total = 0;
+                    foreach (var x in (IEnumerable)v!)
+                    {
+                        if (total++ >= MaxEntries) continue;
+                        string entry;
+                        try { entry = x is IConditionGetter c ? ConditionText(c, link) : Value(x, link, 1) ?? "(empty)"; }
+                        catch (Exception e) when (Fatal.Recoverable(e)) { entry = $"(unreadable: {e.GetType().Name})"; }
+                        list.Add(entry.Length > 300 ? entry[..300] + "..." : entry);
+                    }
+                    entries[p.Name] = (list, total);
+                }
+            }
             catch (Exception e) when (Fatal.Recoverable(e)) { text = $"(unreadable: {e.GetType().Name})"; }
             if (text != null) lines.Add((p.Name, text));
         }
-        return lines;
+        return (lines, entries);
+    }
+
+    /// <summary>A value Value prints as its count: a list, not text, a link or bytes.</summary>
+    static bool IsList(object? v) => v is IEnumerable and not (string or ITranslatedStringGetter or IAssetLinkGetter or IFormLinkGetter or IEnumerable<byte>);
+
+    static readonly Dictionary<CompareOperator, string> Ops = new()
+    {
+        [CompareOperator.EqualTo] = "==", [CompareOperator.NotEqualTo] = "!=", [CompareOperator.GreaterThan] = ">",
+        [CompareOperator.GreaterThanOrEqualTo] = ">=", [CompareOperator.LessThan] = "<", [CompareOperator.LessThanOrEqualTo] = "<=",
+    };
+
+    /// <summary>One condition as "[OR ]Function(param1[, param2]) op value (run on RunOnType[: reference])" (0.16.1).
+    /// The second parameter shows only when it isn't empty; the first too when both are empty; links as LinkText.</summary>
+    static string ConditionText(IConditionGetter c, Func<IFormLinkGetter, string> link)
+    {
+        var d = c.Data;
+        var t = d.GetType();
+        object? Prop(string n) => t.GetProperty(n)?.GetValue(d);
+        var p1 = t.GetProperty("FirstParameter") != null ? ParamText(Prop("FirstParameter"), link) : null;
+        var p2 = t.GetProperty("SecondParameter") != null ? ParamText(Prop("SecondParameter"), link) : null;
+        var ps = new List<string>();
+        if (p1 != null && (p1.Value.Text is { } a) && (!p1.Value.Empty || p2 is { Empty: false })) ps.Add(a);
+        if (p2 is { Empty: false } q2) ps.Add(q2.Text);
+        var value = c switch
+        {
+            IConditionGlobalGetter g => link(g.ComparisonValue),
+            IConditionFloatGetter f => Convert.ToString(f.ComparisonValue, CultureInfo.InvariantCulture),
+            _ => "?",
+        };
+        var or = c.Flags.HasFlag(Condition.Flag.OR) ? "OR " : "";
+        var op = Ops.TryGetValue(c.CompareOperator, out var o) ? o : c.CompareOperator.ToString();
+        var runOn = d.RunOnType == Condition.RunOnType.Reference && !d.Reference.IsNull
+            ? $"Reference: {link(d.Reference)}" : d.RunOnType.ToString();
+        return $"{or}{d.Function}({string.Join(", ", ps)}) {op} {value} (run on {runOn})";
+    }
+
+    /// <summary>A condition parameter as text, and whether it is empty (a null link, 0, an empty string). A
+    /// FormLinkOrIndex prints its link, or "alias N" / "package data N" when it holds an index.</summary>
+    static (string Text, bool Empty)? ParamText(object? v, Func<IFormLinkGetter, string> link)
+    {
+        if (v == null) return null;
+        var gi = v.GetType().GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition().Name == "IFormLinkOrIndexGetter`1");
+        if (gi != null)
+        {
+            if ((bool)gi.GetMethod("UsesLink")!.Invoke(v, null)!)
+            {
+                var l = (IFormLinkGetter)gi.GetProperty("Link")!.GetValue(v)!;
+                return l.IsNull ? ("None", true) : (link(l), false);
+            }
+            var idx = gi.GetProperty("Index")!.GetValue(v);
+            var alias = (bool)gi.GetMethod("UsesAlias")!.Invoke(v, null)!;
+            return ($"{(alias ? "alias" : "package data")} {idx}", false);
+        }
+        if (v is IFormLinkGetter fl) return fl.IsNull ? ("None", true) : (link(fl), false);
+        if (v is string s) return (Quote(s), s.Length == 0);
+        var text = v.GetType().IsPrimitive || v.GetType().IsEnum ? Convert.ToString(v, CultureInfo.InvariantCulture) ?? "" : SafeText.OneLine(v.ToString());
+        return (text, FieldCompare.IsEmpty(v));
     }
 
     /// <summary>One value as text, or null when it is empty. A nested value (bounds, a model, a sound) shows its own
@@ -417,11 +616,18 @@ public static class FindCommand
         if (others.Count > 0) Console.WriteLine($"  also in: {string.Join(", ", others)}");
         if (m.Fields.Count == 0) return;
         Console.WriteLine("  fields:");
-        foreach (var (f, v) in m.Fields.Take(MaxFieldLines)) Console.WriteLine($"    {f}: {v}");
+        foreach (var (f, v) in m.Fields.Take(MaxFieldLines))
+        {
+            Console.WriteLine($"    {f}: {v}");
+            if (!m.Entries.TryGetValue(f, out var es)) continue;
+            foreach (var e in es.List) Console.WriteLine($"      - {e}");
+            if (es.Total > es.List.Count) Console.WriteLine($"      ... and {es.Total - es.List.Count} more");
+        }
         if (m.Fields.Count > MaxFieldLines) Console.WriteLine($"    ... and {m.Fields.Count - MaxFieldLines} more");
     }
 
-    static string Json(string version, string q, string? type, string source, int pluginCount, List<Match> matches, string result, string? hint)
+    static string Json(string version, string? q, string? type, string source, int pluginCount, List<Match> matches, string result, string? hint,
+                       Action<JsonObject>? extra = null)
     {
         var root = new JsonObject
         {
@@ -434,6 +640,8 @@ public static class FindCommand
             {
                 var fields = new JsonObject();
                 foreach (var (f, v) in m.Fields) fields[f] = v;
+                var entries = new JsonObject();   // 0.16.1: a list field's entries (at most MaxEntries; its count is in fields)
+                foreach (var (f, es) in m.Entries) entries[f] = new JsonArray(es.List.Select(e => (JsonNode)e).ToArray());
                 return (JsonNode)new JsonObject
                 {
                     ["formKey"] = m.Key.ToString(),
@@ -444,10 +652,12 @@ public static class FindCommand
                     ["winner"] = m.Winner.Plugin.FileName,
                     ["plugins"] = new JsonArray(m.Copies.Select(c => (JsonNode)c.Plugin.FileName).ToArray()),
                     ["fields"] = fields,
+                    ["entries"] = entries,
                 };
             }).ToArray()),
             ["result"] = result,
         };
+        extra?.Invoke(root);
         if (hint != null) root["hint"] = hint;
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }

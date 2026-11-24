@@ -6,7 +6,7 @@
 //     unwrapped, and the first value of a key wins.
 //   - The profile's loadorder.txt gives the order when it is there; plugins.txt gives the on/off marks ('*').
 //   - Files are looked up in Overwrite first, then each enabled mod folder from the top of modlist.txt down (the top
-//     line wins in MO2), then Data. Disabled mods ('-'), separators and unmanaged lines ('*') are skipped.
+//     line wins in MO2), then Documents\My Games\Starfield\Data (0.16.1), then Data. Disabled mods ('-'), separators and unmanaged lines ('*') are skipped.
 // Read only: nothing in the instance is written.
 using System.Text.RegularExpressions;
 using SfModCheck.Conflict;
@@ -25,7 +25,7 @@ public sealed class Mo2Profile
     /// <summary>MO2's gamePath (the game's folder), if the ini has one.</summary>
     public string? GamePath { get; private init; }
     /// <summary>Folders whose files win over Data's, highest priority first: Overwrite, then the enabled mods from the
-    /// top of modlist.txt down. Only folders that exist.</summary>
+    /// top of modlist.txt down, then the My Games Data folder. Only folders that exist.</summary>
     public List<string> ModDirs { get; } = new();
     /// <summary>Load-order problems found in the profile (an enabled mod with no folder, no modlist.txt).</summary>
     public List<string> Problems { get; } = new();
@@ -119,8 +119,13 @@ public sealed class Mo2Profile
         return mods;
     }
 
+    /// <summary>The game's My Games Data folder (Documents\My Games\Starfield\Data), or null when Documents is unknown.</summary>
+    public static string? MyGamesData() =>
+        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) is { Length: > 0 } docs ? Path.Combine(docs, "My Games", "Starfield", "Data") : null;
+
     /// <summary>Reads an MO2 profile. Null (with the message for the user in error) when it can't be used.</summary>
-    public static Mo2Profile? Read(string instance, string? profileOption, out string error)
+    /// <param name="myGamesData">the My Games Data folder (tests; null: the real one)</param>
+    public static Mo2Profile? Read(string instance, string? profileOption, out string error, string? myGamesData = null)
     {
         error = "";
         instance = Path.GetFullPath(instance);
@@ -181,6 +186,14 @@ public sealed class Mo2Profile
             Log.Write($"MO2: {mo.ModDirs.Count} folders win over Data (Overwrite first, then enabled mods from the top of modlist.txt)");
         }
         else mo.Problems.Add($"no modlist.txt in {pdir}, so no mod folders were searched (only Overwrite and Data); open the profile in MO2 once so it writes the file");
+        // MO2 also merges Documents\My Games\Starfield\Data into the view it shows the game (0.16.1). It goes after the
+        // mods and before Data; which of it and Data wins a file found in both isn't verified.
+        myGamesData ??= MyGamesData();
+        if (myGamesData != null && Directory.Exists(myGamesData))
+        {
+            mo.ModDirs.Add(Path.GetFullPath(myGamesData));
+            Log.Write($"MO2: {myGamesData} is searched after the mods, before Data");
+        }
 
         // loadorder.txt holds the order (turned-off plugins too); plugins.txt holds the on/off marks.
         var marks = LoadOrderSetup.ReadPluginsTxt(ptxt);

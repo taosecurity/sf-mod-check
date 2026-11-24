@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.16.1
+
+### What's new
+
+- `find` now prints each entry of a list field on its own line under the field's count, at most 50 per list. Before, a list showed only its count, so a record's conditions couldn't be read.
+- A condition prints as `[OR ]Function(parameters) operator value (run on ...)`, for example `GetGlobalValue(MyGlobal [000801:MyMod.esm]) == 1 (run on Subject)`. Links show as `EditorID [FormKey]`, also when the link goes to a light master's record.
+- `find --plugin <plugin file>` reads only that plugin and its masters, from any folder, with no Plugins.txt. Use it for a downloaded mod or a patch that isn't installed. Each master is looked for in the plugin's own folder, then in each `--masters-dir` in the order given, then in `--data`.
+- With no record given, `find --plugin` lists every record the plugin holds, new records and overrides, each with the same fields as a lookup. It prints at most `--max <n>` records (default 100; `--max 0` lists them all), counts the rest, and ends with a summary of all of them, by type. `--type` narrows the list.
+- `--plugin` doesn't go with `--plugins`, `--mo2` or `--extra-data`, and `--masters-dir` and `--max` need `--plugin`: each of these stops with exit code 2 and names the right option. A master in none of the folders is exit code 2 too.
+- `--json` adds `entries` to each match (each list field's entries as text), and a whole-plugin listing adds `plugin`, `total`, `listed` and `byType`. The other keys are unchanged.
+- With `--mo2`, `conflict`, `patch` and `find` also look in `Documents\My Games\Starfield\Data` when it exists, after the MO2 mods and before Data, because MO2 merges that folder into its view too. Which of that folder and Data wins a file that is in both hasn't been checked.
+
+### Example
+
+Three made-up plugins, none of them in a game's Data folder. `masters\` holds `BaseQ.esm` (the magic effect `BQ_Effect` and the global `BQ_Global`) and the light master `LightM.esm` (the actor value `LM_Value`). `patch\Patch.esm` overrides `BQ_Effect` with two conditions and adds three keywords. `Data\` is an empty folder, so no game is needed:
+
+    sf-mod-check find --plugin patch\Patch.esm --masters-dir masters --data Data --type MGEF
+
+What it prints on stdout (a real run):
+
+    sf-mod-check 0.16.1 find: every record of type MGEF in Patch.esm (load order: Patch.esm and its 2 masters)
+
+    BQ_Effect [000800:BaseQ.esm] MGEF
+      defined in: BaseQ.esm
+      winner: Patch.esm
+      fields:
+        Unknown2: (6 bytes)
+        Conditions: (2 entries)
+          - OR GetValue(LM_Value [000800:LightM.esm]) == 0 (run on Subject)
+          - GetGlobalValue(BQ_Global [000801:BaseQ.esm]) == 1 (run on Subject)
+
+    Patch.esm holds 4 records: 3 new, 1 override; by type: KYWD 3, MGEF 1
+    RESULT: FOUND 1 record of type MGEF in Patch.esm (0 s)
+
+The exit code is 0. Without `--type` it lists all four records. Without `--masters-dir` it stops with exit code 2 and says that `BaseQ.esm`, a master of `Patch.esm`, wasn't found and where to put it.
+
 ## 0.16.0 (2026-11-24)
 
 ### What's new
