@@ -53,7 +53,7 @@ public sealed class AssetIndex
     /// of other languages ("Voices_de") are skipped. names: false reads only each archive's type, for the archive
     /// counts (conflict --no-assets); the index then finds nothing in archives. own (check, 0.16.2): the checked
     /// plugin and its folder, searched first for that plugin's own archives and for loose files; the other plugins'
-    /// archives are looked for in dirs only, in order.</summary>
+    /// archives and the INIs' archives are looked for in dirs only, in order.</summary>
     public static AssetIndex Build(IEnumerable<string> plugins, IReadOnlyList<string> dirs, IEnumerable<string> inis, string language, bool names = true,
         (string Plugin, string Dir)? own = null)
     {
@@ -96,7 +96,9 @@ public sealed class AssetIndex
         }
         foreach (var (key, name, ini) in IniArchives(inis))
         {
-            var found = index.looseDirs.Select(d => index.LooseFile(d, name)).FirstOrDefault(f => f != null);
+            // the masters' order, not the plugin's folder first (code review round 2: a stale copy beside the plugin
+            // must not win)
+            var found = archiveDirs.Select(d => index.LooseFile(d, name)).FirstOrDefault(f => f != null);
             if (found == null) { index.Skipped.Add((name, $"listed in {ini} ({key}) but not found")); continue; }
             Take(found, $"listed in {Path.GetFileName(ini)} ({key})");
         }

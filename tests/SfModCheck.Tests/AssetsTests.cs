@@ -164,6 +164,21 @@ public class AssetsTests
     }
 
     [Fact]
+    public void With_masters_dir_an_ini_listed_archive_comes_from_masters_dir_not_from_beside_the_plugin()
+    {
+        // 0.16.2 code review round 2: the INIs' archives keep the masters' search order too
+        using var w = new World();
+        var inst = Directory.CreateDirectory(Path.Combine(w.Dir, "inst")).FullName;
+        File.WriteAllBytes(Path.Combine(inst, "Shared Stuff.ba2"), Ba2("GNRL", "scripts\\sfmtest\\old.pex"));
+        File.WriteAllBytes(Path.Combine(w.Dir, "Shared Stuff.ba2"), Ba2("GNRL", "scripts\\sfmtest\\new.pex"));
+        var ini = Path.Combine(w.Dir, "Extra.ini");
+        File.WriteAllText(ini, "[Archive]\nsResourceArchiveList2=Shared Stuff.ba2\n");
+        var p = Path.Combine(inst, "ininew.esm");
+        File.Move(w.Build("ininew", m => AttachScript(m, "SfmTest:New")), p);
+        Expect.No(w.Check(p, o => { o.MastersDirs = [w.Dir]; o.Inis.Add(ini); }), "assets");
+    }
+
+    [Fact]
     public void Another_languages_voice_archive_and_unrelated_archives_do_not_count()
     {
         using var w = new World();

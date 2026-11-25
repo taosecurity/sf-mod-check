@@ -5,7 +5,7 @@
 ### What's new
 
 - `check --masters-dir` now reads the checked plugin's own archives (`<plugin> - Main.ba2`) and loose files from the plugin's own folder. Before, `--masters-dir` took the plugin's folder out of the assets search, so a script packed in the mod's own archive was a false `ERROR [assets]` and the exit code was 1, while `release --masters-dir` passed the same files.
-- The plugin's own archives are looked for in the plugin's own folder first, then each `--masters-dir` folder, then the Data folder. A master's archives are looked for where its masters are: each `--masters-dir` folder, then the Data folder. When two folders hold an archive of the same name, the first one in that order is used.
+- The plugin's own archives are looked for in the plugin's own folder first, then each `--masters-dir` folder, then the Data folder. A master's archives and the archives the INIs list are looked for where the masters are: each `--masters-dir` folder, then the Data folder (with no `--masters-dir`, the plugin's own folder, then the Data folder). When two folders hold an archive of the same name, the first one in that order is used.
 
 ### Example
 
