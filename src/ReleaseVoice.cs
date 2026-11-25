@@ -1,8 +1,10 @@
 // sfmodcheck release: voice files for the mod's dialogue (0.18.0, GAPS G14). A voiced dialogue line plays from
 //   sound\voice\<plugin file name, lower case>\<voice type EditorID, lower case>\<response number, 8 lower hex>.wem
-// with its lip animation at the same path with .ffxanim. The response number is the 32-bit number each response of
-// an INFO record carries (Mutagen IDialogResponseGetter.WEMFile); several INFOs may share one. Proven on files in
-// 0.18.0 step 2 (StarfieldPluginCheck NOTES.md, "0.18.0 (GapFix)").
+// with its lip animation at the same path with .ffxanim. The response number is the low 24 bits of the 32-bit number
+// each response of an INFO record carries (Mutagen IDialogResponseGetter.WEMFile), so the name always starts "00":
+// the top byte is the plugin's load index when the line was made (01, 02, fd, fe in Bethesda's DLC and Creations,
+// whose files all use the low 24 bits). Several INFOs may share one. Proven on files in 0.18.0 steps 2 and 5
+// (StarfieldPluginCheck NOTES.md, "0.18.0 (GapFix)").
 // Checked: dialogue lines (INFO) the plugin adds (not overrides of other plugins' lines), with at least one response,
 // no SharedDialog link, a non-zero number, and not in a player topic (a scene's dialogue action for the player, alias
 // -2, or a player-dialogue action's player choices, from the plugin's own scenes).
@@ -31,7 +33,8 @@ public static class ReleaseVoice
     public static int MaxWarnings = 25;
 
     /// <summary>One voiced response the check expects a file for.</summary>
-    internal sealed record Line(string Info, string Hex, List<string> VoiceTypes);
+    /// Hex is the file name's number (low 24 bits), Full the whole number (for a hint when a file is named by it).
+    internal sealed record Line(string Info, string Hex, string Full, List<string> VoiceTypes);
 
     public static IEnumerable<ReleaseFinding> Run(ReleaseContext c)
     {
@@ -82,6 +85,10 @@ public static class ReleaseVoice
                 .ToLookup(s => Path.GetFileNameWithoutExtension(s[4]), s => s[3]);
             var missing = new List<(string Text, string Subject)>();
             int noFace = 0; string? firstNoFace = null; int ok = 0;
+            // a file named by the whole number (top byte kept) is never found by the game: say so in the warning
+            string Renamed(Line l, bool there) => l.Full != l.Hex && there
+                ? $" (a file named {l.Full}.wem is there, but the game uses only the last 6 hex digits of the number, so rename it and its .ffxanim to {l.Hex})"
+                : "";
             foreach (var l in lines)
             {
                 var found = new List<string>();
@@ -92,7 +99,8 @@ public static class ReleaseVoice
                         var want = $"sound\\voice\\{plugin}\\{vt}\\{l.Hex}.wem";
                         if (Has(want)) found.Add(vt);
                         else missing.Add(($"{pluginName}: dialogue line {l.Info}: no voice file for voice type {vt} in {label} " +
-                                          $"(expected {want}), so the line plays silent for that speaker. Add the file, or remove that voice type from the line's conditions", want));
+                                          $"(expected {want}), so the line plays silent for that speaker. Add the file, or remove that voice type from the line's conditions" +
+                                          Renamed(l, Has($"sound\\voice\\{plugin}\\{vt}\\{l.Full}.wem")), want));
                     }
                 }
                 else
@@ -100,7 +108,8 @@ public static class ReleaseVoice
                     found.AddRange(folders[l.Hex]);
                     if (found.Count == 0)
                         missing.Add(($"{pluginName}: dialogue line {l.Info}: no voice file {l.Hex}.wem in any voice-type folder of sound\\voice\\{plugin}\\ in {label}, " +
-                                     "so the line is silent in every voice. Add the file, or give the line a GetIsID or GetIsVoiceType condition if another plugin voices it",
+                                     "so the line is silent in every voice. Add the file, or give the line a GetIsID or GetIsVoiceType condition if another plugin voices it" +
+                                     Renamed(l, folders[l.Full].Any()),
                                      $"sound\\voice\\{plugin}\\{l.Hex}.wem"));
                 }
                 foreach (var vt in found)
@@ -140,7 +149,10 @@ public static class ReleaseVoice
         foreach (var p in c.Packages)
         {
             foreach (var f in p.Files)
-                if (f.StartsWith(prefix, StringComparison.Ordinal)) common.Add(f);
+            {
+                var g = f.StartsWith("data\\", StringComparison.Ordinal) ? f[5..] : f;   // a zip with a Data folder on top
+                if (g.StartsWith(prefix, StringComparison.Ordinal)) common.Add(g);
+            }
             foreach (var a in p.Archives)
             {
                 var file = Path.GetFileName(a);
@@ -218,7 +230,7 @@ public static class ReleaseVoice
                 }
                 var label = i.EditorID is { Length: > 0 } ed ? $"{SafeText.OneLine(ed)} ({i.FormKey})" : i.FormKey.ToString();
                 foreach (var r in i.Responses)
-                    if (r.WEMFile != 0) lines.Add(new Line(label, r.WEMFile.ToString("x8"), [.. vts]));
+                    if (r.WEMFile != 0) lines.Add(new Line(label, (r.WEMFile & 0xFFFFFF).ToString("x8"), r.WEMFile.ToString("x8"), [.. vts]));
             }
         }
         return lines;

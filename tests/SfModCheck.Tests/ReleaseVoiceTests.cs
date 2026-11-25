@@ -38,7 +38,7 @@ public class ReleaseVoiceTests
     /// RV_Complete (GetIsID on the NPC, voice type A, 00000101), RV_MissingB (GetIsVoiceType on the list, 00000102),
     /// RV_NoFile (no condition, 00000103), RV_Player (a player line, 00000104), RV_NoFace (no condition, 00000105),
     /// RV_Header (no responses) and RV_Shared (a SharedDialog link, 00000106).</summary>
-    static string WritePlugin(string dir, string name = "RvTest.esm", bool complete = false)
+    static string WritePlugin(string dir, string name = "RvTest.esm", bool complete = false, uint first = 0x101)
     {
         Directory.CreateDirectory(dir);
         var mod = Plugin.New(name, PluginStyle.Light, "test", "release voice test");
@@ -57,7 +57,7 @@ public class ReleaseVoiceTests
             return t;
         }
         var topic = Topic("RvTopic");
-        Info(mod, topic, "RV_Complete", 0x101).Conditions.Add(IsId(npc));
+        Info(mod, topic, "RV_Complete", first).Conditions.Add(IsId(npc));
         if (!complete)
         {
             Info(mod, topic, "RV_MissingB", 0x102).Conditions.Add(IsVoiceType(list.FormKey));
@@ -120,6 +120,38 @@ public class ReleaseVoiceTests
         var f = ReleaseVoice.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
         var n = Assert.Single(f);
         Assert.True(n.Level == Level.Note && n.Text.Contains("1 voiced dialogue response checked, every one has its voice file"), ReleaseNeedsTests.List(f));
+    }
+
+    [Fact]
+    public void The_file_name_uses_the_low_24_bits_and_loose_files_under_a_Data_folder_count()
+    {
+        using var s = new Sandbox();
+        var data = Data(s);
+        var pkg = s.Sub("RvTop");
+        var inner = Path.Combine(pkg, "Data");
+        WritePlugin(inner, "RvTop.esm", complete: true, first: 0x02000101);   // top byte 02, as a plugin made at load index 2 has
+        var dir = Path.Combine(inner, "Sound", "Voice", "RvTop.esm", "RvVoiceA");
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Combine(dir, "00000101.wem"), new byte[4]);
+        File.WriteAllBytes(Path.Combine(dir, "00000101.ffxanim"), new byte[4]);
+        var f = ReleaseVoice.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
+        var n = Assert.Single(f);
+        Assert.True(n.Level == Level.Note && n.Text.Contains("every one has its voice file"), ReleaseNeedsTests.List(f));
+    }
+
+    [Fact]
+    public void A_file_named_by_the_whole_number_warns_with_the_name_the_game_uses()
+    {
+        using var s = new Sandbox();
+        var data = Data(s);
+        var pkg = s.Sub("RvFull");
+        WritePlugin(pkg, "RvFull.esm", complete: true, first: 0x01000101);
+        File.WriteAllBytes(Path.Combine(pkg, "RvFull - Voices_en.ba2"), AssetsTests.Ba2("GNRL",
+            "sound\\voice\\rvfull.esm\\rvvoicea\\01000101.wem", "sound\\voice\\rvfull.esm\\rvvoicea\\01000101.ffxanim"));
+        var f = ReleaseVoice.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
+        var w = Assert.Single(f, x => x.Level == Level.Warning);
+        Assert.True(w.Text.Contains("expected sound\\voice\\rvfull.esm\\rvvoicea\\00000101.wem") && w.Text.Contains("a file named 01000101.wem is there") &&
+                    w.Text.Contains("rename it and its .ffxanim to 00000101"), ReleaseNeedsTests.List(f));
     }
 
     [Fact]
