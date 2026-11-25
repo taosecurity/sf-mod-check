@@ -106,6 +106,35 @@ public class ReleaseVoiceTests
         Assert.Contains(f, x => x.Level == Level.Note && x.Text.Contains("no .ffxanim") && x.Text.Contains("rvvoiceb\\00000105.ffxanim"));
     }
 
+    // 0.18.0 code review round 2: a GetIsID speaker with no voice type of its own (a template voice) isn't dropped
+    // without a word: one NOTE names the line
+    [Fact]
+    public void A_speaker_with_no_voice_type_of_its_own_gets_a_note()
+    {
+        using var s = new Sandbox();
+        var data = Data(s);
+        var pkg = s.Sub("RvTpl");
+        Directory.CreateDirectory(pkg);
+        var mod = Plugin.New("RvTpl.esm", PluginStyle.Light, "test", "release voice test");
+        var a = mod.VoiceTypes.AddNew("RvVoiceA");
+        var voiced = mod.Npcs.AddNew("RvVoiced");
+        voiced.Voice.SetTo(a);
+        var templated = mod.Npcs.AddNew("RvTemplated");   // no voice type of its own
+        var quest = mod.Quests.AddNew("RvQuest");
+        var topic = new DialogTopic(mod) { EditorID = "RvTopic", Quest = quest.ToLink<IQuestGetter>() };
+        quest.DialogTopics.Add(topic);
+        var info = Info(mod, topic, "RV_Both", 0x101);
+        info.Conditions.Add(IsId(voiced));
+        info.Conditions.Add(IsId(templated));
+        using (var g = new GameData(pkg)) PluginWriter.Write(mod, pkg, g, NoGap);
+        File.WriteAllBytes(Path.Combine(pkg, "RvTpl - Voices_en.ba2"), AssetsTests.Ba2("GNRL",
+            "sound\\voice\\rvtpl.esm\\rvvoicea\\00000101.wem", "sound\\voice\\rvtpl.esm\\rvvoicea\\00000101.ffxanim"));
+        var f = ReleaseVoice.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
+        var list = ReleaseNeedsTests.List(f);
+        Assert.True(f.All(x => x.Level == Level.Note), list);
+        Assert.Contains(f, x => x.Text.Contains("1 dialogue line with a GetIsID speaker that has no voice type of its own") && x.Text.Contains("RV_Both"));
+    }
+
     [Fact]
     public void A_complete_mod_gets_one_clean_note_and_loose_files_count()
     {

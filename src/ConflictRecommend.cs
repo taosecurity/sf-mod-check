@@ -160,7 +160,7 @@ public static class Recommend
         sb.AppendLine();
         sb.AppendLine("Verify:");
         if (Mo2 is var (inst2, prof))
-            sb.AppendLine($"- Put the patch in a new empty MO2 mod, enable it, put it last in the load order, and run sf-mod-check conflict --mo2 \"{SafeText.OneLine(inst2)}\" --profile \"{SafeText.OneLine(prof)}\"{Mo2Options} again. These entries should be gone and no new ones should appear.");
+            sb.AppendLine($"- Put the patch in a new empty MO2 mod, enable it, put it last in the load order, and run sf-mod-check conflict --mo2 {LoadOrderInput.QuotedPath(inst2)} --profile \"{SafeText.OneLine(prof)}\"{Mo2Options} again. These entries should be gone and no new ones should appear.");
         else
             sb.AppendLine($"- Add the patch to the end of a copy of my load order ({PluginsTxt}) and run sf-mod-check conflict again with that copy. These entries should be gone and no new ones should appear.");
         sb.AppendLine("- Run sf-mod-check check on the patch, and open it in xEdit, to look for errors.");

@@ -1691,7 +1691,7 @@ public static class PatchCommand
             {
                 // MO2 (0.16.0): the patch goes in as a mod of its own; the check runs on the profile again
                 sb.AppendLine($"1. In MO2, use Create empty mod, copy `{name}` from this folder into the new mod's folder, enable the mod, and put `{name}` at the end of the plugin list.");
-                sb.AppendLine($"2. Check it: run `sf-mod-check conflict --mo2 \"{SafeText.OneLine(mo2.Instance)}\" --profile \"{SafeText.OneLine(mo2.Profile)}\"{rerunOptions}` again: these lost changes should be gone. (`sf-mod-check check` doesn't read MO2 profiles yet, so it would report the masters kept in MO2 mod folders as not installed.)");
+                sb.AppendLine($"2. Check it: run `sf-mod-check conflict --mo2 {LoadOrderInput.QuotedPath(mo2.Instance)} --profile \"{SafeText.OneLine(mo2.Profile)}\"{rerunOptions}` again: these lost changes should be gone. (`sf-mod-check check` doesn't read MO2 profiles yet, so it would report the masters kept in MO2 mod folders as not installed.)");
             }
             else
             {

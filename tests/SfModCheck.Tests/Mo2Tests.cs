@@ -293,6 +293,21 @@ public class Mo2Tests
             .Where(f => !f.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).Select(File.ReadAllText));
         Assert.Contains($"--data \"{Path.GetFullPath(mo2.Data)}\" --extra-data \"{Path.GetFullPath(extra)}\" again", text);
         Assert.DoesNotContain("\\\" again", text);
+
+        // round 2: the --mo2 instance folder on the same line too, in conflict's AI prompt and patch's report
+        var inst = Path.TrimEndingDirectorySeparator(Path.GetFullPath(mo2.Instance));
+        var outDir = Path.Combine(mo2.Dir, "report2");
+        (code, _, _) = ExeTests.RunSplit("conflict", "--mo2", inst + "\\", "--out", outDir, "--quiet");
+        Assert.Equal(0, code);
+        text = string.Join("\n", Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories)
+            .Where(f => !f.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).Select(File.ReadAllText));
+        Assert.Contains($"--mo2 \"{inst}\" --profile", text);
+        Assert.DoesNotContain("\\\" --profile", text);
+        var patchDir = Path.Combine(mo2.Dir, "patch2");
+        (code, _, _) = ExeTests.RunSplit("patch", "--mo2", inst + "\\", "--out", patchDir, "--quiet");
+        Assert.Equal(0, code);
+        var report = File.ReadAllText(Path.Combine(patchDir, "patch-report.md"));
+        Assert.Contains($"--mo2 \"{inst}\" --profile", report);
     }
 
     // code review round 1 (0.16.0): MO2's default for a missing mod_directory or profiles_directory is

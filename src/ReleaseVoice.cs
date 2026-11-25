@@ -12,7 +12,8 @@
 //                           GetIsVoiceType (a voice type, or a form list of them) == 1, each named voice type needs its
 //                           file; rule 2: otherwise the line needs its file in at least one voice-type folder.
 //                  NOTE     a plugin with dialogue lines and no voice files at all (silent, subtitles only); .wem files
-//                           with no .ffxanim beside them (the line plays, the lips don't move); a clean result.
+//                           with no .ffxanim beside them (the line plays, the lips don't move); lines with a GetIsID
+//                           speaker that has no voice type of its own (a template voice: not checked for it); a clean result.
 // The voice files are the plugin's own: its "<plugin> - Voices_<language>.ba2" archives in the run's inputs (each
 // language is checked on its own), plus .wem files in its other archives and loose sound\voice\<plugin>\ files, which
 // count for every language.
@@ -34,7 +35,11 @@ public static class ReleaseVoice
 
     /// <summary>One voiced response the check expects a file for.</summary>
     /// Hex is the file name's number (low 24 bits), Full the whole number (for a hint when a file is named by it).
-    internal sealed record Line(string Info, string Hex, string Full, List<string> VoiceTypes);
+    /// UnknownSpeaker: a GetIsID speaker of the line has no voice type of its own (a template voice), so it isn't checked.
+    internal sealed record Line(string Info, string Hex, string Full, List<string> VoiceTypes)
+    {
+        public bool UnknownSpeaker { get; init; }
+    }
 
     public static IEnumerable<ReleaseFinding> Run(ReleaseContext c)
     {
@@ -82,6 +87,11 @@ public static class ReleaseVoice
                 $"and no loose sound\\voice\\{plugin}\\ files), so the dialogue is silent, subtitles only. If it should be voiced, add the .wem and .ffxanim files"));
             return o;
         }
+        var unknownLines = lines.Where(l => l.UnknownSpeaker).Select(l => l.Info).Distinct().ToList();
+        if (unknownLines.Count > 0)
+            o.Add(new(Level.Note, "voice-missing",
+                $"{pluginName}: {Num(unknownLines.Count, "dialogue line")} with a GetIsID speaker that has no voice type of its own (first: {unknownLines[0]}), " +
+                "for example an NPC that takes its voice from a template, so the voice files weren't checked for that speaker. Check those lines by hand"));
         if (sets.Count == 0) sets["its loose files and archives"] = [];
         foreach (var (label, own) in sets)
         {
@@ -218,12 +228,16 @@ public static class ReleaseVoice
                 if (i.FormKey.ModKey != mod.ModKey || i.Responses.Count == 0 || !i.SharedDialog.IsNull) continue;
                 if (player) { Log.Write($"voice: {name}: {i.FormKey} is a player line (unvoiced), skipped"); continue; }
                 var vts = new SortedSet<string>(StringComparer.Ordinal);
+                var unknown = false;   // a named speaker whose voice type can't be read (an NPC with a template voice)
                 foreach (var cnd in i.Conditions)
                 {
                     if (cnd.CompareOperator != CompareOperator.EqualTo || cnd is not IConditionFloatGetter f || f.ComparisonValue != 1 ||
                         cnd.Data.RunOnType != Condition.RunOnType.Subject) continue;
-                    if (cnd.Data is IGetIsIDConditionDataGetter g && Get<INpcGetter>(g.FirstParameter.Link.FormKey) is { } npc && VoiceName(npc.Voice.FormKey) is { } v)
-                        vts.Add(v);
+                    if (cnd.Data is IGetIsIDConditionDataGetter g && Get<INpcGetter>(g.FirstParameter.Link.FormKey) is { } npc)
+                    {
+                        if (VoiceName(npc.Voice.FormKey) is { } v) vts.Add(v);
+                        else { unknown = true; Log.Write($"voice: {name}: {i.FormKey}: speaker {npc.FormKey} has no voice type of its own, not checked for it"); }
+                    }
                     if (cnd.Data is IGetIsVoiceTypeConditionDataGetter gv)
                     {
                         var k = gv.VoiceTypeOrList.Link.FormKey;
@@ -234,7 +248,7 @@ public static class ReleaseVoice
                 }
                 var label = i.EditorID is { Length: > 0 } ed ? $"{SafeText.OneLine(ed)} ({i.FormKey})" : i.FormKey.ToString();
                 foreach (var r in i.Responses)
-                    if (r.WEMFile != 0) lines.Add(new Line(label, (r.WEMFile & 0xFFFFFF).ToString("x8"), r.WEMFile.ToString("x8"), [.. vts]));
+                    if (r.WEMFile != 0) lines.Add(new Line(label, (r.WEMFile & 0xFFFFFF).ToString("x8"), r.WEMFile.ToString("x8"), [.. vts]) { UnknownSpeaker = unknown });
             }
         }
         return lines;
