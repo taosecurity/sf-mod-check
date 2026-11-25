@@ -159,7 +159,7 @@ public static class QuestMerge
         bool sFrag = !Eq(s.Script, b.Script) || !Eq(s.Fragments, b.Fragments);
         if (lFrag && !sFrag)
         {
-            r.Script = l.Script.DeepCopy();
+            r.Script = l.Script?.DeepCopy();
             Set(r.Fragments, l.Fragments.Select(f => f.DeepCopy()));
         }
         else if (lFrag && sFrag)
@@ -280,7 +280,12 @@ public static class QuestMerge
             var at = Find(k);
             if (at < 0) continue;
             if (Eq(work[at], b[bi])) work.RemoveAt(at);
-            else clashes.Add($"{what} {k} (one removes it, the other changes it)");
+            else
+            {
+                // the other side changed what l removed: the kept side decides
+                clashes.Add($"{what} {k} (one removes it, the other changes it)");
+                if (!keepS) work.RemoveAt(at);
+            }
         }
         result.Clear();
         foreach (var x in work) result.Add(x);

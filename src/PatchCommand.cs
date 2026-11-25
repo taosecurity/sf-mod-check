@@ -479,14 +479,26 @@ public static class PatchCommand
     static Func<string, ISet<string>?> FragmentFunctionsFor(LoadOrderSetup lo, string dataDir, IReadOnlyList<string> overDirs)
     {
         QuestStages.ScriptSource? src = null;
+        bool failed = false;
         return script =>
         {
+            if (failed) return null;
             if (src is null)
             {
                 var names = lo.Plugins.Select(p => p.FileName).ToList();
-                var index = AssetIndex.Build(names, overDirs.Append(dataDir).ToList(), AssetIndex.DefaultInis(dataDir, []), "en");
-                src = new QuestStages.ScriptSource(index, names.Count == 0 ? [] : QuestStages.ArchivesFor(index, names[^1], names.SkipLast(1), dataDir));
-                Log.Write($"patch: script index for stage fragments built ({index.Loaded.Count} archives)");
+                try
+                {
+                    var index = AssetIndex.Build(names, overDirs.Append(dataDir).ToList(), AssetIndex.DefaultInis(dataDir, []), "en");
+                    src = new QuestStages.ScriptSource(index, names.Count == 0 ? [] : QuestStages.ArchivesFor(index, names[^1], names.SkipLast(1), dataDir));
+                    Log.Write($"patch: script index for stage fragments built ({index.Loaded.Count} archives)");
+                }
+                catch (Exception e) when (Fatal.Recoverable(e))
+                {
+                    // no script can be read: each quest whose fragments both sides changed keeps the winner's script data
+                    failed = true;
+                    Log.Write($"patch: the script index for stage fragments couldn't be built ({e.GetType().Name}: {SafeText.OneLine(e.Message)}); fragment scripts count as unreadable");
+                    return null;
+                }
             }
             var (pex, problem) = src.Get(script);
             if (pex is null) { Log.Write($"patch: fragment script {script}: {problem}"); return null; }
@@ -1377,6 +1389,9 @@ public static class PatchCommand
         // "0.19.0 (GapFix)", Step 4). False when a list can't be keyed (an entry with no key, or a key held twice in one
         // version), and the caller then replaces the list whole as before.
         var subMerged = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        // who removed a keyed entry from the merged list (the list's own plugin when it never had it)
+        var removedBy = new Dictionary<(string Field, string Key), int>();
+        var stateOrigin = new Dictionary<string, int>();
         bool Keyed(string field) => isQuest && QuestMerge.KeyedFields.Contains(field);
         bool KeyedMerge(string field, int li, LostChange l, bool forward)
         {
@@ -1396,6 +1411,7 @@ public static class PatchCommand
                 var mut = MutItems(s, field);
                 if (held.Count != mut.Count || QuestMerge.Keys(held) is null) { Log.Write($"patch: {fk} {field}: {vs[s].Plugin.FileName}'s list can't be keyed; replaced whole"); return false; }
                 state = held.Zip(mut, (h, m) => (h, m, s)).ToList();
+                stateOrigin[field] = s;
             }
             else if (QuestMerge.Keys(state.Select(x => x.Held).ToList()) is null) return false;
             var loser = l.Loser;
@@ -1417,6 +1433,16 @@ public static class PatchCommand
                 var at = Find(key);
                 if (at < 0)
                 {
+                    if (inBase)
+                    {
+                        // this plugin changed an entry the merged list removed: the side that removed it decides as a
+                        // whole field would (the later plugin)
+                        int remover = removedBy.TryGetValue((field, key), out var rb) ? rb : stateOrigin.GetValueOrDefault(field, source[field]);
+                        bool removerKept = remover > li;
+                        var (rk, rd) = removerKept ? (From(remover), loser) : (loser, From(remover));
+                        Row(key, rk, rd, $"{(removerKept ? rk : rd)} removes {key} and {(removerKept ? rd : rk)} changes it; {rk}'s is kept");
+                        if (removerKept) continue;
+                    }
                     state.Add((L, lMut[k], li));
                     did = (did.Added + 1, did.Changed, did.Removed, did.FirstAdded ?? L);
                     continue;
@@ -1469,9 +1495,17 @@ public static class PatchCommand
                 if (lKeys.ContainsKey(key)) continue;
                 var at = Find(key);
                 if (at < 0) continue;
-                if (state[at].Held is { } h && subMerged.Contains(h)) continue;
-                if (!Same(state[at].Held, bHeld[bk])) continue;
+                bool changedThere = (state[at].Held is { } h && subMerged.Contains(h)) || !Same(state[at].Held, bHeld[bk]);
+                if (changedThere)
+                {
+                    // the other side changed the entry this plugin removed: the later plugin decides
+                    bool changerKept = state[at].Origin > li;
+                    var (ck, cd) = changerKept ? (From(state[at].Origin), loser) : (loser, From(state[at].Origin));
+                    Row(key, ck, cd, $"{(changerKept ? cd : ck)} removes {key} and {(changerKept ? ck : cd)} changes it; {ck}'s is kept");
+                    if (changerKept) continue;
+                }
                 state.RemoveAt(at);
+                removedBy[(field, key)] = li;
                 did.Removed++;
             }
             // stages and objectives in Index order (the Creation Kit's own); aliases keep the winner's order, new ones

@@ -521,6 +521,67 @@ public class PatchQuestTests
         Assert.Empty(topic.Responses);   // the new lines stay in their own plugins
     }
 
+    // ---------- code-review round 1 (2026-11-25) ----------
+
+    [Fact]
+    public void Stage_the_winner_removed_stays_removed_when_a_loser_changed_it()
+    {
+        using var game = new Game();
+        game.Mod("ModA.esm", q => { q.Stages[1].LogEntries.Add(new QuestLogEntry { Note = "A log" }); q.Stages.Add(Stage(15, "A 15")); });
+        game.Mod("ModB.esm", q => q.Stages.RemoveAt(1));
+        Ok(game.Patch());
+        Assert.Equal(new[] { 10, 15 }, game.Quest().Stages.Select(s => (int)s.Index));
+        Assert.Contains("ModB.esm removes stage 20 and ModA.esm changes it; ModB.esm's is kept", game.Report);
+    }
+
+    [Fact]
+    public void Two_losers_remove_and_change_one_stage_the_later_decides()
+    {
+        using (var game = new Game())
+        {
+            game.Mod("ModA.esm", q => q.Stages[1].LogEntries.Add(new QuestLogEntry { Note = "A log" }));
+            game.Mod("ModB.esm", q => q.Stages.RemoveAt(1));
+            game.Mod("ModC.esm", q => q.Name = "Renamed");
+            Ok(game.Patch());
+            Assert.Equal(new[] { 10 }, game.Quest().Stages.Select(s => (int)s.Index));
+        }
+        using (var game = new Game())
+        {
+            game.Mod("ModA.esm", q => q.Stages.RemoveAt(1));
+            game.Mod("ModB.esm", q => q.Stages[1].LogEntries.Add(new QuestLogEntry { Note = "B log" }));
+            game.Mod("ModC.esm", q => q.Name = "Renamed");
+            Ok(game.Patch());
+            var quest = game.Quest();
+            Assert.Equal(new[] { 10, 20 }, quest.Stages.Select(s => (int)s.Index));
+            Assert.Equal(new[] { "base 20", "B log" }, Notes(quest.Stages[1]));
+        }
+    }
+
+    [Fact]
+    public void Loser_removes_the_fragment_script_and_the_winner_changes_a_property()
+    {
+        using var game = new Game(BaseVmad);
+        game.Mod("ModA.esm", q => { q.VirtualMachineAdapter!.Script.Name = ""; q.VirtualMachineAdapter.Fragments.Clear(); q.Summary = "A summary"; });
+        game.Mod("ModB.esm", q => Prop(q, "MyQuestScript", "Level").Data = 7);
+        Ok(game.Patch());
+        var quest = game.Quest();
+        Assert.Equal("A summary", quest.Summary);
+        Assert.Empty(quest.VirtualMachineAdapter!.Fragments);
+        Assert.Equal(7, Value(quest, "MyQuestScript", "Level"));
+    }
+
+    [Fact]
+    public void Two_losers_change_and_remove_one_script_property_the_later_decides()
+    {
+        using var game = new Game(BaseVmad);
+        game.Mod("ModA.esm", q => Prop(q, "MyQuestScript", "Count").Data = 5);
+        game.Mod("ModB.esm", q => { var s = q.VirtualMachineAdapter!.Scripts.First(x => x.Name == "MyQuestScript"); s.Properties.RemoveAt(0); Prop(q, "MyQuestScript", "Level").Data = 7; });
+        game.Mod("ModC.esm", q => q.Name = "Renamed");
+        Ok(game.Patch());
+        var props = game.Quest().VirtualMachineAdapter!.Scripts.First(s => s.Name == "MyQuestScript").Properties.Select(p => p.Name);
+        Assert.Equal(new[] { "Level" }, props);
+    }
+
     [Fact]
     public void Scene_and_branch_still_not_built_with_new_reason()
     {

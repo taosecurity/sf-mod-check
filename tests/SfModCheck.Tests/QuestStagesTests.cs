@@ -240,4 +240,50 @@ public class QuestStagesTests
         Expect.Finding(w.Check(p), "WARNING", Unset, "SFM_NoAssetsQuest");
         Expect.No(w.Check(p, o => o.NoAssets = true), Unset);
     }
+
+    // code-review round 1 (2026-11-25): a static or parent call's result replaces what the variable held before
+    [Fact]
+    public void A_static_call_result_is_not_the_owning_quest_any_more()
+    {
+        using var w = new World();
+        WriteScript(w, "SFM:StaticScript", "Quest",
+        [
+            PIns.CallMethod("GetOwningQuest", "self", "::temp1"),
+            PIns.CallStatic("SFM:Lib", "GetOtherQuest", "::temp1"),
+            SetStage("::temp1", PV.Int(50)),
+            PIns.CallMethod("GetOwningQuest", "self", "::temp1"),
+            PIns.CallParent("GetOtherQuest", "::temp1"),
+            SetStage("::temp1", PV.Int(60)),
+        ], locals: [("::temp0", "Bool"), ("::temp1", "Quest")]);
+        var p = w.Build("static", m =>
+        {
+            var q = StageQuest(m, "SFM_StaticQuest", 10);
+            q.Stages[0].Flags = QuestStage.Flag.RunOnStart;
+            q.VirtualMachineAdapter = new QuestAdapter();
+            q.VirtualMachineAdapter.Scripts.Add(Script("SFM:StaticScript"));
+        });
+        var r = w.Check(p);
+        Expect.No(r, Missing);
+    }
+
+    // code-review round 1 (2026-11-25): a broken script is one unreadable script, not the end of the check
+    [Fact]
+    public void A_truncated_script_is_unreadable_and_the_check_goes_on()
+    {
+        using var w = new World();
+        WriteScript(w, "SFM:BrokenScript", "Quest", [SetStage("self", PV.Int(20))]);
+        var path = Path.Combine(w.Dir, "Scripts", "SFM", "BrokenScript.pex");
+        var bytes = File.ReadAllBytes(path);
+        File.WriteAllBytes(path, bytes[..(bytes.Length * 2 / 3)]);
+        var p = w.Build("broken", m =>
+        {
+            var q = StageQuest(m, "SFM_BrokenQuest", 10, 20);
+            q.VirtualMachineAdapter = new QuestAdapter();
+            q.VirtualMachineAdapter.Scripts.Add(Script("SFM:BrokenScript"));
+            StageQuest(m, "SFM_PlainQuest", 10, 20);
+        });
+        var r = w.Check(p);
+        Assert.DoesNotContain(r.Findings, f => f.Text.Contains("check stopped"));
+        Assert.Contains(r.Findings, f => f.Check == Unset && f.Severity == "NOTE" && f.Text.Contains("SFM:BrokenScript"));
+    }
 }

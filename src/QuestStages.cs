@@ -44,7 +44,7 @@ public static class QuestStages
                 else if (FromArchives(rel) is { } got) r = (Pex.Read(got.Bytes, rel), null);
                 else r = (null, "not found in the archives read");
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+            catch (Exception e) when (Fatal.Recoverable(e))
             {
                 r = (null, SafeText.OneLine(e.Message));
             }
@@ -71,7 +71,7 @@ public static class QuestStages
                             }
                         }
                     }
-                    catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+                    catch (Exception e) when (Fatal.Recoverable(e))
                     {
                         Log.Write($"quest stages: archive {Path.GetFileName(a)} couldn't be read ({e.Message})");
                     }
@@ -252,7 +252,7 @@ public static class QuestStages
                     add("NOTE", "quest-stage-unset", $"{name(q)}: {n} SetStage call(s) take the stage number from a value worked out while the game runs, so its " +
                                        $"{unset.Count} stage(s) not otherwise set ({Stages(unset)}) weren't checked");
                 else
-                    add("WARNING", "quest-stage-unset", $"{name(q)}: nothing in the plugin sets stage {Stages(unset)} ({unset.Count} of {q.Stages.Count}): no start stage, " +
+                    add("WARNING", "quest-stage-unset", $"{name(q)}: nothing in the plugin sets stage {Stages(unset)} ({unset.Count} of {q.Stages.Select(s => s.Index).Distinct().Count()}): no start stage, " +
                                           "dialogue, scene or script SetStage call, so what those stages do never happens");
             }
 
@@ -393,6 +393,14 @@ public static class QuestStages
                         }
                         break;
                     }
+                    case "callstatic":
+                        // (object, function, result): the result is unknown
+                        if (i.Args.Count > 2 && i.Args[2].IsIdent) origin.Remove(i.Args[2].Text);
+                        break;
+                    case "callparent":
+                        // (function, result)
+                        if (i.Args.Count > 1 && i.Args[1].IsIdent) origin.Remove(i.Args[1].Text);
+                        break;
                     default:
                         // any other instruction that writes its first argument leaves it unknown
                         if (i.Args.Count > 0 && i.Args[0].IsIdent && i.Name is not ("jmp" or "jmpt" or "jmpf" or "return" or "propset" or "array_setelement" or "struct_set"))
