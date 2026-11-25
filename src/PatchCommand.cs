@@ -1013,8 +1013,13 @@ public static class PatchCommand
         // and merging entry by entry kept the game's version of entries a DLC had changed (the cells builder, 2026-11-10).
         var merged = new Dictionary<string, List<(object? Held, object? Mut, int Origin)>>(StringComparer.Ordinal);
         bool isNavmesh = vs[^1].Rec is INavigationMeshGetter;
+        // 0.19.0: a quest's condition lists (DialogConditions, UnusedConditions) are one value: conditions chain with
+        // AND/OR by position, so merging them entry by entry could break a chain. Only quests here, so the output for
+        // other record types stays as 0.18.0 wrote it.
+        bool isQuest = vs[^1].Rec is IQuestGetter;
         bool Mergeable(string field) => field != "Traversals" && !(isNavmesh && NavmeshUnit.Contains(field)) && rec.GetType().GetProperty(field) is { } mp
-            && mp.PropertyType != typeof(byte[]) && typeof(IList).IsAssignableFrom(mp.PropertyType);
+            && mp.PropertyType != typeof(byte[]) && typeof(IList).IsAssignableFrom(mp.PropertyType)
+            && !(isQuest && QuestMerge.IsConditionList(mp.PropertyType));
         static List<object?> Items(object? v) => v is IEnumerable e and not string ? e.Cast<object?>().ToList() : new();
         List<object?> MutItems(int i, string field) => Items(copies.Of(i).GetType().GetProperty(field)!.GetValue(copies.Of(i)));
         // City locations hold thousands of entries: each entry's hash is worked out once, and lookups go through Bags
@@ -1154,6 +1159,172 @@ public static class PatchCommand
                 }
             return true;
         }
+        // 0.19.0: a quest's Stages, Objectives and Aliases merge by key (stage Index, objective Index, alias ID), never
+        // by whole value: two mods that both change stage 10 give one stage 10. A stage or objective both changed is
+        // merged one level down (its scalars by the field rule, its log entries or targets by whole value); an alias is
+        // one value. Entries kept from one side where both changed get a Choice row (StarfieldPluginCheck NOTES.md,
+        // "0.19.0 (GapFix)", Step 4). False when a list can't be keyed (an entry with no key, or a key held twice in one
+        // version), and the caller then replaces the list whole as before.
+        var subMerged = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        bool Keyed(string field) => isQuest && QuestMerge.KeyedFields.Contains(field);
+        bool KeyedMerge(string field, int li, LostChange l, bool forward)
+        {
+            did = default;
+            var lHeld = Items(Held(field, li));
+            var lMut = MutItems(li, field);
+            if (lHeld.Count != lMut.Count) return false;
+            var mv = MasterVersions(li, byName[field]);
+            var bHeld = mv.Count > 0 ? Items(Held(field, mv[^1])) : new();
+            var lKeys = QuestMerge.Keys(lHeld);
+            var bKeys = QuestMerge.Keys(bHeld);
+            if (lKeys is null || bKeys is null) { Log.Write($"patch: {fk} {field}: an entry has no key or a key twice in {l.Loser} or its master; the list is replaced whole"); return false; }
+            if (!merged.TryGetValue(field, out var state))
+            {
+                var s = source[field];
+                var held = Items(Held(field, s));
+                var mut = MutItems(s, field);
+                if (held.Count != mut.Count || QuestMerge.Keys(held) is null) { Log.Write($"patch: {fk} {field}: {vs[s].Plugin.FileName}'s list can't be keyed; replaced whole"); return false; }
+                state = held.Zip(mut, (h, m) => (h, m, s)).ToList();
+            }
+            else if (QuestMerge.Keys(state.Select(x => x.Held).ToList()) is null) return false;
+            var loser = l.Loser;
+            int Find(string key) => state.FindIndex(x => QuestMerge.KeyOf(x.Held) == key);
+            string From(int origin) => vs[origin].Plugin.FileName;
+            void Row(string key, string kept, string dropped, string text)
+            {
+                plan.Choices.Add(forward
+                    ? new(fk, l.RecordType, l.EditorID, field, kept, dropped, false, text, Forward: true)
+                    : new(fk, l.RecordType, l.EditorID, field, l.Winner, loser, false, text));
+                Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {field}, {key}: {text}");
+            }
+            foreach (var (key, k) in lKeys.OrderBy(x => x.Value))
+            {
+                var L = lHeld[k];
+                bool inBase = bKeys.TryGetValue(key, out var bk);
+                var B = inBase ? bHeld[bk] : null;
+                if (inBase && Same(L, B)) continue;   // this plugin left the entry alone
+                var at = Find(key);
+                if (at < 0)
+                {
+                    state.Add((L, lMut[k], li));
+                    did = (did.Added + 1, did.Changed, did.Removed, did.FirstAdded ?? L);
+                    continue;
+                }
+                var S = state[at];
+                bool sMerged = S.Held is not null && subMerged.Contains(S.Held);
+                if (!sMerged && Same(S.Held, L)) continue;
+                if (inBase && !sMerged && Same(S.Held, B))
+                {
+                    state[at] = (L, lMut[k], li);
+                    did.Changed++;
+                    continue;
+                }
+                // Both sides changed the entry (or both added it). The winner's entry stays; an earlier loser's gives way
+                // to this later one's, as a whole field does.
+                bool keepS = S.Origin > li;
+                var (kept, dropped) = keepS ? (From(S.Origin), loser) : (loser, From(S.Origin));
+                string? text = null;
+                if (field == "Aliases" && QuestMerge.AliasKind(S.Held) != QuestMerge.AliasKind(L))
+                {
+                    var (kk, dk) = keepS ? (QuestMerge.AliasKind(S.Held), QuestMerge.AliasKind(L)) : (QuestMerge.AliasKind(L), QuestMerge.AliasKind(S.Held));
+                    text = $"{dropped} makes {key} a {dk} alias and {kept} a {kk} alias; one alias can't be both, so {kept}'s is kept";
+                }
+                else if (!inBase)
+                    text = $"{dropped} and {kept} both add {key} with different contents; {kept}'s is kept, so {dropped}'s scripts, " +
+                           "log entries or objective targets that use it may act on the wrong one";
+                else if (field == "Aliases" || sMerged)
+                    text = field == "Aliases"
+                        ? $"both changed {key}; an alias is kept whole (its fill settings belong together), so {kept}'s is kept " +
+                          $"(--pick {fk}:Aliases=<plugin> takes one plugin's whole Aliases list)"
+                        : $"three or more plugins changed {key}; {kept}'s whole entry is kept";
+                if (text is not null)
+                {
+                    if (!keepS) { state[at] = (L, lMut[k], li); did.Changed++; }
+                    Row(key, kept, dropped, text);
+                    continue;
+                }
+                // a stage or objective both changed: one level down
+                var (entry, clash) = SubMerge(S.Held!, S.Mut!, B!, L!, lMut[k]!, keepS);
+                state[at] = (entry, entry, keepS ? S.Origin : li);
+                subMerged.Add(entry);
+                did.Changed++;
+                Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {field}, {key}: merged one level down with {From(S.Origin)}'s version");
+                if (clash.Count > 0)
+                    Row(key, kept, dropped, $"both changed {key}'s {string.Join(" and ", clash)}; {kept}'s value is kept");
+            }
+            // an entry this plugin removed goes, unless the other side changed it
+            foreach (var (key, bk) in bKeys)
+            {
+                if (lKeys.ContainsKey(key)) continue;
+                var at = Find(key);
+                if (at < 0) continue;
+                if (state[at].Held is { } h && subMerged.Contains(h)) continue;
+                if (!Same(state[at].Held, bHeld[bk])) continue;
+                state.RemoveAt(at);
+                did.Removed++;
+            }
+            // stages and objectives in Index order (the Creation Kit's own); aliases keep the winner's order, new ones
+            // at the end
+            if (field != "Aliases")
+            {
+                var sorted = state.OrderBy(x => QuestMerge.IndexOf(x.Held)).ToList();
+                state.Clear();
+                state.AddRange(sorted);
+            }
+            // a guard that should never fire
+            if (state.GroupBy(x => QuestMerge.KeyOf(x.Held)).FirstOrDefault(g => g.Count() > 1) is { } twice)
+                throw new InvalidOperationException($"the merged {field} would hold {twice.Key} twice; the quest is not patched (please report this)");
+            merged[field] = state;
+            return true;
+        }
+        // One stage or objective both sides changed: a new entry from the kept side's copy, with each field the other
+        // side changed alone taken from it, and each list (log entries, targets) merged by whole value.
+        (object Entry, List<string> Clash) SubMerge(object sHeld, object sMut, object bHeld, object lHeld, object lMut, bool keepS)
+        {
+            var result = QuestMerge.CopyEntry(sMut);
+            var clash = new List<string>();
+            foreach (var p in FieldCompare.NestedProperties(lHeld.GetType()))
+            {
+                if (p.Name == "Index") continue;
+                var rp = result.GetType().GetProperty(p.Name);
+                var lmp = lMut.GetType().GetProperty(p.Name);
+                if (rp is null || lmp is null) continue;
+                object? lv = p.GetValue(lHeld), bv = bHeld.GetType().GetProperty(p.Name)?.GetValue(bHeld), sv = sHeld.GetType().GetProperty(p.Name)?.GetValue(sHeld);
+                if (Same(lv, bv)) continue;
+                if (typeof(IList).IsAssignableFrom(rp.PropertyType) && rp.PropertyType != typeof(byte[]))
+                {
+                    var li2 = Items(lv); var bi = Items(bv); var si = Items(sv);
+                    var sMutItems = Items(rp.GetValue(result));
+                    var lMutItems = Items(lmp.GetValue(lMut));
+                    if (si.Count == sMutItems.Count && li2.Count == lMutItems.Count)
+                    {
+                        var bBag = BagOf(bi); var lBag = BagOf(li2); var sBag = BagOf(si);
+                        var keep = new List<object?>();
+                        for (int i = 0; i < si.Count; i++) if (!(bBag.Contains(si[i]) && !lBag.Contains(si[i]))) keep.Add(sMutItems[i]);
+                        for (int i = 0; i < li2.Count; i++) if (!bBag.Contains(li2[i]) && !sBag.Contains(li2[i])) keep.Add(lMutItems[i]);
+                        var target = rp.GetValue(result) as IList;
+                        if (target is null && rp.SetMethod is { IsPublic: true }) { target = (IList)System.Activator.CreateInstance(rp.PropertyType)!; rp.SetValue(result, target); }
+                        if (target is not null)
+                        {
+                            target.Clear();
+                            foreach (var x in keep) target.Add(x);
+                            continue;
+                        }
+                    }
+                    // lists that can't be lined up fall through to the whole-value rule below
+                }
+                bool sChanged = !Same(sv, bv);
+                if (!sChanged || !keepS)
+                {
+                    if (rp.SetMethod is { IsPublic: true }) rp.SetValue(result, lmp.GetValue(lMut));
+                    else if (rp.GetValue(result) is IList t2) { t2.Clear(); foreach (var x in Items(lmp.GetValue(lMut))) t2.Add(x); }
+                    if (sChanged) clash.Add(p.Name);
+                }
+                else clash.Add(p.Name);
+            }
+            return (result, clash);
+        }
+        bool MergeAny(string field, int li, LostChange l, bool forward) => Keyed(field) ? KeyedMerge(field, li, l, forward) : Merge(field, li);
         // One line for the report: what the merge added and removed for this plugin, over the list the patch already had.
         string MergedText(string field, string winner)
         {
@@ -1177,7 +1348,7 @@ public static class PatchCommand
             foreach (var f in l.Fields.Where(f => !f.WinnerChangedToo && !Impact.IsMinor(f)))
             {
                 if (!byName.ContainsKey(f.Field)) { Log.Write($"patch: {fk} field {f.Field} is not stored in the record; not copied"); continue; }
-                if (Mergeable(f.Field) && Merge(f.Field, li))
+                if (Mergeable(f.Field) && MergeAny(f.Field, li, l, true))
                 {
                     setBy[f.Field] = l.Loser;
                     forwarded.Add(new(f.Field, l.Loser, MergedText(f.Field, l.Winner)));
@@ -1250,12 +1421,14 @@ public static class PatchCommand
                     continue;
                 }
                 var li = IndexOf(l.Loser);
-                if (li >= 0 && Mergeable(f.Field) && Merge(f.Field, li))
+                if (li >= 0 && Mergeable(f.Field) && MergeAny(f.Field, li, l, false))
                 {
                     setBy[f.Field] = l.Loser;
                     forwarded.Add(new(f.Field, l.Loser, $"merged entry by entry with {l.Winner}'s list (both changed it): {MergedText(f.Field, l.Winner)}"));
                     plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Winner, l.Loser, true,
-                        $"both changed the list; merged entry by entry (an entry both changed keeps the later plugin's version)", Merged: true));
+                        Keyed(f.Field)
+                            ? $"both changed the list; merged by {QuestMerge.KeyName(f.Field)} (an entry both changed is named in its own row)"
+                            : $"both changed the list; merged entry by entry (an entry both changed keeps the later plugin's version)", Merged: true));
                     continue;
                 }
                 plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Winner, l.Loser, false,
@@ -1632,7 +1805,10 @@ public static class PatchCommand
                 if (r.Merged.TryGetValue(p.Name, out var want))
                 {
                     var have = FieldCompare.Get(p, w) is IEnumerable e ? e.Cast<object?>().ToList() : new();
-                    if (have.Count != want.Count || have.Zip(want).Any(x => !FieldCompare.DeepEq(x.First, x.Second, 0)))
+                    // 0.19.0: a stage or objective merged one level down was built in memory, so it is compared with an
+                    // in-memory copy of the written one (DeepEq compares values of one type)
+                    if (have.Count != want.Count || have.Zip(want).Any(x => !FieldCompare.DeepEq(
+                            x.First is not null && x.Second is not null && x.First.GetType() != x.Second.GetType() ? QuestMerge.CopyEntry(x.First) : x.First, x.Second, 0)))
                         diffs.Add($"{r.RecordType} {r.EditorID} [{r.FormKey}]: merged list {p.Name} reads back differently ({have.Count} entries, {want.Count} meant)");
                     continue;
                 }
