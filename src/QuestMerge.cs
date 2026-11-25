@@ -166,7 +166,10 @@ public static class QuestMerge
             r.Script = l.Script?.DeepCopy();
             Set(r.Fragments, l.Fragments.Select(f => f.DeepCopy()));
         }
-        else if (lFrag && sFrag)
+        // both made the same fragment change: nothing to merge, and the fragment script needn't be read (code review
+        // 0.19.0, round 3)
+        else if (lFrag && sFrag && !(Eq(s.Script, l.Script) && Eq(s.Fragments, l.Fragments))
+                 && !(FragmentScript(s) == "" && FragmentScript(l) == ""))   // both took the fragments out
         {
             var sName = FragmentScript(s);
             var lName = FragmentScript(l);

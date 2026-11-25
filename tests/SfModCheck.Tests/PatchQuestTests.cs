@@ -5,6 +5,7 @@ using BuildKit;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Starfield;
+using SfModCheck.Conflict;
 using Xunit;
 
 namespace SfModCheck.Tests;
@@ -608,6 +609,49 @@ public class PatchQuestTests
         Ok(game.Patch());
         var props = game.Quest().VirtualMachineAdapter!.Scripts.First(s => s.Name == "MyQuestScript").Properties.Select(p => p.Name);
         Assert.Equal(new[] { "Level" }, props);
+    }
+
+    // code review 0.19.0, round 3: one fragment change both made needs no fragment script read
+    [Fact]
+    public void Same_fragment_change_by_both_merges_without_reading_the_script()
+    {
+        using var game = new Game(BaseVmad);   // no fragment script file: it can't be read
+        game.Mod("ModA.esm", q => { q.VirtualMachineAdapter!.Fragments.Add(Frag(20)); Prop(q, "MyQuestScript", "Count").Data = 5; });
+        game.Mod("ModB.esm", q => { q.VirtualMachineAdapter!.Fragments.Add(Frag(20)); Prop(q, "MyQuestScript", "Level").Data = 7; });
+        Ok(game.Patch());
+        var quest = game.Quest();
+        Assert.Equal(new[] { 10, 20 }, quest.VirtualMachineAdapter!.Fragments.Select(f => (int)f.Stage));
+        Assert.Equal((5, 7), (Value(quest, "MyQuestScript", "Count"), Value(quest, "MyQuestScript", "Level")));
+        Assert.DoesNotContain("could not be read", game.Report);
+    }
+
+    // code review 0.19.0, round 3: a topic added as a parent in the line pass and dropped in the quest pass leaves no
+    // "is in the patch" note behind
+    [Fact]
+    public void Parent_topic_dropped_with_its_quest_leaves_no_in_the_patch_note()
+    {
+        using var game = new Game(BaseDialog);
+        game.Mod("ModA.esm", q => Info(q, "B_Info1").Prompt = "A prompt");
+        game.Mod("ModB.esm", q => Info(q, "B_Info1").StartScenePhase = "B phase");
+        var txt = Path.Combine(game.Dir, "Plugins.txt");
+        File.WriteAllLines(txt, new[] { "*Base.esm", "*ModA.esm", "*ModB.esm" });
+        var lo = LoadOrderSetup.Build(game.Data, txt);
+        var questKey = FormKey.Factory(QuestFk);
+        PatchCommand.Plan plan;
+        try
+        {
+            PatchCommand.ComposeFailsForTest.Value = k => k == questKey;
+            plan = PatchCommand.Build(lo, Analyzer.Run(lo.Plugins), new HashSet<string>(), new List<PatchCommand.Pick>());
+        }
+        finally
+        {
+            PatchCommand.ComposeFailsForTest.Value = null;
+            foreach (var p in lo.Plugins) p.Mod.Dispose();
+        }
+        Assert.Empty(plan.Records);
+        Assert.DoesNotContain(plan.Notes, n => n.Contains("is in the patch as the parent of"));
+        Assert.Contains(plan.Notes, n => n.Contains("[000801:Base.esm] was needed only as the parent of patched dialogue"));
+        Assert.Contains(plan.NotBuilt, r => r.EditorID == "B_Info1");
     }
 
     [Fact]

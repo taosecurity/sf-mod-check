@@ -1104,7 +1104,23 @@ public static class PatchCommand
         {
             if (!plan.Records.Remove(o)) continue;
             if (o.Parent)
-                plan.Notes.Add($"{o.RecordType} {o.EditorID} [{o.FormKey}] was needed only as the parent of patched dialogue, but {why}, so it is left out with it");
+            {
+                // a topic added as a parent in the line pass and dropped in the quest pass: its "is in the patch" note
+                // goes, and a "Not built" row NoteNotBuiltParent marked is corrected (code review 0.19.0, round 3)
+                plan.Notes.RemoveAll(n => n.Contains($"[{o.FormKey}] is in the patch as the parent of "));
+                bool had = false;
+                for (int k = 0; k < plan.NotBuilt.Count; k++)
+                    if (plan.NotBuilt[k].FormKey == o.FormKey)
+                    {
+                        var w = plan.NotBuilt[k].Why;
+                        var at = w.IndexOf(ParentNoteMid, StringComparison.Ordinal);
+                        if (at >= 0) w = w[..at];
+                        plan.NotBuilt[k] = plan.NotBuilt[k] with { Why = w + $"; it was needed as the parent of patched dialogue, but {why}, so it isn't in the patch" };
+                        had = true;
+                    }
+                if (!had)
+                    plan.Notes.Add($"{o.RecordType} {o.EditorID} [{o.FormKey}] was needed only as the parent of patched dialogue, but {why}, so it is left out with it");
+            }
             else
                 plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, why, new()));
             Log.Write($"patch: {LogName(o.RecordType, o.EditorID, o.FormKey)} left out: {why}");
@@ -1412,6 +1428,8 @@ public static class PatchCommand
                 if (held.Count != mut.Count || QuestMerge.Keys(held) is null) { Log.Write($"patch: {fk} {field}: {vs[s].Plugin.FileName}'s list can't be keyed; replaced whole"); return false; }
                 state = held.Zip(mut, (h, m) => (h, m, s)).ToList();
                 stateOrigin[field] = s;
+                // a list started again (after a whole-value replace or a --pick): earlier removals no longer apply
+                foreach (var rk in removedBy.Keys.Where(x => x.Field == field).ToList()) removedBy.Remove(rk);
             }
             else if (QuestMerge.Keys(state.Select(x => x.Held).ToList()) is null) return false;
             var loser = l.Loser;
