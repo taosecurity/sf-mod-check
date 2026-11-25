@@ -250,7 +250,7 @@ public class PatchCheckTests
         Assert.True(code == 0, stdout + stderr);
         Assert.StartsWith("NOTE [patch-off] ConflictPatch.esm isn't in the load order (it isn't active in Plugins.txt)", Assert.Single(Lines(stdout, "patch-off")));
         Assert.Empty(Lines(stdout, "updated"));
-        Assert.StartsWith("RESULT: UP TO DATE (the patch isn't in the load order", ExeTests.ResultLine(stdout));
+        Assert.StartsWith("RESULT: NOT CHECKED (the patch isn't in the load order", ExeTests.ResultLine(stdout));
     }
 
     [Fact]

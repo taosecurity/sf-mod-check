@@ -89,7 +89,7 @@ public static class PatchCommand
         if (colon <= 0) return null;
         var field = left[(colon + 1)..].Trim();
         if (field.Length == 0 || !field.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')) return null;
-        return FormKey.TryFactory(left[..colon], out var fk) ? new(fk, field, plugin) : null;
+        return FormKey.TryFactory(left.AsSpan(0, colon), out var fk) ? new(fk, field, plugin) : null;
     }
 
     // Record kinds that live inside another record's group and aren't built yet: dialogue and scenes (inside a quest or

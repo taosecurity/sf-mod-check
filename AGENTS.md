@@ -359,7 +359,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
         sf-mod-check patch check sf-mod-check-patch\ConflictPatch.esm --plugins sf-mod-check-patch\Plugins-with-patch.txt --extra-data sf-mod-check-patch --json check.json
 
     Use the second form before the patch is installed. Read the exit code and the last stdout line: exit 0 and
-    `RESULT: UP TO DATE` (also when the patch isn't in the load order: `RESULT: UP TO DATE (the patch isn't in the load order; nothing was checked)`),
+    `RESULT: UP TO DATE` (`RESULT: NOT CHECKED (the patch isn't in the load order; nothing was checked)` when the patch isn't active, also exit 0: don't read it as up to date),
     exit 1 and `RESULT: REBUILD (n reasons)` (run the same `patch` command again, or follow the `[moved]` or
     `[duplicate]` advice), exit 2 and `RESULT: CANNOT CHECK (...)` (the message above it names the file and the fix;
     no `patch-sources.json` beside the patch means it was made before 0.15.0, so make it again). The lines before
@@ -570,7 +570,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   REVIEW `[duplicate]` (another spelling of the patch, differing in spaces or case, is active too);
   REVIEW `[patch-changed]` (the loaded patch file isn't the manifest's build);
   NOTE `[patch-off]` (the patch isn't active; nothing else is checked).
-  Then `RESULT: UP TO DATE`, `RESULT: REBUILD (n reasons)` (n = PROBLEM and REVIEW lines) or
+  Then `RESULT: UP TO DATE`, `RESULT: NOT CHECKED (...)` (the patch isn't active), `RESULT: REBUILD (n reasons)` (n = PROBLEM and REVIEW lines) or
   `RESULT: CANNOT CHECK (...)`. Texts show up to 5 FormKeys. `--json` writes {`patch`, `state` (`up to date`,
   `rebuild`, `not active`, `cannot check`), `result`, `findings` [{`level`, `rule`, `plugin`, `text`, `records`
   (all FormKeys)}], and `why` for `cannot check`}. Exit codes: 0 = up to date or not active; 1 = rebuild or review;

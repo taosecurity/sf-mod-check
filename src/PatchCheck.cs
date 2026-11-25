@@ -3,8 +3,8 @@
 //   sf-mod-check patch check <patch.esm> [--manifest <patch-sources.json>] [--plugins <Plugins.txt>] [--data <Data folder>]
 //                            [--extra-data <folder>] [--json <file>] [--quiet] [--verbose] [--log <file>]
 // Findings (LEVEL [rule] text): PROBLEM [removed], REVIEW [moved], [updated], [new-editor], [duplicate], [patch-changed],
-// NOTE [updated] and [patch-off]. Ends with RESULT: UP TO DATE, RESULT: REBUILD (n reasons) or RESULT: CANNOT CHECK (why).
-// Exit 0 = up to date (NOTEs only), 1 = something to rebuild or review, 2 = can't check.
+// NOTE [updated] and [patch-off]. Ends with RESULT: UP TO DATE, RESULT: NOT CHECKED (the patch isn't active), RESULT: REBUILD (n reasons) or RESULT: CANNOT CHECK (why).
+// Exit 0 = up to date (NOTEs only) or not checked, 1 = something to rebuild or review, 2 = can't check.
 // Ports the private patch_sources.py check; the record hashes in the manifest replace its old-copy archive search.
 using System.Diagnostics;
 using System.Text.Encodings.Web;
@@ -264,7 +264,7 @@ public static class PatchCheck
             var why = at.ContainsKey(patchName) ? "it is listed in Plugins.txt, but it isn't in the Data folder or the --extra-data folder" : "it isn't active in Plugins.txt";
             var alt = twins.Count == 0 ? "" : $" {string.Join(", ", twins)} {(twins.Count == 1 ? "is" : "are")} active instead: if that is a newer build, check it with its own manifest.";
             Add("NOTE", "patch-off", patchName, $"{patchName} isn't in the load order ({why}), so nothing else was checked.{alt}");
-            return new(patchName, "not active", "RESULT: UP TO DATE (the patch isn't in the load order; nothing was checked)", findings);
+            return new(patchName, "not active", "RESULT: NOT CHECKED (the patch isn't in the load order; nothing was checked)", findings);
         }
         if (self is null) Log.Write($"patch check: {name} is listed but didn't load (see the load-order problems); checked from {selfPath}");
         int patchAt = at.TryGetValue(name, out var pa) ? pa : int.MaxValue;

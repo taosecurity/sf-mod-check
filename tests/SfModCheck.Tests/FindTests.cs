@@ -88,6 +88,16 @@ public class FindTests
         Assert.Contains("  winner: FindLight.esm", stdout);
     }
 
+    // 0.18.0 (GapFix): find --json NOT FOUND carries the same reason as the text RESULT line
+    [Fact]
+    public void Json_not_found_for_an_FF_console_FormID_names_the_save_game_reason()
+    {
+        using var game = new Game();
+        var (code, stdout, _) = game.Find("FF000123", "--json");
+        Assert.Equal(1, code);
+        Assert.Contains("FormIDs that start with FF belong to the save game", stdout);
+    }
+
     [Fact]
     public void Console_FormIDs_pick_full_medium_and_light_plugins_by_load_order_index()
     {

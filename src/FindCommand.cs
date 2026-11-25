@@ -249,7 +249,7 @@ public static class FindCommand
                                : "If the mod isn't in that load order, give its Plugins.txt with --plugins (with Mod Organizer 2: --mo2 <MO2 folder>), or name the folder that holds the plugin with --extra-data.") +
                            (kind == Kind.FormId ? " A console FormID depends on the load order; the FormKey form (01295A:Starfield.esm) doesn't." : "");
                 resultPrinted = true;
-                if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "not found", hint));
+                if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "not found", notFoundWhy != null ? $"{char.ToUpperInvariant(notFoundWhy[0])}{notFoundWhy[1..]}. {hint}" : hint));
                 else
                 {
                     Console.WriteLine($"HINT: {hint}");

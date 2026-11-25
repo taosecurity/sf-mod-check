@@ -135,6 +135,8 @@ public static class ReleaseCommand
         finally { Log.Close(); }
     }
 
+    static string Num(int n, string one) => $"{n} {one}{(n == 1 ? "" : "s")}";
+
     static int CantRun(string why, string detail)
     {
         Console.Error.WriteLine(detail);
@@ -414,7 +416,7 @@ public static class ReleaseCommand
                 warnings = counted.Count(f => f.Level == Level.Warning), accepted = shown.Count - counted.Count;
             if (!quiet)
                 Console.WriteLine($"sf-mod-check {version} release ({o.Profile} profile): {SafeText.OneLine(string.Join(", ", packages.Select(p => p.Name)))} " +
-                                  $"({packages.Sum(p => p.Files.Count)} files, {packages.Sum(p => p.Plugins.Count)} plugins, {packages.Sum(p => p.Archives.Count)} archives)");
+                                  $"({Num(packages.Sum(p => p.Files.Count), "file")}, {Num(packages.Sum(p => p.Plugins.Count), "plugin")}, {Num(packages.Sum(p => p.Archives.Count), "archive")})");
             foreach (var lvl in new[] { Level.Problem, Level.Review, Level.Warning, Level.Note })
                 foreach (var f in counted.Where(f => f.Level == lvl))
                     Console.WriteLine($"{Label(lvl)} [{f.Rule}] {SafeText.OneLine(f.Text)}");   // every step's names, one rule (0.13.0)

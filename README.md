@@ -640,8 +640,9 @@ What it reports (each line names the plugin and what to do):
   findings judge the manifest's build: make the patch again with `patch`.
 - NOTE `[patch-off]`: the patch isn't in the load order, so nothing else is checked.
 
-The last line is `RESULT: UP TO DATE`, `RESULT: REBUILD (n reasons)` (the PROBLEM and REVIEW lines) or
-`RESULT: CANNOT CHECK (...)`. **Exit codes:** 0 = up to date (NOTE lines only, or the patch isn't active), 1 =
+The last line is `RESULT: UP TO DATE`, `RESULT: REBUILD (n reasons)` (the PROBLEM and REVIEW lines),
+`RESULT: NOT CHECKED (...)` (the patch isn't in the load order, so nothing was checked) or
+`RESULT: CANNOT CHECK (...)`. **Exit codes:** 0 = up to date (NOTE lines only) or not checked (the patch isn't active), 1 =
 something to rebuild or review, 2 = couldn't check (no `patch-sources.json`, a schema this version doesn't know, a
 patch or load order that can't be read, a bad argument). `--help` prints the usage and exits 0.
 
@@ -759,7 +760,7 @@ Data folder.
 
     > sf-mod-check release MyMod-0.1.0.zip
     sf-mod-check 0.15.1 by Richard Bejtlich - GPL-3.0 - https://github.com/taosecurity/sf-mod-check
-    sf-mod-check 0.15.1 release (basic profile): MyMod-0.1.0.zip (4 files, 1 plugins, 2 archives)
+    sf-mod-check 0.15.1 release (basic profile): MyMod-0.1.0.zip (4 files, 1 plugin, 2 archives)
     PROBLEM  [archive-name] MyMod-0.1.0.zip: archive MyMod_Extra.ba2: its name has no " - " part, so the game never loads it. The game loads an archive only when it is named "<plugin> - <part>.ba2" (with spaces around the dash) beside a plugin of that name, or when an INI lists it; rename it, for example MyMod - Main.ba2 for MyMod.esm
     WARNING  [file-name] MyMod-0.1.0.zip: textures\mymod\café.dds has a character outside plain ASCII (letters with accents, other scripts, symbols); archive tools and the game may not find it. Rename it with plain letters, digits and - _ .
     NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked.

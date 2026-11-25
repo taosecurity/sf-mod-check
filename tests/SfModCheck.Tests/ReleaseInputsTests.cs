@@ -107,7 +107,7 @@ public class ReleaseInputsTests
 
         var (code, stdout, stderr) = ExeTests.RunSplit("release", plugin, other, "--data", data);
         Assert.True(code is 0 or 1, $"exit {code}\n{stdout}\n{stderr}");
-        Assert.Contains("release (basic profile): loose files (2 files, 1 plugins, 1 archives)", stdout);
+        Assert.Contains("release (basic profile): loose files (2 files, 1 plugin, 1 archive)", stdout);
         Assert.Contains("[not-a-zip] loose files: not a zip", stdout);
         // the archive sits beside its plugin in the package, so archive-name is satisfied; it can't be read, so that is reported
         Assert.DoesNotContain("[archive-name]", stdout);

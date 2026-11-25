@@ -9,6 +9,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
+    <!-- CA1416: the tests that set Unix file modes are skipped on Windows (UnixFact), so the platform warning is noise. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <!-- BuildKit: the nuget.org package, or the local project in the author's working copy (same switch as src\sfmodcheck.csproj). -->
     <BuildKitProject>$(MSBuildThisFileDirectory)..\..\..\tools\BuildKit\BuildKit.csproj</BuildKitProject>
