@@ -19,7 +19,7 @@ public class PatchQuestTests
     sealed class Game : Sandbox
     {
         public readonly string Data;
-        public Game()
+        public Game(Action<Quest>? baseQuest = null)
         {
             Data = Sub("Data");
             var b = Plugin.New("Base.esm", PluginStyle.Full, "test", "made-up base game");
@@ -31,6 +31,7 @@ public class PatchQuestTests
             q.Aliases = [new QuestReferenceAlias { ID = 0, Name = "Hero" }, new QuestReferenceAlias { ID = 1, Name = "Friend" }];
             q.DialogConditions.Add(Cond(1, Condition.Flag.OR));
             q.DialogConditions.Add(Cond(2));
+            baseQuest?.Invoke(q);
             using var g = new GameData(Data);
             PluginWriter.Write(b, Data, g, NoGap);
         }
@@ -219,6 +220,113 @@ public class PatchQuestTests
         Assert.Equal(new[] { 10, 20 }, quest.Stages.Select(s => (int)s.Index));
         Assert.Equal(new[] { "base 10", "A log", "B log" }, Notes(quest.Stages[0]));
         Assert.Equal(QuestStage.Flag.KeepInstanceDataFromHereOn, quest.Stages[0].Flags);
+    }
+
+    // ---------- the quest's script data (step 5b, tests 10-12) ----------
+
+    const string FragScript = "MyMod:QF_Quest";
+
+    static ScriptIntProperty Int(string name, int value) => new() { Name = name, Data = value };
+
+    static QuestScriptFragment Frag(ushort stage) => new() { Stage = stage, StageIndex = 0, FragmentName = $"Fragment_Stage_{stage:D4}_Item_00" };
+
+    /// <summary>The base quest's script data: script MyQuestScript (Count 1, Level 1) and the fragment script with
+    /// stage 10's fragment.</summary>
+    static void BaseVmad(Quest q)
+    {
+        var vm = new QuestAdapter { Script = new ScriptEntry { Name = FragScript } };
+        vm.Scripts.Add(new ScriptEntry { Name = "MyQuestScript", Properties = [Int("Count", 1), Int("Level", 1)] });
+        vm.Fragments.Add(Frag(10));
+        q.VirtualMachineAdapter = vm;
+    }
+
+    static ScriptIntProperty Prop(Quest q, string script, string name) =>
+        (ScriptIntProperty)q.VirtualMachineAdapter!.Scripts.First(s => s.Name == script).Properties.First(p => p.Name == name);
+
+    static int Value(IQuestGetter q, string script, string name) =>
+        ((IScriptIntPropertyGetter)q.VirtualMachineAdapter!.Scripts.First(s => s.Name == script).Properties.First(p => p.Name == name)).Data;
+
+    /// <summary>A loose compiled fragment script in Data with one function per stage given.</summary>
+    static void WriteFragmentScript(Game game, params ushort[] stages)
+    {
+        var fns = stages.Select(st => new PFn($"Fragment_Stage_{st:D4}_Item_00")).ToArray();
+        var path = Path.Combine([game.Data, "Scripts", .. FragScript.Split(':')]) + ".pex";
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, PexBytes.Build([new PObj(FragScript, "Quest", States: [("", fns)])]));
+    }
+
+    [Fact]
+    public void Vmad_properties_merge_by_name()
+    {
+        using var game = new Game(BaseVmad);
+        game.Mod("ModA.esm", q => { Prop(q, "MyQuestScript", "Count").Data = 5; Prop(q, "MyQuestScript", "Level").Data = 3; });
+        game.Mod("ModB.esm", q =>
+        {
+            Prop(q, "MyQuestScript", "Level").Data = 7;
+            q.VirtualMachineAdapter!.Scripts.Add(new ScriptEntry { Name = "OtherScript", Properties = [Int("Mode", 2)] });
+        });
+        Ok(game.Patch());
+        var quest = game.Quest();
+        Assert.Equal(new[] { "MyQuestScript", "OtherScript" }, quest.VirtualMachineAdapter!.Scripts.Select(s => s.Name));
+        Assert.Equal(5, Value(quest, "MyQuestScript", "Count"));   // only ModA changed it
+        Assert.Equal(7, Value(quest, "MyQuestScript", "Level"));   // both changed it: the winner's
+        Assert.Equal(2, Value(quest, "OtherScript", "Mode"));
+        Assert.Contains("merged by script and property name", game.Report);
+        Assert.Contains("both changed script MyQuestScript property Level; ModB.esm's value is kept", game.Report);
+    }
+
+    // Not in the design's list: the forward path (two losers, the winner left the script data alone).
+    [Fact]
+    public void Two_losers_change_different_script_properties_both_are_kept()
+    {
+        using var game = new Game(BaseVmad);
+        game.Mod("ModA.esm", q => Prop(q, "MyQuestScript", "Count").Data = 5);
+        game.Mod("ModB.esm", q => Prop(q, "MyQuestScript", "Level").Data = 7);
+        game.Mod("ModC.esm", q => q.Name = "Renamed");
+        Ok(game.Patch());
+        var quest = game.Quest();
+        Assert.Equal("Renamed", quest.Name?.String);
+        Assert.Equal((5, 7), (Value(quest, "MyQuestScript", "Count"), Value(quest, "MyQuestScript", "Level")));
+    }
+
+    [Fact]
+    public void Different_fragment_scripts_keep_winner_vmad_with_message()
+    {
+        using var game = new Game(BaseVmad);
+        game.Mod("ModA.esm", q => { q.VirtualMachineAdapter!.Script.Name = "MyMod:QF_A"; q.VirtualMachineAdapter.Fragments.Add(Frag(20)); q.Summary = "A summary"; });
+        game.Mod("ModB.esm", q => { q.VirtualMachineAdapter!.Script.Name = "MyMod:QF_B"; q.VirtualMachineAdapter.Fragments.Add(Frag(30)); });
+        Ok(game.Patch());
+        var quest = game.Quest();
+        Assert.Equal("A summary", quest.Summary);
+        Assert.Equal("MyMod:QF_B", quest.VirtualMachineAdapter!.Script.Name);
+        Assert.Equal(new[] { 10, 30 }, quest.VirtualMachineAdapter.Fragments.Select(f => (int)f.Stage));
+        Assert.Contains("ModA.esm and ModB.esm attach different stage fragment scripts (MyMod:QF\\_A, MyMod:QF\\_B)", game.Report);
+    }
+
+    [Fact]
+    public void Same_fragment_script_fragments_merge_by_stage()
+    {
+        using var game = new Game(BaseVmad);
+        WriteFragmentScript(game, 10, 20, 30);
+        game.Mod("ModA.esm", q => q.VirtualMachineAdapter!.Fragments.Add(Frag(20)));
+        game.Mod("ModB.esm", q => q.VirtualMachineAdapter!.Fragments.Insert(0, Frag(30)));
+        Ok(game.Patch("--verbose"));
+        var vm = game.Quest().VirtualMachineAdapter!;
+        Assert.Equal(FragScript, vm.Script.Name);
+        Assert.Equal(new[] { 10, 20, 30 }, vm.Fragments.Select(f => (int)f.Stage));
+    }
+
+    // Not in the design's list: the fragment script as the game loads it lacks a kept fragment's function.
+    [Fact]
+    public void Fragment_missing_from_the_script_keeps_winner_vmad_with_message()
+    {
+        using var game = new Game(BaseVmad);
+        WriteFragmentScript(game, 10, 30);   // no stage 20 function
+        game.Mod("ModA.esm", q => { q.VirtualMachineAdapter!.Fragments.Add(Frag(20)); q.Summary = "A summary"; });
+        game.Mod("ModB.esm", q => q.VirtualMachineAdapter!.Fragments.Add(Frag(30)));
+        Ok(game.Patch());
+        Assert.Equal(new[] { 10, 30 }, game.Quest().VirtualMachineAdapter!.Fragments.Select(f => (int)f.Stage));
+        Assert.Contains("has no function Fragment\\_Stage\\_0020\\_Item\\_00", game.Report);
     }
 
     [Fact]

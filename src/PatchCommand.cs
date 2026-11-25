@@ -407,7 +407,7 @@ public static class PatchCommand
             }
             Analyzer.Where = "working out the patch";
             Plan plan;
-            try { plan = Build(lo, analysis, onlySet, picks); }
+            try { plan = Build(lo, analysis, onlySet, picks, FragmentFunctionsFor(lo, dataDir, overDirs)); }
             catch (MeshPickConflict e)
             {
                 cantWhy = "two --pick options name different plugins for one navmesh's mesh";
@@ -473,6 +473,27 @@ public static class PatchCommand
     /// <param name="Forward">two losing plugins changed a field the winner left alone: the later one's value is used
     /// (not the winner's), unless a --pick names the other</param>
     public sealed record ChoiceField(FormKey FormKey, string RecordType, string? EditorID, string Field, string Winner, string Other, bool Picked, string Text, bool Merged = false, bool Forward = false);
+    /// <summary>0.19.0: a script's function names as the game loads it (loose files, then the archives in the game's
+    /// order, last-loaded first), for the stage fragment rule of a quest's script data. The archive index is built on
+    /// the first call only, so a patch with no quest fragments to merge reads no archive.</summary>
+    static Func<string, ISet<string>?> FragmentFunctionsFor(LoadOrderSetup lo, string dataDir, IReadOnlyList<string> overDirs)
+    {
+        QuestStages.ScriptSource? src = null;
+        return script =>
+        {
+            if (src is null)
+            {
+                var names = lo.Plugins.Select(p => p.FileName).ToList();
+                var index = AssetIndex.Build(names, overDirs.Append(dataDir).ToList(), AssetIndex.DefaultInis(dataDir, []), "en");
+                src = new QuestStages.ScriptSource(index, names.Count == 0 ? [] : QuestStages.ArchivesFor(index, names[^1], names.SkipLast(1), dataDir));
+                Log.Write($"patch: script index for stage fragments built ({index.Loaded.Count} archives)");
+            }
+            var (pex, problem) = src.Get(script);
+            if (pex is null) { Log.Write($"patch: fragment script {script}: {problem}"); return null; }
+            return pex.Objects.SelectMany(o => o.Functions()).Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        };
+    }
+
     public sealed record NotBuiltRecord(FormKey FormKey, string RecordType, string? EditorID, string Why, List<string> Fields)
     {
         /// <summary>It loses to an official BlueprintShips file, so no patch can bring it back (0.12.0).</summary>
@@ -487,6 +508,9 @@ public static class PatchCommand
         /// because a patched placed object sits in it: the record as the game uses it today, with no field changed
         /// (0.13.0).</summary>
         public bool Parent { get; init; }
+        /// <summary>Fields whose value the patch built in memory from several versions (0.19.0: a quest's merged script
+        /// data), with that value: the read-back compares the written field with it.</summary>
+        public Dictionary<string, object> Built { get; init; } = new();
     }
 
     public sealed class Plan
@@ -502,13 +526,17 @@ public static class PatchCommand
         // made with --include-official: some records restore a change one official plugin loses to another
         public bool IncludeOfficial { get; set; }
         public int Forwarded => Records.Sum(r => r.Fields.Count(f => !f.Picked));
+        /// <summary>0.19.0: a script's function names as the game loads it (null when it can't be found or read), for the
+        /// stage fragment rule of a quest's script data.</summary>
+        public Func<string, ISet<string>?> FragmentFunctions { get; set; } = _ => null;
     }
 
     /// <summary>Works out every patch record from the analysis. Reads only the records it needs, one record type at a
     /// time (as the analyzer does), so memory stays near the analysis's own.</summary>
-    public static Plan Build(LoadOrderSetup lo, Analysis analysis, ISet<string> only, List<Pick> picks)
+    public static Plan Build(LoadOrderSetup lo, Analysis analysis, ISet<string> only, List<Pick> picks, Func<string, ISet<string>?>? fragmentFunctions = null)
     {
         var plan = new Plan();
+        if (fragmentFunctions is not null) plan.FragmentFunctions = fragmentFunctions;
         var relevant = analysis.Lost
             .Where(l => only.Count == 0 || only.Contains(l.Loser) || only.Contains(l.Winner))
             .Where(l => l.Fields.Any(f => !Impact.IsMinor(f)))
@@ -1325,6 +1353,50 @@ public static class PatchCommand
             return (result, clash);
         }
         bool MergeAny(string field, int li, LostChange l, bool forward) => Keyed(field) ? KeyedMerge(field, li, l, forward) : Merge(field, li);
+        // 0.19.0 (step 5b): a quest's script data (VMAD) merges by key: attached scripts and their properties by name,
+        // stage fragments by (stage, index) when both sides use one fragment script whose functions hold every fragment
+        // kept, fragment aliases by alias. Otherwise the kept side's whole script data stays, with a Choice row. The
+        // merged value is built in memory (built), and the read-back compares the written field with it.
+        var built = new Dictionary<string, object>(StringComparer.Ordinal);
+        var builtOrigin = new Dictionary<string, int>(StringComparer.Ordinal);
+        const string Vmad = "VirtualMachineAdapter";
+        bool IsVmad(string field) => isQuest && field == Vmad && byName.ContainsKey(Vmad);
+        // Handled false: the whole-value rule applies. Whole: one side's whole script data was used (its row is added).
+        (bool Handled, bool Whole) VmadMerge(int li, LostChange l, bool forward)
+        {
+            if (Held(Vmad, li) is not IQuestAdapterGetter lv) return (false, false);
+            int origin = builtOrigin.TryGetValue(Vmad, out var o) ? o : source[Vmad];
+            var sCopy = built.TryGetValue(Vmad, out var bo) ? ((QuestAdapter)bo).DeepCopy() : (Held(Vmad, origin) as IQuestAdapterGetter)?.DeepCopy();
+            if (sCopy is null) return (false, false);
+            var mv = MasterVersions(li, byName[Vmad]);
+            var bCopy = mv.Count > 0 ? (Held(Vmad, mv[^1]) as IQuestAdapterGetter)?.DeepCopy() : null;
+            // the forward path takes losers in load order, so this one is later than any merged before it (the winner
+            // didn't change the field there)
+            bool keepS = !forward && origin > li;
+            var loser = l.Loser;
+            var (kept, dropped) = keepS ? (vs[origin].Plugin.FileName, loser) : (loser, vs[origin].Plugin.FileName);
+            var questName = string.IsNullOrEmpty(l.EditorID) ? fk.ToString() : SafeText.OneLine(l.EditorID);
+            var res = QuestMerge.MergeVmad(sCopy, bCopy, lv.DeepCopy(), keepS, kept, dropped, questName, fk.ToString(), plan.FragmentFunctions);
+            if (res is null)
+            {
+                Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {Vmad}: a script, property, fragment or alias is held twice in {loser} or its master; the script data is replaced whole");
+                return (false, false);
+            }
+            void Row(string text)
+            {
+                plan.Choices.Add(forward
+                    ? new(fk, l.RecordType, l.EditorID, Vmad, kept, dropped, false, text, Forward: true)
+                    : new(fk, l.RecordType, l.EditorID, Vmad, l.Winner, loser, false, text));
+                Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {Vmad}: {text}");
+            }
+            built[Vmad] = res.Value;
+            builtOrigin[Vmad] = keepS ? origin : li;
+            if (res.Whole is { } why) { Row(why); return (true, true); }
+            Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {Vmad}: merged {loser}'s script data by script, property, fragment and alias");
+            if (res.Clashes.Count > 0)
+                Row($"both changed {string.Join(", ", res.Clashes.Take(4))}{(res.Clashes.Count > 4 ? $" and {res.Clashes.Count - 4} more" : "")}; {kept}'s value is kept");
+            return (true, false);
+        }
         // One line for the report: what the merge added and removed for this plugin, over the list the patch already had.
         string MergedText(string field, string winner)
         {
@@ -1348,6 +1420,19 @@ public static class PatchCommand
             foreach (var f in l.Fields.Where(f => !f.WinnerChangedToo && !Impact.IsMinor(f)))
             {
                 if (!byName.ContainsKey(f.Field)) { Log.Write($"patch: {fk} field {f.Field} is not stored in the record; not copied"); continue; }
+                if (IsVmad(f.Field) && VmadMerge(li, l, true) is { Handled: true } vr)
+                {
+                    setBy[f.Field] = l.Loser;
+                    var vchange = SafeText.OneLine(f.LoserChanges.Where(d => !d.Minor).Select(d => d.Text).FirstOrDefault() ?? "");
+                    if (vr.Whole)
+                    {
+                        // one side's whole script data: only the kept plugin's line stays
+                        forwarded.RemoveAll(x => x.Field == f.Field);
+                        if (builtOrigin[Vmad] == li) forwarded.Add(new(f.Field, l.Loser, vchange));
+                    }
+                    else forwarded.Add(new(f.Field, l.Loser, SafeText.OneLine($"merged by script, property, stage fragment and alias{(vchange.Length > 0 ? $" ({vchange})" : "")}")));
+                    continue;
+                }
                 if (Mergeable(f.Field) && MergeAny(f.Field, li, l, true))
                 {
                     setBy[f.Field] = l.Loser;
@@ -1355,7 +1440,8 @@ public static class PatchCommand
                     continue;
                 }
                 // an earlier loser's merge is thrown away here, so its additions are gone even when the lists held look alike
-                var hadMerge = merged.Remove(f.Field);
+                var hadMerge = merged.Remove(f.Field) | built.Remove(f.Field);
+                builtOrigin.Remove(f.Field);
                 if (setBy.TryGetValue(f.Field, out var prev) && (hadMerge || !FieldCompare.DeepEq(Held(f.Field, source[f.Field]), Held(f.Field, li), 0)))
                     plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Loser, prev, false,
                         $"{prev} and {l.Loser} both changed {f.Field} and the winner {l.Winner} kept neither; the patch uses {l.Loser}'s (it loads later)", Forward: true));
@@ -1382,7 +1468,7 @@ public static class PatchCommand
             if (pick is null) continue;
             pick.Used = true;
             var pIdx = IndexOf(pick.Plugin);
-            merged.Remove(field);
+            merged.Remove(field); built.Remove(field); builtOrigin.Remove(field);
             if (!SetField(rec, field, copies.Of(pIdx))) throw new InvalidOperationException($"field {field} can't be set");
             source[field] = pIdx;
             setBy[field] = pick.Plugin;
@@ -1410,6 +1496,7 @@ public static class PatchCommand
                 {
                     pick.Used = true;
                     merged.Remove(f.Field);   // a pick takes that plugin's whole value
+                    built.Remove(f.Field); builtOrigin.Remove(f.Field);
                     if (!SetField(rec, f.Field, copies.Of(IndexOf(pick.Plugin)))) throw new InvalidOperationException($"field {f.Field} can't be set");
                     source[f.Field] = IndexOf(pick.Plugin);
                     setBy[f.Field] = pick.Plugin;
@@ -1421,6 +1508,15 @@ public static class PatchCommand
                     continue;
                 }
                 var li = IndexOf(l.Loser);
+                if (li >= 0 && IsVmad(f.Field) && VmadMerge(li, l, false) is { Handled: true } vr)
+                {
+                    if (vr.Whole) continue;   // the winner's whole script data stays; its row is added
+                    setBy[f.Field] = l.Loser;
+                    forwarded.Add(new(f.Field, l.Loser, $"merged with {l.Winner}'s script data (both changed it) by script, property, stage fragment and alias"));
+                    plan.Choices.Add(new(fk, l.RecordType, l.EditorID, f.Field, l.Winner, l.Loser, true,
+                        "both changed the quest's script data; merged by script and property name, stage fragment and alias (an entry both changed is named in its own row)", Merged: true));
+                    continue;
+                }
                 if (li >= 0 && Mergeable(f.Field) && MergeAny(f.Field, li, l, false))
                 {
                     setBy[f.Field] = l.Loser;
@@ -1463,7 +1559,7 @@ public static class PatchCommand
             var dropped = forwarded.Where(x => x.Field == field && !x.Picked).Select(x => x.From).Concat(rowsGone.Select(c => c.Other))
                 .Where(x => !x.Equals(pick.Plugin, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             plan.Choices.RemoveAll(rowsGone.Contains);
-            merged.Remove(field);
+            merged.Remove(field); built.Remove(field); builtOrigin.Remove(field);
             if (!SetField(rec, field, copies.Of(pIdx))) throw new InvalidOperationException($"field {field} can't be set");
             source[field] = pIdx;
             setBy[field] = pick.Plugin;
@@ -1596,6 +1692,13 @@ public static class PatchCommand
             target.Clear();
             foreach (var x in state) target.Add(x.Mut);
         }
+        foreach (var (field, value) in built)
+        {
+            var p = rec.GetType().GetProperty(field)!;
+            if (p.SetMethod is not { IsPublic: true }) throw new InvalidOperationException($"field {field} can't be set");
+            p.SetValue(rec, value);
+        }
+        static object? VmadCopy(object? v) => v is IQuestAdapterGetter a ? a.DeepCopy() : v;
         bool ListSame(List<object?> a, List<object?> b)
         {
             if (a.Count != b.Count) return false;
@@ -1609,7 +1712,9 @@ public static class PatchCommand
             return true;
         }
         // Nothing differs from today's record: leave it out (an ITM would only add risk).
-        var changed = getterFields.Any(p => merged.TryGetValue(p.Name, out var st)
+        var changed = getterFields.Any(p => built.TryGetValue(p.Name, out var bv)
+            ? !FieldCompare.DeepEq(bv, VmadCopy(Held(p.Name, today[p.Name])), 0)
+            : merged.TryGetValue(p.Name, out var st)
             ? !ListSame(st.Select(x => x.Held).ToList(), Items(Held(p.Name, today[p.Name])))
             : source[p.Name] != today[p.Name] && !FieldCompare.DeepEq(Held(p.Name, source[p.Name]), Held(p.Name, today[p.Name]), 0));
         if (!changed)
@@ -1623,10 +1728,11 @@ public static class PatchCommand
         var plugins = vs.Select(v => v.Plugin.FileName).ToList();
         Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)} built: {forwarded.Count} field(s) forwarded" +
                   (forwarded.Count > 0 ? $" ({string.Join(", ", forwarded.Select(f => $"{f.Field} from {f.From}").Distinct())})" : "") +
-                  (merged.Count > 0 ? $", {merged.Count} list(s) merged ({string.Join(", ", merged.Keys)})" : ""));
+                  (merged.Count > 0 ? $", {merged.Count} list(s) merged ({string.Join(", ", merged.Keys)})" : "") +
+                  (built.Count > 0 ? $", built in memory: {string.Join(", ", built.Keys)}" : ""));
         plan.Records.Add(new(fk, first.RecordType, first.EditorID, rec, forwarded, plugins,
-            source.Where(s => !merged.ContainsKey(s.Key)).ToDictionary(s => s.Key, s => vs[s.Value].Rec),
-            merged.ToDictionary(m => m.Key, m => m.Value.Select(x => x.Held).ToList())));
+            source.Where(s => !merged.ContainsKey(s.Key) && !built.ContainsKey(s.Key)).ToDictionary(s => s.Key, s => vs[s.Value].Rec),
+            merged.ToDictionary(m => m.Key, m => m.Value.Select(x => x.Held).ToList())) { Built = new(built) });
     }
 
     /// <summary>List entries in hash buckets: Contains is a bucket lookup plus a deep compare (FieldCompare.DeepEq) on
@@ -1810,6 +1916,14 @@ public static class PatchCommand
                     if (have.Count != want.Count || have.Zip(want).Any(x => !FieldCompare.DeepEq(
                             x.First is not null && x.Second is not null && x.First.GetType() != x.Second.GetType() ? QuestMerge.CopyEntry(x.First) : x.First, x.Second, 0)))
                         diffs.Add($"{r.RecordType} {r.EditorID} [{r.FormKey}]: merged list {p.Name} reads back differently ({have.Count} entries, {want.Count} meant)");
+                    continue;
+                }
+                // 0.19.0: a value built in memory (a quest's merged script data), against an in-memory copy of the written one
+                if (r.Built.TryGetValue(p.Name, out var wantBuilt))
+                {
+                    var haveBuilt = FieldCompare.Get(p, w) is IQuestAdapterGetter qa ? qa.DeepCopy() : FieldCompare.Get(p, w);
+                    if (!FieldCompare.DeepEq(haveBuilt, wantBuilt, 0))
+                        diffs.Add($"{r.RecordType} {r.EditorID} [{r.FormKey}]: merged field {p.Name} reads back differently from the value built");
                     continue;
                 }
                 // the written value against the plugin version it was copied from (both read from files)
