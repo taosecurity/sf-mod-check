@@ -92,15 +92,15 @@ public static class PatchCommand
         return FormKey.TryFactory(left.AsSpan(0, colon), out var fk) ? new(fk, field, plugin) : null;
     }
 
-    // Record kinds that live inside another record's group and aren't built yet: dialogue and scenes (inside a quest or
-    // topic). Cells and worldspaces are built since 0.13.0 (only the record itself, never its placed objects, navmeshes
+    // Record kinds that live inside another record's group and aren't built yet: scenes and dialogue branches (inside a
+    // quest). 0.19.0 builds dialogue topics and lines (DIAL inside its quest, INFO inside its topic; see DialogParents
+    // and the parent step in Build). Cells and worldspaces are built since 0.13.0 (only the record itself, never its placed objects, navmeshes
     // or blocks; see CellOnly and WorldOnly below), and so are placed objects and navmeshes: each one goes into its
     // cell's Persistent, Temporary or NavigationMeshes list, with the cell as the game uses it today when the cell isn't
     // a patch record of its own. A navmesh's mesh (geometry, NNAM, pre-cut entries) is one value: see NavmeshUnit.
     static readonly Type[] NotBuilt =
     [
-        typeof(IDialogTopicGetter), typeof(IDialogResponsesGetter), typeof(ISceneGetter),
-        typeof(IDialogBranchGetter),
+        typeof(ISceneGetter), typeof(IDialogBranchGetter),
     ];
 
     // 0.13.0: a cell goes into the patch without its placed objects and navmeshes (records of their own), and a
@@ -160,7 +160,7 @@ public static class PatchCommand
                    "don't copy it by hand either (the Creation Kit rebuilds it when a navmesh is finalized)";
         var hit = NotBuilt.FirstOrDefault(t => t.IsAssignableFrom(getter));
         if (hit is null) return null;
-        return "dialogue and scenes (records inside a quest or dialogue topic) are not built by this version; copy the fields in xEdit";
+        return "scenes and dialogue branches are not built by this version; copy the fields in xEdit";
     }
 
     /// <summary>Why a record that loses to an official BlueprintShips file isn't built (0.12.0).</summary>
@@ -520,6 +520,9 @@ public static class PatchCommand
         public Dictionary<FormKey, CellPlace> Places { get; } = new();
         /// <summary>Which cell (and which of its lists) each patched placed object goes in (0.13.0).</summary>
         public Dictionary<FormKey, RefPlace> RefPlaces { get; } = new();
+        /// <summary>0.19.0: the parent each patched dialogue record is written inside: a topic's quest, a line's (INFO's)
+        /// topic, from the last plugin that holds the record.</summary>
+        public Dictionary<FormKey, FormKey> DialogParents { get; } = new();
         public List<ChoiceField> Choices { get; } = new();
         public List<NotBuiltRecord> NotBuilt { get; } = new();
         public List<string> Notes { get; } = new();
@@ -662,6 +665,23 @@ public static class PatchCommand
                     foreach (var n in c.NavigationMeshes) if (refTargets.Contains(n.FormKey)) plan.RefPlaces[n.FormKey] = new(c.FormKey, false, true);
                 }
             }
+        // 0.19.0: which quest each dialogue topic sits in, and which topic each dialogue line (INFO) sits in, in every
+        // plugin that holds it. A record is written inside its parent, so one held under two parents is refused; the last
+        // plugin's parent is used (StarfieldPluginCheck NOTES.md, "0.19.0 (GapFix)", Step 4, "DIAL and INFO").
+        var dialTargets = targets.Where(t => IsDialog(t.Value.Getter)).Select(t => t.Key).ToHashSet();
+        var dialSeen = new Dictionary<FormKey, List<(string Plugin, FormKey Parent)>>();
+        if (dialTargets.Count > 0)
+            foreach (var p in lo.Plugins)
+            {
+                Analyzer.Where = $"finding the quests and topics of dialogue in {p.FileName} for the patch";
+                FindDialogParents(p, dialTargets, dialSeen);
+            }
+        foreach (var (k, seen) in dialSeen) plan.DialogParents[k] = seen[^1].Parent;
+        string? DialogWhyNot(FormKey k)
+        {
+            bool isInfo = targets.TryGetValue(k, out var tt) ? tt.Getter == typeof(IDialogResponsesGetter) : false;
+            return DialogParentRefusal(isInfo, dialSeen.GetValueOrDefault(k), f => Name(new FormLink<IMajorRecordGetter>(f)));
+        }
 
         foreach (var g in byRecord)
         {
@@ -685,6 +705,12 @@ public static class PatchCommand
                 Log.Write($"patch: {kind} {g.Key} not built: no cell holds it");
                 continue;
             }
+            if (dialTargets.Contains(g.Key) && DialogWhyNot(g.Key) is { } dwhy)
+            {
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, dwhy, g.SelectMany(l => l.Fields.Where(f => !Impact.IsMinor(f)).Select(f => f.Field)).Distinct().ToList()));
+                Log.Write($"patch: {LogName(g.First().RecordType, g.First().EditorID, g.Key)} not built: {dwhy}");
+                continue;
+            }
             try { BuildRecord(g.Key, g.ToList(), vs, picks, plan, MastersOf, Name, g.First().RecordType, g.First().EditorID); }
             catch (Exception e) when (Fatal.Recoverable(e) && e is not MeshPickConflict)
             {
@@ -701,6 +727,7 @@ public static class PatchCommand
                 whyNot = $"{LoadOrderSetup.Display(vs[^1].Plugin.FileName)} has its last copy and loads after every plugin, this patch too";
             else if (cellTargets.Contains(fk) && !plan.Places.ContainsKey(fk)) whyNot = "the cell's place (an interior block or a worldspace) could not be found";
             else if (refTargets.Contains(fk) && !plan.RefPlaces.ContainsKey(fk)) whyNot = "the cell that holds it could not be found";
+            else if (dialTargets.Contains(fk) && DialogWhyNot(fk) is { } dwhy) whyNot = dwhy;
             else
                 try { BuildRecord(fk, new(), vs, picks, plan, MastersOf, Name, targets[fk].ClassName, SafeText.OneLine(vs[^1].Rec.EditorID)); }
                 catch (Exception e) when (Fatal.Recoverable(e) && e is not MeshPickConflict)
@@ -828,6 +855,11 @@ public static class PatchCommand
                 Log.Write($"patch: worldspace {edid} [{w}] added as the parent of {cells.Count} cell(s), as the game uses it today (from {vs.Count} versions)");
             }
         }
+        // 0.19.0: a dialogue line (INFO) can only be written inside its topic, and a topic inside its quest, so a parent the
+        // patch doesn't hold yet goes in as the game uses it today (as a parent cell does), its own child lists emptied:
+        // the patch writes only its own topics and lines inside it. Lines first, so a topic added for them gets its quest.
+        AddDialogParents(plan, lo, typeof(IDialogResponsesGetter), typeof(IDialogTopicGetter), "topic", dialSeen, Name);
+        AddDialogParents(plan, lo, typeof(IDialogTopicGetter), typeof(IQuestGetter), "quest", dialSeen, Name);
         if (plan.Records.Any(r => r.Record is IWorldspaceGetter))
             plan.Notes.Add("Worldspaces go in without their large-reference table (RNAM) and cell offsets (OFST, CLSZ), as Creation Kit overrides do: " +
                            "they index objects and cells of the plugin that holds them, which a patch doesn't have");
@@ -933,6 +965,143 @@ public static class PatchCommand
                 had = true;
             }
         return had;
+    }
+
+    /// <summary>A dialogue topic or line (INFO): a record written inside a quest's or topic's group (0.19.0).</summary>
+    static bool IsDialog(Type getter) => getter == typeof(IDialogTopicGetter) || getter == typeof(IDialogResponsesGetter);
+
+    /// <summary>Records, for each wanted topic, the quest it sits in, and for each wanted dialogue line (INFO), the topic
+    /// it sits in, in one plugin (once per plugin, in load order).</summary>
+    static void FindDialogParents(PluginInfo p, HashSet<FormKey> want, Dictionary<FormKey, List<(string Plugin, FormKey Parent)>> seen)
+    {
+        void Add(FormKey k, FormKey parent)
+        {
+            if (!seen.TryGetValue(k, out var list)) seen[k] = list = new();
+            if (list.Count == 0 || list[^1].Plugin != p.FileName) list.Add((p.FileName, parent));
+        }
+        foreach (var q in p.Mod.Quests)
+            foreach (var t in q.DialogTopics)
+            {
+                if (want.Contains(t.FormKey)) Add(t.FormKey, q.FormKey);
+                foreach (var i in t.Responses) if (want.Contains(i.FormKey)) Add(i.FormKey, t.FormKey);
+            }
+    }
+
+    /// <summary>Why a dialogue line (INFO) or topic can't be written inside one parent: no plugin holds it under one, or
+    /// two plugins hold it under different ones (the Step 4 texts). Null when it has one parent.</summary>
+    internal static string? DialogParentRefusal(bool isInfo, List<(string Plugin, FormKey Parent)>? seen, Func<FormKey, string> name)
+    {
+        if (seen is null || seen.Count == 0)
+            return isInfo ? "no topic holds this dialogue line in any plugin" : "no quest holds this topic in any plugin";
+        var a = seen[0];
+        var bi = seen.FindIndex(s => s.Parent != a.Parent);
+        if (bi < 0) return null;
+        var b = seen[bi];
+        return isInfo
+            ? $"this dialogue line sits under topic {name(a.Parent)} in {a.Plugin} and topic {name(b.Parent)} in {b.Plugin}; a line can't be in two topics, so it is not patched: pick one in xEdit"
+            : $"this topic belongs to quest {name(a.Parent)} in {a.Plugin} and quest {name(b.Parent)} in {b.Plugin}; a topic can't be in two quests, so it is not patched";
+    }
+
+    /// <summary>The parent a planned topic or dialogue line is written inside. Every one gets it when it is planned, so a
+    /// missing one is a bug (as PlaceOf).</summary>
+    internal static FormKey DialogParentOf(Plan plan, PatchRecord r) =>
+        plan.DialogParents.TryGetValue(r.FormKey, out var at) ? at
+        : throw new InvalidOperationException($"{r.RecordType} {(r.EditorID is { Length: > 0 } id ? SafeText.OneLine(id) + " " : "")}[{r.FormKey}] has no planned quest or topic. " +
+                                              "This is a bug in sf-mod-check: please report it with the --log file");
+
+    /// <summary>"2 patched dialogue lines" or "1 patched topic": what a parent topic or quest is in the patch for.</summary>
+    internal static string DialogChildrenText(IEnumerable<PatchRecord> children)
+    {
+        var list = children.ToList();
+        int lines = list.Count(x => x.Record is IDialogResponsesGetter), topics = list.Count - lines;
+        var parts = new List<string>();
+        if (topics > 0) parts.Add($"{topics} patched topic{(topics == 1 ? "" : "s")}");
+        if (lines > 0) parts.Add($"{lines} patched dialogue line{(lines == 1 ? "" : "s")}");
+        return parts.Count > 0 ? string.Join(" and ", parts) : "patched dialogue";
+    }
+
+    /// <summary>0.19.0: adds the parent (a topic for dialogue lines, a quest for topics) of each planned child the patch
+    /// doesn't hold yet, as the game uses it today with its own child lists emptied, like a parent cell. A parent that
+    /// can't be found or built takes its children out with it, each explained, and a topic taken out takes its lines.</summary>
+    static void AddDialogParents(Plan plan, LoadOrderSetup lo, Type childType, Type parentType, string parentWord,
+        Dictionary<FormKey, List<(string Plugin, FormKey Parent)>> dialSeen, Func<IFormLinkGetter, string> name)
+    {
+        var planKeys = plan.Records.Select(r => r.FormKey).ToHashSet();
+        var children = plan.Records.Where(r => childType.IsInstanceOfType(r.Record)).ToList();
+        foreach (var r in children) Log.Write($"patch: {LogName(r.RecordType, r.EditorID, r.FormKey)} goes in {parentWord} {DialogParentOf(plan, r)}");
+        var needed = children.Select(r => DialogParentOf(plan, r)).Where(k => !planKeys.Contains(k)).ToHashSet();
+        if (needed.Count == 0) return;
+        bool topics = parentType == typeof(IDialogTopicGetter);
+        var pv = new Dictionary<FormKey, List<(PluginInfo Plugin, IMajorRecordGetter Rec)>>();
+        var questsWanted = topics ? needed.Where(k => !dialSeen.ContainsKey(k)).ToHashSet() : new();
+        foreach (var p in lo.Plugins)
+        {
+            Analyzer.Where = $"reading the parent {parentWord}s of patched dialogue from {p.FileName} for the patch";
+            foreach (var rec in p.Mod.EnumerateMajorRecords(parentType))
+                if (needed.Contains(rec.FormKey))
+                {
+                    if (!pv.TryGetValue(rec.FormKey, out var list)) pv[rec.FormKey] = list = new();
+                    if (list.Count == 0 || list[^1].Plugin != p) list.Add((p, rec));
+                }
+            // a parent topic's own quest, for the quest pass
+            if (questsWanted.Count > 0) FindDialogParents(p, questsWanted, dialSeen);
+        }
+        foreach (var k in needed)
+        {
+            var kids = children.Where(r => DialogParentOf(plan, r) == k).ToList();
+            var kidsText = DialogChildrenText(kids);
+            string? whyNot = !pv.TryGetValue(k, out var vs) || vs.Count == 0 ? $"its {parentWord} {k} could not be found" : null;
+            if (whyNot is null && topics)
+            {
+                if (DialogParentRefusal(false, dialSeen.GetValueOrDefault(k), f => name(new FormLink<IQuestGetter>(f))) is { } refusal)
+                    whyNot = $"its topic {k} can't be written: {refusal}";
+                else plan.DialogParents[k] = dialSeen[k][^1].Parent;
+            }
+            IMajorRecord? rec = null;
+            Dictionary<string, int>? source = null;
+            if (whyNot is null)
+                try
+                {
+                    if (ComposeFailsForTest.Value?.Invoke(k) == true) throw new InvalidOperationException("test: compose fails");
+                    (rec, source, _) = Compose(vs!, new Copies(vs!));
+                    ClearChildRecords(rec);
+                }
+                catch (Exception e) when (Fatal.Recoverable(e))
+                {
+                    whyNot = $"its {parentWord} {k} could not be built ({e.GetType().Name}: {SafeText.OneLine(e.Message)})";
+                    Log.Write($"patch: parent {parentWord} {k} could not be built: {e}");
+                }
+            if (whyNot is not null) { DropDialogChildren(plan, kids, whyNot); continue; }
+            var pvs = vs!;
+            var edid = pvs[^1].Rec.EditorID;
+            var type = Analyzer.TypeShort(parentType);
+            plan.Records.Add(new(k, type, edid, rec!, new(), pvs.Select(v => v.Plugin.FileName).ToList(),
+                source!.ToDictionary(s => s.Key, s => pvs[s.Value].Rec), new()) { Parent = true });
+            plan.Notes.RemoveAll(n => n.Contains($"[{k}]") && n.EndsWith("so it is left out"));
+            NoteNotBuiltParent(plan, k, kidsText);
+            plan.Notes.Add($"{type} {edid} [{k}] is in the patch as the parent of {kidsText}: the record as the game uses it today, with no field changed");
+            Log.Write($"patch: {parentWord} {edid} [{k}] added as the parent of {kidsText}, as the game uses it today (from {pvs.Count} versions)");
+        }
+    }
+
+    /// <summary>Takes planned topics or dialogue lines out with a parent that can't go in: a record with changes of its
+    /// own gets a "Not built" row, one that was only a parent gets a note, and a topic's lines go with it.</summary>
+    static void DropDialogChildren(Plan plan, List<PatchRecord> kids, string why)
+    {
+        foreach (var o in kids)
+        {
+            if (!plan.Records.Remove(o)) continue;
+            if (o.Parent)
+                plan.Notes.Add($"{o.RecordType} {o.EditorID} [{o.FormKey}] was needed only as the parent of patched dialogue, but {why}, so it is left out with it");
+            else
+                plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, why, new()));
+            Log.Write($"patch: {LogName(o.RecordType, o.EditorID, o.FormKey)} left out: {why}");
+            if (o.Record is IDialogTopicGetter)
+            {
+                var lines = plan.Records.Where(r => r.Record is IDialogResponsesGetter && DialogParentOf(plan, r) == o.FormKey).ToList();
+                DropDialogChildren(plan, lines, $"its topic {o.FormKey} is not in the patch ({why})");
+            }
+        }
     }
 
     /// <summary>"2 patched placed objects and 1 patched navmesh": what a parent cell is in the patch for.</summary>
@@ -1045,9 +1214,15 @@ public static class PatchCommand
         // AND/OR by position, so merging them entry by entry could break a chain. Only quests here, so the output for
         // other record types stays as 0.18.0 wrote it.
         bool isQuest = vs[^1].Rec is IQuestGetter;
+        // 0.19.0: a dialogue line's (INFO's) conditions and its spoken responses are one value too: the responses are
+        // tied to their voice files by position (Step 4). A topic's TopicInfoList merges by FormKey, a loser's new line
+        // going right after the line before it in that loser's list.
+        bool isInfo = vs[^1].Rec is IDialogResponsesGetter;
+        bool isTopic = vs[^1].Rec is IDialogTopicGetter;
         bool Mergeable(string field) => field != "Traversals" && !(isNavmesh && NavmeshUnit.Contains(field)) && rec.GetType().GetProperty(field) is { } mp
             && mp.PropertyType != typeof(byte[]) && typeof(IList).IsAssignableFrom(mp.PropertyType)
-            && !(isQuest && QuestMerge.IsConditionList(mp.PropertyType));
+            && !((isQuest || isInfo) && QuestMerge.IsConditionList(mp.PropertyType))
+            && !(isInfo && field == nameof(IDialogResponsesGetter.Responses));
         static List<object?> Items(object? v) => v is IEnumerable e and not string ? e.Cast<object?>().ToList() : new();
         List<object?> MutItems(int i, string field) => Items(copies.Of(i).GetType().GetProperty(field)!.GetValue(copies.Of(i)));
         // City locations hold thousands of entries: each entry's hash is worked out once, and lookups go through Bags
@@ -1163,7 +1338,15 @@ public static class PatchCommand
                 var at = id is null ? -1 : state.FindIndex(x => Identity(x.Held) == id);
                 if (at < 0)
                 {
-                    state.Add((lHeld[k], lMut[k], li)); stateBag.Add(lHeld[k]);
+                    // 0.19.0: a topic's new line goes right after the line before it in this plugin's list (first when it
+                    // is first there, at the end when the line before it isn't in the merged list)
+                    var pos = state.Count;
+                    if (isTopic && field == nameof(IDialogTopicGetter.TopicInfoList))
+                    {
+                        var prev = k == 0 ? -1 : state.FindIndex(x => Same(x.Held, lHeld[k - 1]));
+                        pos = k == 0 ? 0 : prev >= 0 ? prev + 1 : state.Count;
+                    }
+                    state.Insert(pos, (lHeld[k], lMut[k], li)); stateBag.Add(lHeld[k]);
                     did = (did.Added + 1, did.Changed, did.Removed, did.FirstAdded ?? lHeld[k]);
                 }
                 // the later plugin's version of that entry, or this one's when the entry there is still the one it changed
@@ -1723,7 +1906,8 @@ public static class PatchCommand
             Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)} left out: the patched record would equal today's");
             return;
         }
-        // A quest's dialogue and scenes are records of their own: only the quest record itself goes in.
+        // A quest's topics and scenes and a topic's lines are records of their own: only the record itself goes in here,
+        // and WritePatch puts the patch's own topics and lines inside it (0.19.0).
         ClearChildRecords(rec);
         var plugins = vs.Select(v => v.Plugin.FileName).ToList();
         Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)} built: {forwarded.Count} field(s) forwarded" +
@@ -1796,7 +1980,7 @@ public static class PatchCommand
         var patch = Plugin.New(name, PluginStyle.Light, "sf-mod-check patch", "Local conflict patch for one load order. For your own game only: it holds other authors' data.");
         if (name.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) patch.ModHeader.Flags &= ~StarfieldModHeader.HeaderFlag.Master;
         // Worldspaces go in before the cells: an exterior cell is written inside its worldspace's block (0.13.0).
-        foreach (var r in plan.Records.Where(r => r.Record is not Cell and not IPlaced and not NavigationMesh))
+        foreach (var r in plan.Records.Where(r => r.Record is not Cell and not IPlaced and not NavigationMesh and not DialogTopic and not DialogResponses))
         {
             var group = ((IMod)patch).TryGetTopLevelGroup(r.Record.GetType())
                 ?? throw new InvalidOperationException($"no top-level group for {r.RecordType}");
@@ -1814,6 +1998,24 @@ public static class PatchCommand
                 ?? throw new InvalidOperationException($"{r.RecordType} {r.FormKey} sits in cell {at.Cell}, which isn't in the patch");
             if (r.Record is NavigationMesh n) cell.NavigationMeshes.Add(n);
             else (at.Persistent ? cell.Persistent : cell.Temporary).Add((IPlaced)r.Record);
+        }
+        // 0.19.0: each topic into its quest's topics, then each dialogue line into its topic's lines, in the order of the
+        // topic's TopicInfoList (lines it doesn't list at the end). The quest or topic is in the patch by now.
+        var questsIn = plan.Records.Where(r => r.Record is Quest).ToDictionary(r => r.FormKey, r => (Quest)r.Record);
+        foreach (var r in plan.Records.Where(r => r.Record is DialogTopic))
+        {
+            var q = DialogParentOf(plan, r);
+            (questsIn.GetValueOrDefault(q) ?? throw new InvalidOperationException($"topic {r.FormKey} sits in quest {q}, which isn't in the patch"))
+                .DialogTopics.Add((DialogTopic)r.Record);
+        }
+        var topicsIn = plan.Records.Where(r => r.Record is DialogTopic).ToDictionary(r => r.FormKey, r => (DialogTopic)r.Record);
+        foreach (var byTopic in plan.Records.Where(r => r.Record is DialogResponses).GroupBy(r => DialogParentOf(plan, r)))
+        {
+            var topic = topicsIn.GetValueOrDefault(byTopic.Key)
+                ?? throw new InvalidOperationException($"dialogue line {byTopic.First().FormKey} sits in topic {byTopic.Key}, which isn't in the patch");
+            var order = (topic.TopicInfoList ?? []).Select((l, i) => (l.FormKey, i)).GroupBy(x => x.FormKey).ToDictionary(g => g.Key, g => g.First().i);
+            foreach (var r in byTopic.OrderBy(r => order.TryGetValue(r.FormKey, out var i) ? i : int.MaxValue))
+                topic.Responses.Add((DialogResponses)r.Record);
         }
         // Masters: every plugin that has a version of a patched record (so the patch loads after all of them), and
         // every plugin a copied value points into, in load order.

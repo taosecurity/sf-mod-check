@@ -19,7 +19,9 @@ public class PatchQuestTests
     sealed class Game : Sandbox
     {
         public readonly string Data;
-        public Game(Action<Quest>? baseQuest = null)
+        public Game(Action<Quest>? baseQuest = null) : this((_, q) => baseQuest?.Invoke(q)) { }
+
+        public Game(Action<StarfieldMod, Quest> baseQuest)
         {
             Data = Sub("Data");
             var b = Plugin.New("Base.esm", PluginStyle.Full, "test", "made-up base game");
@@ -31,16 +33,18 @@ public class PatchQuestTests
             q.Aliases = [new QuestReferenceAlias { ID = 0, Name = "Hero" }, new QuestReferenceAlias { ID = 1, Name = "Friend" }];
             q.DialogConditions.Add(Cond(1, Condition.Flag.OR));
             q.DialogConditions.Add(Cond(2));
-            baseQuest?.Invoke(q);
+            baseQuest(b, q);
             using var g = new GameData(Data);
             PluginWriter.Write(b, Data, g, NoGap);
         }
 
-        public void Mod(string name, Action<Quest> change)
+        public void Mod(string name, Action<Quest> change) => Mod(name, (_, q) => change(q));
+
+        public void Mod(string name, Action<StarfieldMod, Quest> change)
         {
             var mod = Plugin.New(name, PluginStyle.Light, "test", "made-up mod");
             using var g = new GameData(Data);
-            change(mod.Quests.GetOrAddAsOverride(g.Open("Base.esm").Quests.First()));
+            change(mod, mod.Quests.GetOrAddAsOverride(g.Open("Base.esm").Quests.First()));
             PluginWriter.Write(mod, Data, g, NoGap);
             mods.Add(name);
         }
@@ -343,5 +347,166 @@ public class PatchQuestTests
         Assert.Equal(2, quest.Aliases.Count);
         Assert.Equal(2, quest.DialogConditions.Count);
         Assert.DoesNotContain("merged by", game.Report);
+    }
+
+    // ---------- dialogue topics and lines (step 5c, tests 13-18) ----------
+
+    /// <summary>The base quest's dialogue: topic B_Topic with lines B_Info1 (one response, one condition) and B_Info2,
+    /// listed in that order in its TopicInfoList.</summary>
+    static void BaseDialog(StarfieldMod b, Quest q)
+    {
+        var topic = new DialogTopic(b) { EditorID = "B_Topic", Quest = q.ToLink<IQuestGetter>(), Priority = 50, TopicInfoList = [] };
+        q.DialogTopics.Add(topic);
+        foreach (var (edid, text) in new[] { ("B_Info1", "Hello"), ("B_Info2", "Goodbye") })
+        {
+            var info = new DialogResponses(b) { EditorID = edid, Prompt = "base prompt" };
+            info.Responses.Add(new DialogResponse { ResponseText = text, WEMFile = 1 });
+            info.Conditions.Add(Cond(1));
+            topic.Responses.Add(info);
+            topic.TopicInfoList.Add(info.ToLink<IDialogResponsesGetter>());
+        }
+    }
+
+    static DialogTopic Topic(Quest q) => q.DialogTopics.Single(t => t.EditorID == "B_Topic");
+    static DialogResponses Info(Quest q, string edid) => Topic(q).Responses.Single(i => i.EditorID == edid);
+
+    [Fact]
+    public void Info_change_lost_by_two_mods_is_patched_with_parent_topic_and_quest_as_today()
+    {
+        using var game = new Game(BaseDialog);
+        game.Mod("ModA.esm", q => Info(q, "B_Info1").Prompt = "A prompt");
+        game.Mod("ModB.esm", q => Info(q, "B_Info1").StartScenePhase = "B phase");
+        Ok(game.Patch("--verbose"));
+        var quest = game.Quest();
+        Assert.Equal("Base quest", quest.Name?.String);
+        var topic = Assert.Single(quest.DialogTopics);
+        Assert.Equal("B_Topic", topic.EditorID);
+        Assert.Equal(50f, topic.Priority);
+        var info = Assert.Single(topic.Responses);   // only the patched line, not B_Info2
+        Assert.Equal("B_Info1", info.EditorID);
+        Assert.Equal(("A prompt", "B phase"), (info.Prompt?.String, info.StartScenePhase));
+        Assert.Equal("Hello", Assert.Single(info.Responses).ResponseText?.String);
+        Assert.Contains("is in the patch as the parent of 1 patched dialogue line", game.Report);
+        Assert.Contains("is in the patch as the parent of 1 patched topic", game.Report);
+    }
+
+    [Fact]
+    public void Info_responses_are_one_value()
+    {
+        using var game = new Game(BaseDialog);
+        game.Mod("ModA.esm", q => { var i = Info(q, "B_Info1"); i.Responses[0].ResponseText = "A hello"; i.Prompt = "A prompt"; i.Conditions[0] = Cond(5); });
+        game.Mod("ModB.esm", q => { var i = Info(q, "B_Info1"); i.Responses.Add(new DialogResponse { ResponseText = "B more", WEMFile = 2 }); i.Conditions.Add(Cond(6)); });
+        Ok(game.Patch());
+        var info = Assert.Single(Assert.Single(game.Quest().DialogTopics).Responses);
+        Assert.Equal("A prompt", info.Prompt?.String);
+        // the winner's responses and conditions whole, never a mix of the two
+        Assert.Equal(new[] { "Hello", "B more" }, info.Responses.Select(r => r.ResponseText?.String));
+        Assert.Equal(new[] { 1f, 6f }, info.Conditions.Cast<IConditionFloatGetter>().Select(c => c.ComparisonValue));
+        Assert.Contains("Responses: both changed it; the winner ModB.esm's value is kept", game.Report);
+    }
+
+    [Fact]
+    public void Info_in_two_topics_is_not_built_with_message()
+    {
+        using var game = new Game(BaseDialog);
+        game.Mod("ModA.esm", (m, q) =>
+        {
+            // ModA moves B_Info1 into a topic of its own and changes it
+            var info = Info(q, "B_Info1");
+            Topic(q).Responses.Remove(info);
+            var mine = new DialogTopic(m) { EditorID = "A_Topic", Quest = q.ToLink<IQuestGetter>() };
+            mine.Responses.Add(info);
+            q.DialogTopics.Add(mine);
+            info.Prompt = "A prompt";
+            q.Summary = "A summary";
+        });
+        game.Mod("ModB.esm", q => { Info(q, "B_Info1").StartScenePhase = "B phase"; q.Name = "Renamed"; });
+        Ok(game.Patch());
+        Assert.Contains("this dialogue line sits under topic B\\_Topic in Base.esm and topic A\\_Topic in ModA.esm; a line can't be in two topics, so it is not patched: pick one in xEdit", game.Report);
+        var quest = game.Quest();
+        Assert.Equal(("Renamed", "A summary"), (quest.Name?.String, quest.Summary));
+        Assert.Empty(quest.DialogTopics);
+    }
+
+    // Not in the design's list: the topic form of the refusal (a topic under two quests), and its lines go with it.
+    [Fact]
+    public void Topic_in_two_quests_is_not_built_and_its_lines_go_with_it()
+    {
+        using var game = new Game(BaseDialog);
+        game.Mod("ModA.esm", (m, q) =>
+        {
+            var t = Topic(q);
+            q.DialogTopics.Remove(t);
+            var other = m.Quests.AddNew("A_Quest");
+            t.Quest = other.ToLink<IQuestGetter>();
+            t.Priority = 70;
+            other.DialogTopics.Add(t);
+            t.Responses.Single(i => i.EditorID == "B_Info1").Prompt = "A prompt";
+            q.Summary = "A summary";
+        });
+        game.Mod("ModB.esm", q => { Topic(q).Priority = 80; Info(q, "B_Info1").StartScenePhase = "B phase"; q.Name = "Renamed"; });
+        Ok(game.Patch());
+        Assert.Contains("this topic belongs to quest B\\_Quest in Base.esm and quest A\\_Quest in ModA.esm; a topic can't be in two quests, so it is not patched", game.Report);
+        Assert.Contains("its topic 000801:Base.esm can't be written", game.Report);
+        Assert.Empty(game.Quest().DialogTopics);
+    }
+
+    [Fact]
+    public void Topic_info_list_insert_keeps_loser_position()
+    {
+        using var game = new Game(BaseDialog);
+        FormKey a3 = default, b4 = default;
+        game.Mod("ModA.esm", (m, q) =>
+        {
+            var t = Topic(q);
+            var i3 = new DialogResponses(m) { EditorID = "A_Info3" };
+            t.Responses.Add(i3);
+            t.TopicInfoList.Insert(1, i3.ToLink<IDialogResponsesGetter>());   // between B_Info1 and B_Info2
+            a3 = i3.FormKey;
+        });
+        game.Mod("ModB.esm", (m, q) =>
+        {
+            var t = Topic(q);
+            var i4 = new DialogResponses(m) { EditorID = "B_Info4" };
+            t.Responses.Add(i4);
+            t.TopicInfoList.Add(i4.ToLink<IDialogResponsesGetter>());
+            b4 = i4.FormKey;
+        });
+        Ok(game.Patch());
+        var topic = Assert.Single(game.Quest().DialogTopics);
+        var base1 = FormKey.Factory("000802:Base.esm");
+        Assert.Equal(new[] { "B_Info1", "A_Info3", "B_Info2", "B_Info4" },
+            topic.TopicInfoList.Select(l => l.FormKey == a3 ? "A_Info3" : l.FormKey == b4 ? "B_Info4" : l.FormKey == base1 ? "B_Info1" : "B_Info2"));
+        Assert.Empty(topic.Responses);   // the new lines stay in their own plugins
+    }
+
+    [Fact]
+    public void Scene_and_branch_still_not_built_with_new_reason()
+    {
+        Assert.Null(PatchCommand.WhyNotBuilt(typeof(IDialogTopicGetter)));
+        Assert.Null(PatchCommand.WhyNotBuilt(typeof(IDialogResponsesGetter)));
+        Assert.Equal("scenes and dialogue branches are not built by this version; copy the fields in xEdit", PatchCommand.WhyNotBuilt(typeof(ISceneGetter)));
+        Assert.Equal("scenes and dialogue branches are not built by this version; copy the fields in xEdit", PatchCommand.WhyNotBuilt(typeof(IDialogBranchGetter)));
+    }
+
+    [Fact]
+    public void Patch_with_quest_and_dialogue_reads_back_and_passes_gap_and_check()
+    {
+        using var game = new Game(BaseDialog);
+        game.Mod("ModA.esm", q => { q.Stages.Add(Stage(15, "A 15")); Info(q, "B_Info1").Prompt = "A prompt"; Topic(q).Priority = 60; });
+        game.Mod("ModB.esm", q => { q.Name = "Renamed"; Info(q, "B_Info1").StartScenePhase = "B phase"; Info(q, "B_Info2").Prompt = "B prompt"; });
+        Ok(game.Patch());
+        var quest = game.Quest();
+        Assert.Equal(new[] { 10, 15, 20 }, quest.Stages.Select(s => (int)s.Index));
+        var topic = Assert.Single(quest.DialogTopics);
+        Assert.Equal(60f, topic.Priority);
+        Assert.Equal(new[] { "B_Info1" }, topic.Responses.Select(i => i.EditorID));
+        game.CloseAll();
+        var patch = Path.Combine(game.Out, "ConflictPatch.esm");
+        var gap = ExeTests.RunSplit("gap", patch, "--data", game.Data);
+        Assert.True(gap.Code == 0, gap.Stdout + gap.Stderr);
+        var check = ExeTests.RunSplit("check", patch, "--data", game.Data);
+        Assert.True(check.Code == 0, check.Stdout + check.Stderr);
+        Assert.DoesNotContain("ERROR", check.Stdout);
     }
 }

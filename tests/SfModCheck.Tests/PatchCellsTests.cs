@@ -287,7 +287,7 @@ public class PatchCellsTests
         Assert.Null(PatchCommand.WhyNotBuilt(typeof(IPlacedNpcGetter)));
         Assert.Null(PatchCommand.WhyNotBuilt(typeof(INavigationMeshGetter)));
         Assert.Contains("navmesh info map", PatchCommand.WhyNotBuilt(typeof(INavigationMeshInfoMapGetter)));
-        Assert.Contains("dialogue", PatchCommand.WhyNotBuilt(typeof(IDialogResponsesGetter)));
+        Assert.Contains("scenes and dialogue branches", PatchCommand.WhyNotBuilt(typeof(ISceneGetter)));
     }
 
     static MemorySlice<byte> Nnam(byte b) => new byte[] { b, 0, 0, 0 };
