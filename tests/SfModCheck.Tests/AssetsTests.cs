@@ -116,6 +116,25 @@ public class AssetsTests
     }
 
     [Fact]
+    public void With_masters_dir_the_plugins_own_folder_still_gives_its_archives_and_loose_files()
+    {
+        // 0.16.2: --masters-dir pointing at an empty folder used to drop the plugin's own folder from the asset
+        // search, so a script packed in the plugin's own "<plugin> - Main.ba2" was a false ERROR (exit 1)
+        using var w = new World();
+        var built = w.Build("distmod", m => m.MiscItems.First().VirtualMachineAdapter = new VirtualMachineAdapter
+            { Scripts = { new ScriptEntry { Name = "SfmTest:Packed" }, new ScriptEntry { Name = "SfmTest:Loose" } } });
+        var dist = Directory.CreateDirectory(Path.Combine(w.Dir, "dist")).FullName;
+        var empty = Directory.CreateDirectory(Path.Combine(w.Dir, "empty")).FullName;
+        var p = Path.Combine(dist, "distmod.esm");
+        File.Move(built, p);
+        File.WriteAllBytes(Path.Combine(dist, "distmod - Main.ba2"), Ba2("GNRL", "scripts\\sfmtest\\packed.pex"));
+        Directory.CreateDirectory(Path.Combine(dist, "Scripts", "SfmTest"));
+        File.WriteAllBytes(Path.Combine(dist, "Scripts", "SfmTest", "Loose.pex"), new byte[4]);
+        Expect.No(w.Check(p, o => o.MastersDirs = [empty]), "assets");
+        Expect.No(w.Check(p, o => o.MastersDirs = [w.Dir]), "assets");
+    }
+
+    [Fact]
     public void An_archive_an_ini_lists_counts_even_without_a_plugin_of_its_name()
     {
         using var w = new World();

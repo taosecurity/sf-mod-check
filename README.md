@@ -162,7 +162,8 @@ Two ways, both from the [Releases](https://github.com/taosecurity/sf-mod-check/r
 
 - `--data`: the game's Data folder (default: Steam's usual one, see above).
 - `--masters-dir`: a folder searched for masters before the Data folder; can be given more than once. Use it so an
-  add-on is checked against the main plugin you just built, not an older copy installed in Data.
+  add-on is checked against the main plugin you just built, not an older copy installed in Data. The plugin's own
+  folder is still searched for its own archives and loose files (since 0.16.2; 0.16.1 and earlier missed them there).
 - `--max`: the most lines printed per check (default 100). The counts in the RESULT line are always complete.
 - `--quiet`: leave out the first summary line.
 - `--no-hints`: leave out the HINT lines.
@@ -1230,8 +1231,8 @@ Each finding names its check in brackets.
     are still checked). Geometry that only other mods' or the game's `.nif` files name isn't checked.
   - **Face data** isn't checked here: `release` looks for it (rule `face-missing`, a NOTE), since some of the game's
     own NPCs have no baked face files either.
-  - **Where a file can be:** a file counts when it is loose in the Data folder (or a `--masters-dir` folder) or inside
-    an archive the game loads: `<plugin> - *.ba2` for the plugin and each of its masters (other languages' voice
+  - **Where a file can be:** a file counts when it is loose in the plugin's own folder, a `--masters-dir` folder or
+    the Data folder, or inside an archive the game loads, found in those same folders: `<plugin> - *.ba2` for the plugin and each of its masters (other languages' voice
     archives left out), plus the archives `Starfield.ini` and `StarfieldCustom.ini` list.
   - **How it reports:** each missing file is listed once, with up to 3 records that use it. An override isn't blamed
     for a missing file the master's version of the record already names (some vanilla records attach scripts the

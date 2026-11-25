@@ -397,7 +397,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
   own folder when none is given), then the Data folder (`--data`, else Steam's usual
   `C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data`; with no `--data` and no game there, a plugin that
-  sits in a folder holding Starfield.esm uses that folder).
+  sits in a folder holding Starfield.esm uses that folder). For `check`'s assets step, the plugin's own folder is
+  always searched first, with or without `--masters-dir`, so the mod's own `<plugin> - Main.ba2` and loose files
+  beside the plugin count (0.16.2).
 - **Output (stdout):** a summary line; `ERROR [check] ...` lines (broken: fix before release); `WARNING [check] ...`
   lines (probably a mistake); `HINT [check] ...` lines (how to fix that check's findings in xEdit or the Creation Kit);
   a `SHIPS: <n> ships listed: ...` count line only when the plugin adds or overrides a ship (0.10.0; the per-ship

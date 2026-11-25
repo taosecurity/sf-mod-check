@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.16.2 (2026-11-24)
+
+### What's new
+
+- `check --masters-dir` now reads the checked plugin's own archives (`<plugin> - Main.ba2`) and loose files from the plugin's own folder. Before, `--masters-dir` took the plugin's folder out of the assets search, so a script packed in the mod's own archive was a false `ERROR [assets]` and the exit code was 1, while `release --masters-dir` passed the same files.
+- The plugin's own folder is searched first, then each `--masters-dir` folder, then the Data folder. A master's archives are found in whichever of those folders holds them.
+
+### Example
+
+A made-up add-on built into `dist\`: `MyMod.esm` attaches a quest script, and the script is packed in `dist\MyMod - Main.ba2`. `empty\` is an empty folder:
+
+    sf-mod-check check dist\MyMod.esm --masters-dir empty
+
+What it prints on stdout (a real run):
+
+    sf-mod-check 0.16.2 check: MyMod.esm (light master, 1 masters, 6 records, 0 overrides (0 ITM), 8 links)
+    RESULT: OK, 0 errors, 0 warnings (MyMod.esm: 6 records, 8 links; 3.9 s)
+
+The exit code is 0. sf-mod-check 0.16.1 printed `ERROR [assets] script ... is in no loose file or loaded archive` for the same files and exited 1. Without `--masters-dir`, both versions print OK.
+
 ## 0.16.1 (2026-11-24)
 
 ### What's new
