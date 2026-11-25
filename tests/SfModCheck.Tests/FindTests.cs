@@ -5,6 +5,8 @@ using BuildKit;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Starfield;
+using Mutagen.Bethesda.Plugins.Records;
+using SfModCheck.Conflict;
 using Xunit;
 
 namespace SfModCheck.Tests;
@@ -335,6 +337,123 @@ public class FindTests
             Assert.All(entries.Children, e => Assert.Equal("(deeper than 1 levels, not shown)", e.Text));
         }
         finally { (FindTree.MaxDepth, FindTree.MaxLines, FindTree.MaxNodes) = (depth, lines, nodes); }
+    }
+
+    // ---- 0.20.0: find --versions (each fails on 0.19.0, where --versions is an unknown option) ----
+
+    /// <summary>Three more copies of FB_Misc after FindLight.esm: FindChild.esm (masters FindBase.esm and
+    /// FindMedium.esm) sets value 8 on FindMedium.esm's copy; FindIdent.esm (master FindBase.esm) copies FindBase.esm's
+    /// copy unchanged; FindPart.esm (master FindBase.esm) is a partial form that carries only value 12.</summary>
+    static void AddVersionMods(Game game)
+    {
+        using (var g = new GameData(game.Data))
+        {
+            g.Open("FindBase.esm");
+            var medium = g.Open("FindMedium.esm");
+            var child = Plugin.New("FindChild.esm", PluginStyle.Full, "test", "made-up child of FindMedium");
+            child.MiscItems.GetOrAddAsOverride(medium.MiscItems.First()).Value = 8;
+            // the record names only FindBase.esm, so FindMedium.esm is listed as a master by hand
+            PluginWriter.Write(child, game.Data, g, new WriteOptions { GapCheck = false, FixEffects = false, Masters = [ModKey.FromFileName("FindBase.esm"), ModKey.FromFileName("FindMedium.esm")] });
+        }
+        using (var g = new GameData(game.Data))
+        {
+            var baseMod = g.Open("FindBase.esm");
+            var ident = Plugin.New("FindIdent.esm", PluginStyle.Full, "test", "made-up identical copy");
+            ident.MiscItems.GetOrAddAsOverride(baseMod.MiscItems.First());
+            PluginWriter.Write(ident, game.Data, g, NoGap);
+        }
+        using (var g = new GameData(game.Data))
+        {
+            g.Open("FindBase.esm");
+            var part = Plugin.New("FindPart.esm", PluginStyle.Full, "test", "made-up partial form");
+            var misc = new MiscItem(game.BaseMisc, StarfieldRelease.Starfield) { Value = 12 };
+            misc.MajorRecordFlagsRaw |= SfModCheck.Conflict.FieldCompare.PartialFormFlag;
+            part.MiscItems.Add(misc);
+            part.ModHeader.MasterReferences.Add(new MasterReference { Master = ModKey.FromFileName("FindBase.esm") });
+            PluginWriter.Write(part, game.Data, g, NoGap);
+        }
+        File.AppendAllLines(game.PluginsTxt, ["*FindChild.esm", "*FindIdent.esm", "*FindPart.esm"]);
+    }
+
+    [Fact]
+    public void Versions_lists_every_copy_with_its_changes_and_the_missing_master_notes()
+    {
+        using var game = new Game();
+        AddVersionMods(game);
+        var (code, stdout, stderr) = game.Find("FB_Misc", "--versions");
+        Assert.True(code == 0, stdout + stderr);
+        var lines = stdout.Replace("\r", "").Split('\n');
+        int at = Array.IndexOf(lines, "  versions: 6 copies, the last one wins");
+        Assert.True(at > 0, stdout);
+        Assert.True(Array.IndexOf(lines, "  fields:") is var f && f > 0 && f < at, stdout);   // after the field block
+        Assert.Equal("    1. FindBase.esm: defines it", lines[at + 1]);
+        Assert.Equal("    2. FindMedium.esm: built on FindBase.esm, 1 change", lines[at + 2]);
+        Assert.Equal("         Value: changed: 5 -> 7", lines[at + 3]);
+        Assert.Equal("    3. FindLight.esm: built on FindBase.esm, 1 change", lines[at + 4]);
+        Assert.Equal("         Value: changed: 5 -> 9", lines[at + 5]);
+        Assert.Equal("         note: FindLight.esm doesn't have FindMedium.esm as a master, so it may undo FindMedium.esm's changes (sf-mod-check conflict says which)", lines[at + 6]);
+        Assert.True(lines.Contains("    4. FindChild.esm: built on FindMedium.esm, 1 change"), stdout);
+        Assert.True(lines.Contains("         Value: changed: 7 -> 8"), stdout);   // against FindMedium.esm, its master
+        Assert.True(lines.Contains("    5. FindIdent.esm: built on FindBase.esm, no changes (an identical copy)"), stdout);
+        Assert.Contains(lines, l => l.StartsWith("    6. FindPart.esm (winner, partial form): built on FindBase.esm, "));
+        Assert.Contains("         Value: changed: 5 -> 12", lines);
+        // a partial form answers only for what it carries: no line for the name it leaves out
+        Assert.DoesNotContain(lines.SkipWhile(l => !l.StartsWith("    6.")), l => l.Contains("Name:"));
+        foreach (var other in new[] { "FindMedium.esm", "FindLight.esm", "FindChild.esm" })
+            Assert.Contains($"         note: FindIdent.esm doesn't have {other} as a master, so it may undo {other}'s changes (sf-mod-check conflict says which)", lines);
+        Assert.Contains("RESULT: FOUND 1 record, 6 copies (", stdout);
+
+        // --json: "versions" only with the flag
+        (code, stdout, _) = game.Find("FB_Misc", "--versions", "--json");
+        Assert.Equal(0, code);
+        var m = Assert.Single(JsonDocument.Parse(stdout).RootElement.GetProperty("matches").EnumerateArray());
+        var vs = m.GetProperty("versions").EnumerateArray().ToList();
+        Assert.Equal(6, vs.Count);
+        Assert.Equal("defines", vs[0].GetProperty("role").GetString());
+        Assert.Equal("FindMedium.esm", vs[3].GetProperty("builtOn").GetString());
+        var change = Assert.Single(vs[3].GetProperty("changes").EnumerateArray());
+        Assert.Equal("Value", change.GetProperty("field").GetString());
+        Assert.Equal("7", change.GetProperty("before").GetString());
+        Assert.Equal("8", change.GetProperty("after").GetString());
+        Assert.Equal("identical", vs[4].GetProperty("noChanges").GetString());
+        Assert.Equal(["FindMedium.esm", "FindLight.esm", "FindChild.esm"], vs[4].GetProperty("missingMasters").EnumerateArray().Select(x => x.GetString()));
+        Assert.True(vs[5].GetProperty("winner").GetBoolean());
+        Assert.True(vs[5].GetProperty("partial").GetBoolean());
+        (code, stdout, _) = game.Find("FB_Misc", "--json");
+        m = Assert.Single(JsonDocument.Parse(stdout).RootElement.GetProperty("matches").EnumerateArray());
+        Assert.False(m.TryGetProperty("versions", out _));
+        // without the flag the RESULT line has no copies clause
+        (_, stdout, _) = game.Find("FB_Misc");
+        Assert.DoesNotContain("copies", stdout);
+    }
+
+    [Fact]
+    public void Versions_and_conflict_pick_the_same_base_for_every_field()
+    {
+        using var game = new Game();
+        AddVersionMods(game);
+        var lo = LoadOrderSetup.Build(game.Data, game.PluginsTxt);
+        try
+        {
+            var copies = new List<(PluginInfo, Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter)>();
+            foreach (var p in lo.Plugins)
+                foreach (var r in p.Mod.EnumerateMajorRecords())
+                    if (r.FormKey == game.BaseMisc) copies.Add((p, r));
+            var vs = RecordVersions.Compare(game.BaseMisc, copies, lo.Plugins, out var differ);
+            Assert.False(differ);
+            int compared = 0;
+            foreach (var v in vs.Skip(1))
+            {
+                var analysis = SfModCheck.Conflict.Analyzer.Run(lo.Plugins, only: new HashSet<string> { v.Plugin });
+                var conflictChanges = analysis.Changes.Where(c => c.FormKey == game.BaseMisc && c.Plugin == v.Plugin).ToList();
+                // the same fields changed, each against the same plugin's copy
+                Assert.Equal(conflictChanges.Select(c => (c.Field, c.Base)).OrderBy(x => x.Field),
+                             v.Changes.Select(c => (c.Field, c.Base)).Distinct().OrderBy(x => x.Field));
+                compared += conflictChanges.Count;
+            }
+            Assert.Equal(4, compared);   // Medium, Light, Child and Part each change Value; Ident changes nothing
+        }
+        finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }
     }
 
     [Fact]

@@ -281,4 +281,27 @@ public class FindPluginTests
         mo = Mo2Profile.Read(inst, null, out error, Path.Combine(s.Dir, "no such folder"));
         Assert.Equal([modA], mo!.ModDirs);
     }
+
+    // 0.20.0: find --versions with --plugin (fails on 0.19.0, where --versions is an unknown option)
+    [Fact]
+    public void Versions_with_plugin_says_it_read_the_plugin_and_its_masters_and_is_refused_in_the_listing()
+    {
+        using var s = new Set();
+        var (code, stdout, stderr) = s.Find("BQ_Effect", "--plugin", s.Patch, "--masters-dir", s.Masters, "--versions");
+        Assert.True(code == 0, stdout + stderr);
+        var lines = stdout.Replace("\r", "").Split('\n');
+        int at = Array.IndexOf(lines, "  versions: 2 copies, the last one wins (in Patch.esm and its masters)");
+        Assert.True(at > 0, stdout);
+        Assert.Equal("    1. BaseQ.esm: defines it", lines[at + 1]);
+        Assert.StartsWith("    2. Patch.esm (winner): built on BaseQ.esm, ", lines[at + 2]);
+        // an empty list that gains entries is one changed line, as triage shows it
+        Assert.Contains(lines, l => l.StartsWith("         Conditions: changed: [] -> [") && l.Contains("000800:LightM.esm"));
+        Assert.Contains("RESULT: FOUND 1 record, 2 copies (", stdout);
+
+        // the listing (no record) refuses --versions: exit 2
+        (code, stdout, stderr) = s.Find("--plugin", s.Patch, "--masters-dir", s.Masters, "--versions");
+        Assert.Equal(2, code);
+        Assert.Contains("--versions looks at one record", stderr);
+        Assert.Contains("RESULT: CANNOT CHECK (--versions needs a record to look up)", stdout);
+    }
 }

@@ -6,6 +6,7 @@
 // reads just that plugin and its masters (found in its folder, each --masters-dir, then Data); with no record given,
 // it lists every record the plugin holds (at most --max, default 100).
 // 0.20.0: --full prints every nested value of the winning copy as a tree (FindTree.cs) instead of the fields block.
+// 0.20.0: --versions lists every copy and what each changes against the copy it was built on (FindVersions.cs).
 // Exit 0 = found, 1 = not found, 2 = could not run. The text output ends with one RESULT line; --json prints one object.
 using System.Collections;
 using System.Diagnostics;
@@ -29,9 +30,9 @@ public static class FindCommand
 {
     public const string Usage =
         "usage: sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
-        "                         [--data <Data folder>] [--extra-data <folder>] [--full] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "                         [--data <Data folder>] [--extra-data <folder>] [--full] [--versions] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "       sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]\n" +
-        "                         [--data <Data folder>] [--full] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "                         [--data <Data folder>] [--full] [--versions] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  EditorID  exact, letter case ignored: CityNewAtlantisLocation\n" +
         "  FormKey   <6 hex digits>:<plugin>: 01295A:Starfield.esm\n" +
         "  FormID    8 hex digits as the console shows them: 0001295A (the first digits pick the plugin by load order)\n" +
@@ -43,6 +44,8 @@ public static class FindCommand
         "  --max     with --plugin and no record: list at most this many records (default 100; 0 lists them all)\n" +
         "  --full    print every nested value of the winning copy as an indented tree (zeros included) instead of the\n" +
         "            main fields; --json adds it as \"tree\"\n" +
+        "  --versions  list every copy of the record in load order and what each copy changes against the copy it was\n" +
+        "            built on; --json adds it as \"versions\" (needs a record: not with the --plugin listing)\n" +
         "Exit 0 = found, 1 = not found, 2 = could not run.";
 
     /// <summary>The field lines printed per record at most (the rest are counted on one line).</summary>
@@ -104,7 +107,7 @@ public static class FindCommand
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
         string? q = null, type = null, logFile = null;
-        bool quiet = false, verbose = false, json = false, full = false;
+        bool quiet = false, verbose = false, json = false, full = false, versions = false;
         int? max = null;
         var input = new LoadOrderInput(allowPlugin: true);
         for (int i = 0; i < a.Length; i++)
@@ -129,6 +132,7 @@ public static class FindCommand
                     logFile = lf; break;
                 case "--json": json = true; break;
                 case "--full": full = true; break;
+                case "--versions": versions = true; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
                 case "-h": case "--help": Console.WriteLine(Usage); return 0;
@@ -155,6 +159,13 @@ public static class FindCommand
                                     "To list every record in one plugin, give --plugin \"<plugin file>\" instead.");
             Console.Error.WriteLine(Usage);
             cantWhy = "no record given";
+            return 2;
+        }
+        if (versions && listing)
+        {
+            // 0.20.0: --versions looks at one record; the listing would need it per listed record
+            Console.Error.WriteLine("--versions looks at one record: give its EditorID or FormKey with --plugin \"<plugin file>\", or leave out --plugin.");
+            cantWhy = "--versions needs a record to look up";
             return 2;
         }
         if (max != null && !listing)
@@ -264,13 +275,18 @@ public static class FindCommand
             }
 
             FillFields(matches, lo, full);
+            if (versions) FillVersions(matches, lo);
+            var view = new View(input.Plugin != null ? Path.GetFileName(input.Plugin) : null,
+                lo.Plugins.Select(p => p.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase));
             resultPrinted = true;
             if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "found", null));
             else
             {
                 if (!quiet) Console.WriteLine($"sf-mod-check {version} find: {SafeText.OneLine(q)} in {lo.Plugins.Count} plugins ({source})");
-                foreach (var m in matches) Print(m);
-                Console.WriteLine($"RESULT: FOUND {matches.Count} record{(matches.Count == 1 ? "" : "s")} ({sw.Elapsed.TotalSeconds:F0} s)");
+                foreach (var m in matches) Print(m, view);
+                var copies = matches.Sum(m => m.Copies.Count);
+                Console.WriteLine($"RESULT: FOUND {matches.Count} record{(matches.Count == 1 ? "" : "s")}" +
+                                  (versions ? $", {copies} cop{(copies == 1 ? "y" : "ies")}" : "") + $" ({sw.Elapsed.TotalSeconds:F0} s)");
             }
             Log.Write($"result: found {matches.Count}, exit code 0, {sw.Elapsed.TotalSeconds:F1} s");
             return 0;
@@ -295,6 +311,22 @@ public static class FindCommand
         }
         static int Count(List<TreeNode> ns) => ns.Sum(n => 1 + (n.Children != null ? Count(n.Children) : 0));
     }
+
+    /// <summary>--versions (0.20.0): every copy of each match and what it changes (FindVersions.cs).</summary>
+    static void FillVersions(List<Match> matches, LoadOrderSetup lo)
+    {
+        foreach (var m in matches)
+        {
+            var sw = Stopwatch.StartNew();
+            Analyzer.Where = $"comparing the copies of {m.Key}";
+            m.Versions = RecordVersions.Compare(m.Key, m.Copies, lo.Plugins, out m.TypesDiffer);
+            Log.Write($"versions: {m.Key}: {m.Copies.Count} copies, {m.Versions.Sum(v => v.Changes.Count + v.NotShown)} changes" +
+                      $"{(m.TypesDiffer ? ", record types differ" : "")}, {sw.Elapsed.TotalSeconds:F1} s");
+        }
+    }
+
+    /// <summary>What the views print beside a match: the --plugin file (null in a load order) and the loaded plugins.</summary>
+    sealed record View(string? PluginMode, HashSet<string> Loaded);
 
     /// <summary>With --plugin, why the plugin itself didn't load (its load-order problems go to stderr), or null when it
     /// loaded. Both the listing and a record lookup stop with exit 2 then, so a lookup never answers from a master's copy
@@ -401,6 +433,9 @@ public static class FindCommand
         /// <summary>--full (0.20.0): the winning copy's whole tree, or null without --full; TreeNotShown past the node cap.</summary>
         public List<TreeNode>? Tree;
         public int TreeNotShown;
+        /// <summary>--versions (0.20.0): every copy and its changes, or null without --versions.</summary>
+        public List<VersionInfo>? Versions;
+        public bool TypesDiffer;
     }
 
     /// <summary>The plugin a console FormID points at, by the load order's runtime index: full plugins 00 to FC, medium
@@ -650,7 +685,16 @@ public static class FindCommand
         return $"({n} {(n == 1 ? "entry" : "entries")})";
     }
 
-    static void Print(Match m)
+    static void Print(Match m, View? view = null)
+    {
+        PrintFields(m);
+        if (m.Versions != null)
+            foreach (var l in RecordVersions.Lines(m.Versions, m.TypesDiffer, m.Key.ModKey.FileName.String, view?.Loaded.Contains(m.Key.ModKey.FileName.String) == true, view?.PluginMode))
+                Console.WriteLine(l);
+    }
+
+    /// <summary>The heading, the plugins and the fields (or --full's tree) of one match.</summary>
+    static void PrintFields(Match m)
     {
         var (winner, rec) = m.Winner;
         var name = NameOf(rec);
@@ -715,6 +759,7 @@ public static class FindCommand
                     o["tree"] = FindTree.Json(m.Tree);
                     if (m.TreeNotShown > 0) o["treeNotShown"] = m.TreeNotShown;
                 }
+                if (m.Versions != null) o["versions"] = RecordVersions.Json(m.Versions, m.TypesDiffer);   // --versions (0.20.0)
                 return (JsonNode)o;
             }).ToArray()),
             ["result"] = result,
