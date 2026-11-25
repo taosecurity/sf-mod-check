@@ -135,6 +135,23 @@ public class AssetsTests
     }
 
     [Fact]
+    public void With_masters_dir_a_masters_archive_comes_from_masters_dir_not_from_beside_the_plugin()
+    {
+        // 0.16.2 code review round 1: a stale copy of a master's archive next to the checked plugin must not win over
+        // the master's archive in --masters-dir (where the master itself is loaded from)
+        using var w = new World();
+        var inst = Directory.CreateDirectory(Path.Combine(w.Dir, "inst")).FullName;
+        File.WriteAllBytes(Path.Combine(inst, "TestFull - Main.ba2"), Ba2("GNRL", "scripts\\sfmtest\\old.pex"));
+        File.WriteAllBytes(Path.Combine(w.Dir, "TestFull - Main.ba2"), Ba2("GNRL", "scripts\\sfmtest\\new.pex"));
+        var p = Path.Combine(inst, "usesnew.esm");
+        File.Move(w.Build("usesnew", m => AttachScript(m, "SfmTest:New")), p);
+        Expect.No(w.Check(p, o => o.MastersDirs = [w.Dir]), "assets");
+        var q = Path.Combine(inst, "usesold.esm");
+        File.Move(w.Build("usesold", m => AttachScript(m, "SfmTest:Old")), q);
+        Expect.Finding(w.Check(q, o => o.MastersDirs = [w.Dir]), "ERROR", "assets", "script SfmTest:Old (scripts\\sfmtest\\old.pex) is in no loose file or loaded archive");
+    }
+
+    [Fact]
     public void An_archive_an_ini_lists_counts_even_without_a_plugin_of_its_name()
     {
         using var w = new World();

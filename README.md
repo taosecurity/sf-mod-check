@@ -1232,8 +1232,9 @@ Each finding names its check in brackets.
   - **Face data** isn't checked here: `release` looks for it (rule `face-missing`, a NOTE), since some of the game's
     own NPCs have no baked face files either.
   - **Where a file can be:** a file counts when it is loose in the plugin's own folder, a `--masters-dir` folder or
-    the Data folder, or inside an archive the game loads, found in those same folders: `<plugin> - *.ba2` for the plugin and each of its masters (other languages' voice
-    archives left out), plus the archives `Starfield.ini` and `StarfieldCustom.ini` list.
+    the Data folder, or inside an archive the game loads: `<plugin> - *.ba2` for the plugin and each of its masters (other languages' voice
+    archives left out), plus the archives `Starfield.ini` and `StarfieldCustom.ini` list. The plugin's own archives
+    are looked for in its own folder first; a master's archives where its masters are (`--masters-dir`, then Data).
   - **How it reports:** each missing file is listed once, with up to 3 records that use it. An override isn't blamed
     for a missing file the master's version of the record already names (some vanilla records attach scripts the
     game doesn't ship; `--verbose` lists each one left out).

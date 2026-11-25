@@ -51,12 +51,17 @@ public sealed class AssetIndex
     /// conflict: every active plugin). dirs: folders searched in order for loose files and archives (the Data folder
     /// last). inis: INI files read in order, a later one overriding an earlier one's keys. language: voice archives
     /// of other languages ("Voices_de") are skipped. names: false reads only each archive's type, for the archive
-    /// counts (conflict --no-assets); the index then finds nothing in archives.</summary>
-    public static AssetIndex Build(IEnumerable<string> plugins, IReadOnlyList<string> dirs, IEnumerable<string> inis, string language, bool names = true)
+    /// counts (conflict --no-assets); the index then finds nothing in archives. own (check, 0.16.2): the checked
+    /// plugin and its folder, searched first for that plugin's own archives and for loose files; the other plugins'
+    /// archives are looked for in dirs only, in order.</summary>
+    public static AssetIndex Build(IEnumerable<string> plugins, IReadOnlyList<string> dirs, IEnumerable<string> inis, string language, bool names = true,
+        (string Plugin, string Dir)? own = null)
     {
         // off Windows "/g/Data" and "/g/data" may be two folders, so they stay apart (at worst one is searched twice)
-        var index = new AssetIndex(dirs.Select(Path.GetFullPath)
-            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).ToList());
+        var cmp = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var archiveDirs = dirs.Select(Path.GetFullPath).Distinct(cmp).ToList();
+        var ownDirs = own is { } ow ? archiveDirs.Prepend(Path.GetFullPath(ow.Dir)).Distinct(cmp).ToList() : archiveDirs;
+        var index = new AssetIndex(ownDirs);
         var archives = new List<(string Path, string Why)>();
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // by file name: the first folder that has it wins
         bool Take(string path, string why)
@@ -68,7 +73,8 @@ public sealed class AssetIndex
         foreach (var plugin in plugins)
         {
             var stem = Path.GetFileNameWithoutExtension(plugin);
-            foreach (var dir in index.looseDirs)
+            var searched = own is { } o && string.Equals(plugin, o.Plugin, StringComparison.OrdinalIgnoreCase) ? ownDirs : archiveDirs;
+            foreach (var dir in searched)
             {
                 if (!Directory.Exists(dir)) continue;
                 // case-insensitive on every system, as the game sees names under Proton (code review 0.6.0)
@@ -82,8 +88,8 @@ public sealed class AssetIndex
                     if (OtherLanguageVoices(suffix, language)) { index.Skipped.Add((Path.GetFileName(ba2), $"voices for another language (--language {language})")); continue; }
                     if (Take(ba2, $"named after {plugin}"))
                     {
-                        if (!index.ownArchives.TryGetValue(plugin, out var own)) index.ownArchives[plugin] = own = new();
-                        own.Add(ba2);
+                        if (!index.ownArchives.TryGetValue(plugin, out var mine)) index.ownArchives[plugin] = mine = new();
+                        mine.Add(ba2);
                     }
                 }
             }

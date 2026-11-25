@@ -398,7 +398,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   own folder when none is given), then the Data folder (`--data`, else Steam's usual
   `C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data`; with no `--data` and no game there, a plugin that
   sits in a folder holding Starfield.esm uses that folder). For `check`'s assets step, the plugin's own folder is
-  always searched first, with or without `--masters-dir`, so the mod's own `<plugin> - Main.ba2` and loose files
+  always searched first for loose files and the plugin's own archives, with or without `--masters-dir` (a master's
+  archives are looked for in the masters' order only), so the mod's own `<plugin> - Main.ba2` and loose files
   beside the plugin count (0.16.2).
 - **Output (stdout):** a summary line; `ERROR [check] ...` lines (broken: fix before release); `WARNING [check] ...`
   lines (probably a mistake); `HINT [check] ...` lines (how to fix that check's findings in xEdit or the Creation Kit);

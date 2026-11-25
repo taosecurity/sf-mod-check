@@ -538,15 +538,18 @@ public static class Checker
         // 6. assets (0.6.0): attached scripts and model paths must be a loose file or in an archive that loads (the
         // plugin's and its masters' "<name> - *.ba2", and the INIs' archive lists)
         if (o.NoAssets) { Log.Write("assets: skipped (--no-assets)"); return; }
-        // the plugin's own folder first, even with --masters-dir (0.16.2: without it, a script in the plugin's own
-        // "<plugin> - Main.ba2" next to it was a false ERROR, while release read the same files); Build drops repeats
-        var assetDirs = MasterDirs(o).Prepend(Path.GetDirectoryName(Path.GetFullPath(o.Plugin))!).Append(o.DataDir).ToList();
+        // the plugin's own archives and loose files come from its own folder first, even with --masters-dir (0.16.2:
+        // without it, a script in the plugin's own "<plugin> - Main.ba2" was a false ERROR, while release read the same
+        // files); the masters' archives keep the masters' search order, --masters-dir then Data (code review round 1:
+        // a stale master archive beside the plugin must not win over the --masters-dir build). Build drops repeats.
+        var assetDirs = MasterDirs(o).Append(o.DataDir).ToList();
+        var ownDir = Path.GetDirectoryName(Path.GetFullPath(o.Plugin))!;
         var assetPlugins = game.LoadOrder.Select(m => m.ModKey.FileName.String).Append(self).ToList();
         // A folder that can't be listed (or another recoverable error) costs only this step, not the checks above
         // (code review 0.6.0, as conflict mode since 2026-11-18): one WARNING says the assets weren't checked.
         try
         {
-            var index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language);
+            var index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language, own: (self, ownDir));
             Assets.AfterIndex?.Invoke();
             var uses = new AssetUses();
             var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache, uses);
