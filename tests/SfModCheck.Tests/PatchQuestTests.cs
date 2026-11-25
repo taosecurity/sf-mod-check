@@ -121,6 +121,20 @@ public class PatchQuestTests
     }
 
     [Fact]
+    public void Both_edit_one_log_entry_the_winner_list_is_kept_with_a_choice_row()
+    {
+        // code review 0.19.0, round 4: two edits of one log entry must not both be kept
+        using var game = new Game();
+        game.Mod("ModA.esm", q => { q.Stages[0].LogEntries[0].Note = "A edit"; q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn; });
+        game.Mod("ModB.esm", q => q.Stages[0].LogEntries[0].Note = "B edit");
+        Ok(game.Patch());
+        var s10 = game.Quest().Stages[0];
+        Assert.Equal(new[] { "B edit" }, Notes(s10));
+        Assert.Equal(QuestStage.Flag.KeepInstanceDataFromHereOn, s10.Flags);   // ModA's other change still merged
+        Assert.Contains("LogEntries; ModB.esm's value is kept", game.Report);
+    }
+
+    [Fact]
     public void Both_make_the_same_stage_change_no_clash_row()
     {
         // code review 0.19.0, round 2: one change both made is not a clash

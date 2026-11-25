@@ -1541,7 +1541,8 @@ public static class PatchCommand
             return true;
         }
         // One stage or objective both sides changed: a new entry from the kept side's copy, with each field the other
-        // side changed alone taken from it, and each list (log entries, targets) merged by whole value.
+        // side changed alone taken from it, and each list (log entries, targets) merged entry by entry (an entry is
+        // compared whole). When both sides removed or edited one base entry, that list is one value.
         (object Entry, List<string> Clash) SubMerge(object sHeld, object sMut, object bHeld, object lHeld, object lMut, bool keepS)
         {
             var result = QuestMerge.CopyEntry(sMut);
@@ -1560,9 +1561,12 @@ public static class PatchCommand
                     var li2 = Items(lv); var bi = Items(bv); var si = Items(sv);
                     var sMutItems = Items(rp.GetValue(result));
                     var lMutItems = Items(lmp.GetValue(lMut));
-                    if (si.Count == sMutItems.Count && li2.Count == lMutItems.Count)
+                    var bBag = BagOf(bi); var lBag = BagOf(li2); var sBag = BagOf(si);
+                    // both sides removed or edited one base entry (an edit reads as remove plus add): merging by entry
+                    // would keep both edits, so the list is one value (code review 0.19.0, round 4)
+                    bool bothEdited = bi.Any(x => !sBag.Contains(x) && !lBag.Contains(x));
+                    if (!bothEdited && si.Count == sMutItems.Count && li2.Count == lMutItems.Count)
                     {
-                        var bBag = BagOf(bi); var lBag = BagOf(li2); var sBag = BagOf(si);
                         var keep = new List<object?>();
                         for (int i = 0; i < si.Count; i++) if (!(bBag.Contains(si[i]) && !lBag.Contains(si[i]))) keep.Add(sMutItems[i]);
                         for (int i = 0; i < li2.Count; i++) if (!bBag.Contains(li2[i]) && !sBag.Contains(li2[i])) keep.Add(lMutItems[i]);

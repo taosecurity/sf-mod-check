@@ -595,7 +595,8 @@ kept simple:
 
 - A quest's **stages and objectives** merge by their Index, and its **aliases** by alias ID. Each plugin's own new,
   changed and removed entries are kept. When two plugins both changed one stage or objective, its fields merge one
-  level down (its log entries and targets are one value each); when both changed one alias, added the same key, or
+  level down (its log entries and targets merge entry by entry, but when both edited or removed the same log entry
+  or target, the winner's whole list is kept and listed under Choices); when both changed one alias, added the same key, or
   made an alias of another kind, the winner's entry is kept and the report lists it under Choices. Before 0.19.0 these
   lists were merged as plain lists, which could write two stages with one Index; that is fixed.
 - A quest's **condition lists**, a dialogue line's conditions, its responses and its script data are each one value:
