@@ -217,4 +217,49 @@ public class TriageDetailTests
         Assert.EndsWith("… (1,234 more characters)", cut);
         Assert.Equal(TriageDetail.MaxValue + "… (1,234 more characters)".Length, cut.Length);
     }
+
+    [Fact]
+    public void Field_by_field_table_lists_real_changes_before_translation_only_records()
+    {
+        // code review 0.17.0 round 2: rows went in record order, so translation-only records early in the plugin could
+        // fill the report's 10,000 rows before a later record's real change
+        using var game = new Game(s =>
+        {
+            s.Quests.Add(new Quest(s) { EditorID = "TD_QuestA", Name = Localized.Text("Td Quest A") });
+            var f1 = s.Factions.AddNew("TD_F1"); var f2 = s.Factions.AddNew("TD_F2");
+            var alias = new QuestReferenceAlias
+            {
+                ID = 7, Name = "TdAlias",
+                Factions = new ExtendedList<IFormLinkGetter<IFactionGetter>> { f1.ToLink<IFactionGetter>(), f2.ToLink<IFactionGetter>() },
+            };
+            s.Quests.Add(new Quest(s) { EditorID = "TD_QuestB", Aliases = new ExtendedList<AQuestAlias> { alias } });
+        }, localized: true);
+        game.Mod((m, s) =>
+        {
+            m.Quests.GetOrAddAsOverride(s.Quests.Single(q => q.EditorID == "TD_QuestA"));
+            var a = (QuestReferenceAlias)m.Quests.GetOrAddAsOverride(s.Quests.Single(q => q.EditorID == "TD_QuestB")).Aliases[0];
+            var moved = a.Factions![1];
+            a.Factions.RemoveAt(1);
+            a.Factions.Insert(0, moved);
+        });
+        var c = game.Run();
+
+        var rows = Detail(c);
+        Assert.Contains(rows, r => r[1].Contains("TD_QuestA") && r[4] == TriageDetail.TranslationsDropped);
+        Assert.Contains("TD_QuestB", rows[0][1]);
+        Assert.Equal(TriageDetail.Reordered, rows[0][4]);
+    }
+
+    [Fact]
+    public void A_list_too_long_to_match_gives_one_line_not_every_entry_removed_and_added()
+    {
+        // code review 0.17.0 round 2: 2,500 entries with one appended gave 5,001 removed and added lines
+        var d = new TriageDetail();
+        var before = Enumerable.Range(0, 2500).ToList();
+        var (lines, hidden) = d.Field("List", before, before.Append(9999).ToList(), null);
+        var line = Assert.Single(lines);
+        Assert.Equal(0, hidden);
+        Assert.Equal(TriageDetail.Changed, line.Kind);
+        Assert.EndsWith("(2,500 entries before, 2,501 after; too long to match entry by entry)", line.After);
+    }
 }

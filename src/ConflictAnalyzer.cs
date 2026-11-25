@@ -60,9 +60,9 @@ public class Analysis
     public List<string> Errors { get; } = new();
     // triage (0.8.0): with Run's `only` set, the fields those plugins changed on purpose (at most MaxChanges; the rest
     // are counted in ChangesNotListed). Empty without it. 0.17.0: translation-only fields have a MaxChanges of their own
-    // (TranslationChanges counts them).
+    // (TranslationChanges counts them, TranslationChangesNotListed the ones past it).
     public List<FieldChange> Changes { get; } = new();
-    public int ChangesNotListed, TranslationChanges;
+    public int ChangesNotListed, TranslationChanges, TranslationChangesNotListed;
     public const int MaxChanges = 20000;
     // Overrides whose record type differs from the first record with that FormID (0.5.2), in load order.
     public List<TypeChange> TypeChanges { get; } = new();
@@ -625,11 +625,12 @@ public static class Analyzer
                         for (int j = i - 1; j >= 0 && b < 0; j--)
                             if (prov[j, f] && masters.Contains(versions[j].Plugin.Mod.ModKey)) b = j;
                     var baseVal = b >= 0 ? vals[b, f] : null;
-                    bool same;
+                    bool same, failed = false;
                     try { same = FieldCompare.DeepEq(vals[i, f], baseVal, 0); }
-                    catch (Exception err) when (Fatal.Recoverable(err)) { same = true; unsure[i] = true; Unreadable(versions[i].Rec, fields[f].Name); }
+                    catch (Exception err) when (Fatal.Recoverable(err)) { same = true; failed = true; unsure[i] = true; Unreadable(versions[i].Rec, fields[f].Name); }
                     if (!same) intended[i].Add(f);
-                    if (onlySet is not null && onlySet.Contains(versions[i].Plugin.FileName))
+                    // a field the comparison couldn't read is counted once above and gets no detail (code review 0.17.0)
+                    if (!failed && onlySet is not null && onlySet.Contains(versions[i].Plugin.FileName))
                     {
                         // triage (0.17.0): the field's full difference; for an equal field only when the two plugins
                         // differ in localization (the English text may be equal while the translations are gone)
@@ -642,7 +643,9 @@ public static class Analyzer
                             var d = same ? (trDetail ??= new()) : (detail ??= new());
                             List<DetailLine> lines; int hidden;
                             try { (lines, hidden) = d.Field(fields[f].Name, baseVal, vals[i, f], translations, knownEqual: same); }
-                            catch (Exception err) when (Fatal.Recoverable(err)) { (lines, hidden) = (new(), 0); Unreadable(r, fields[f].Name); }
+                            // a failed walk of an equal field (looking for translations only) is not an unreadable field:
+                            // the comparison above read it (code review 0.17.0)
+                            catch (Exception err) when (Fatal.Recoverable(err)) { (lines, hidden) = (new(), 0); if (!same) Unreadable(r, fields[f].Name); }
                             if (!same || lines.Count + hidden > 0)
                                 recChanges.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, SafeText.OneLine(r.EditorID),
                                     versions[origin].Plugin.FileName, b >= 0 ? versions[b].Plugin.FileName : "", fields[f].Name,
@@ -763,6 +766,7 @@ public static class Analyzer
                     result.Changes.Add(ch);
                     if (ch.TranslationsOnly) result.TranslationChanges++;
                 }
+                else if (ch.TranslationsOnly) result.TranslationChangesNotListed++;
                 else result.ChangesNotListed++;
             if (middles is not null)
                 foreach (var m in middles) comparedWithout[m.FileName] = comparedWithout.GetValueOrDefault(m.FileName) + 1;

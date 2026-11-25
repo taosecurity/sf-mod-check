@@ -154,7 +154,7 @@ public sealed class TriageDetail
             return;
         }
         // same entries, other order: one line, not a line per moved entry
-        if (la.Count == lb.Count && Match(la, lb) is { } m && m.All(x => x >= 0))
+        if (la.Count == lb.Count && Match(la, lb, depth + 1) is { } m && m.All(x => x >= 0))
         {
             int first = Enumerable.Range(0, la.Count).FirstOrDefault(i => !Eq(la[i], lb[i], depth + 1), -1);
             Add(path, Reordered, la, lb, first < 0 ? "" : $" (first different at entry {first + 1} of {la.Count})");
@@ -181,7 +181,12 @@ public sealed class TriageDetail
             return;
         }
         // different lengths and no key: entries without an equal partner were removed or added
-        var match = Match(la, lb) ?? Enumerable.Repeat(-1, la.Count).ToArray();
+        // too long to match: one line for the whole list, not every entry as removed and added (code review 0.17.0 round 2)
+        if (Match(la, lb, depth + 1) is not { } match)
+        {
+            Add(path, Changed, la, lb, $" ({la.Count:N0} entries before, {lb.Count:N0} after; too long to match entry by entry)");
+            return;
+        }
         var used = new HashSet<int>(match.Where(x => x >= 0));
         for (int i = 0; i < la.Count; i++) if (match[i] < 0) Add($"{path}[{i}]", Removed, la[i], null);
         for (int j = 0; j < lb.Count; j++) if (!used.Contains(j)) Add($"{path}[{j}]", Added, null, lb[j]);
@@ -189,25 +194,25 @@ public sealed class TriageDetail
 
     /// <summary>For each entry of la, the index of an equal entry of lb, each used once (-1: none); null when the lists are
     /// too long to match (more than 2,000 entries). Entries are grouped by DeepCompare's hash first.</summary>
-    int[]? Match(List<object?> la, List<object?> lb)
+    int[]? Match(List<object?> la, List<object?> lb, int depth)
     {
         if (la.Count > 2000 || lb.Count > 2000) return null;
         var free = new Dictionary<int, List<int>>();
         var wild = new List<int>();   // entries whose hash couldn't be made (2): compared with every free entry
         for (int j = 0; j < lb.Count; j++)
         {
-            var h = cmp.Hash(lb[j], 1);
+            var h = cmp.Hash(lb[j], depth);
             if (h == 2) wild.Add(j); else (free.TryGetValue(h, out var c) ? c : free[h] = new()).Add(j);
         }
         var used = new HashSet<int>();
         var result = new int[la.Count];
         for (int i = 0; i < la.Count; i++)
         {
-            var h = cmp.Hash(la[i], 1);
+            var h = cmp.Hash(la[i], depth);
             IEnumerable<int> cands = h == 2 ? Enumerable.Range(0, lb.Count) : (free.GetValueOrDefault(h) ?? new()).Concat(wild);
             result[i] = -1;
             foreach (var j in cands)
-                if (!used.Contains(j) && Eq(la[i], lb[j], 1)) { result[i] = j; used.Add(j); break; }
+                if (!used.Contains(j) && Eq(la[i], lb[j], depth)) { result[i] = j; used.Add(j); break; }
         }
         return result;
     }

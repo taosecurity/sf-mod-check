@@ -638,6 +638,8 @@ public static class TriagePlugins
             changes.Add(new(ch.Plugin, Rec(ch.EditorID, ch.RecordType, ch.FormKey.ToString()), ch.RecordType, ch.FormKey.ToString(),
                 ch.Base == "" ? "(none)" : ch.Base, ch.Field, ch.BaseValue, ch.NewValue) { Detail = ch.Detail, DetailNotShown = ch.DetailNotShown, TranslationsOnly = ch.TranslationsOnly });
         if (a.ChangesNotListed > 0) note("", $"{a.ChangesNotListed:N0} more changed fields weren't kept (over {Analysis.MaxChanges:N0})");
+        if (a.TranslationChangesNotListed > 0)
+            note("", $"{a.TranslationChangesNotListed:N0} more fields that differ only in their translations weren't kept (over {Analysis.MaxChanges:N0})");
         foreach (var e in a.Errors.Take(10)) note("", $"the comparison with the game: {e}");
         if (a.Errors.Count > 10) note("", $"the comparison with the game: {a.Errors.Count - 10:N0} more such lines (run with --log to see them)");
         if (a.UnreadableFields.Count > 0)
@@ -670,7 +672,10 @@ public static class TriagePlugins
         var detailT = c.Report.Table(S, "Changes to official records, field by field", "Plugin", "Record", "Field", "Path", "Kind", "Before", "After");
         int detailRows = 0, detailCut = 0;
         void DetailRow(params string[] cells) { if (detailRows < MaxDetailRows) { detailT.Add(cells); detailRows++; } else detailCut++; }
-        foreach (var rec in changes.Where(ch => ch.Detail.Count + ch.DetailNotShown > 0).GroupBy(ch => (ch.Plugin, ch.Key)))
+        // real changes' rows first, then translation-only fields' rows, so those never push a real change's rows past
+        // MaxDetailRows (code review 0.17.0 round 2)
+        foreach (var rec in changes.Where(ch => ch.Detail.Count + ch.DetailNotShown > 0).OrderBy(ch => ch.TranslationsOnly)
+                                   .GroupBy(ch => (ch.TranslationsOnly, ch.Plugin, ch.Key)))
         {
             foreach (var ch in rec)
                 foreach (var d in ch.Detail) DetailRow(ch.Plugin, ch.Record, ch.Field, d.Path, d.Kind, d.Before, d.After);
@@ -686,7 +691,8 @@ public static class TriagePlugins
             var n = g.Count();
             var trOnly = g.Count(ch => ch.TranslationsOnly);   // code review 0.17.0: counted apart, not as real changes
             var recs = g.Select(ch => ch.Key).Distinct().Count();
-            var top = g.GroupBy(ch => (ch.Type, ch.Field)).OrderByDescending(x => x.Count()).Take(5).Select(x => $"{x.Key.Type}.{x.Key.Field} x{x.Count():N0}");
+            // most often: real changes only, when there are any (code review 0.17.0 round 2)
+            var top = (trOnly < n ? g.Where(ch => !ch.TranslationsOnly) : g).GroupBy(ch => (ch.Type, ch.Field)).OrderByDescending(x => x.Count()).Take(5).Select(x => $"{x.Key.Type}.{x.Key.Field} x{x.Count():N0}");
             var lines = g.SelectMany(ch => ch.Detail).ToList();
             int reordered = lines.Count(d => d.Kind == TriageDetail.Reordered);
             int dropped = lines.Count(d => d.Kind == TriageDetail.TranslationsDropped), added = lines.Count(d => d.Kind == TriageDetail.TranslationsAdded);
