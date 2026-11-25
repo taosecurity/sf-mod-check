@@ -67,6 +67,16 @@ public static class Hints
             "A scene uses a quest alias its quest doesn't have, or has no quest. CK: open the scene's quest, check " +
             "the Quest Aliases tab, then fix each scene actor, action and condition that names the alias (or set " +
             "the scene's quest). xEdit: compare the scene's alias IDs with the quest's alias list.",
+        ["quest-stage-unset"] =
+            "A stage of a quest the plugin adds is never set: no start stage, dialogue response, scene or script " +
+            "SetStage call sets it, so its log entry and fragment never run. CK: open the quest's Quest Stages tab, " +
+            "then set the stage from a topic info's or scene's 'Set Parent Quest Stage' field or a script (SetStage), " +
+            "or mark it Run On Start. If another mod's script or the game's engine sets it, ignore this. A NOTE means " +
+            "a script's stage number or the script itself couldn't be read, so the stages weren't checked.",
+        ["quest-stage-missing"] =
+            "A script sets a quest stage the quest doesn't have, so the call does nothing. CK: add the stage on the " +
+            "quest's Quest Stages tab, or fix the number in the script (or in the script property the record sets) and " +
+            "compile it again.",
         ["editorids"] =
             "Give each new record its own Editor ID that no master uses either. CK: open the form and change its " +
             "ID. xEdit: edit the EDID field. This usually comes from duplicating a record or Copy as New Record.",

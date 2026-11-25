@@ -1222,6 +1222,24 @@ Each finding names its check in brackets.
     Bethesda's own plugins aren't flagged.
   - A missing shield and the weapon slots are listed only, because many official player ships have a weapon slot
     that points at a non-weapon part.
+- **quest stages** (0.19.0, rules `quest-stage-unset` and `quest-stage-missing`, WARNINGs): for each quest the plugin
+  adds (not an override), every stage must be set by something in the plugin: the quest's start stage (Run On Start),
+  a dialogue response's, scene's or scene phase's "set parent quest stage" value, or a `SetStage` or `SetStageNoWait`
+  call in a script the plugin attaches. A stage nothing sets gets one WARNING per quest that lists those stages, since
+  what they do never happens. A script call that sets a stage the quest doesn't have is a WARNING too (the call does
+  nothing).
+  - Scripts are read from the same places as the assets check: loose files, then the plugin's own archives, then its
+    masters' archives (where the game's own scripts are). A call counts when its quest is the script's own quest
+    (`self` in a quest script, or `GetOwningQuest()` in a dialogue, scene, package or alias script) or a quest
+    property the record sets, and its stage number is a constant, an int property the record sets, the property's
+    default, or a helper function's parameter that every call in the script passes as a constant.
+  - To keep false alarms down: a quest with a call whose stage number is worked out while the game runs gets one NOTE
+    instead; a stage whose number a call with an unknown quest uses counts as set; and when an attached script can't
+    be found or read, the unset rule becomes one NOTE for the plugin. A property's default value never raises
+    `quest-stage-missing`, since defaults are often placeholders such as 0.
+  - Stages that another mod's scripts or the game's engine set can't be seen, so read each WARNING as "check this".
+    Bethesda's own plugins aren't checked, and `--no-assets` skips this check too. `--verbose` lists each quest, each
+    setter found and each call left unresolved.
 - **dialogue**: a response with Emotion 0, where the official masters use "none" or an emotion keyword (WARNING).
 - **scenes**: the quest aliases a scene uses must exist in its quest. Actors, actions and dialogue targets that name a
   missing alias are ERRORs; alias conditions that do are WARNINGs; a scene with no quest is a WARNING because it can't
@@ -1298,6 +1316,8 @@ What each check's findings mean and how to fix them. These are the same lines sf
 - **conditions**: A condition leaves its form parameter empty, where the game's own uses of that function always fill it, uses a function number the game doesn't have, or names an alias its quest doesn't have. CK: open the record's condition list, edit the condition and pick the form, a real function or one of the quest's aliases (or remove the condition). xEdit: fill in the condition's Parameter #1/#2 field, or fix its Function or alias number.
 - **dialogue**: A dialogue response has an empty Emotion. CK: open the topic info, edit the response and pick an emotion (Neutral is fine). xEdit: set the response's TRDA Emotion to a real value.
 - **scenes**: A scene uses a quest alias its quest doesn't have, or has no quest. CK: open the scene's quest, check the Quest Aliases tab, then fix each scene actor, action and condition that names the alias (or set the scene's quest). xEdit: compare the scene's alias IDs with the quest's alias list.
+- **quest-stage-unset**: A stage of a quest the plugin adds is never set: no start stage, dialogue response, scene or script SetStage call sets it, so its log entry and fragment never run. CK: open the quest's Quest Stages tab, then set the stage from a topic info's or scene's 'Set Parent Quest Stage' field or a script (SetStage), or mark it Run On Start. If another mod's script or the game's engine sets it, ignore this. A NOTE means a script's stage number or the script itself couldn't be read, so the stages weren't checked.
+- **quest-stage-missing**: A script sets a quest stage the quest doesn't have, so the call does nothing. CK: add the stage on the quest's Quest Stages tab, or fix the number in the script (or in the script property the record sets) and compile it again.
 - **editorids**: Give each new record its own Editor ID that no master uses either. CK: open the form and change its ID. xEdit: edit the EDID field. This usually comes from duplicating a record or Copy as New Record.
 - **itm**: Identical to Master (ITM) records change nothing but can undo other mods' edits to the same record. xEdit: right-click the plugin > Remove "Identical to Master" records (or run QuickAutoClean). In the CK they come from opening a form and pressing OK without changes.
 - **trees**: The plugin edits an official Story Manager or Planet Content Manager node. Every mod that edits the same node conflicts, and the last one loaded wins. CK: make your own node under the official branch (Story Manager: set its parent and previous sibling) and revert your edits to the official one. xEdit: remove the override (right-click > Remove) once your own node does the job. Keep the edit only if you mean to.

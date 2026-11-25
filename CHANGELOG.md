@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.19.0 (not released yet)
+
+### What's new
+
+- `check` checks quest stages (new rules `quest-stage-unset` and `quest-stage-missing`, both WARNINGs). For each quest the plugin adds, every stage must be set by something in the plugin: the start stage flag (Run On Start), a dialogue response's, scene's or scene phase's "set parent quest stage" value, or a `SetStage` or `SetStageNoWait` call in a script the plugin attaches. One WARNING per quest lists the stages nothing sets, since what they do never happens. A script call that sets a stage its quest doesn't have is a WARNING too. Scripts are read from loose files and the plugin's and its masters' archives. A quest with a call whose stage number is worked out while the game runs gets one NOTE instead of warnings, and so does a plugin with an attached script that can't be found or read. Bethesda's own plugins aren't checked, and `--no-assets` skips the check. `--verbose` lists each quest, each setter found and each call left unresolved.
+
+### Example
+
+A made-up mod, `MyQuestMod.esm`, adds the quest `MyQuest` with stages 10, 20 and 30. Stage 10 is the start stage, and the quest's script `MyMod:MyQuestScript` calls `SetStage(20)` and `SetStage(40)`:
+
+    sf-mod-check check MyQuestMod.esm
+
+DRAFT (plan step 6 replaces these with the lines of a real run on that made-up mod): the quest-stage lines look like this (the hint lines left out):
+
+    WARNING [quest-stage-unset] MyQuest [QUST:000801:MyQuestMod.esm]: nothing in the plugin sets stage 30 (1 of 3): no start stage, dialogue, scene or script SetStage call, so what those stages do never happens
+    WARNING [quest-stage-missing] script MyMod:MyQuestScript sets stage 40 on MyQuest [QUST:000801:MyQuestMod.esm], which has no stage 40, so the call does nothing
+
+sf-mod-check 0.18.0 said nothing about quest stages.
+
 ## 0.18.0 (2026-11-25)
 
 ### What's new

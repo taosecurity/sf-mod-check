@@ -15,7 +15,11 @@ master" (ITM) records, and edits to official Story Manager and Planet Content Ma
 WARNING, because every mod that edits the same official node conflicts; the fix is to add the mod's own node to the
 tree instead). For a ship mod it also lists each ship's modules by system, class, weapon slots and missing
 required systems (a listing in the log), and warns (check `ships`) when a ship the plugin adds has a cockpit but
-lacks a required system (a ship only NPCs fly can ignore it). It is a command-line cousin of part of
+lacks a required system (a ship only NPCs fly can ignore it). Since 0.19.0 it warns about quest stages (checks
+`quest-stage-unset` and `quest-stage-missing`): a stage of a quest the plugin adds that nothing in the plugin sets
+(no start stage, dialogue or scene "set parent quest stage" value, or script `SetStage` call it can read), and a
+script call that sets a stage the quest doesn't have. Both are WARNINGs, never errors; a quest or plugin whose
+scripts can't be fully read gets one `NOTE [quest-stage-unset]` line instead. It is a command-line cousin of part of
 xEdit's "Check for Errors".
 
 Use it when someone has made or changed a mod and wants to know whether the plugin is sound before they play it or
@@ -408,7 +412,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   archives and the INIs' archives are looked for in the masters' order only), so the mod's own `<plugin> - Main.ba2` and loose files
   beside the plugin count (0.16.2).
 - **Output (stdout):** a summary line; `ERROR [check] ...` lines (broken: fix before release); `WARNING [check] ...`
-  lines (probably a mistake); `HINT [check] ...` lines (how to fix that check's findings in xEdit or the Creation Kit);
+  lines (probably a mistake); `NOTE [quest-stage-unset] ...` lines (0.19.0: quest stages that weren't checked, and
+  why; not counted in RESULT); `HINT [check] ...` lines (how to fix that check's findings in xEdit or the Creation Kit);
   a `SHIPS: <n> ships listed: ...` count line only when the plugin adds or overrides a ship (0.10.0; the per-ship
   listing of modules by system, class, weapon slots and missing systems is in the `--verbose`/`--log` log; missing
   systems on an added ship with a cockpit are a `WARNING [ships]` line); and always one last line `RESULT: OK|FAILED|CANNOT CHECK ...`. Scripts should read only the exit code and the lines

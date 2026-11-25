@@ -537,7 +537,7 @@ public static class Checker
 
         // 6. assets (0.6.0): attached scripts and model paths must be a loose file or in an archive that loads (the
         // plugin's and its masters' "<name> - *.ba2", and the INIs' archive lists)
-        if (o.NoAssets) { Log.Write("assets: skipped (--no-assets)"); return; }
+        if (o.NoAssets) { Log.Write("assets: skipped (--no-assets)"); Log.Write("quest stages: skipped (--no-assets: the check reads the plugin's scripts)"); return; }
         // the plugin's own archives and loose files come from its own folder first, even with --masters-dir (0.16.2:
         // without it, a script in the plugin's own "<plugin> - Main.ba2" was a false ERROR, while release read the same
         // files); the masters' archives keep the masters' search order, --masters-dir then Data (code review round 1:
@@ -547,9 +547,10 @@ public static class Checker
         var assetPlugins = game.LoadOrder.Select(m => m.ModKey.FileName.String).Append(self).ToList();
         // A folder that can't be listed (or another recoverable error) costs only this step, not the checks above
         // (code review 0.6.0, as conflict mode since 2026-11-18): one WARNING says the assets weren't checked.
+        AssetIndex? index = null;
         try
         {
-            var index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language, own: (self, ownDir));
+            index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language, own: (self, ownDir));
             Assets.AfterIndex?.Invoke();
             var uses = new AssetUses();
             var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache, uses);
@@ -562,6 +563,23 @@ public static class Checker
             var why = $"{e.GetType().Name}: {SafeText.OneLine(e.Message)}";
             add("WARNING", "assets", $"the assets check stopped ({why}), so scripts, models, materials, textures and sounds are not checked or only partly checked");
             Log.Write($"assets: stopped ({why})");
+        }
+
+        // 7. quest stages (0.19.0): stages of the plugin's new quests that nothing sets, and script calls that set a
+        // stage a quest doesn't have (QuestStages.cs). It reads the plugin's scripts, so it needs the asset index.
+        if (index == null) { Log.Write("quest stages: skipped (the assets step stopped before the archive list was ready)"); return; }
+        if (mod is not IStarfieldModGetter questMod) return;
+        try
+        {
+            var source = new QuestStages.ScriptSource(index, QuestStages.ArchivesFor(index, self, game.LoadOrder.Select(m => m.ModKey.FileName.String), o.DataDir));
+            QuestStages.Check(questMod, QuestOf, source.Get, Name, add);
+            Stage("quest stages");
+        }
+        catch (Exception e) when (Fatal.Recoverable(e))
+        {
+            var why = $"{e.GetType().Name}: {SafeText.OneLine(e.Message)}";
+            add("WARNING", "quest-stage-unset", $"the quest-stage check stopped ({why}), so quest stages were not checked");
+            Log.Write($"quest stages: stopped ({e})");
         }
     }
 

@@ -505,10 +505,10 @@ public class ExeTests
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Hints.cs"))) dir = dir.Parent;
         Assert.True(dir != null, "src\\Hints.cs not found above " + AppContext.BaseDirectory);
-        var re = new System.Text.RegularExpressions.Regex(@"\b[Aa]dd\((?:""(?:ERROR|WARNING)""|sev), ""([a-z]+)""");
+        var re = new System.Text.RegularExpressions.Regex(@"\b[Aa]dd\((?:""(?:ERROR|WARNING)""|sev), ""([a-z-]+)""");
         var used = Directory.GetFiles(Path.Combine(dir!.FullName, "src"), "*.cs")
             .SelectMany(f => re.Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value)).ToHashSet();
-        Assert.Equal(15, used.Count);   // structure, header, ids, records, read, links, navi, conditions, dialogue, scenes, editorids, itm, assets, trees, ships (0.10.0)
+        Assert.Equal(17, used.Count);   // structure, header, ids, records, read, links, navi, conditions, dialogue, scenes, editorids, itm, assets, trees, ships (0.10.0), quest-stage-unset, quest-stage-missing (0.19.0)
         Assert.Equal(used.OrderBy(x => x), Hints.ByCheck.Keys.OrderBy(x => x));
         Assert.All(Hints.ByCheck.Values, h => Assert.True(h.Length > 40 && !h.Contains('\n'), "hint too short or not one line: " + h));
         // README's "For Creation Kit and xEdit authors" section repeats each hint word for word.
