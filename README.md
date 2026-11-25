@@ -591,9 +591,29 @@ kept simple:
 - A field pick on the mesh ranks above a whole-record pick, as on every other field. A whole-record pick left with
   nothing to take gets a "was not used" warning that says so.
 
-**What it doesn't build yet:** dialogue topics, dialogue lines and scenes, so the report
-lists them for xEdit instead. A quest's own fields are patched; its dialogue and scenes are not copied into the patch.
-The navmesh info map (NAVI) is never patched: each plugin's copy lists only its own navmeshes, so a merged copy would
+**Quests and dialogue** (since 0.19.0) are merged more finely than other records:
+
+- A quest's **stages and objectives** merge by their Index, and its **aliases** by alias ID. Each plugin's own new,
+  changed and removed entries are kept. When two plugins both changed one stage or objective, its fields merge one
+  level down (its log entries and targets are one value each); when both changed one alias, added the same key, or
+  made an alias of another kind, the winner's entry is kept and the report lists it under Choices. Before 0.19.0 these
+  lists were merged as plain lists, which could write two stages with one Index; that is fixed.
+- A quest's **condition lists**, a dialogue line's conditions, its responses and its script data are each one value:
+  taken whole from one plugin, never entry by entry.
+- A quest's **script data** merges by script name and property name. Its stage fragments merge by stage only when both
+  plugins use one fragment script and that script (read from loose files, then the archives, last-loaded plugin
+  first) has a function for every fragment kept; otherwise the winner's whole script data is kept with a Choice row
+  that says why.
+- **Dialogue topics and dialogue lines** (DIAL and INFO) are built. A line goes into its topic and a topic into its
+  quest; when the patch has no reason of its own to hold that topic or quest, it goes in as the game uses it today,
+  with no field changed and none of its other topics or lines, and the report's Notes say so. A topic's list of lines
+  merges by line, and a line one plugin added goes right after the line before it in that plugin's list. A line in two
+  topics, a topic in two quests, or a line or topic whose parent no plugin holds is not built, and the report says why.
+- After a quest is built, an objective target or fragment alias that names an alias the merged quest no longer has
+  (because another plugin removed or replaced it) gets a Notes line telling you to check it in xEdit.
+
+**What it doesn't build yet:** scenes and dialogue branches (SCEN and DLBR), so the report lists them for xEdit
+instead ("scenes and dialogue branches are not built by this version; copy the fields in xEdit"). The navmesh info map (NAVI) is never patched: each plugin's copy lists only its own navmeshes, so a merged copy would
 hide entries.
 
 **Rebuild it when your mods change.** The patch lists every plugin it took values from as a master. After you add,

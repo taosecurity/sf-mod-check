@@ -974,7 +974,11 @@ public class PatchCellsTests
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Program.cs"))) dir = dir.Parent;
         Assert.True(dir != null, "src\\Program.cs not found above " + AppContext.BaseDirectory);
         string Text(string f) => File.ReadAllText(Path.Combine(dir!.FullName, f)).ReplaceLineEndings(" ").Replace("  ", " ");
-        Assert.Contains("**What it doesn't build yet:** dialogue topics", Text("README.md"));
+        // 0.19.0: dialogue topics and lines are built; scenes and dialogue branches are still left to xEdit
+        Assert.Contains("**What it doesn't build yet:** scenes and dialogue branches (SCEN and DLBR)", Text("README.md"));
+        Assert.Contains("**Quests and dialogue** (since 0.19.0)", Text("README.md"));
+        Assert.Contains("dialogue topics and lines since 0.19.0", Text("AGENTS.md"));
+        Assert.Contains("`patch` builds dialogue topics and dialogue lines (DIAL and INFO)", Text("CHANGELOG.md"));
         Assert.Contains("**Placed objects** (since 0.13.0", Text("README.md"));
         Assert.Contains("**Navmeshes** (since 0.13.0)", Text("README.md"));
         Assert.Contains("cells, worldspaces, placed objects and navmeshes are built since 0.13.0", Text("AGENTS.md"));

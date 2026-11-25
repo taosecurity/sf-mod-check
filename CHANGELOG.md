@@ -5,6 +5,9 @@
 ### What's new
 
 - `check` checks quest stages (new rules `quest-stage-unset` and `quest-stage-missing`, both WARNINGs). For each quest the plugin adds, every stage must be set by something in the plugin: the start stage flag (Run On Start), a dialogue response's, scene's or scene phase's "set parent quest stage" value, or a `SetStage` or `SetStageNoWait` call in a script the plugin attaches. One WARNING per quest lists the stages nothing sets, since what they do never happens. A script call that sets a stage its quest doesn't have is a WARNING too. Scripts are read from loose files and the plugin's and its masters' archives. A quest with a call whose stage number is worked out while the game runs gets one NOTE instead of warnings, and so does a plugin with an attached script that can't be found or read. A negative stage number (a "none" placeholder such as -1) is ignored, and a stage fragment left over from a stage the quest no longer has isn't read, since it never runs. Bethesda's own plugins aren't checked, and `--no-assets` skips the check. `--verbose` lists each quest, each setter found and each call left unresolved.
+- `patch` merges quests by their parts. A quest's stages and objectives merge by Index and its aliases by alias ID, so two mods that each add or change a different stage both keep their change; a stage or objective both mods changed merges field by field, and an alias both changed keeps the winner's with a Choice row. A quest's script data merges by script and property name, and its stage fragments merge by stage when both mods use one fragment script that has every fragment's function. Condition lists stay one value each. After the build, an objective target or fragment alias that names an alias the merged quest no longer has gets a Notes line.
+- `patch` builds dialogue topics and dialogue lines (DIAL and INFO), which it used to list for xEdit. Each line goes into its topic and each topic into its quest, a parent the patch holds only for them going in as the game uses it today. A topic's list of lines merges by line, and a line a mod added keeps its place after the line before it. A line's conditions, responses and script data are one value each. A line in two topics, a topic in two quests, or one whose parent can't be found isn't built, and the report says why. Scenes and dialogue branches (SCEN and DLBR) are still listed for xEdit.
+- Fix: 0.18.0 merged a quest's stages, objectives and aliases as plain lists, which could write two stages with one Index or split a condition list, and it kept the winner's whole script data when two mods changed different script properties. On a real 147-plugin load order, 0.18.0 dropped one mod's change to a companion quest's script property that way; 0.19.0 keeps both mods' changes. A quest whose only changes are plain fields is patched as before.
 
 ### Example
 
@@ -12,10 +15,11 @@ A made-up mod, `MyQuestMod.esm`, adds the quest `MyQuest` with stages 10, 20 and
 
     sf-mod-check check MyQuestMod.esm
 
-DRAFT (plan step 6 replaces these with the lines of a real run on that made-up mod): the quest-stage lines look like this (the hint lines left out):
+These are the quest-stage lines and the RESULT line of a real run on that made-up mod (the hint lines left out):
 
-    WARNING [quest-stage-unset] MyQuest [QUST:000801:MyQuestMod.esm]: nothing in the plugin sets stage 30 (1 of 3): no start stage, dialogue, scene or script SetStage call, so what those stages do never happens
-    WARNING [quest-stage-missing] script MyMod:MyQuestScript sets stage 40 on MyQuest [QUST:000801:MyQuestMod.esm], which has no stage 40, so the call does nothing
+    WARNING [quest-stage-unset] MyQuest [QUST:000800:MyQuestMod.esm]: nothing in the plugin sets stage 30 (1 of 3): no start stage, dialogue, scene or script SetStage call, so what those stages do never happens
+    WARNING [quest-stage-missing] script MyMod:MyQuestScript sets stage 40 on MyQuest [QUST:000800:MyQuestMod.esm], which has no stage 40, so the call does nothing
+    RESULT: OK, 0 errors, 2 warnings (MyQuestMod.esm: 1 records, 0 links; 2.5 s)
 
 sf-mod-check 0.18.0 said nothing about quest stages.
 

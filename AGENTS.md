@@ -317,8 +317,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `--pick 0012AB:Starfield.esm:Value=NewModA.esm`. Since 0.13.0 a field pick works on any field: it can also keep
     one plugin's value where the patch would forward another mod's change, or add a record with no lost change (for
     example `--pick 0012AB:Starfield.esm:Water=Starfield.esm` keeps a worldspace's water as the game ships it when a
-    mod filled it). Use it only when the user asks for that value. "Not built" records (dialogue,
-    scenes; cells, worldspaces, placed objects and navmeshes are built since 0.13.0) must be done in xEdit; give the user the report's list. The navmesh info map (NAVI)
+    mod filled it). Use it only when the user asks for that value. "Not built" records (scenes and
+    dialogue branches; cells, worldspaces, placed objects and navmeshes are built since 0.13.0,
+    dialogue topics and lines since 0.19.0) must be done in xEdit; give the user the report's list. The navmesh info map (NAVI)
     is listed there too but must not be copied by hand. The `conflict` run on `Plugins-with-patch.txt` still lists
     those records, Choices that kept the winner's value, and harmless lost changes (only a reorder, letter case or
     undocumented fields; letter case includes a file name stored as raw bytes since 0.13.0), which `patch` leaves alone by design. Exit 1 means the read-back
@@ -620,8 +621,12 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    names with non-ASCII characters or loose paths over 200 characters (rule `file-name`, a WARNING; since 0.15.0
    `triage` reports the same file names as LOOKs in its Files section).
 4. A patch `conflict` suggests or `patch` builds holds other authors' data: it is for the player's own game, never
-   for publishing. `patch` doesn't build the records inside quests or dialogue topics (the report lists them for
-   xEdit). Since 0.13.0 it builds cells and worldspaces themselves (without their other records or RNAM/OFST/CLSZ),
+   for publishing. `patch` doesn't build scenes or dialogue branches (the report lists them for xEdit). Since
+   0.19.0 it builds dialogue topics and lines (each inside its topic and quest, a parent brought in only for them going
+   in as the game uses it today) and merges a quest's stages and objectives by Index, its aliases by alias ID and its
+   script data by script and property name; condition lists, a line's responses and its script data are one value
+   each. A clash the merge can't settle keeps the winner's entry with a Choice row, and an objective target or fragment
+   alias left naming an alias the merged quest lacks gets a Notes line. Since 0.13.0 it builds cells and worldspaces themselves (without their other records or RNAM/OFST/CLSZ),
    and placed objects and navmeshes, each inside its cell; a cell or worldspace brought in only as a parent goes in
    as the game uses it today, with no field changed. A navmesh's mesh (geometry, NNAM, pre-cut entries) comes whole
    from one plugin; when two plugins each changed a different part of it, today's mesh is kept and the report says so.
