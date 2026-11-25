@@ -175,7 +175,7 @@ public static class QuestMerge
             var lName = FragmentScript(l);
             var (keptName, droppedName) = keepS ? (sName, lName) : (lName, sName);
             if (sName is null || lName is null || !sName.Equals(lName, StringComparison.OrdinalIgnoreCase))
-                return WholeOf($"{dropped} and {kept} attach different stage fragment scripts ({droppedName ?? "none"}, {keptName ?? "none"}) to quest {quest}; " +
+                return WholeOf($"{dropped} and {kept} attach different stage fragment scripts ({(string.IsNullOrEmpty(droppedName) ? "none" : droppedName)}, {(string.IsNullOrEmpty(keptName) ? "none" : keptName)}) to quest {quest}; " +
                                $"a quest has one fragment script, so their fragments can't be merged: {kept}'s whole script data is kept. " +
                                $"Merge the scripts in the Creation Kit, or use --pick {fk}:VirtualMachineAdapter=<plugin>");
             var fns = functions(sName);

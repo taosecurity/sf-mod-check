@@ -1435,11 +1435,11 @@ public static class PatchCommand
             var loser = l.Loser;
             int Find(string key) => state.FindIndex(x => QuestMerge.KeyOf(x.Held) == key);
             string From(int origin) => vs[origin].Plugin.FileName;
+            // the row names the plugin whose entry was kept and the one dropped: with three plugins the kept one can be
+            // the current loser, so its --pick line names the dropped one (code review 0.19.0, round 5)
             void Row(string key, string kept, string dropped, string text)
             {
-                plan.Choices.Add(forward
-                    ? new(fk, l.RecordType, l.EditorID, field, kept, dropped, false, text, Forward: true)
-                    : new(fk, l.RecordType, l.EditorID, field, l.Winner, loser, false, text));
+                plan.Choices.Add(new(fk, l.RecordType, l.EditorID, field, kept, dropped, false, text, Forward: forward));
                 Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {field}, {key}: {text}");
             }
             foreach (var (key, k) in lKeys.OrderBy(x => x.Value))
@@ -1556,7 +1556,9 @@ public static class PatchCommand
                 object? lv = p.GetValue(lHeld), bv = bHeld.GetType().GetProperty(p.Name)?.GetValue(bHeld), sv = sHeld.GetType().GetProperty(p.Name)?.GetValue(sHeld);
                 if (Same(lv, bv)) continue;
                 if (Same(lv, sv)) continue;   // both made the same change: nothing to take, and no clash
-                if (typeof(IList).IsAssignableFrom(rp.PropertyType) && rp.PropertyType != typeof(byte[]))
+                // a list only this side changed is taken whole (below), keeping its order: an entry appended after the
+                // kept side's would change which log entry the game shows first (code review 0.19.0, round 5)
+                if (!Same(sv, bv) && typeof(IList).IsAssignableFrom(rp.PropertyType) && rp.PropertyType != typeof(byte[]))
                 {
                     var li2 = Items(lv); var bi = Items(bv); var si = Items(sv);
                     var sMutItems = Items(rp.GetValue(result));
@@ -1624,9 +1626,7 @@ public static class PatchCommand
             }
             void Row(string text)
             {
-                plan.Choices.Add(forward
-                    ? new(fk, l.RecordType, l.EditorID, Vmad, kept, dropped, false, text, Forward: true)
-                    : new(fk, l.RecordType, l.EditorID, Vmad, l.Winner, loser, false, text));
+                plan.Choices.Add(new(fk, l.RecordType, l.EditorID, Vmad, kept, dropped, false, text, Forward: forward));
                 Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {Vmad}: {text}");
             }
             built[Vmad] = res.Value;

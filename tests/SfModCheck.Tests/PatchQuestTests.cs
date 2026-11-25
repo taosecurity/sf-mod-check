@@ -135,6 +135,37 @@ public class PatchQuestTests
     }
 
     [Fact]
+    public void Loser_inserts_a_log_entry_first_and_the_winner_left_the_list_its_order_is_kept()
+    {
+        // code review 0.19.0, round 5: a list only one side changed is taken whole, in its own order
+        using var game = new Game();
+        game.Mod("ModA.esm", q => q.Stages[0].LogEntries.Insert(0, new QuestLogEntry { Note = "A first" }));
+        game.Mod("ModB.esm", q => q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn);
+        Ok(game.Patch());
+        var s10 = game.Quest().Stages[0];
+        Assert.Equal(new[] { "A first", "base 10" }, Notes(s10));
+        Assert.Equal(QuestStage.Flag.KeepInstanceDataFromHereOn, s10.Flags);
+    }
+
+    [Fact]
+    public void Three_plugins_change_one_stage_the_pick_line_names_the_dropped_plugin()
+    {
+        // code review 0.19.0, round 5: ModB's stage 10 is kept over ModA's, so the row's --pick names ModA
+        using var game = new Game();
+        game.Mod("ModA.esm", q => q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn);
+        game.Mod("ModB.esm", q => q.Stages[0].Flags = QuestStage.Flag.RunOnStart);
+        game.Mod("ModC.esm", q => q.Stages[1].LogEntries.Add(new QuestLogEntry { Note = "C log" }));
+        Ok(game.Patch());
+        var quest = game.Quest();
+        Assert.Equal(QuestStage.Flag.RunOnStart, quest.Stages[0].Flags);
+        Assert.Equal(new[] { "base 20", "C log" }, Notes(quest.Stages[1]));
+        var report = game.Report;
+        Assert.Contains("stage 10's Flags; ModB.esm's value is kept", report);
+        Assert.Contains("--pick 000800:Base.esm:Stages=ModA.esm", report);
+        Assert.DoesNotContain("--pick 000800:Base.esm:Stages=ModB.esm", report);
+    }
+
+    [Fact]
     public void Both_make_the_same_stage_change_no_clash_row()
     {
         // code review 0.19.0, round 2: one change both made is not a clash
