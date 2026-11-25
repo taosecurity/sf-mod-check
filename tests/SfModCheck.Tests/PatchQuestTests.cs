@@ -196,6 +196,30 @@ public class PatchQuestTests
     }
 
     [Fact]
+    public void Objective_target_on_an_alias_the_merge_removed_gets_a_note()
+    {
+        // ModA points objective 10 at alias 1; ModB removes alias 1. The merge keeps ModA's target and ModB's removal,
+        // so the target names an alias the patched quest lacks: a Notes line, not a refusal (Step 4, checks after the build).
+        // Objective_targets_merge_and_conditions_stay_one_value adds a target on an alias no version has: no note there.
+        using var game = new Game();
+        game.Mod("ModA.esm", q => q.Objectives[0].Targets.Add(new QuestObjectiveTarget { AliasID = 1 }));
+        game.Mod("ModB.esm", q => q.Aliases.RemoveAt(1));
+        Ok(game.Patch());
+        var quest = game.Quest();
+        Assert.Equal(new uint[] { 0 }, quest.Aliases.Cast<IQuestReferenceAliasGetter>().Select(a => a.ID));
+        Assert.Equal(new[] { 0, 1 }, Assert.Single(quest.Objectives).Targets.Select(t => t.AliasID));
+        var report = game.Report;
+        Assert.Contains("objective 10's target names alias 1, which the merged quest doesn't have", report);
+        Assert.DoesNotContain("names alias 0", report);
+        game.CloseAll();
+        using var quiet = new Game();
+        quiet.Mod("ModA.esm", q => q.Objectives[0].Targets.Add(new QuestObjectiveTarget { AliasID = 2 }));
+        quiet.Mod("ModB.esm", q => q.Name = "Renamed");
+        Ok(quiet.Patch());
+        Assert.DoesNotContain("which the merged quest doesn't have", quiet.Report);
+    }
+
+    [Fact]
     public void Quest_dialog_conditions_are_one_value_not_merged()
     {
         using var game = new Game();

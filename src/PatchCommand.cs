@@ -1914,6 +1914,14 @@ public static class PatchCommand
                   (forwarded.Count > 0 ? $" ({string.Join(", ", forwarded.Select(f => $"{f.Field} from {f.From}").Distinct())})" : "") +
                   (merged.Count > 0 ? $", {merged.Count} list(s) merged ({string.Join(", ", merged.Keys)})" : "") +
                   (built.Count > 0 ? $", built in memory: {string.Join(", ", built.Keys)}" : ""));
+        // 0.19.0: an objective target or fragment alias the merge kept may name an alias another version's was kept
+        // over: a Notes line, not a refusal (StarfieldPluginCheck NOTES, "0.19.0 (GapFix)", Step 4, checks after the build)
+        if (rec is IQuestGetter pq)
+            foreach (var miss in QuestMerge.MissingAliasRefs(pq, vs.Select(v => v.Rec).OfType<IQuestGetter>().ToList()))
+            {
+                plan.Notes.Add($"Quest {first.EditorID} [{fk}]: {miss}; the alias was kept from another plugin's version, so check it in xEdit");
+                Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)}: {miss}");
+            }
         plan.Records.Add(new(fk, first.RecordType, first.EditorID, rec, forwarded, plugins,
             source.Where(s => !merged.ContainsKey(s.Key) && !built.ContainsKey(s.Key)).ToDictionary(s => s.Key, s => vs[s.Value].Rec),
             merged.ToDictionary(m => m.Key, m => m.Value.Select(x => x.Held).ToList())) { Built = new(built) });

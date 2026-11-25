@@ -70,6 +70,52 @@ public static class QuestMerge
         _ => throw new InvalidOperationException($"no copy for {x.GetType().Name}"),
     };
 
+    // ---------- after the build: alias references (0.19.0 step 6) ----------
+
+    /// <summary>The alias IDs a quest has (reference and location aliases, and each entry of a collection alias).</summary>
+    public static HashSet<long> AliasIds(IQuestGetter q)
+    {
+        var ids = new HashSet<long>();
+        foreach (var a in q.Aliases)
+            switch (a)
+            {
+                case IQuestReferenceAliasGetter r: ids.Add(r.ID); break;
+                case IQuestLocationAliasGetter l: ids.Add(l.ID); break;
+                case IQuestCollectionAliasGetter c:
+                    foreach (var e in c.Collection) if (e.ID is { } id) ids.Add(id);
+                    break;
+            }
+        return ids;
+    }
+
+    /// <summary>The places in a quest that name one of its aliases by ID: objective targets, and fragment aliases
+    /// (script data attached to an alias of this quest). Each as (where, alias ID). A negative ID means "none".</summary>
+    public static List<(string Where, long Alias)> AliasRefs(IQuestGetter q)
+    {
+        var refs = new List<(string, long)>();
+        foreach (var o in q.Objectives)
+            foreach (var t in o.Targets)
+                if (t.AliasID >= 0) refs.Add(($"objective {o.Index}'s target names alias {t.AliasID}", t.AliasID));
+        if (q.VirtualMachineAdapter is { } vm)
+            foreach (var a in vm.Aliases)
+                if (a.Property is { } p && p.Alias >= 0 && p.Object.FormKey == q.FormKey)
+                    refs.Add(($"fragment scripts are attached to alias {p.Alias}", p.Alias));
+        return refs;
+    }
+
+    /// <summary>Alias references in the patched quest that name an alias ID it lacks, leaving out any that already
+    /// point nowhere in every plugin version holding them (the patch didn't cause those). One text per reference.</summary>
+    public static List<string> MissingAliasRefs(IQuestGetter patched, IReadOnlyList<IQuestGetter> versions)
+    {
+        var have = AliasIds(patched);
+        var vers = versions.Select(v => (Refs: AliasRefs(v).ToHashSet(), Ids: AliasIds(v))).ToList();
+        return AliasRefs(patched).Distinct()
+            .Where(x => !have.Contains(x.Alias))
+            .Where(x => vers.Any(v => v.Refs.Contains(x) && v.Ids.Contains(x.Alias)))
+            .Select(x => $"{x.Where}, which the merged quest doesn't have")
+            .ToList();
+    }
+
     // ---------- the quest's script data (VMAD), 0.19.0 step 5b ----------
 
     /// <summary>The result of merging two versions of a quest's script data. Whole is the reason the kept side's whole
