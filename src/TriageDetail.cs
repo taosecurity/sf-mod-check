@@ -61,20 +61,36 @@ public sealed class TriageDetail
     /// <summary>Walks one field (its name is the path's start) and returns the lines it added within the record's limit,
     /// and how many more it found past the limit.
     /// translations: <see cref="TranslationKind"/>'s answer for the two plugins.</summary>
-    public (List<DetailLine> Lines, int NotShown) Field(string field, object? before, object? after, string? translations)
+    /// knownEqual: the caller has found the two values equal (conflict's comparison), so the walk only looks for the
+    /// translation kinds and compares nothing again (code review 0.17.0: an equal field was compared at every level).
+    /// When the walk throws, the lines it added are taken back, so they don't use up the record's limit unseen.</summary>
+    public (List<DetailLine> Lines, int NotShown) Field(string field, object? before, object? after, string? translations, bool knownEqual = false)
     {
         translationKind = translations;
-        int start = lines.Count, hidden = NotShown;
-        Walk(field, before, after, 0);
-        // conflict calls the field changed, but the walk (without padding) found nothing: only padding differs
-        if (lines.Count + NotShown == start + hidden && !DeepCompare.Conflict.Eq(before, after, 0))
-            Add(field, Changed, before, after, PaddingOnly);
+        int start = lines.Count, hidden = NotShown, startReal = real;
+        try
+        {
+            Walk(field, before, after, 0, knownEqual ? true : null);
+            // conflict calls the field changed, but the walk (without padding) found nothing: only padding differs
+            if (!knownEqual && real == startReal && !DeepCompare.Conflict.Eq(before, after, 0))
+                Add(field, Changed, before, after, PaddingOnly);
+        }
+        catch
+        {
+            lines.RemoveRange(start, lines.Count - start);
+            NotShown = hidden; real = startReal;
+            throw;
+        }
         return (lines.GetRange(start, lines.Count - start), NotShown - hidden);
     }
+
+    // Lines (kept or not) of a kind other than the translation kinds: a real difference was placed.
+    int real;
 
     // The values are shown (Show, a full dump) only for a line that is kept.
     void Add(string path, string kind, object? before, object? after, string afterNote = "")
     {
+        if (kind != TranslationsDropped && kind != TranslationsAdded) real++;
         if (lines.Count < MaxPerRecord) lines.Add(new(path, kind, Show(before), Show(after) + afterNote));
         else NotShown++;
     }
@@ -93,9 +109,11 @@ public sealed class TriageDetail
 
     bool Eq(object? a, object? b, int depth) => cmp.Eq(a, b, depth);
 
-    void Walk(string path, object? a, object? b, int depth)
+    // knownEqual: true when an outer value was found equal (so this one is too, and isn't compared again)
+    void Walk(string path, object? a, object? b, int depth, bool? knownEqual = null)
     {
-        bool equal = Eq(a, b, depth);
+        bool equal = knownEqual ?? Eq(a, b, depth);
+        bool? inner = equal ? true : null;
         if (equal && translationKind is null) return;
         if (a is null || b is null)
         {
@@ -108,7 +126,7 @@ public sealed class TriageDetail
             else if (!string.IsNullOrEmpty(ta.String)) Add(path, translationKind!, a, b);
             return;
         }
-        int before = lines.Count + NotShown;
+        int before = real;
         var t = a.GetType();
         bool leaf = a is string || b is string || t != b.GetType() || t.IsPrimitive || t.IsEnum || a is IFormLinkGetter
                     || SfModCheck.Overrides.BlobEq(a, b) is not null || depth > DeepCompare.MaxDepth
@@ -117,18 +135,22 @@ public sealed class TriageDetail
         if (!leaf && a is IEnumerable ea && b is IEnumerable eb) Lists(path, ea.Cast<object?>().ToList(), eb.Cast<object?>().ToList(), equal, depth);
         else if (!leaf && !t.IsValueType)
         {
-            foreach (var p in cmp.Properties(t)) Walk($"{path}.{p.Name}", p.GetValue(a), p.GetValue(b), depth + 1);
-            foreach (var f in cmp.Fields(t)) Walk($"{path}.{f.Name}", f.GetValue(a), f.GetValue(b), depth + 1);
+            foreach (var p in cmp.Properties(t)) Walk($"{path}.{p.Name}", p.GetValue(a), p.GetValue(b), depth + 1, inner);
+            foreach (var f in cmp.Fields(t)) Walk($"{path}.{f.Name}", f.GetValue(a), f.GetValue(b), depth + 1, inner);
         }
-        // a difference the walk couldn't place below this value (a simple value, or one only its own Equals tells apart)
-        if (!equal && lines.Count + NotShown == before) Add(path, Changed, a, b);
+        // a difference the walk couldn't place below this value (a simple value, or one only its own Equals tells apart);
+        // translation lines below it don't count as placing it (code review 0.17.0)
+        if (!equal && real == before) Add(path, Changed, a, b);
     }
 
     void Lists(string path, List<object?> la, List<object?> lb, bool equal, int depth)
     {
         if (equal)   // only to find translation kinds: entries are equal in order
         {
-            for (int i = 0; i < la.Count; i++) Walk($"{path}[{Label(la[i], i)}]", la[i], lb[i], depth + 1);
+            // labeled by the same unique key as a changed list (code review 0.17.0), else by position
+            var k = KeyOf(la, lb);
+            for (int i = 0; i < Math.Min(la.Count, lb.Count); i++)
+                Walk($"{path}[{(k is null ? i.ToString() : $"{k} {KeyValue(la[i], k)}")}]", la[i], lb[i], depth + 1, true);
             return;
         }
         // same entries, other order: one line, not a line per moved entry
@@ -218,12 +240,5 @@ public sealed class TriageDetail
             _ when v is not null && (v.GetType().IsPrimitive || v.GetType().IsEnum) => v.ToString(),
             _ => null,
         };
-    }
-
-    /// <summary>A list entry's label in a path: its key value when it has one of the usual key members, else its position.</summary>
-    static string Label(object? x, int i)
-    {
-        foreach (var k in Keys.Take(3)) if (KeyValue(x, k) is { } v) return $"{k} {v}";
-        return i.ToString();
     }
 }

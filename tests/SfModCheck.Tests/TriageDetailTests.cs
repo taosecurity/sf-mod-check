@@ -168,6 +168,44 @@ public class TriageDetailTests
     }
 
     [Fact]
+    public void Translation_rows_never_crowd_out_a_real_change_and_the_note_counts_them_apart()
+    {
+        // code review 0.17.0: a quest's 250 stage texts (dropped translations) filled the record's 200 rows, so the real
+        // change to an alias that follows them had no row, and the NOTE counted the texts as real changes
+        using var game = new Game(s =>
+        {
+            var f1 = s.Factions.AddNew("TD_F1"); var f2 = s.Factions.AddNew("TD_F2");
+            var alias = new QuestReferenceAlias
+            {
+                ID = 7, Name = "TdAlias",
+                Factions = new ExtendedList<IFormLinkGetter<IFactionGetter>> { f1.ToLink<IFactionGetter>(), f2.ToLink<IFactionGetter>() },
+            };
+            var stages = new ExtendedList<QuestStage>();
+            for (int i = 0; i < 250; i++)
+                stages.Add(new QuestStage { Index = (ushort)(i * 10), LogEntries = new ExtendedList<QuestLogEntry> { new() { Entry = Localized.Text($"Log {i}") } } });
+            s.Quests.Add(new Quest(s) { EditorID = "TD_Quest", Name = Localized.Text("Td Quest"), Stages = stages, Aliases = new ExtendedList<AQuestAlias> { alias } });
+        }, localized: true);
+        game.Mod((m, s) =>
+        {
+            var a = (QuestReferenceAlias)m.Quests.GetOrAddAsOverride(s.Quests.First()).Aliases[0];
+            var moved = a.Factions![1];
+            a.Factions.RemoveAt(1);
+            a.Factions.Insert(0, moved);
+        });
+        var c = game.Run();
+
+        var rows = Detail(c);
+        Assert.Contains(rows, r => r[2] == "Aliases" && r[4] == TriageDetail.Reordered);
+        Assert.Equal(TriageDetail.MaxPerRecord, rows.Count(r => r[4] == TriageDetail.TranslationsDropped));
+        Assert.Contains(rows, r => r[4] == "not shown" && r[5].StartsWith("51 more differences"));   // 250 log texts + the name
+        // the stage rows are labeled by each stage's unique Index
+        Assert.Contains(rows, r => r[3] == "Stages[Index 0].LogEntries[0].Entry");
+        // the summary table lists the real change first
+        Assert.Equal("Aliases", Table(c, "Changes to official records").Rows[0][3]);
+        Assert.Contains("changes 3 fields (2 of them only in their translations, not in English) in 1 official record", Notes(c));
+    }
+
+    [Fact]
     public void Detail_lines_stop_at_the_record_limit_and_values_at_the_character_limit()
     {
         var d = new TriageDetail();

@@ -41,8 +41,9 @@ public record FieldChange(string Plugin, FormKey FormKey, string RecordType, str
     /// the record's limit of TriageDetail.MaxPerRecord lines; DetailNotShown counts this field's lines past it.</summary>
     public List<DetailLine> Detail { get; init; } = new();
     public int DetailNotShown { get; init; }
-    /// <summary>0.17.0: the field's only difference is a translation kind (the English text is equal), so it isn't one
-    /// of the plugin's intended changes and conflict, patch and check answers don't count it.</summary>
+    /// <summary>0.17.0: the field's only difference is a translation kind (the English text is equal). It isn't one of
+    /// the plugin's intended changes (conflict, patch and check never see it); triage lists it in both tables, counts it
+    /// apart in the plugin's NOTE, and keeps it within its own MaxChanges.</summary>
     public bool TranslationsOnly { get; init; }
 }
 
@@ -58,9 +59,10 @@ public class Analysis
     public Dictionary<string, int> UnreadableFields { get; } = new();
     public List<string> Errors { get; } = new();
     // triage (0.8.0): with Run's `only` set, the fields those plugins changed on purpose (at most MaxChanges; the rest
-    // are counted in ChangesNotListed). Empty without it.
+    // are counted in ChangesNotListed). Empty without it. 0.17.0: translation-only fields have a MaxChanges of their own
+    // (TranslationChanges counts them).
     public List<FieldChange> Changes { get; } = new();
-    public int ChangesNotListed;
+    public int ChangesNotListed, TranslationChanges;
     public const int MaxChanges = 20000;
     // Overrides whose record type differs from the first record with that FormID (0.5.2), in load order.
     public List<TypeChange> TypeChanges { get; } = new();
@@ -607,7 +609,8 @@ public static class Analyzer
                 intended[i] = new();
                 if (i == origin) continue;
                 var masters = MastersOf(versions[i].Plugin);
-                TriageDetail? detail = null;   // triage: this version's detail lines (one limit per record and plugin)
+                // triage: this version's detail lines (one limit per record and plugin), and those of its translation-only fields
+                TriageDetail? detail = null, trDetail = null;
                 for (int f = 0; f < nf; f++)
                 {
                     if (!prov[i, f]) continue;
@@ -634,9 +637,11 @@ public static class Analyzer
                         if (!same || translations is not null)
                         {
                             var r = versions[i].Rec;
-                            detail ??= new();
+                            // a field with only translation differences has its own limit, so its lines never crowd out
+                            // a real change's (code review 0.17.0: a quest's stage texts filled the record's 200)
+                            var d = same ? (trDetail ??= new()) : (detail ??= new());
                             List<DetailLine> lines; int hidden;
-                            try { (lines, hidden) = detail.Field(fields[f].Name, baseVal, vals[i, f], translations); }
+                            try { (lines, hidden) = d.Field(fields[f].Name, baseVal, vals[i, f], translations, knownEqual: same); }
                             catch (Exception err) when (Fatal.Recoverable(err)) { (lines, hidden) = (new(), 0); Unreadable(r, fields[f].Name); }
                             if (!same || lines.Count + hidden > 0)
                                 recChanges.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, SafeText.OneLine(r.EditorID),
@@ -751,8 +756,14 @@ public static class Analyzer
 
             result.Lost.AddRange(recLost);
             result.Itms.AddRange(recItms);
+            // translation-only fields have their own MaxChanges, so they never push a real change out (code review 0.17.0)
             foreach (var ch in recChanges)
-                if (result.Changes.Count < Analysis.MaxChanges) result.Changes.Add(ch); else result.ChangesNotListed++;
+                if ((ch.TranslationsOnly ? result.TranslationChanges : result.Changes.Count - result.TranslationChanges) < Analysis.MaxChanges)
+                {
+                    result.Changes.Add(ch);
+                    if (ch.TranslationsOnly) result.TranslationChanges++;
+                }
+                else result.ChangesNotListed++;
             if (middles is not null)
                 foreach (var m in middles) comparedWithout[m.FileName] = comparedWithout.GetValueOrDefault(m.FileName) + 1;
             foreach (var (pair, text) in recCost)

@@ -424,7 +424,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   official records, field by field" (columns Plugin, Record, Field, Path, Kind, Before, After): one row per changed
   value or list entry, with Kind `changed`, `added`, `removed`, `same entries, other order` (a list reordered),
   `same English text, translations dropped` or `same English text, translations added`, or `not shown` (a row that
-  counts the record's rows past 200). Padding members (`Unused`) get no rows; a field whose only difference is padding
+  counts the record's rows past 200, plus 200 more for its fields that differ only in their translations). Padding members (`Unused`) get no rows; a field whose only difference is padding
   gets one `changed` row whose After ends with "(only padding differs ...)". Use it, not the cut-off Before and After of "Changes to official records", to
   say what an override changed. On stdout: a summary line, one `LOOK [section] ...` line per LOOK,
   `INCOMPLETE ...` lines, and always one last line `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <html path>` or
