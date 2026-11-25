@@ -420,7 +420,12 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   `.json` (default `<out>` = the input's folder, or the current folder when the input is inside a game install; when both are, nothing is written and exit 2 asks for `--out`; an `--out` inside a game install is refused the same way; a folder or `--out` path that can't be checked against the game is refused too, with a message saying so).
   The JSON has `triage_not_a_verdict: true`, `input` (name, path, kind, size, sha256), `game_data`, `game_found`,
   `incomplete` (sections that stopped early), `findings` (each `level` NOTE or LOOK, `section`, `file`, `text`) and
-  `tables` (`section`, `title`, `columns`, `rows`). On stdout: a summary line, one `LOOK [section] ...` line per LOOK,
+  `tables` (`section`, `title`, `columns`, `rows`). Since 0.17.0 the Plugins section has the table "Changes to
+  official records, field by field" (columns Plugin, Record, Field, Path, Kind, Before, After): one row per changed
+  value or list entry, with Kind `changed`, `added`, `removed`, `same entries, other order` (a list reordered),
+  `same English text, translations dropped` or `same English text, translations added`, or `not shown` (a row that
+  counts the record's rows past 200). Use it, not the cut-off Before and After of "Changes to official records", to
+  say what an override changed. On stdout: a summary line, one `LOOK [section] ...` line per LOOK,
   `INCOMPLETE ...` lines, and always one last line `RESULT: REPORT WRITTEN (<n> to look at, <n> notes) <html path>` or
   `RESULT: NO REPORT (...)`. Exit codes: 0 = report written (whatever it found: there is no "fail"); 2 = bad input,
   setup or an error that stops the run. Scripts should read the exit code and the JSON.

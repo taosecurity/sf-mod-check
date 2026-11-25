@@ -35,7 +35,16 @@ public record ItmRecord(string Plugin, FormKey FormKey, string RecordType, strin
 // triage (0.8.0): a field one of the `only` plugins changed on purpose, against the version it was built on (Base: the
 // latest earlier version from one of its own masters, "" when none supplies the field). Values are short texts.
 public record FieldChange(string Plugin, FormKey FormKey, string RecordType, string? EditorID, string Origin, string Base,
-    string Field, string BaseValue, string NewValue);
+    string Field, string BaseValue, string NewValue)
+{
+    /// <summary>0.17.0: the field's full difference, one line per changed value or list entry (TriageDetail.cs), within
+    /// the record's limit of TriageDetail.MaxPerRecord lines; DetailNotShown counts this field's lines past it.</summary>
+    public List<DetailLine> Detail { get; init; } = new();
+    public int DetailNotShown { get; init; }
+    /// <summary>0.17.0: the field's only difference is a translation kind (the English text is equal), so it isn't one
+    /// of the plugin's intended changes and conflict, patch and check answers don't count it.</summary>
+    public bool TranslationsOnly { get; init; }
+}
 
 public class Analysis
 {
@@ -91,6 +100,9 @@ public static class Analyzer
     /// doesn't but the owner (or its version) wasn't read in full, true otherwise (0.10.0 code review rounds 2 and 3).</summary>
     internal static bool? Injection(bool ownerHoldsAVersion, bool ownerNotReadInFull) =>
         ownerHoldsAVersion ? false : ownerNotReadInFull ? null : true;
+
+    /// <summary>Whether a plugin is localized (header flag 0x80: its texts are in .strings files, one per language).</summary>
+    static bool Localized(PluginInfo p) => (Convert.ToInt64(p.Mod.ModHeader.Flags) & 0x80) != 0;
 
     // INavigationMeshGetter -> NavigationMesh, IIdleMarkerGetter -> IdleMarker (TrimStart('I') ate every leading I).
     public static string TypeShort(Type t) =>
@@ -595,6 +607,7 @@ public static class Analyzer
                 intended[i] = new();
                 if (i == origin) continue;
                 var masters = MastersOf(versions[i].Plugin);
+                TriageDetail? detail = null;   // triage: this version's detail lines (one limit per record and plugin)
                 for (int f = 0; f < nf; f++)
                 {
                     if (!prov[i, f]) continue;
@@ -613,12 +626,24 @@ public static class Analyzer
                     try { same = FieldCompare.DeepEq(vals[i, f], baseVal, 0); }
                     catch (Exception err) when (Fatal.Recoverable(err)) { same = true; unsure[i] = true; Unreadable(versions[i].Rec, fields[f].Name); }
                     if (!same) intended[i].Add(f);
-                    if (!same && onlySet is not null && onlySet.Contains(versions[i].Plugin.FileName))
+                    if (onlySet is not null && onlySet.Contains(versions[i].Plugin.FileName))
                     {
-                        var r = versions[i].Rec;
-                        recChanges.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, SafeText.OneLine(r.EditorID),
-                            versions[origin].Plugin.FileName, b >= 0 ? versions[b].Plugin.FileName : "", fields[f].Name,
-                            b >= 0 ? FieldCompare.Show(versions[b].Rec, fields[f].Name, 160) : "(not set)", FieldCompare.Show(r, fields[f].Name, 160)));
+                        // triage (0.17.0): the field's full difference; for an equal field only when the two plugins
+                        // differ in localization (the English text may be equal while the translations are gone)
+                        var translations = b >= 0 ? TriageDetail.TranslationKind(Localized(versions[b].Plugin), Localized(versions[i].Plugin)) : null;
+                        if (!same || translations is not null)
+                        {
+                            var r = versions[i].Rec;
+                            detail ??= new();
+                            List<DetailLine> lines; int hidden;
+                            try { (lines, hidden) = detail.Field(fields[f].Name, baseVal, vals[i, f], translations); }
+                            catch (Exception err) when (Fatal.Recoverable(err)) { (lines, hidden) = (new(), 0); Unreadable(r, fields[f].Name); }
+                            if (!same || lines.Count + hidden > 0)
+                                recChanges.Add(new(versions[i].Plugin.FileName, formKey, r.Registration.ClassType.Name, SafeText.OneLine(r.EditorID),
+                                    versions[origin].Plugin.FileName, b >= 0 ? versions[b].Plugin.FileName : "", fields[f].Name,
+                                    b >= 0 ? FieldCompare.Show(versions[b].Rec, fields[f].Name, 160) : "(not set)", FieldCompare.Show(r, fields[f].Name, 160))
+                                    { Detail = lines, DetailNotShown = hidden, TranslationsOnly = same });
+                        }
                     }
                 }
                 // Parents (cells, worldspaces, topics) must be copied unchanged to hold child records, so they are not ITMs.

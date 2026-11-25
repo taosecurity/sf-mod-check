@@ -944,6 +944,25 @@ setup or an error that stops the run. There is no "fail" exit.
 | Scripts | each `.pex` (loose or in an archive) read from its bytecode: name, parent, every function it calls, whether it logs with `Debug.Trace` | console commands; INI changes; calls to scripts in neither the mod nor the game; timers that restart themselves or start from frequent events; `GetFormFromFile` or text naming another mod's plugin; file paths that run or point outside Data |
 | Binaries | each `.dll`, `.exe` and `.asi` read from its bytes: machine, build time, PDB path, ASLR/DEP/CFG, imports grouped by what they allow, exports, SFSE plugin data (game versions, Address Library or signature scanning), signature | network, process-creation and memory-injection imports; URLs and IP addresses in its strings; an SFSE DLL without `SFSEPlugin_Version`; a DLL named like a Windows DLL the game would load instead |
 
+**Changed fields in official records (since 0.17.0).** The table "Changes to official records" lists each field the
+mod changed, with its value before and after cut at 160 characters. The table below it, "Changes to official records,
+field by field", gives the full difference: one row per changed value or list entry inside the field, with its path
+(for example `Stages[Index 100].LogEntries[0].Entry`), its kind, and the value before and after. List entries are
+matched by a member each entry has (an ID or an index), otherwise by position. The kinds are:
+
+- `changed`, `added`, `removed`: a value changed, or a list entry was added or removed.
+- `same entries, other order`: a list holds the same entries in another order (one row for the whole list). The
+  game usually doesn't care about the order of such lists (an alias's factions, for example).
+- `same English text, translations dropped`: the text is the same in English, but the official plugin keeps it in
+  every language and the mod stores it once, so the game shows the English text in every language. The reverse is
+  `same English text, translations added`. Triage tells them apart by the plugins' Localized header flag; it doesn't
+  read the strings files.
+
+The plugin's NOTE line counts these last two kinds, since they are often harmless. Limits: at most 200 rows per
+record and 10,000 in the report, and each value up to 2,000 characters; each cut says how much it left out. Records
+in cells and worldspaces (placed objects, navmeshes) are compared raw, so they are named only by field type, in the
+first table.
+
 What it can't see: names a DLL looks up while it runs, what a script does with values it computes, records nothing
 uses, and files behind a link (symlink or junction) inside a mod folder or beside a plugin: triage never follows one,
 and the report lists each as skipped, with one note in the Files section that anything inside wasn't checked.

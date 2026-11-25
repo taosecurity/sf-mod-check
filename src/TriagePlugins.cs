@@ -481,7 +481,15 @@ public static class TriagePlugins
         { "CELL", "WRLD", "LAND", "NAVM", "NAVI", "REFR", "ACHR", "PGRE", "PMIS", "PARW", "PBEA", "PFLA", "PCON", "PBAR", "PHZD" };
 
     /// <summary>One change for the report: a field the mod changed in an official record, or an official change it undoes.</summary>
-    sealed record Change(string Plugin, string Record, string Type, string Key, string Other, string Field, string Before, string After);
+    sealed record Change(string Plugin, string Record, string Type, string Key, string Other, string Field, string Before, string After)
+    {
+        /// <summary>0.17.0: the field's full difference (records outside cells only), and its lines past the record's limit.</summary>
+        public List<DetailLine> Detail { get; init; } = new();
+        public int DetailNotShown { get; init; }
+    }
+
+    /// <summary>Most lines in the "field by field" table of the whole report (0.17.0); the rest are counted in a NOTE.</summary>
+    public const int MaxDetailRows = 10000;
 
     static void Compare(TriageContext c, List<Facts> plugins, Func<string, string?> locate, Action<string, string> note, Action<string, string> look)
     {
@@ -626,7 +634,7 @@ public static class TriagePlugins
         var deleted = a.Changes.Where(ch => ch.Field == "IsDeleted").Select(ch => (ch.Plugin, ch.FormKey)).ToHashSet();
         foreach (var ch in a.Changes.Where(ch => modNames.Contains(ch.Plugin) && IsOfficial(ch.Origin) && !deleted.Contains((ch.Plugin, ch.FormKey))))
             changes.Add(new(ch.Plugin, Rec(ch.EditorID, ch.RecordType, ch.FormKey.ToString()), ch.RecordType, ch.FormKey.ToString(),
-                ch.Base == "" ? "(none)" : ch.Base, ch.Field, ch.BaseValue, ch.NewValue));
+                ch.Base == "" ? "(none)" : ch.Base, ch.Field, ch.BaseValue, ch.NewValue) { Detail = ch.Detail, DetailNotShown = ch.DetailNotShown });
         if (a.ChangesNotListed > 0) note("", $"{a.ChangesNotListed:N0} more changed fields weren't kept (over {Analysis.MaxChanges:N0})");
         foreach (var e in a.Errors.Take(10)) note("", $"the comparison with the game: {e}");
         if (a.Errors.Count > 10) note("", $"the comparison with the game: {a.Errors.Count - 10:N0} more such lines (run with --log to see them)");
@@ -654,13 +662,37 @@ public static class TriagePlugins
 
         var changesT = c.Report.Table(S, "Changes to official records", "Plugin", "Record", "Built on", "Field", "Before", "After");
         foreach (var ch in changes.Take(MaxRows)) changesT.Add(ch.Plugin, ch.Record, ch.Other, ch.Field, Cut(ch.Before), Cut(ch.After));
+        // 0.17.0: the full difference of each changed field, one line per changed value or list entry (records outside
+        // cells; a record in a cell or worldspace is compared raw and named by field type only)
+        var detailT = c.Report.Table(S, "Changes to official records, field by field", "Plugin", "Record", "Field", "Path", "Kind", "Before", "After");
+        int detailRows = 0, detailCut = 0;
+        void DetailRow(params string[] cells) { if (detailRows < MaxDetailRows) { detailT.Add(cells); detailRows++; } else detailCut++; }
+        foreach (var rec in changes.Where(ch => ch.Detail.Count + ch.DetailNotShown > 0).GroupBy(ch => (ch.Plugin, ch.Key)))
+        {
+            foreach (var ch in rec)
+                foreach (var d in ch.Detail) DetailRow(ch.Plugin, ch.Record, ch.Field, d.Path, d.Kind, d.Before, d.After);
+            var hidden = rec.Sum(ch => ch.DetailNotShown);
+            if (hidden > 0)
+                DetailRow(rec.Key.Plugin, rec.First().Record, "", "…", "not shown",
+                          $"{hidden:N0} more difference{(hidden == 1 ? "" : "s")} in this record (the table keeps {TriageDetail.MaxPerRecord:N0} per record)", "");
+        }
+        if (detailCut > 0) note("", $"the field-by-field table lists the first {MaxDetailRows:N0} differences; {detailCut:N0} more aren't listed");
         foreach (var g in changes.GroupBy(ch => ch.Plugin, StringComparer.OrdinalIgnoreCase))
         {
             var n = g.Count();
             var recs = g.Select(ch => ch.Key).Distinct().Count();
             var top = g.GroupBy(ch => (ch.Type, ch.Field)).OrderByDescending(x => x.Count()).Take(5).Select(x => $"{x.Key.Type}.{x.Key.Field} x{x.Count():N0}");
+            var lines = g.SelectMany(ch => ch.Detail).ToList();
+            int reordered = lines.Count(d => d.Kind == TriageDetail.Reordered);
+            int dropped = lines.Count(d => d.Kind == TriageDetail.TranslationsDropped), added = lines.Count(d => d.Kind == TriageDetail.TranslationsAdded);
+            var kinds = new List<string>();
+            if (reordered > 0) kinds.Add($"{reordered:N0} {(reordered == 1 ? "is a list" : "are lists")} with the same entries in another order");
+            if (dropped > 0) kinds.Add($"{dropped:N0} {(dropped == 1 ? "is a text" : "are texts")} with the same English text but without the translations " +
+                                       "(the game then shows the English text in every language)");
+            if (added > 0) kinds.Add($"{added:N0} {(added == 1 ? "is a text" : "are texts")} with the same English text, now with translations");
             note(RelOf(g.Key), $"changes {n:N0} field{(n == 1 ? "" : "s")} in {recs:N0} official record{(recs == 1 ? "" : "s")}; most often {string.Join(", ", top)} " +
-                               "(each change, with the value before and after, is in the table)");
+                               "(each change, with the value before and after, is in the table, and each difference inside it in the field-by-field table)" +
+                               (kinds.Count > 0 ? $". Of those differences, {string.Join("; ", kinds)}: these are often harmless" : ""));
         }
         if (changes.Count > MaxRows) note("", $"{changes.Count:N0} changed fields in official records; the table lists the first {MaxRows:N0}");
     }

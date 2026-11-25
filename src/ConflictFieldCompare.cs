@@ -106,7 +106,8 @@ public static class FieldCompare
         catch (Exception e) when (Fatal.Recoverable(e)) { SfModCheck.Overrides.OnUnreadable?.Invoke(); return $"(unreadable: {e.GetType().Name})"; }
     }
 
-    static string Dump(object? v, int depth = 0)
+    // take: how many entries of a list are shown (triage's field-by-field detail shows them all, 0.17.0).
+    internal static string Dump(object? v, int depth = 0, int take = 20)
     {
         if (v is null) return "null";
         if (v is Mutagen.Bethesda.Plugins.IFormLinkGetter fl) return fl.FormKey.ToString();
@@ -114,9 +115,9 @@ public static class FieldCompare
         if (v is Mutagen.Bethesda.Starfield.ICellGridGetter g) return $"CellGrid{{Point={g.Point}, LandFlags={SfModCheck.Overrides.LandFlagsText(g)}}}";   // without the junk bytes (0.5.0)
         var t = v.GetType();
         if (v is IEnumerable e and not string)
-            return "[" + string.Join("; ", e.Cast<object?>().Take(20).Select(x => Dump(x, depth + 1))) + "]";
+            return "[" + string.Join("; ", e.Cast<object?>().Take(take).Select(x => Dump(x, depth + 1, take))) + "]";
         if (v is string || t.IsPrimitive || t.IsEnum || depth > 3 || t.Namespace?.StartsWith("Mutagen") != true) return v.ToString() ?? "";
         return t.Name.Replace("BinaryOverlay", "") + "{" + string.Join(", ", t.GetProperties().Where(p => p.CanRead && p.GetIndexParameters().Length == 0 && !SkipNested(t, p))
-            .Select(p => p.Name + "=" + Dump(p.GetValue(v), depth + 1))) + "}";
+            .Select(p => p.Name + "=" + Dump(p.GetValue(v), depth + 1, take))) + "}";
     }
 }

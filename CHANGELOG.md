@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.17.0
+
+### What's new
+
+- `triage` gives the full difference for each field a mod changes in an official record. A new table, "Changes to official records, field by field", follows "Changes to official records" in the HTML, text and JSON reports. It has one row per changed value or list entry, with its path inside the field (for example `Stages[Index 100].LogEntries[0].Entry`), its kind, and the whole value before and after. Before, the only table cut each field's whole value at 160 characters, so a change inside a big record such as a quest couldn't be seen.
+- It names two kinds of difference that are often harmless. `same entries, other order` is a list that holds the same entries in another order, such as an alias's factions. `same English text, translations dropped` is a text whose English is unchanged, but the official plugin keeps it in every language and the mod stores it once, so the game shows English in every language. The plugin's NOTE counts both.
+- A field whose only difference is dropped (or added) translations is now listed in both tables. Before, triage didn't list it at all, because its comparison reads only the English text. `check`, `conflict` and `patch` don't change: they still compare the English text only.
+- Limits: at most 200 rows per record and 10,000 in the report, and 2,000 characters per value. Each cut says how much it left out. JSON keys are only added: the new table is one more entry in `tables`.
+
+### Example
+
+A made-up mod, `MyQuestFix.esm`, overrides a quest from a localized official plugin. The mod isn't localized, and it reorders one alias's factions:
+
+    sf-mod-check triage MyQuestFix.esm
+
+The new table in `MyQuestFix-triage.txt` (columns shortened here):
+
+    -- Changes to official records, field by field (3 rows) --
+    Field    Path                                   Kind                                     Before                 After
+    Aliases  Aliases[5].Factions                    same entries, other order                [FactionA; FactionB]   [FactionB; FactionA] (first different at entry 1 of 2)
+    Name     Name                                   same English text, translations dropped  "My Quest"             "My Quest"
+    Stages   Stages[Index 100].LogEntries[0].Entry  same English text, translations dropped  "I found the box."     "I found the box."
+
+sf-mod-check 0.16.2 listed only the Aliases field, with both values cut at 160 characters, and not the Name or Stages fields.
+
 ## 0.16.2 (2026-11-24)
 
 ### What's new
