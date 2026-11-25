@@ -948,7 +948,9 @@ setup or an error that stops the run. There is no "fail" exit.
 mod changed, with its value before and after cut at 160 characters. The table below it, "Changes to official records,
 field by field", gives the full difference: one row per changed value or list entry inside the field, with its path
 (for example `Stages[Index 100].LogEntries[0].Entry`), its kind, and the value before and after. List entries are
-matched by a member each entry has (an ID or an index), otherwise by position. The kinds are:
+matched by a member each entry has (an ID or an index); a list with no such member is matched by position when its
+length is unchanged, and otherwise by equal entries, so an added or removed row's number is its place in its own list.
+The kinds are:
 
 - `changed`, `added`, `removed`: a value changed, or a list entry was added or removed.
 - `same entries, other order`: a list holds the same entries in another order (one row for the whole list). The

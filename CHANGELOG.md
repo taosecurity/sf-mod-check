@@ -16,7 +16,7 @@ A made-up mod, `MyQuestFix.esm`, overrides a quest from a localized official plu
 
     sf-mod-check triage MyQuestFix --game <Data folder>
 
-This is the new table in `MyQuestFix-triage.txt` from a real run (the Plugin and Record columns left out):
+This is the new table in `MyQuestFix-triage.txt` from a real run on these made-up plugins (the Plugin and Record columns left out):
 
     -- Changes to official records, field by field (2 rows) --
     Field    Path                    Kind                                     Before                                        After
