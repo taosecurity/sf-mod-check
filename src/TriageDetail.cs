@@ -4,9 +4,11 @@
 // two common, often harmless kinds of difference: a list with the same entries in another order, and the same English
 // text where one plugin keeps the translations (a localized plugin) and the other doesn't.
 //
-// It walks the same members as conflict's comparison (DeepCompare.Conflict) and calls two values equal exactly when that
-// comparison does, so it never finds a change triage's summary table doesn't (except the translation kinds, which that
-// comparison can't see: it reads only the English text).
+// It walks the same members as conflict's comparison (DeepCompare.Conflict) except Mutagen's padding members ("Unused",
+// "Unused2", a condition's padding: DeepCompare rule 7), so it never finds a change triage's summary table doesn't
+// (except the translation kinds, which that comparison can't see: it reads only the English text). A field whose only
+// difference is padding gets one line that says so (bug hunt 0.17.0: a leveled-list mod gave a padding row for every
+// entry, 290 of its 681 rows).
 using System.Collections;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Strings;
@@ -31,7 +33,16 @@ public sealed class TriageDetail
     // List members tried, in this order, as the key that matches entries of two lists (an alias's ID, a stage's index).
     static readonly string[] Keys = ["ID", "Index", "Stage", "Name", "EditorID", "ScriptName", "Actor", "Ref", "Reference", "Marker", "Target", "Item", "Keyword"];
 
-    readonly DeepCompare cmp = DeepCompare.Conflict;
+    // conflict's comparison without the padding members (rule 7); scripts stay compared by position, as conflict does
+    static readonly DeepCompare NoPadding = new()
+    {
+        EqualsFirst = true, WalkValueTypeLists = true, TypesByEquals = false, EmptyByEquals = false, IgnorePadding = true,
+        SelectProperties = FieldCompare.NestedProperties,
+    };
+    /// <summary>The note on a field's one line when only padding differs.</summary>
+    public const string PaddingOnly = " (only padding differs: Mutagen's Unused members, which the game doesn't read)";
+
+    readonly DeepCompare cmp = NoPadding;
     readonly List<DetailLine> lines = new();
     /// <summary>Lines found past <see cref="MaxPerRecord"/>.</summary>
     public int NotShown { get; private set; }
@@ -55,12 +66,16 @@ public sealed class TriageDetail
         translationKind = translations;
         int start = lines.Count, hidden = NotShown;
         Walk(field, before, after, 0);
+        // conflict calls the field changed, but the walk (without padding) found nothing: only padding differs
+        if (lines.Count + NotShown == start + hidden && !DeepCompare.Conflict.Eq(before, after, 0))
+            Add(field, Changed, before, after, PaddingOnly);
         return (lines.GetRange(start, lines.Count - start), NotShown - hidden);
     }
 
-    void Add(string path, string kind, string before, string after)
+    // The values are shown (Show, a full dump) only for a line that is kept.
+    void Add(string path, string kind, object? before, object? after, string afterNote = "")
     {
-        if (lines.Count < MaxPerRecord) lines.Add(new(path, kind, before, after));
+        if (lines.Count < MaxPerRecord) lines.Add(new(path, kind, Show(before), Show(after) + afterNote));
         else NotShown++;
     }
 
@@ -84,13 +99,13 @@ public sealed class TriageDetail
         if (equal && translationKind is null) return;
         if (a is null || b is null)
         {
-            if (!equal) Add(path, a is null ? Added : Removed, Show(a), Show(b));
+            if (!equal) Add(path, a is null ? Added : Removed, a, b);
             return;
         }
         if (a is ITranslatedStringGetter ta && b is ITranslatedStringGetter tb)
         {
-            if (!equal) Add(path, Changed, Show(a), Show(b));
-            else if (!string.IsNullOrEmpty(ta.String)) Add(path, translationKind!, Show(a), Show(b));
+            if (!equal) Add(path, Changed, a, b);
+            else if (!string.IsNullOrEmpty(ta.String)) Add(path, translationKind!, a, b);
             return;
         }
         int before = lines.Count + NotShown;
@@ -106,7 +121,7 @@ public sealed class TriageDetail
             foreach (var f in cmp.Fields(t)) Walk($"{path}.{f.Name}", f.GetValue(a), f.GetValue(b), depth + 1);
         }
         // a difference the walk couldn't place below this value (a simple value, or one only its own Equals tells apart)
-        if (!equal && lines.Count + NotShown == before) Add(path, Changed, Show(a), Show(b));
+        if (!equal && lines.Count + NotShown == before) Add(path, Changed, a, b);
     }
 
     void Lists(string path, List<object?> la, List<object?> lb, bool equal, int depth)
@@ -119,8 +134,8 @@ public sealed class TriageDetail
         // same entries, other order: one line, not a line per moved entry
         if (la.Count == lb.Count && Match(la, lb) is { } m && m.All(x => x >= 0))
         {
-            int first = Enumerable.Range(0, la.Count).First(i => !Eq(la[i], lb[i], depth + 1));
-            Add(path, Reordered, Show(la), Show(lb) + $" (first different at entry {first + 1} of {la.Count})");
+            int first = Enumerable.Range(0, la.Count).FirstOrDefault(i => !Eq(la[i], lb[i], depth + 1), -1);
+            Add(path, Reordered, la, lb, first < 0 ? "" : $" (first different at entry {first + 1} of {la.Count})");
             return;
         }
         // entries matched by a key member every entry has, distinct in each list
@@ -132,10 +147,10 @@ public sealed class TriageDetail
             {
                 var k = KeyValue(x, key)!;
                 if (bByKey.TryGetValue(k, out var y)) Walk($"{path}[{key} {k}]", x, y, depth + 1);
-                else Add($"{path}[{key} {k}]", Removed, Show(x), "(not set)");
+                else Add($"{path}[{key} {k}]", Removed, x, null);
             }
             foreach (var y in lb)
-                if (!aKeys.Contains(KeyValue(y, key)!)) Add($"{path}[{key} {KeyValue(y, key)}]", Added, "(not set)", Show(y));
+                if (!aKeys.Contains(KeyValue(y, key)!)) Add($"{path}[{key} {KeyValue(y, key)}]", Added, null, y);
             return;
         }
         if (la.Count == lb.Count)
@@ -146,8 +161,8 @@ public sealed class TriageDetail
         // different lengths and no key: entries without an equal partner were removed or added
         var match = Match(la, lb) ?? Enumerable.Repeat(-1, la.Count).ToArray();
         var used = new HashSet<int>(match.Where(x => x >= 0));
-        for (int i = 0; i < la.Count; i++) if (match[i] < 0) Add($"{path}[{i}]", Removed, Show(la[i]), "(not set)");
-        for (int j = 0; j < lb.Count; j++) if (!used.Contains(j)) Add($"{path}[{j}]", Added, "(not set)", Show(lb[j]));
+        for (int i = 0; i < la.Count; i++) if (match[i] < 0) Add($"{path}[{i}]", Removed, la[i], null);
+        for (int j = 0; j < lb.Count; j++) if (!used.Contains(j)) Add($"{path}[{j}]", Added, null, lb[j]);
     }
 
     /// <summary>For each entry of la, the index of an equal entry of lb, each used once (-1: none); null when the lists are

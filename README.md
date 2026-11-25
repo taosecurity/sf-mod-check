@@ -958,6 +958,10 @@ matched by a member each entry has (an ID or an index), otherwise by position. T
   `same English text, translations added`. Triage tells them apart by the plugins' Localized header flag; it doesn't
   read the strings files.
 
+Padding (the bytes Mutagen names `Unused`, which the game doesn't read) gets no rows of its own. A field whose only
+difference is padding, such as a leveled list resaved by another tool, gets one `changed` row whose After ends with
+"(only padding differs ...)".
+
 The plugin's NOTE line counts these last two kinds, since they are often harmless. Limits: at most 200 rows per
 record and 10,000 in the report, and each value up to 2,000 characters; each cut says how much it left out. Records
 in cells and worldspaces (placed objects, navmeshes) are compared raw, so they are named only by field type, in the

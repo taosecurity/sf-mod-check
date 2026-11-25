@@ -130,6 +130,44 @@ public class TriageDetailTests
     }
 
     [Fact]
+    public void Padding_in_leveled_list_entries_gives_no_rows_and_padding_alone_one_row_that_says_so()
+    {
+        // bug hunt 0.17.0: a real leveled-list mod gave an "Entries[...].Unused" row for every entry it kept
+        using var game = new Game(s =>
+        {
+            var m1 = s.MiscItems.AddNew("TD_M1"); var m2 = s.MiscItems.AddNew("TD_M2"); var m3 = s.MiscItems.AddNew("TD_M3");
+            foreach (var id in new[] { "TD_LL_Add", "TD_LL_Pad" })
+            {
+                var ll = s.LeveledBaseForms.AddNew(id);
+                ll.Entries = new ExtendedList<LeveledBaseFormEntry>
+                {
+                    new() { Level = 1, Count = 1, Reference = m1.ToLink<ILeveledBaseFormTargetGetter>() },
+                    new() { Level = 1, Count = 1, Reference = m2.ToLink<ILeveledBaseFormTargetGetter>() },
+                };
+            }
+        });
+        game.Mod((m, s) =>
+        {
+            foreach (var base_ in s.LeveledBaseForms)
+            {
+                var ll = m.LeveledBaseForms.GetOrAddAsOverride(base_);
+                foreach (var e in ll.Entries!) e.Unused = 7;
+                if (ll.EditorID == "TD_LL_Add")
+                    ll.Entries.Add(new() { Level = 1, Count = 1, Reference = s.MiscItems.Single(x => x.EditorID == "TD_M3").ToLink<ILeveledBaseFormTargetGetter>() });
+            }
+        });
+        var c = game.Run();
+
+        var rows = Detail(c);
+        Assert.DoesNotContain(rows, r => r[3].Contains("Unused"));
+        var added = Assert.Single(rows, r => r[1].Contains("TD_LL_Add"));
+        Assert.Equal(TriageDetail.Added, added[4]);
+        var pad = Assert.Single(rows, r => r[1].Contains("TD_LL_Pad"));
+        Assert.Equal("Entries", pad[3]);
+        Assert.EndsWith(TriageDetail.PaddingOnly, pad[6]);
+    }
+
+    [Fact]
     public void Detail_lines_stop_at_the_record_limit_and_values_at_the_character_limit()
     {
         var d = new TriageDetail();

@@ -7,6 +7,7 @@
 - `triage` gives the full difference for each field a mod changes in an official record. A new table, "Changes to official records, field by field", follows "Changes to official records" in the HTML, text and JSON reports. It has one row per changed value or list entry, with its path inside the field (for example `Stages[Index 100].LogEntries[0].Entry`), its kind, and the whole value before and after. Before, the only table cut each field's whole value at 160 characters, so a change inside a big record such as a quest couldn't be seen.
 - It names two kinds of difference that are often harmless. `same entries, other order` is a list that holds the same entries in another order, such as an alias's factions. `same English text, translations dropped` is a text whose English is unchanged, but the official plugin keeps it in every language and the mod stores it once, so the game shows English in every language. The plugin's NOTE counts both.
 - A field whose only difference is dropped (or added) translations is now listed in both tables. Before, triage didn't list it at all, because its comparison reads only the English text. `check`, `conflict` and `patch` don't change: they still compare the English text only.
+- Padding (the bytes Mutagen names `Unused`, which the game doesn't read) gets no rows of its own, so a leveled list whose entries another tool resaved shows only its real changes. A field whose only difference is padding gets one row that says so.
 - Limits: at most 200 rows per record and 10,000 in the report, and 2,000 characters per value. Each cut says how much it left out. JSON keys are only added: the new table is one more entry in `tables`.
 
 ### Example
@@ -22,7 +23,7 @@ This is the new table in `MyQuestFix-triage.txt` from a real run (the Plugin and
     Aliases  Aliases[ID 5].Factions  same entries, other order                [000800:Starfield.esm; 000801:Starfield.esm]  [000801:Starfield.esm; 000800:Starfield.esm] (first different at entry 1 of 2)
     Name     Name                    same English text, translations dropped  "My Quest"                                    "My Quest"
 
-sf-mod-check 0.16.2 listed only the Aliases field, with both values cut at 160 characters, and not the Name or Stages fields.
+sf-mod-check 0.16.2 listed only the Aliases field, with both values cut at 160 characters, and not the Name field.
 
 ## 0.16.2 (2026-11-24)
 
