@@ -609,8 +609,9 @@ public static class Analyzer
                 intended[i] = new();
                 if (i == origin) continue;
                 var masters = MastersOf(versions[i].Plugin);
-                // triage: this version's detail lines (one limit per record and plugin), and those of its translation-only fields
-                TriageDetail? detail = null, trDetail = null;
+                // triage: this version's detail lines (one walker per record and plugin, with its own limit for the
+                // translation kinds, so those never crowd out a real change: TriageDetail.MaxPerRecord)
+                TriageDetail? detail = null;
                 for (int f = 0; f < nf; f++)
                 {
                     if (!prov[i, f]) continue;
@@ -638,9 +639,7 @@ public static class Analyzer
                         if (!same || translations is not null)
                         {
                             var r = versions[i].Rec;
-                            // a field with only translation differences has its own limit, so its lines never crowd out
-                            // a real change's (code review 0.17.0: a quest's stage texts filled the record's 200)
-                            var d = same ? (trDetail ??= new()) : (detail ??= new());
+                            var d = detail ??= new();
                             List<DetailLine> lines; int hidden;
                             try { (lines, hidden) = d.Field(fields[f].Name, baseVal, vals[i, f], translations, knownEqual: same); }
                             // a failed walk of an equal field (looking for translations only) is not an unreadable field:

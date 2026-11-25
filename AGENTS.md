@@ -424,7 +424,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
   official records, field by field" (columns Plugin, Record, Field, Path, Kind, Before, After): one row per changed
   value or list entry, with Kind `changed`, `added`, `removed`, `same entries, other order` (a list reordered),
   `same English text, translations dropped` or `same English text, translations added`, or `not shown` (a row that
-  counts the record's rows past 200, plus 200 more for its fields that differ only in their translations). Padding members (`Unused`) get no rows; a field whose only difference is padding
+  counts the record's rows past 200, plus 200 more for its rows of the two translation kinds). Padding members (`Unused`) get no rows; a field whose only difference is padding
   gets one `changed` row whose After ends with "(only padding differs ...)". Rows of real changes come before rows of
   translation-only fields. A list too long to match entry by entry (over 2,000 entries, no key, length changed) gets
   one `changed` row that says so. Use it, not the cut-off Before and After of "Changes to official records", to

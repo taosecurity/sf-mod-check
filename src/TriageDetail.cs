@@ -25,7 +25,9 @@ public sealed class TriageDetail
     public const string Changed = "changed", Added = "added", Removed = "removed", Reordered = "same entries, other order",
         TranslationsDropped = "same English text, translations dropped", TranslationsAdded = "same English text, translations added";
 
-    /// <summary>Detail lines kept per record (all its fields together); the rest are counted.</summary>
+    /// <summary>Detail lines kept per record (all its fields together), and as many more of the translation kinds, so those
+    /// never crowd out a real change (code review 0.17.0 round 3: translation lines under a changed field shared the
+    /// real lines' limit); the rest are counted.</summary>
     public const int MaxPerRecord = 200;
     /// <summary>Characters kept of each value; a longer one says how many it left out.</summary>
     public const int MaxValue = 2000;
@@ -43,7 +45,7 @@ public sealed class TriageDetail
     public const string PaddingOnly = " (only padding differs: Mutagen's Unused members, which the game doesn't read)";
 
     readonly DeepCompare cmp = NoPadding;
-    readonly List<DetailLine> lines = new();
+    readonly List<DetailLine> lines = new(), trLines = new();   // real lines, translation lines
     /// <summary>Lines found past <see cref="MaxPerRecord"/>.</summary>
     public int NotShown { get; private set; }
     // The translation kind of the field being walked (set by Field), or null when both plugins are localized alike.
@@ -56,10 +58,10 @@ public sealed class TriageDetail
         baseLocalized == newLocalized ? null : baseLocalized ? TranslationsDropped : TranslationsAdded;
 
     /// <summary>The lines this record has given so far, and how many past the limit.</summary>
-    public int Count => lines.Count + NotShown;
+    public int Count => lines.Count + trLines.Count + NotShown;
 
-    /// <summary>Walks one field (its name is the path's start) and returns the lines it added within the record's limit,
-    /// and how many more it found past the limit.
+    /// <summary>Walks one field (its name is the path's start) and returns the lines it added within the record's limits
+    /// (real differences first, then the translation kinds), and how many more it found past them.
     /// translations: <see cref="TranslationKind"/>'s answer for the two plugins.</summary>
     /// knownEqual: the caller has found the two values equal (conflict's comparison), so the walk only looks for the
     /// translation kinds and compares nothing again (code review 0.17.0: an equal field was compared at every level).
@@ -67,7 +69,7 @@ public sealed class TriageDetail
     public (List<DetailLine> Lines, int NotShown) Field(string field, object? before, object? after, string? translations, bool knownEqual = false)
     {
         translationKind = translations;
-        int start = lines.Count, hidden = NotShown, startReal = real;
+        int start = lines.Count, trStart = trLines.Count, hidden = NotShown, startReal = real;
         try
         {
             Walk(field, before, after, 0, knownEqual ? true : null);
@@ -78,10 +80,13 @@ public sealed class TriageDetail
         catch
         {
             lines.RemoveRange(start, lines.Count - start);
+            trLines.RemoveRange(trStart, trLines.Count - trStart);
             NotShown = hidden; real = startReal;
             throw;
         }
-        return (lines.GetRange(start, lines.Count - start), NotShown - hidden);
+        var added = lines.GetRange(start, lines.Count - start);
+        added.AddRange(trLines.GetRange(trStart, trLines.Count - trStart));
+        return (added, NotShown - hidden);
     }
 
     // Lines (kept or not) of a kind other than the translation kinds: a real difference was placed.
@@ -90,8 +95,10 @@ public sealed class TriageDetail
     // The values are shown (Show, a full dump) only for a line that is kept.
     void Add(string path, string kind, object? before, object? after, string afterNote = "")
     {
-        if (kind != TranslationsDropped && kind != TranslationsAdded) real++;
-        if (lines.Count < MaxPerRecord) lines.Add(new(path, kind, Show(before), Show(after) + afterNote));
+        bool tr = kind == TranslationsDropped || kind == TranslationsAdded;
+        if (!tr) real++;
+        var to = tr ? trLines : lines;
+        if (to.Count < MaxPerRecord) to.Add(new(path, kind, Show(before), Show(after) + afterNote));
         else NotShown++;
     }
 

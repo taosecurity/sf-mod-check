@@ -206,6 +206,33 @@ public class TriageDetailTests
     }
 
     [Fact]
+    public void Translation_rows_inside_a_changed_field_never_crowd_out_its_real_change()
+    {
+        // code review 0.17.0 round 3: a real change to the last of 250 stages came after the 249 other stages' texts
+        // (dropped translations) in the same field, so it fell past the record's 200 rows
+        using var game = new Game(s =>
+        {
+            var stages = new ExtendedList<QuestStage>();
+            for (int i = 0; i < 250; i++)
+                stages.Add(new QuestStage { Index = (ushort)(i * 10), LogEntries = new ExtendedList<QuestLogEntry> { new() { Entry = Localized.Text($"Log {i}") } } });
+            s.Quests.Add(new Quest(s) { EditorID = "TD_QuestS", Stages = stages });
+        }, localized: true);
+        game.Mod((m, s) =>
+        {
+            var q = m.Quests.GetOrAddAsOverride(s.Quests.First());
+            q.Stages[249].LogEntries[0].Entry = Localized.Text("Log changed");
+        });
+        var c = game.Run();
+
+        var rows = Detail(c);
+        var real = Assert.Single(rows, r => r[4] == TriageDetail.Changed);
+        Assert.Equal("Stages[Index 2490].LogEntries[0].Entry", real[3]);
+        Assert.Equal(real, rows[0]);   // the field's real change comes before its translation rows
+        Assert.Equal(TriageDetail.MaxPerRecord, rows.Count(r => r[4] == TriageDetail.TranslationsDropped));
+        Assert.Contains(rows, r => r[4] == "not shown" && r[5].StartsWith("49 more differences"));   // 249 texts, 200 shown
+    }
+
+    [Fact]
     public void Detail_lines_stop_at_the_record_limit_and_values_at_the_character_limit()
     {
         var d = new TriageDetail();

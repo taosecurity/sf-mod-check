@@ -955,16 +955,17 @@ matched by a member each entry has (an ID or an index), otherwise by position. T
   game usually doesn't care about the order of such lists (an alias's factions, for example).
 - `same English text, translations dropped`: the text is the same in English, but the official plugin keeps it in
   every language and the mod stores it once, so the game shows the English text in every language. The reverse is
-  `same English text, translations added`. Triage tells them apart by the plugins' Localized header flag; it doesn't
-  read the strings files.
+  `same English text, translations added`. Triage tells them apart by the plugins' Localized header flag. It compares
+  the English text only (an official plugin's comes from its English strings files) and doesn't read the other
+  languages' files.
 
 Padding (the bytes Mutagen names `Unused`, which the game doesn't read) gets no rows of its own. A field whose only
 difference is padding, such as a leveled list resaved by another tool, gets one `changed` row whose After ends with
 "(only padding differs ...)".
 
 The plugin's NOTE line counts these last two kinds, since they are often harmless, and says how many of its changed
-fields differ only in their translations. Limits: at most 200 rows per record (and 200 more for the record's fields
-that differ only in their translations, so those rows never crowd out a real change) and 10,000 in the report (real changes first), and each value up to 2,000 characters; each cut says how much it left out. A list of more than 2,000 entries with no key to match them by, whose length changed, gets one `changed` row that says so. Records
+fields differ only in their translations. Limits: at most 200 rows per record (and 200 more for the record's rows
+of the two translation kinds, so those rows never crowd out a real change, even inside the same field) and 10,000 in the report (real changes first), and each value up to 2,000 characters; each cut says how much it left out. A list of more than 2,000 entries with no key to match them by, whose length changed, gets one `changed` row that says so. Records
 in cells and worldspaces (placed objects, navmeshes) are compared raw, so they are named only by field type, in the
 first table.
 
