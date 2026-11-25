@@ -204,6 +204,29 @@ public class FindPluginTests
 
     /// <summary>Code review round 3: stage 0 and alias 0 are real values and print; on 2f07bb8 these came out as
     /// GetStageDone(quest) and GetIsAliasRef(). An unused number parameter of 0 still stays out.</summary>
+    // 0.20.0: --full with --plugin, for one record and in the whole-plugin listing (fails on 0.19.0: unknown option)
+    [Fact]
+    public void Full_with_plugin_prints_the_tree_with_conditions_one_line_each()
+    {
+        using var s = new Set();
+        var (code, stdout, stderr) = s.Find("BQ_Effect", "--plugin", s.Patch, "--masters-dir", s.Masters, "--full");
+        Assert.True(code == 0, stdout + stderr);
+        var lines = stdout.Replace("\r", "").Split('\n');
+        Assert.Contains("  tree:", lines);
+        Assert.Contains("    Conditions: (2 entries)", lines);
+        Assert.Contains($"      [0]: OR GetValue(LM_Value [{s.LightValue}]) == 0 (run on Subject)", lines);
+        Assert.Contains($"      [1]: GetGlobalValue(BQ_Global [{s.Global}]) == 1 (run on Subject)", lines);
+        Assert.DoesNotContain("  fields:", lines);
+
+        // the listing: each listed record gets a tree, --max still limits the records
+        (code, stdout, _) = s.Find("--plugin", s.Patch, "--masters-dir", s.Masters, "--full", "--max", "1", "--json");
+        Assert.Equal(0, code);
+        var j = JsonDocument.Parse(stdout).RootElement;
+        var m = Assert.Single(j.GetProperty("matches").EnumerateArray());
+        Assert.Equal(JsonValueKind.Object, m.GetProperty("tree").ValueKind);
+        Assert.Equal(4, j.GetProperty("total").GetInt32());
+    }
+
     [Fact]
     public void A_condition_parameter_of_0_still_prints()
     {

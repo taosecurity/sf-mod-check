@@ -506,6 +506,9 @@ public static class PatchCommand
         };
     }
 
+    /// <summary>0.20.0 (F2): the changed fields a planned record carried, for the "Not built" row made when it is dropped.</summary>
+    static List<string> FieldsOf(PatchRecord r) => r.Fields.Select(f => f.Field).Distinct().ToList();
+
     public sealed record NotBuiltRecord(FormKey FormKey, string RecordType, string? EditorID, string Why, List<string> Fields)
     {
         /// <summary>It loses to an official BlueprintShips file, so no patch can bring it back (0.12.0).</summary>
@@ -698,35 +701,37 @@ public static class PatchCommand
         foreach (var g in byRecord)
         {
             if (!targets.ContainsKey(g.Key)) continue;
+            // 0.20.0 (F2): the changed fields a "Not built" row lists, as on the rows above
+            var fwd = g.SelectMany(l => l.Fields.Where(f => !Impact.IsMinor(f)).Select(f => f.Field)).Distinct().ToList();
             if (!versions.TryGetValue(g.Key, out var vs) || vs.Count == 0)
             {
-                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, "its versions could not be read again", new()));
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, "its versions could not be read again", fwd));
                 Log.Write($"patch: {g.First().RecordType} {g.Key} not built: its versions could not be read again");
                 continue;
             }
             if (cellTargets.Contains(g.Key) && !plan.Places.ContainsKey(g.Key))
             {
-                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, "the cell's place (an interior block or a worldspace) could not be found", new()));
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, "the cell's place (an interior block or a worldspace) could not be found", fwd));
                 Log.Write($"patch: cell {g.Key} not built: no interior block or worldspace holds it");
                 continue;
             }
             if (refTargets.Contains(g.Key) && !plan.RefPlaces.ContainsKey(g.Key))
             {
                 var kind = targets[g.Key].Getter == typeof(INavigationMeshGetter) ? "navmesh" : "placed object";
-                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, $"the {kind}'s cell could not be found", new()));
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, $"the {kind}'s cell could not be found", fwd));
                 Log.Write($"patch: {kind} {g.Key} not built: no cell holds it");
                 continue;
             }
             if (dialTargets.Contains(g.Key) && DialogWhyNot(g.Key) is { } dwhy)
             {
-                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, dwhy, g.SelectMany(l => l.Fields.Where(f => !Impact.IsMinor(f)).Select(f => f.Field)).Distinct().ToList()));
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, dwhy, fwd));
                 Log.Write($"patch: {LogName(g.First().RecordType, g.First().EditorID, g.Key)} not built: {dwhy}");
                 continue;
             }
             try { BuildRecord(g.Key, g.ToList(), vs, picks, plan, MastersOf, Name, g.First().RecordType, g.First().EditorID); }
             catch (Exception e) when (Fatal.Recoverable(e) && e is not MeshPickConflict)
             {
-                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, $"it could not be built ({e.GetType().Name}: {SafeText.OneLine(e.Message)})", new()));
+                plan.NotBuilt.Add(new(g.Key, g.First().RecordType, g.First().EditorID, $"it could not be built ({e.GetType().Name}: {SafeText.OneLine(e.Message)})", fwd));
                 Log.Write($"patch: {g.Key} not built: {e}");
             }
         }
@@ -797,7 +802,7 @@ public static class PatchCommand
                     foreach (var o in refs)
                     {
                         plan.Records.Remove(o);
-                        plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, whyNot, new()));
+                        plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, whyNot, FieldsOf(o)));
                         Log.Write($"patch: {o.RecordType} {o.FormKey} not built: {whyNot}");
                     }
                     continue;
@@ -948,13 +953,13 @@ public static class PatchCommand
                     plan.Notes.Add($"Cell {c.EditorID} [{c.FormKey}] was needed only as the parent of {ChildrenText(objs.Select(o => o.Record))}, " +
                                    $"but its worldspace {world} {failed}, so it is left out with them (it has no changes of its own)");
                 else
-                    plan.NotBuilt.Add(new(c.FormKey, c.RecordType, c.EditorID, $"its worldspace {world} {failed}", new()));
+                    plan.NotBuilt.Add(new(c.FormKey, c.RecordType, c.EditorID, $"its worldspace {world} {failed}", FieldsOf(c)));
             }
             Log.Write($"patch: cell {c.EditorID} [{c.FormKey}] left out: its worldspace {world} {failed}");
             foreach (var o in objs)
             {
                 plan.Records.Remove(o);
-                plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, $"the worldspace {world} of its cell {failed}", new()));
+                plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, $"the worldspace {world} of its cell {failed}", FieldsOf(o)));
                 Log.Write($"patch: {o.RecordType} {o.FormKey} not built: the worldspace {world} of its cell {failed}");
             }
         }
@@ -1122,7 +1127,7 @@ public static class PatchCommand
                     plan.Notes.Add($"{o.RecordType} {o.EditorID} [{o.FormKey}] was needed only as the parent of patched dialogue, but {why}, so it is left out with it");
             }
             else
-                plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, why, new()));
+                plan.NotBuilt.Add(new(o.FormKey, o.RecordType, o.EditorID, why, FieldsOf(o)));
             Log.Write($"patch: {LogName(o.RecordType, o.EditorID, o.FormKey)} left out: {why}");
             if (o.Record is IDialogTopicGetter)
             {
@@ -1565,8 +1570,11 @@ public static class PatchCommand
                     var lMutItems = Items(lmp.GetValue(lMut));
                     var bBag = BagOf(bi); var lBag = BagOf(li2); var sBag = BagOf(si);
                     // both sides removed or edited one base entry (an edit reads as remove plus add): merging by entry
-                    // would keep both edits, so the list is one value (code review 0.19.0, round 4)
-                    bool bothEdited = bi.Any(x => !sBag.Contains(x) && !lBag.Contains(x));
+                    // would keep both edits, so the list is one value (code review 0.19.0, round 4). A removal both
+                    // agree on is no clash unless both sides also added an entry (0.20.0 F1): base [A, B], one side [A],
+                    // the other [A, C] gives [A, C]
+                    bool bothEdited = bi.Any(x => !sBag.Contains(x) && !lBag.Contains(x))
+                        && si.Any(x => !bBag.Contains(x)) && li2.Any(x => !bBag.Contains(x));
                     if (!bothEdited && si.Count == sMutItems.Count && li2.Count == lMutItems.Count)
                     {
                         var keep = new List<object?>();

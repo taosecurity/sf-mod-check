@@ -242,7 +242,7 @@ public static class QuestStages
         if (unsetQuests.Count > 0 && st.Unreadable.Count > 0)
         {
             var (first, why) = st.Unreadable.First();
-            add("NOTE", "quest-stage-unset", $"{st.Unreadable.Count} attached script(s) couldn't be found or read (e.g. {first}: {why}), so stages that nothing sets " +
+            add("NOTE", "quest-stage-unset", $"{st.Unreadable.Count} attached script(s) couldn't be found or read (e.g. {SafeText.OneLine(first)}: {why}), so stages that nothing sets " +
                                $"weren't checked in {unsetQuests.Count} quest(s)");
         }
         else
@@ -262,7 +262,7 @@ public static class QuestStages
             var q = questOf(fk);
             if (q == null) { Log.Write($"quest stages: {script} sets stage {stage} on {fk}, which isn't in the plugin or its masters, so it wasn't checked"); continue; }
             if (q.Stages.Any(s => s.Index == stage)) continue;
-            add("WARNING", "quest-stage-missing", $"script {script} sets stage {stage} on {name(q)}, which has no stage {stage}, so the call does nothing");
+            add("WARNING", "quest-stage-missing", $"script {SafeText.OneLine(script)} sets stage {stage} on {name(q)}, which has no stage {stage}, so the call does nothing");
         }
     }
 

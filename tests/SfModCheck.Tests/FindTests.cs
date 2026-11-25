@@ -211,6 +211,132 @@ public class FindTests
         Assert.Contains("    Value: 11", stdout);
     }
 
+    // ---- 0.20.0: find --full (each fails on 0.19.0, where --full is an unknown option) ----
+
+    /// <summary>FindLvl.esm (master FindBase.esm) with leveled item FL_List: entry 0 is level 0, count 1, FB_Misc;
+    /// entry 1 is level 5, count 2, FB_Misc. Added to Plugins.txt.</summary>
+    static FormKey AddLeveledList(Game game)
+    {
+        var mod = Plugin.New("FindLvl.esm", PluginStyle.Full, "test", "made-up leveled list");
+        using var g = new GameData(game.Data);
+        g.Open("FindBase.esm");
+        var list = mod.LeveledItems.AddNew("FL_List");
+        list.Entries = [Entry(0, 1), Entry(5, 2)];
+        PluginWriter.Write(mod, game.Data, g, NoGap);
+        File.AppendAllLines(game.PluginsTxt, ["*FindLvl.esm"]);
+        return list.FormKey;
+
+        LeveledItemEntry Entry(short level, short count)
+        {
+            var e = new LeveledItemEntry { Level = level, Count = count };
+            e.Reference.SetTo(game.BaseMisc);
+            return e;
+        }
+    }
+
+    [Fact]
+    public void Full_prints_every_nested_value_with_zeros_in_a_load_order()
+    {
+        using var game = new Game();
+        var lvl = AddLeveledList(game);
+        var (code, stdout, _) = game.Find("FL_List", "--full");
+        Assert.Equal(0, code);
+        var lines = stdout.Replace("\r", "").Split('\n');
+        Assert.Contains("  tree:", lines);
+        Assert.DoesNotContain("  fields:", lines);   // --full replaces the fields block
+        int at = Array.IndexOf(lines, "    Entries: (2 entries)");
+        Assert.True(at > 0, stdout);
+        Assert.Equal("      [0]:", lines[at + 1]);
+        Assert.Contains("        Level: 0", lines);   // a zero prints (the fields view drops it)
+        Assert.Contains("        Level: 5", lines);
+        Assert.Contains("        Count: 2", lines);
+        Assert.Contains($"        Reference: FB_Misc [{game.BaseMisc}]", lines);
+        Assert.DoesNotContain(lines, l => l.TrimStart().StartsWith("Unused"));   // padding members are left out
+        Assert.Contains("RESULT: FOUND 1 record (", stdout);
+
+        // zeros at the top level too: FB_Misc's weight is 0
+        (code, stdout, _) = game.Find("FB_Misc", "--full");
+        Assert.Equal(0, code);
+        Assert.Contains("    Value: 9", stdout);
+        Assert.Contains("    Weight: 0", stdout);
+
+        // --json --full: "tree" next to the unchanged "fields"; without --full there is no "tree" key
+        (code, stdout, _) = game.Find(lvl.ToString(), "--full", "--json");
+        Assert.Equal(0, code);
+        var m = Assert.Single(JsonDocument.Parse(stdout).RootElement.GetProperty("matches").EnumerateArray());
+        Assert.Equal("(2 entries)", m.GetProperty("fields").GetProperty("Entries").GetString());
+        var entries = m.GetProperty("tree").GetProperty("Entries").EnumerateArray().ToList();
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("0", entries[0].GetProperty("Level").GetString());
+        Assert.Equal("2", entries[1].GetProperty("Count").GetString());
+        Assert.False(m.TryGetProperty("treeNotShown", out _));
+        (code, stdout, _) = game.Find(lvl.ToString(), "--json");
+        m = Assert.Single(JsonDocument.Parse(stdout).RootElement.GetProperty("matches").EnumerateArray());
+        Assert.False(m.TryGetProperty("tree", out _));
+    }
+
+    [Fact]
+    public void Without_full_the_text_output_is_unchanged()
+    {
+        using var game = new Game();
+        var (code, stdout, _) = game.Find("FB_Misc", "--quiet");
+        Assert.Equal(0, code);
+        var text = System.Text.RegularExpressions.Regex.Replace(stdout.Replace("\r", ""), @"\(\d+ s\)", "(N s)");
+        Assert.Equal(
+            "\n" +
+            $"FB_Misc [{game.BaseMisc}] MISC \"Made-up Widget\"\n" +
+            "  defined in: FindBase.esm\n" +
+            "  winner: FindLight.esm\n" +
+            "  also in: FindMedium.esm\n" +
+            "  fields:\n" +
+            "    Value: 9\n" +
+            "RESULT: FOUND 1 record (N s)\n", text);
+    }
+
+    [Fact]
+    public void Full_tree_caps_cut_depth_nodes_and_lines_and_count_what_they_left_out()
+    {
+        var mod = Plugin.New("CapTest.esm", PluginStyle.Full, "test", "made-up");
+        var misc = mod.MiscItems.AddNew("CT_Misc");
+        var list = mod.LeveledItems.AddNew("CT_List");
+        list.Entries = new Noggog.ExtendedList<LeveledItemEntry>(Enumerable.Range(0, 30).Select(i =>
+        {
+            var e = new LeveledItemEntry { Level = (short)i, Count = 1 };
+            e.Reference.SetTo(misc.FormKey);
+            return e;
+        }));
+        static string Link(Mutagen.Bethesda.Plugins.IFormLinkGetter l) => $"[{l.FormKey}]";
+        static int Count(List<TreeNode> ns) => ns.Sum(n => 1 + (n.Children != null ? Count(n.Children) : 0));
+        var (depth, lines, nodes) = (FindTree.MaxDepth, FindTree.MaxLines, FindTree.MaxNodes);
+        try
+        {
+            var (all, none) = FindTree.Build(list, Link);
+            Assert.Equal(0, none);
+            int total = Count(all);
+            Assert.Equal(total, FindTree.Lines(all, 0, "").Count);   // one line per node, no cut line
+
+            FindTree.MaxNodes = 10;
+            var (cut, notShown) = FindTree.Build(list, Link);
+            Assert.Equal(10, Count(cut));
+            Assert.Equal(total, Count(cut) + notShown);   // every node either shown or counted
+            Assert.True(FindTree.Json(cut).ContainsKey("Entries"));   // the JSON prints from the same cut nodes
+
+            FindTree.MaxNodes = nodes;
+            FindTree.MaxLines = 5;
+            var text = FindTree.Lines(all, 0, "  ");
+            Assert.Equal(6, text.Count);
+            Assert.Equal($"  ... and {total - 5} more lines not shown (--json --full has up to 20,000 nodes)", text[^1]);
+
+            FindTree.MaxLines = lines;
+            FindTree.MaxDepth = 1;   // Entries is at level 0, each entry at level 1
+            var (shallow, _) = FindTree.Build(list, Link);
+            var entries = shallow.Single(n => n.Name == "Entries");
+            Assert.Equal(30, entries.Children!.Count);
+            Assert.All(entries.Children, e => Assert.Equal("(deeper than 1 levels, not shown)", e.Text));
+        }
+        finally { (FindTree.MaxDepth, FindTree.MaxLines, FindTree.MaxNodes) = (depth, lines, nodes); }
+    }
+
     [Fact]
     public void Bad_input_is_exit_2_and_help_is_exit_0()
     {

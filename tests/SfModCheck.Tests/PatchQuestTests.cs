@@ -135,6 +135,19 @@ public class PatchQuestTests
     }
 
     [Fact]
+    public void Both_remove_one_log_entry_and_one_adds_another_both_changes_are_kept_without_a_choice_row()
+    {
+        // 0.20.0 F1: a removal both plugins agree on is not a clash. Base [A, B], ModB (the winner) [A], ModA [A, C]
+        // gives [A, C]; 0.19.0 kept the winner's [A] whole and wrote a Choice row, losing ModA's C
+        using var game = new Game(q => { q.Stages[0].LogEntries.Clear(); q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "A" }); q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "B" }); });
+        game.Mod("ModA.esm", q => { q.Stages[0].LogEntries.RemoveAt(1); q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "C" }); });
+        game.Mod("ModB.esm", q => q.Stages[0].LogEntries.RemoveAt(1));
+        Ok(game.Patch());
+        Assert.Equal(new[] { "A", "C" }, Notes(game.Quest().Stages[0]));
+        Assert.DoesNotContain("LogEntries; ", game.Report);
+    }
+
+    [Fact]
     public void Loser_inserts_a_log_entry_first_and_the_winner_left_the_list_its_order_is_kept()
     {
         // code review 0.19.0, round 5: a list only one side changed is taken whole, in its own order
@@ -697,6 +710,8 @@ public class PatchQuestTests
         Assert.DoesNotContain(plan.Notes, n => n.Contains("is in the patch as the parent of"));
         Assert.Contains(plan.Notes, n => n.Contains("[000801:Base.esm] was needed only as the parent of patched dialogue"));
         Assert.Contains(plan.NotBuilt, r => r.EditorID == "B_Info1");
+        // 0.20.0 F2: the refusal rows list the changed fields (they were empty)
+        Assert.All(plan.NotBuilt.Where(r => r.EditorID == "B_Info1"), r => Assert.NotEmpty(r.Fields));
     }
 
     [Fact]

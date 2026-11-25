@@ -294,6 +294,32 @@ public class QuestStagesTests
         Expect.No(r, Missing);
     }
 
+    // 0.20.0 F4: a script name with a line break goes through SafeText.OneLine in the finding text
+    [Fact]
+    public void A_script_name_with_a_line_break_stays_on_one_line_in_the_finding()
+    {
+        using var w = new World();
+        var p = w.Build("badname", m =>
+        {
+            var q = StageQuest(m, "SFM_BadNameQuest", 10, 20);
+            q.VirtualMachineAdapter = new QuestAdapter();
+            q.VirtualMachineAdapter.Scripts.Add(Script("SFM:Bad\nName"));
+        });
+        var r = w.Check(p);
+        var f = Assert.Single(r.Findings, f => f.Check == Unset && f.Severity == "NOTE" && f.Text.Contains("SFM:Bad"));
+        Assert.DoesNotContain('\n', f.Text);
+        Assert.DoesNotContain('\r', f.Text);
+    }
+
+    // 0.20.0 F5: the hint says any error in the check can stop it, not only an unreadable script
+    [Fact]
+    public void The_check_stopped_hint_names_any_error()
+    {
+        var hint = Hints.ByCheck["quest-stage-unset"];
+        Assert.Contains("any error inside the check", hint);
+        Assert.Contains("--verbose", hint);
+    }
+
     // code-review round 1 (2026-11-25): a broken script is one unreadable script, not the end of the check
     [Fact]
     public void A_truncated_script_is_unreadable_and_the_check_goes_on()

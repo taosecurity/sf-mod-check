@@ -5,6 +5,7 @@
 // 0.16.1: a list field's entries print one per line (conditions as "Function(params) op value"), and --plugin <file>
 // reads just that plugin and its masters (found in its folder, each --masters-dir, then Data); with no record given,
 // it lists every record the plugin holds (at most --max, default 100).
+// 0.20.0: --full prints every nested value of the winning copy as a tree (FindTree.cs) instead of the fields block.
 // Exit 0 = found, 1 = not found, 2 = could not run. The text output ends with one RESULT line; --json prints one object.
 using System.Collections;
 using System.Diagnostics;
@@ -28,9 +29,9 @@ public static class FindCommand
 {
     public const string Usage =
         "usage: sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
-        "                         [--data <Data folder>] [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "                         [--data <Data folder>] [--extra-data <folder>] [--full] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "       sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]\n" +
-        "                         [--data <Data folder>] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "                         [--data <Data folder>] [--full] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  EditorID  exact, letter case ignored: CityNewAtlantisLocation\n" +
         "  FormKey   <6 hex digits>:<plugin>: 01295A:Starfield.esm\n" +
         "  FormID    8 hex digits as the console shows them: 0001295A (the first digits pick the plugin by load order)\n" +
@@ -40,6 +41,8 @@ public static class FindCommand
         "            Give the record as an EditorID or FormKey: a console FormID needs the whole load order.\n" +
         "  --masters-dir  another folder that holds the plugin's masters (can be given more than once)\n" +
         "  --max     with --plugin and no record: list at most this many records (default 100; 0 lists them all)\n" +
+        "  --full    print every nested value of the winning copy as an indented tree (zeros included) instead of the\n" +
+        "            main fields; --json adds it as \"tree\"\n" +
         "Exit 0 = found, 1 = not found, 2 = could not run.";
 
     /// <summary>The field lines printed per record at most (the rest are counted on one line).</summary>
@@ -101,7 +104,7 @@ public static class FindCommand
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
         string? q = null, type = null, logFile = null;
-        bool quiet = false, verbose = false, json = false;
+        bool quiet = false, verbose = false, json = false, full = false;
         int? max = null;
         var input = new LoadOrderInput(allowPlugin: true);
         for (int i = 0; i < a.Length; i++)
@@ -125,6 +128,7 @@ public static class FindCommand
                     if (Cli.Value(a, ref i, "a file name", Usage) is not { } lf) return 2;
                     logFile = lf; break;
                 case "--json": json = true; break;
+                case "--full": full = true; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
                 case "-h": case "--help": Console.WriteLine(Usage); return 0;
@@ -209,7 +213,7 @@ public static class FindCommand
             foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
             if (!quiet && !json) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
             if (input.Plugin != null && Unloaded(lo, input.Plugin) is { } unloadedWhy) { cantWhy = unloadedWhy; return 2; }
-            if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, version, sw, out resultPrinted, out cantWhy);
+            if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, full, version, sw, out resultPrinted, out cantWhy);
 
             var unread = new List<string>();
             string? notFoundWhy = null;
@@ -259,7 +263,7 @@ public static class FindCommand
                 return 1;
             }
 
-            FillFields(matches, lo);
+            FillFields(matches, lo, full);
             resultPrinted = true;
             if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "found", null));
             else
@@ -275,11 +279,21 @@ public static class FindCommand
     }
 
     /// <summary>The winning copies' fields and list entries, links named from the load order.</summary>
-    static void FillFields(List<Match> matches, LoadOrderSetup lo)
+    static void FillFields(List<Match> matches, LoadOrderSetup lo, bool full)
     {
         var idCache = lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
         string Link(IFormLinkGetter link) => LinkText(link, idCache);
-        foreach (var m in matches) (m.Fields, m.Entries) = FieldsOf(m.Winner.Rec, Link);
+        foreach (var m in matches)
+        {
+            (m.Fields, m.Entries) = FieldsOf(m.Winner.Rec, Link);
+            if (!full) continue;
+            // 0.20.0: --full, every nested value as a tree (FindTree.cs)
+            var sw = Stopwatch.StartNew();
+            Analyzer.Where = $"building the --full tree of {m.Key} from {m.Winner.Plugin.FileName}";
+            (m.Tree, m.TreeNotShown) = FindTree.Build(m.Winner.Rec, Link);
+            Log.Write($"full: {m.Key}: {Count(m.Tree)} nodes, {m.TreeNotShown} not shown, {sw.Elapsed.TotalSeconds:F1} s");
+        }
+        static int Count(List<TreeNode> ns) => ns.Sum(n => 1 + (n.Children != null ? Count(n.Children) : 0));
     }
 
     /// <summary>With --plugin, why the plugin itself didn't load (its load-order problems go to stderr), or null when it
@@ -297,7 +311,7 @@ public static class FindCommand
 
     /// <summary>find --plugin with no record (0.16.1): every record the plugin holds, group by group as Mutagen reads
     /// them, at most max (0 = all), each through the same printer, then a summary of all of them.</summary>
-    static int ListPlugin(LoadOrderSetup lo, string pluginPath, string? type, int max, bool json, bool quiet, string version,
+    static int ListPlugin(LoadOrderSetup lo, string pluginPath, string? type, int max, bool json, bool quiet, bool full, string version,
                           Stopwatch sw, out bool resultPrinted, out string cantWhy)
     {
         resultPrinted = false;
@@ -331,7 +345,7 @@ public static class FindCommand
         var byKey = Copies(known.Keys.ToHashSet(), known, lo.Plugins, unread).ToDictionary(m => m.Key);
         var matches = listed.Select(r => byKey[r.FormKey]).ToList();
         foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
-        FillFields(matches, lo);
+        FillFields(matches, lo, full);
 
         var summary = $"{target.FileName} holds {all.Count} record{(all.Count == 1 ? "" : "s")}: {newCount} new, {all.Count - newCount} override{(all.Count - newCount == 1 ? "" : "s")}" +
                       (byType.Count > 0 ? $"; by type: {string.Join(", ", byType.Select(t => $"{t.Type} {t.Count}"))}" : "");
@@ -384,6 +398,9 @@ public static class FindCommand
         public List<(string Name, string Value)> Fields = new();
         /// <summary>A list field's entries as text (0.16.1), at most MaxEntries per field; the field's line has the count.</summary>
         public Dictionary<string, (List<string> List, int Total)> Entries = new();
+        /// <summary>--full (0.20.0): the winning copy's whole tree, or null without --full; TreeNotShown past the node cap.</summary>
+        public List<TreeNode>? Tree;
+        public int TreeNotShown;
     }
 
     /// <summary>The plugin a console FormID points at, by the load order's runtime index: full plugins 00 to FC, medium
@@ -542,7 +559,7 @@ public static class FindCommand
 
     /// <summary>One condition as "[OR ]Function(param1[, param2]) op value (run on RunOnType[: reference])" (0.16.1).
     /// The second parameter shows only when it isn't empty; the first too when both are empty; links as LinkText.</summary>
-    static string ConditionText(IConditionGetter c, Func<IFormLinkGetter, string> link)
+    internal static string ConditionText(IConditionGetter c, Func<IFormLinkGetter, string> link)
     {
         var d = c.Data;
         var t = d.GetType();
@@ -644,6 +661,14 @@ public static class FindCommand
         var others = m.Copies.Take(m.Copies.Count - 1).Select(c => c.Plugin.FileName)
             .Where(f => !f.Equals(m.Key.ModKey.FileName, StringComparison.OrdinalIgnoreCase)).ToList();
         if (others.Count > 0) Console.WriteLine($"  also in: {string.Join(", ", others)}");
+        if (m.Tree != null)
+        {
+            // --full (0.20.0) replaces the fields block
+            if (m.Tree.Count == 0 && m.TreeNotShown == 0) return;
+            Console.WriteLine("  tree:");
+            foreach (var l in FindTree.Lines(m.Tree, m.TreeNotShown, "    ")) Console.WriteLine(l);
+            return;
+        }
         if (m.Fields.Count == 0) return;
         Console.WriteLine("  fields:");
         foreach (var (f, v) in m.Fields.Take(MaxFieldLines))
@@ -672,7 +697,7 @@ public static class FindCommand
                 foreach (var (f, v) in m.Fields) fields[f] = v;
                 var entries = new JsonObject();   // 0.16.1: a list field's entries (at most MaxEntries; its count is in fields)
                 foreach (var (f, es) in m.Entries) entries[f] = new JsonArray(es.List.Select(e => (JsonNode)e).ToArray());
-                return (JsonNode)new JsonObject
+                var o = new JsonObject
                 {
                     ["formKey"] = m.Key.ToString(),
                     ["editorId"] = m.Winner.Rec.EditorID,
@@ -684,6 +709,13 @@ public static class FindCommand
                     ["fields"] = fields,
                     ["entries"] = entries,
                 };
+                if (m.Tree != null)
+                {
+                    // --full (0.20.0): only with the flag, so the JSON without it is unchanged
+                    o["tree"] = FindTree.Json(m.Tree);
+                    if (m.TreeNotShown > 0) o["treeNotShown"] = m.TreeNotShown;
+                }
+                return (JsonNode)o;
             }).ToArray()),
             ["result"] = result,
         };
