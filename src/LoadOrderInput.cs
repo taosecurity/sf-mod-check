@@ -21,6 +21,8 @@ public sealed class LoadOrderInput
     public static string QuotedPath(string dir)
     {
         var p = SafeText.OneLine(Path.TrimEndingDirectorySeparator(dir));
+        // a Windows-style path pasted on Linux/macOS keeps its backslash after the trim above: drop it too (not a drive root such as D:\)
+        while (p.Length > 1 && p.EndsWith('\\') && !(p.Length == 3 && p[1] == ':')) p = p[..^1];
         return p.EndsWith('\\') ? $"\"{p}\\\"" : $"\"{p}\"";
     }
     /// <summary>The MO2 profile, with --mo2 (after Resolve).</summary>

@@ -283,6 +283,7 @@ public class Mo2Tests
     {
         Assert.Equal("\"D:\\Games\\Data\"", LoadOrderInput.QuotedPath("D:\\Games\\Data\\"));
         Assert.Equal("\"D:\\\\\"", LoadOrderInput.QuotedPath("D:\\"));
+        if (!OperatingSystem.IsWindows()) return; // the folder arguments below end in a backslash, which only Windows reads as a separator
         using var mo2 = new Mo2();
         var extra = Path.Combine(mo2.Dir, "extraloose");
         Directory.CreateDirectory(extra);
