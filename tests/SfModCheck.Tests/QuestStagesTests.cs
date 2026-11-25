@@ -190,6 +190,49 @@ public class QuestStagesTests
     }
 
     [Fact]
+    public void A_fragment_of_a_stage_the_quest_no_longer_has_is_not_read()
+    {
+        using var w = new World();
+        // stage 10's fragment sets stage 20; a fragment left from a deleted stage 99 sets stage 77, which doesn't
+        // exist, and stage 30, which does: neither call can run
+        WriteScript(w, "SFM:QF_FragQuest", "Quest", [], more:
+        [
+            new PFn("Fragment_Stage_0010_Item_00", Locals: [("::temp0", "Bool")], Code: [SetStage("self", PV.Int(20))]),
+            new PFn("Fragment_Stage_0099_Item_00", Locals: [("::temp0", "Bool")], Code: [SetStage("self", PV.Int(77)), SetStage("self", PV.Int(30))]),
+        ]);
+        var p = w.Build("deadfrag", m =>
+        {
+            var q = StageQuest(m, "SFM_FragQuest", 10, 20, 30);
+            q.Stages[0].Flags = QuestStage.Flag.RunOnStart;
+            q.VirtualMachineAdapter = new QuestAdapter { Script = Script("SFM:QF_FragQuest") };
+            q.VirtualMachineAdapter.Fragments.Add(new QuestScriptFragment { Stage = 10, ScriptName = "SFM:QF_FragQuest", FragmentName = "Fragment_Stage_0010_Item_00" });
+            q.VirtualMachineAdapter.Fragments.Add(new QuestScriptFragment { Stage = 99, ScriptName = "SFM:QF_FragQuest", FragmentName = "Fragment_Stage_0099_Item_00" });
+        });
+        var r = w.Check(p);
+        Expect.No(r, Missing);   // stage 77 is only in the dead fragment
+        var unset = Assert.Single(r.Findings, f => f.Check == Unset);
+        Assert.Equal("WARNING", unset.Severity);
+        Assert.Contains("sets stage 30 (1 of 3)", unset.Text);   // 20 comes from the live fragment, 30 only from the dead one
+    }
+
+    [Fact]
+    public void A_negative_stage_from_a_property_is_a_placeholder()
+    {
+        using var w = new World();
+        WriteScript(w, "SFM:GenericScript", "Quest", [SetStage("self", PV.Id("::StageToSet_var"))], vars: [("::StageToSet_var", "Int", PV.Int(0))]);
+        var p = w.Build("negative", m =>
+        {
+            var q = StageQuest(m, "SFM_NegativeQuest", 10);
+            q.Stages[0].Flags = QuestStage.Flag.RunOnStart;
+            q.VirtualMachineAdapter = new QuestAdapter();
+            q.VirtualMachineAdapter.Scripts.Add(Script("SFM:GenericScript", new ScriptIntProperty { Name = "StageToSet", Data = -1 }));
+        });
+        var r = w.Check(p);
+        Expect.No(r, Missing);
+        Expect.No(r, Unset);
+    }
+
+    [Fact]
     public void Skipped_with_no_assets()
     {
         using var w = new World();

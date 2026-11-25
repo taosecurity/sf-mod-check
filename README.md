@@ -1236,7 +1236,9 @@ Each finding names its check in brackets.
   - To keep false alarms down: a quest with a call whose stage number is worked out while the game runs gets one NOTE
     instead; a stage whose number a call with an unknown quest uses counts as set; and when an attached script can't
     be found or read, the unset rule becomes one NOTE for the plugin. A property's default value never raises
-    `quest-stage-missing`, since defaults are often placeholders such as 0.
+    `quest-stage-missing`, since defaults are often placeholders such as 0, and a negative stage number (a "none"
+    placeholder such as -1) is ignored. In a quest's stage fragment script, only the fragments of stages the quest
+    has are read: a fragment left over from a deleted stage never runs.
   - Stages that another mod's scripts or the game's engine set can't be seen, so read each WARNING as "check this".
     Bethesda's own plugins aren't checked, and `--no-assets` skips this check too. `--verbose` lists each quest, each
     setter found and each call left unresolved.

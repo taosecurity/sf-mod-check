@@ -107,7 +107,8 @@ public static class QuestStages
 
     /// <summary>One script attached to a record: its name, the record's property values (none for fragment script
     /// names given without an entry), the quest it belongs to, and whether "self" is that quest.</summary>
-    sealed record Attached(string Script, IReadOnlyList<IScriptPropertyGetter> Properties, FormKey? Owner, bool SelfIsQuest, string Where);
+    sealed record Attached(string Script, IReadOnlyList<IScriptPropertyGetter> Properties, FormKey? Owner, bool SelfIsQuest, string Where,
+        IReadOnlySet<string>? LiveFragments = null);
 
     sealed class State
     {
@@ -151,7 +152,15 @@ public static class QuestStages
                     if (q.VirtualMachineAdapter is { } qa)
                     {
                         foreach (var e in qa.Scripts) Attach(e, q.FormKey, true, name(q));
-                        if (qa.Script is { } frag) Attach(frag, q.FormKey, true, name(q) + " (stage fragments)");
+                        if (qa.Script is { } frag && !string.IsNullOrWhiteSpace(frag.Name))
+                        {
+                            // only the fragments of stages the quest has run: a deleted stage's fragment can stay in the
+                            // compiled script, and its calls never run
+                            var stagesHad = q.Stages.Select(s => (int)s.Index).ToHashSet();
+                            var live = qa.Fragments.Where(f => stagesHad.Contains(f.Stage) && !string.IsNullOrWhiteSpace(f.FragmentName))
+                                .Select(f => f.FragmentName.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                            attached.Add(new(frag.Name.Trim(), frag.Properties, q.FormKey, true, name(q) + " (stage fragments)", live));
+                        }
                         foreach (var al in qa.Aliases) foreach (var e in al.Scripts) Attach(e, q.FormKey, false, name(q) + " (alias)");
                     }
                     break;
@@ -293,6 +302,15 @@ public static class QuestStages
             foreach (var v in o.Variables)
                 if (v.Value.Kind == PexValueKind.Int) defaults.TryAdd(v.Name, v.Value.Int);
         var functions = chain.SelectMany(c => c.Objects).SelectMany(o => o.Functions()).ToList();
+        if (a.LiveFragments is { } live)
+        {
+            var dead = functions.Where(f => f.Name.StartsWith("Fragment_", StringComparison.OrdinalIgnoreCase) && !live.Contains(f.Name)).ToList();
+            if (dead.Count > 0)
+            {
+                Log.Write($"quest stages: {a.Script} ({a.Where}): {dead.Count} fragment(s) no stage of the quest runs, skipped");
+                functions = functions.Except(dead).ToList();
+            }
+        }
 
         foreach (var f in functions)
         {
@@ -367,6 +385,9 @@ public static class QuestStages
                         }
                         foreach (var (n, firm) in numbers)
                         {
+                            // a negative number is a "none" placeholder (stages are 0 to 65535); the game's own
+                            // generic scripts pass -1 from a property this way (step 3 vanilla run)
+                            if (n < 0) { Log.Write($"quest stages: {a.Script} ({a.Where}): a {fn} call on {t} with stage {n} (a placeholder), ignored"); continue; }
                             st.Mark(t, n, $"script {a.Script} ({a.Where})");
                             if (firm) st.Calls.Add((a.Script, t, n));
                         }
