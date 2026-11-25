@@ -222,7 +222,7 @@ public class PatchQuestTests
     [Fact]
     public void Alias_reference_check_takes_a_version_with_no_alias_list()
     {
-        // the real Zacha-Test rebuild (step 6) had a quest version whose alias list is absent
+        // a real merged-patch rebuild had a quest version whose alias list is absent
         var mod = new StarfieldMod(ModKey.FromNameAndExtension("X.esm"), StarfieldRelease.Starfield);
         var bare = mod.Quests.AddNew("Bare");
         bare.Aliases = null!;
