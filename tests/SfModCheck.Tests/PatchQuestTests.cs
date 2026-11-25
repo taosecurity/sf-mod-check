@@ -220,6 +220,23 @@ public class PatchQuestTests
     }
 
     [Fact]
+    public void Alias_reference_check_takes_a_version_with_no_alias_list()
+    {
+        // the real Zacha-Test rebuild (step 6) had a quest version whose alias list is absent
+        var mod = new StarfieldMod(ModKey.FromNameAndExtension("X.esm"), StarfieldRelease.Starfield);
+        var bare = mod.Quests.AddNew("Bare");
+        bare.Aliases = null!;
+        var full = bare.DeepCopy();
+        full.Aliases = [new QuestReferenceAlias { ID = 1 }];
+        full.Objectives.Add(new QuestObjective { Index = 10, Targets = [new QuestObjectiveTarget { AliasID = 1 }] });
+        var patched = full.DeepCopy();
+        patched.Aliases = null!;
+        Assert.Empty(QuestMerge.MissingAliasRefs(bare, [bare]));
+        Assert.Equal(new[] { "objective 10's target names alias 1, which the merged quest doesn't have" },
+            QuestMerge.MissingAliasRefs(patched, [bare, full]));
+    }
+
+    [Fact]
     public void Quest_dialog_conditions_are_one_value_not_merged()
     {
         using var game = new Game();

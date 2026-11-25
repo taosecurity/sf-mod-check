@@ -1916,11 +1916,19 @@ public static class PatchCommand
                   (built.Count > 0 ? $", built in memory: {string.Join(", ", built.Keys)}" : ""));
         // 0.19.0: an objective target or fragment alias the merge kept may name an alias another version's was kept
         // over: a Notes line, not a refusal (StarfieldPluginCheck NOTES, "0.19.0 (GapFix)", Step 4, checks after the build)
+        // A failure of this check only loses the note, never the record.
         if (rec is IQuestGetter pq)
-            foreach (var miss in QuestMerge.MissingAliasRefs(pq, vs.Select(v => v.Rec).OfType<IQuestGetter>().ToList()))
+            try
             {
-                plan.Notes.Add($"Quest {first.EditorID} [{fk}]: {miss}; the alias was kept from another plugin's version, so check it in xEdit");
-                Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)}: {miss}");
+                foreach (var miss in QuestMerge.MissingAliasRefs(pq, vs.Select(v => v.Rec).OfType<IQuestGetter>().ToList()))
+                {
+                    plan.Notes.Add($"Quest {first.EditorID} [{fk}]: {miss}, because another plugin's version of the quest removes or replaces that alias; check it in xEdit");
+                    Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)}: {miss}");
+                }
+            }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                Log.Write($"patch: {LogName(first.RecordType, first.EditorID, fk)}: the alias reference check failed, so it is skipped: {e}");
             }
         plan.Records.Add(new(fk, first.RecordType, first.EditorID, rec, forwarded, plugins,
             source.Where(s => !merged.ContainsKey(s.Key) && !built.ContainsKey(s.Key)).ToDictionary(s => s.Key, s => vs[s.Value].Rec),

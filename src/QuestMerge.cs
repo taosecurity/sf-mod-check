@@ -76,13 +76,13 @@ public static class QuestMerge
     public static HashSet<long> AliasIds(IQuestGetter q)
     {
         var ids = new HashSet<long>();
-        foreach (var a in q.Aliases)
+        foreach (var a in q.Aliases ?? [])
             switch (a)
             {
                 case IQuestReferenceAliasGetter r: ids.Add(r.ID); break;
                 case IQuestLocationAliasGetter l: ids.Add(l.ID); break;
                 case IQuestCollectionAliasGetter c:
-                    foreach (var e in c.Collection) if (e.ID is { } id) ids.Add(id);
+                    foreach (var e in c.Collection ?? []) if (e.ID is { } id) ids.Add(id);
                     break;
             }
         return ids;
@@ -93,11 +93,11 @@ public static class QuestMerge
     public static List<(string Where, long Alias)> AliasRefs(IQuestGetter q)
     {
         var refs = new List<(string, long)>();
-        foreach (var o in q.Objectives)
-            foreach (var t in o.Targets)
+        foreach (var o in q.Objectives ?? [])
+            foreach (var t in o.Targets ?? [])
                 if (t.AliasID >= 0) refs.Add(($"objective {o.Index}'s target names alias {t.AliasID}", t.AliasID));
         if (q.VirtualMachineAdapter is { } vm)
-            foreach (var a in vm.Aliases)
+            foreach (var a in vm.Aliases ?? [])
                 if (a.Property is { } p && p.Alias >= 0 && p.Object.FormKey == q.FormKey)
                     refs.Add(($"fragment scripts are attached to alias {p.Alias}", p.Alias));
         return refs;
