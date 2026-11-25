@@ -47,12 +47,19 @@ public static class ReleaseVoice
         foreach (var (pkg, path) in plugins)
         {
             var name = Path.GetFileName(path);
-            List<Line> lines;
+            List<Line>? lines;
             try { lines = Lines(path, data, dirs); }
             catch (Exception e) when (Fatal.Recoverable(e))
             {
                 Log.Write($"voice: {name}: dialogue not read: {e}");
                 o.Add(new(Level.Note, "voice-missing", $"{name}: its dialogue couldn't be read ({SafeText.OneLine(e.Message)}), so its voice files weren't checked"));
+                continue;
+            }
+            if (lines == null)
+            {
+                // a master that isn't installed: Mutagen can't tell the plugin's own lines from the master's without
+                // the master's style (a light or medium master read as full shifts every FormID), so no check
+                o.Add(new(Level.Note, "voice-missing", $"{name}: a master isn't installed, so its voice files weren't checked. Install the masters (or give their folder with --masters-dir) and run release again"));
                 continue;
             }
             o.AddRange(Check(c, name, lines));
@@ -80,7 +87,7 @@ public static class ReleaseVoice
         {
             bool Has(string n) => own.Contains(n) || common.Contains(n);
             // the voice-type folders that hold each response number, for rule 2
-            var folders = own.Concat(common).Where(n => n.EndsWith(".wem", StringComparison.Ordinal))
+            var folders = own.Union(common).Where(n => n.EndsWith(".wem", StringComparison.Ordinal))
                 .Select(n => n.Split('\\')).Where(s => s.Length == 5)
                 .ToLookup(s => Path.GetFileNameWithoutExtension(s[4]), s => s[3]);
             var missing = new List<(string Text, string Subject)>();
@@ -178,17 +185,14 @@ public static class ReleaseVoice
     }
 
     /// <summary>The voiced responses of the dialogue lines the plugin adds, with the voice types (EditorIDs, lower case)
-    /// their subject conditions name.</summary>
-    internal static List<Line> Lines(string path, string data, IEnumerable<string> dirs)
+    /// their subject conditions name; null when a master isn't installed (the plugin's own FormIDs can't be placed then).</summary>
+    internal static List<Line>? Lines(string path, string data, IEnumerable<string> dirs)
     {
         using var game = new GameData(data, dirs);
-        var mastersMissing = false;
-        foreach (var m in GameData.HeaderMasters(path)) mastersMissing |= game.TryOpen(m) == null;
-        using var mod = mastersMissing
-            ? StarfieldMod.CreateFromBinaryOverlay(path, StarfieldRelease.Starfield, new BinaryReadParameters { MasterFlagsLookup = StandIns(game, path) })
-            : game.OpenPlugin(path);
         var name = Path.GetFileName(path);
-        if (mastersMissing) Log.Write($"voice: {name}: a master is missing; voice types from it can't be named, so those lines need their file in any voice-type folder");
+        foreach (var m in GameData.HeaderMasters(path))
+            if (game.TryOpen(m) == null) { Log.Write($"voice: {name}: master {m} isn't installed, so the voice check is skipped"); return null; }
+        using var mod = game.OpenPlugin(path);
         var own = new Dictionary<FormKey, IStarfieldMajorRecordGetter>();
         foreach (var r in mod.EnumerateMajorRecords<IVoiceTypeGetter>()) own[r.FormKey] = r;
         foreach (var r in mod.EnumerateMajorRecords<INpcGetter>()) own[r.FormKey] = r;
@@ -234,14 +238,5 @@ public static class ReleaseVoice
             }
         }
         return lines;
-    }
-
-    static LoadOrder<IModMasterStyledGetter> StandIns(GameData game, string path)
-    {
-        var opened = game.LoadOrder.ToDictionary(m => m.ModKey.FileName.String, m => (IModMasterStyledGetter)m, StringComparer.OrdinalIgnoreCase);
-        var list = new List<IModMasterStyledGetter>(game.LoadOrder);
-        foreach (var m in GameData.HeaderMasters(path))
-            if (!opened.ContainsKey(m)) list.Add(new KeyedMasterStyle(ModKey.FromFileName(m), MasterStyle.Full));
-        return new LoadOrder<IModMasterStyledGetter>(list);
     }
 }

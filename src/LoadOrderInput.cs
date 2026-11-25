@@ -14,7 +14,15 @@ public sealed class LoadOrderInput
     public string DataDir { get; private set; } = "";
     public string? ExtraDir { get; private set; }
     /// <summary>0.18.0: the --data and --extra-data the user gave, as text to add to a rerun command line (empty when neither was given).</summary>
-    public string RerunOptions() => (dataOption != null ? $" --data \"{SafeText.OneLine(DataDir)}\"" : "") + (ExtraDir != null ? $" --extra-data \"{SafeText.OneLine(Path.GetFullPath(ExtraDir))}\"" : "");
+    public string RerunOptions() => (dataOption != null ? $" --data {QuotedPath(DataDir)}" : "") + (ExtraDir != null ? $" --extra-data {QuotedPath(Path.GetFullPath(ExtraDir))}" : "");
+
+    /// <summary>A folder in double quotes for a command line to paste: a trailing separator is dropped (a backslash
+    /// before the closing quote would escape it), and a drive root's backslash is doubled ("D:\\").</summary>
+    public static string QuotedPath(string dir)
+    {
+        var p = SafeText.OneLine(Path.TrimEndingDirectorySeparator(dir));
+        return p.EndsWith('\\') ? $"\"{p}\\\"" : $"\"{p}\"";
+    }
     /// <summary>The MO2 profile, with --mo2 (after Resolve).</summary>
     public Mo2Profile? Mo2 { get; private set; }
     /// <summary>With --plugin (0.16.1, find only): the plugin's full path (after Resolve); the load order is then its

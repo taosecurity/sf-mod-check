@@ -167,6 +167,32 @@ public class ReleaseVoiceTests
             ReleaseNeedsTests.List(f));
     }
 
+    // 0.18.0 code review round 1: with a (light) master missing, the plugin's own lines can't be told from the
+    // master's, so the check is skipped with one NOTE instead of quietly checking nothing
+    [Fact]
+    public void A_missing_master_skips_the_check_with_a_note()
+    {
+        using var s = new Sandbox();
+        var data = Data(s);
+        var pkg = s.Sub("RvChild");
+        var master = Plugin.New("RvMaster.esm", PluginStyle.Light, "test", "release voice test master");
+        var vt = master.VoiceTypes.AddNew("RvMasterVoice");
+        using (var g = new GameData(pkg)) PluginWriter.Write(master, pkg, g, NoGap);
+        var mod = Plugin.New("RvChild.esm", PluginStyle.Light, "test", "release voice test child");
+        var npc = mod.Npcs.AddNew("RvChildNpc");
+        npc.Voice.SetTo(vt);
+        var quest = mod.Quests.AddNew("RvChildQuest");
+        var topic = new DialogTopic(mod) { EditorID = "RvChildTopic", Quest = quest.ToLink<IQuestGetter>() };
+        quest.DialogTopics.Add(topic);
+        Info(mod, topic, "RV_ChildLine", 0x201).Conditions.Add(IsId(npc));
+        using (var g = new GameData(pkg)) { Assert.NotNull(g.TryOpen("RvMaster.esm")); PluginWriter.Write(mod, pkg, g, NoGap); }
+        Assert.Contains("RvMaster.esm", GameData.HeaderMasters(Path.Combine(pkg, "RvChild.esm")));
+        File.Move(Path.Combine(pkg, "RvMaster.esm"), Path.Combine(s.Sub("Elsewhere"), "RvMaster.esm"));   // now not installed
+        var f = ReleaseVoice.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
+        var n = Assert.Single(f);
+        Assert.True(n.Level == Level.Note && n.Rule == "voice-missing" && n.Text.Contains("a master isn't installed"), ReleaseNeedsTests.List(f));
+    }
+
     [Fact]
     public void Each_voice_language_is_checked_on_its_own_and_warnings_are_capped()
     {

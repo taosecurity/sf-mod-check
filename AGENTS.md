@@ -605,6 +605,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    than player lines, needs `sound\voice\<plugin>\<voice type>\<number>.wem` (`<number>`: the response's number in
    8 hex digits with the top byte set to `00`, since the game uses only its low 24 bits) in the plugin's own voice archives or
    loose files, for each voice type its speaker conditions name, or in any voice-type folder when they name none.
+   A plugin whose masters aren't all installed isn't voice-checked (one NOTE says so).
    `release` also looks for each new or changed NPC face's baked files (rule `face-missing`, a NOTE when none of
    the five is there, and since 0.15.0 a NOTE that the face is stale when an override changes it but every face
    file found is the master's), archives named so that the game never loads them (rule `archive-name`; since

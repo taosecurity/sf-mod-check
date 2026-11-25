@@ -276,6 +276,25 @@ public class Mo2Tests
         Assert.Contains($"--data \"{Path.GetFullPath(mo2.Data)}\" --extra-data \"{Path.GetFullPath(extra)}\"` again", report);
     }
 
+    // 0.18.0 code review round 1: a folder given with a trailing backslash must not end in \" in the rerun command
+    // (the backslash would escape the closing quote when the line is pasted), and a drive root keeps its backslash
+    [Fact]
+    public void The_MO2_rerun_command_drops_a_trailing_backslash_from_the_folders()
+    {
+        Assert.Equal("\"D:\\Games\\Data\"", LoadOrderInput.QuotedPath("D:\\Games\\Data\\"));
+        Assert.Equal("\"D:\\\\\"", LoadOrderInput.QuotedPath("D:\\"));
+        using var mo2 = new Mo2();
+        var extra = Path.Combine(mo2.Dir, "extraloose");
+        Directory.CreateDirectory(extra);
+        File.WriteAllLines(Path.Combine(mo2.Profile, "plugins.txt"), ["# made-up", "*Base.esm", "*ModB.esm", "*ModA.esm", "ModC.esm"]);
+        var (code, _, _, _) = mo2.Conflict("--data", Path.GetFullPath(mo2.Data) + "\\", "--extra-data", extra + "\\");
+        Assert.Equal(0, code);
+        var text = string.Join("\n", Directory.EnumerateFiles(Path.Combine(mo2.Dir, "report"), "*", SearchOption.AllDirectories)
+            .Where(f => !f.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).Select(File.ReadAllText));
+        Assert.Contains($"--data \"{Path.GetFullPath(mo2.Data)}\" --extra-data \"{Path.GetFullPath(extra)}\" again", text);
+        Assert.DoesNotContain("\\\" again", text);
+    }
+
     // code review round 1 (0.16.0): MO2's default for a missing mod_directory or profiles_directory is
     // %BASE_DIR%/mods (or profiles), and Overwrite doesn't need modlist.txt
     [Fact]
