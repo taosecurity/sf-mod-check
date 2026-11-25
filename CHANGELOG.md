@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.18.0 (not released yet)
+
+### What's new
+
+- `release` checks the voice files of a mod's dialogue (new rule `voice-missing`, a WARNING). A voiced line plays from `sound\voice\<plugin>\<voice type>\<number>.wem`, where `<number>` is the 8-hex-digit number each response of the line carries. Each dialogue line the plugin adds needs that file for each voice type its speaker conditions name (GetIsID on an NPC, or GetIsVoiceType), or in any voice-type folder when they name none, so a line that would play silent is caught before release. Player lines, lines with no responses and lines that share another line's audio are skipped. Each `Voices_<language>.ba2` archive is checked on its own. A mod with dialogue and no voice files at all gets one NOTE instead of a warning per line, and `.wem` files with no `.ffxanim` lip file beside them get a NOTE. `--verbose` logs every line checked.
+
+### Example
+
+A made-up mod, `MyVoicedMod.esm`, has two dialogue lines. `MyGreeting` is spoken by either of two voice types (a GetIsVoiceType condition on a form list of `MyGuardVoice` and `MyMerchantVoice`); `MyFarewell` names no voice type. The zip ships loose voice files for `MyGuardVoice` only, and no lip file for `MyFarewell`:
+
+    sf-mod-check release MyVoicedMod-1.0.0.zip
+
+These are the voice lines of a real run on that made-up mod (the other lines left out):
+
+    WARNING  [voice-missing] MyVoicedMod.esm: dialogue line MyGreeting (000805:MyVoicedMod.esm): no voice file for voice type mymerchantvoice in its loose files and archives (expected sound\voice\myvoicedmod.esm\mymerchantvoice\00000123.wem), so the line plays silent for that speaker. Add the file, or remove that voice type from the line's conditions
+    NOTE     [voice-missing] MyVoicedMod.esm: 1 voice file in its loose files and archives with no .ffxanim beside it (first: sound\voice\myvoicedmod.esm\myguardvoice\00000124.ffxanim): the line plays but the lips don't move
+
+sf-mod-check 0.17.0 checked no voice files: its only word on them was "Voice files were not checked."
+
 ## 0.17.0 (2026-11-24)
 
 ### What's new

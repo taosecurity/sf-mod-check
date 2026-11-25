@@ -10,7 +10,7 @@
 // Profiles: basic (default) fails only on what breaks the mod in game; a house rule's problem (RuleKind.House: one
 // plugin per zip, script sources shipped, root .md names, private files, BlueprintShips master) prints as a WARNING.
 // house fails on those too (what our own builds use).
-// The steps live in ReleaseRules.cs (zip layout, names, voice archives), ReleaseNeeds.cs (scripts and files the plugin
+// The steps live in ReleaseRules.cs (zip layout, names, voice archives), ReleaseVoice.cs (voice files for dialogue, 0.18.0), ReleaseNeeds.cs (scripts and files the plugin
 // needs, DMMDeps, the plugin check), GapCheck.cs (data Mutagen 0.54.4 loses, missing ONAM) and ReleaseLint.cs
 // (optional Papyrus lint).
 using System.IO.Compression;
@@ -117,7 +117,7 @@ public static class ReleaseCommand
 
     /// <summary>The steps, in report order. Tests can swap them.</summary>
     public static List<Func<ReleaseContext, IEnumerable<ReleaseFinding>>> Steps { get; } =
-        [ReleaseRules.Run, ReleaseNeeds.Run, GapCheck.Run, ReleaseTested.Run, ReleaseLint.Run, ReleaseCreations.Run];
+        [ReleaseRules.Run, ReleaseVoice.Run, ReleaseNeeds.Run, GapCheck.Run, ReleaseTested.Run, ReleaseLint.Run, ReleaseCreations.Run];
 
     public static int Run(string[] a, string version, string byline)
     {

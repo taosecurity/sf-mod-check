@@ -595,6 +595,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    files a mod's own `.nif` files name (since 0.15.0; `release` rule `mesh-missing`) and the sounds of a mod's own
    sound banks in loose files and BA2 archives. It reads only names from a mod's own `.nif`, `.mat` and `.bnk` files,
    never geometry, texture or sound data, and it doesn't check face data, voice files or music.
+   Since 0.18.0 `release` checks voice files (rule `voice-missing`, a WARNING): each dialogue line a plugin adds, other
+   than player lines, needs `sound\voice\<plugin>\<voice type>\<number>.wem` in the plugin's own voice archives or
+   loose files, for each voice type its speaker conditions name, or in any voice-type folder when they name none.
    `release` also looks for each new or changed NPC face's baked files (rule `face-missing`, a NOTE when none of
    the five is there, and since 0.15.0 a NOTE that the face is stale when an override changes it but every face
    file found is the master's), archives named so that the game never loads them (rule `archive-name`; since

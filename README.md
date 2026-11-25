@@ -691,8 +691,8 @@ so the game plays them silent, and everything `check` finds in each plugin.
   (`8a5367865ef21e29b17301a3341b2195fdacbf163c151678c0c420747ff9e6f8`). DMMDeps has gaps (its issues #175 to #177:
   base scripts, face files, some models), so what it can't see is a REVIEW line and never "not needed". Without it,
   one NOTE says that only sf-mod-check's own check of the files the plugins need ran (scripts, models, the `.mesh`
-  geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks)
-  and that voice files were not checked. DMMDeps runs on a copy in the temp folder and takes a
+  geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks;
+  the voice files are checked on their own, rule `voice-missing`). DMMDeps runs on a copy in the temp folder and takes a
   minute or more on big mods (15 minutes at most).
 - `--papyrus <exe>` with `--ck-sources <ContentResources.zip>`: lint the `.psc` sources a zip ships under
   `Scripts\Source`, with papyrus-tools v0.16.3 (SHA-256 `954ec6d7559713c8cdf6aaaf20bde5d9feedf52a6404a90cfca5b2107559c4fa`)
@@ -763,7 +763,7 @@ Data folder.
     sf-mod-check 0.15.1 release (basic profile): MyMod-0.1.0.zip (4 files, 1 plugin, 2 archives)
     PROBLEM  [archive-name] MyMod-0.1.0.zip: archive MyMod_Extra.ba2: its name has no " - " part, so the game never loads it. The game loads an archive only when it is named "<plugin> - <part>.ba2" (with spaces around the dash) beside a plugin of that name, or when an INI lists it; rename it, for example MyMod - Main.ba2 for MyMod.esm
     WARNING  [file-name] MyMod-0.1.0.zip: textures\mymod\café.dds has a character outside plain ASCII (letters with accents, other scripts, symbols); archive tools and the game may not find it. Rename it with plain letters, digits and - _ .
-    NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked.
+    NOTE     [dmmdeps] DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks (the voice files are checked by voice-missing).
     NOTE     [plugin-check] MyMod.esm: OK, 0 errors, 0 warnings (full master, 0 masters, 0 records, 0 overrides (0 ITM), 0 links)
     NOTE     [mutagen-gap] MyMod.esm: 0 own records, 0 overrides, 0 compared with their master's copy
     RESULT: FAIL (1 problems, 0 to review, 1 warnings)
@@ -781,6 +781,7 @@ texture, `.mesh` geometry or sound shows the same way, as a WARNING line that na
 |---|---|---|
 | `plugin-name` | basic, house | A plugin named `...-ShatteredSpace.esm`, `-Constellation`, `-Starfield`, `-OldMars` or `-SFBGS...`, or `BlueprintShips-...`: Starfield drops it from Plugins.txt and it stops loading. Rename it, for example `-ShatteredSpaceAddon.esm`. |
 | `voice-compressed` | basic, house | `.wem` or `.ffxanim` stored compressed in a `.ba2`: the game plays them silent. Pack with Archive2 `-compression=None`. |
+| `voice-missing` | never (WARNING) | 0.18.0: a dialogue line the plugin adds has no voice file, so it plays silent. A voiced line plays from `sound\voice\<plugin>\<voice type>\<number>.wem`: `<plugin>` is the plugin's file name and `<voice type>` the EditorID of the voice type that speaks it (both in lower case), and `<number>` is the 8-hex-digit number each response of the line carries. When the line's conditions on the speaker (GetIsID on an NPC, or GetIsVoiceType on a voice type or a form list of them, equal to 1) name its voice types, each one needs its file; otherwise the file must be in at least one voice-type folder. Player lines (the player isn't voiced), lines with no responses, lines that share another line's audio (SharedDialog) and overrides of other plugins' lines aren't checked. The files are the plugin's own `<plugin> - Voices_<language>.ba2` archives, each language checked on its own, plus voice files loose in the zip or in its other archives, which count for every language. Up to 25 lines are named per plugin and archive, then one line counts the rest; `--verbose` lists every line. A plugin with dialogue and no voice files at all gets one NOTE (silent, subtitles only), and so do `.wem` files with no `.ffxanim` lip file beside them (the line plays, the lips don't move) and a clean result. |
 | `ba2-unreadable` | basic, house | An archive whose header or records don't add up. |
 | `archive-name` | basic, house | 0.14.0: a `.ba2` the game never loads, because it isn't named `<plugin> - <part>.ba2` (with spaces around the dash, `MyMod - Main.ba2` for `MyMod.esm`) beside a plugin in the zips, in the Data folder or in a `--masters-dir` folder. The Xbox twin (`MyMod - Main_xbox.ba2`) carries the same name and passes. A WARNING instead when the zip holds no plugin, or when an INI in the zip lists the archive (it loads only through that INI). Since 0.15.1, a WARNING also when the part after `<plugin> - ` is none of `Main`, `Textures` (each optionally numbered `01` to `99`) or a language's voice archive (`MyMod - Voices_en.ba2`, as the official add-ons ship them, passes; `MyMod - Sounds.ba2` doesn't), or when a numbered archive comes after a gap (`MyMod - Main03.ba2` with no `MyMod - Main02.ba2`; the numbers start at `01`): the game doesn't load it by itself, though an INI archive list such as `sResourceIndexFileList` in the `[Archive]` section can load it on purpose. |
 | `file-name` | never (WARNING) | 0.14.0: a file in the zip, or a name inside one of its archives, with a character outside plain ASCII (accented letters, other scripts, symbols), which archive tools and the game may not find; or a loose file whose path inside Data is over 200 characters, which passes Windows' 260-character limit under Steam's usual Data folder (a longer install path lowers the limit). Two kinds of files the game never loads are skipped: the zip's `fomod` folder, and the files at the top of Data other than plugins, archives and INI files (a README or an image there). Files in any other folder are checked. Up to 5 files are named per zip, then one line counts the rest; `--verbose` lists them all. |
@@ -1273,8 +1274,8 @@ Each finding names its check in brackets.
     file, the finding is a WARNING that says the game may load it on Windows but not once the file is packed into a
     `.ba2` (a script too, not an ERROR). Otherwise the path is missing as usual, and the finding names the trimmed
     path.
-  - **Not checked yet:** `.mesh` geometry that only another mod's or the game's `.nif` names, files the game finds by name (voice,
-  lip and face animation, `.af`/`.hkx` animations, LOD, Wwise sounds), a script's parent and imports, whether an SFSE
+  - **Not checked yet:** `.mesh` geometry that only another mod's or the game's `.nif` names, files the game finds by name (voice
+  and lip files, which only `release` checks, rule `voice-missing`; face animation, `.af`/`.hkx` animations, LOD, Wwise sounds), a script's parent and imports, whether an SFSE
   plugin a native script needs is installed, and which copy of a file wins. Tested on Steam installs only.
 
 ## For Creation Kit and xEdit authors
@@ -1357,7 +1358,10 @@ filter.
   both (in `triage` as LOOKs, since 0.15.0). `archive-name` doesn't read INI settings
   outside the zip, so an archive that the user's own `StarfieldCustom.ini` lists still counts as not loading.
   The 200-character limit assumes Steam's usual install folder; a deeper one lowers it.
-- Not checked: voice files (matched to dialogue lines), music tracks and the Wwise events records name,
+- Voice files matched to dialogue lines are checked only by `release` (since 0.18.0, rule `voice-missing`): not
+  for lines another plugin adds or that an override changes, and a line whose speaker conditions name no voice type
+  passes when any voice-type folder has its file. Player lines in other plugins' scenes aren't recognized as
+  player lines. Not checked: music tracks and the Wwise events records name,
   and what is inside loose files or BA2 archives beyond the material, texture and `.mesh` names in a mod's own `.nif` and
   `.mat` files and the streamed sounds in its own sound banks (the `assets` check looks up names; it doesn't read
   geometry, texture or sound data). The `.mesh` names are read from the `.nif` layout of the game's current

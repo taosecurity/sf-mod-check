@@ -51,7 +51,7 @@ public static class ReleaseNeeds
         var scripts = Scripts(c, plugins, findings);
         if (c.Options.DmmDeps is { } exe) DmmDeps(c, exe, scripts, findings);
         else findings.Add(new(Level.Note, "dmmdeps", "DMMDeps wasn't given (--dmmdeps), so only sf-mod-check's own check of the files the " +
-                                                     "plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks. Voice files were not checked."));
+                                                     "plugins need ran: attached scripts, models, the .mesh geometry of the mod's own models, materials, textures, NPC face data and the sounds of the mod's own sound banks (the voice files are checked by voice-missing)."));
         PluginCheck(c, plugins, findings);
         return findings;
     }
