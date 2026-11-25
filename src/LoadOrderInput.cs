@@ -13,6 +13,8 @@ public sealed class LoadOrderInput
     public string? PluginsTxt { get; private set; }
     public string DataDir { get; private set; } = "";
     public string? ExtraDir { get; private set; }
+    /// <summary>0.18.0: the --data and --extra-data the user gave, as text to add to a rerun command line (empty when neither was given).</summary>
+    public string RerunOptions() => (dataOption != null ? $" --data \"{SafeText.OneLine(DataDir)}\"" : "") + (ExtraDir != null ? $" --extra-data \"{SafeText.OneLine(Path.GetFullPath(ExtraDir))}\"" : "");
     /// <summary>The MO2 profile, with --mo2 (after Resolve).</summary>
     public Mo2Profile? Mo2 { get; private set; }
     /// <summary>With --plugin (0.16.1, find only): the plugin's full path (after Resolve); the load order is then its

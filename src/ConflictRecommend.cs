@@ -20,6 +20,8 @@ public static class Recommend
     public static string PluginsTxt { get; set; } = "";
     // With --mo2 (0.16.0): the MO2 instance folder and profile name, so the prompts name MO2's folders and rerun; else null.
     public static (string Instance, string Profile)? Mo2 { get; set; }
+    /// <summary>0.18.0: the --data and --extra-data the user gave, repeated in the rerun command (empty when neither was given).</summary>
+    public static string Mo2Options { get; set; } = "";
 
     // Worked out once per pair and analysis (0.5.1): the two reports and the menu asked about 8 times per pair. Every
     // caller groups the same Lost list by (winner, loser), and a pair's entries all sit in one section (official or
@@ -158,7 +160,7 @@ public static class Recommend
         sb.AppendLine();
         sb.AppendLine("Verify:");
         if (Mo2 is var (inst2, prof))
-            sb.AppendLine($"- Put the patch in a new empty MO2 mod, enable it, put it last in the load order, and run sf-mod-check conflict --mo2 \"{inst2}\" --profile \"{prof}\" again. These entries should be gone and no new ones should appear.");
+            sb.AppendLine($"- Put the patch in a new empty MO2 mod, enable it, put it last in the load order, and run sf-mod-check conflict --mo2 \"{inst2}\" --profile \"{prof}\"{Mo2Options} again. These entries should be gone and no new ones should appear.");
         else
             sb.AppendLine($"- Add the patch to the end of a copy of my load order ({PluginsTxt}) and run sf-mod-check conflict again with that copy. These entries should be gone and no new ones should appear.");
         sb.AppendLine("- Run sf-mod-check check on the patch, and open it in xEdit, to look for errors.");

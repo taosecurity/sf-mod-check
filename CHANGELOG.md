@@ -6,6 +6,10 @@
 
 - `release` checks the voice files of a mod's dialogue (new rule `voice-missing`, a WARNING). A voiced line plays from `sound\voice\<plugin>\<voice type>\<number>.wem`, where `<number>` is the 8-hex-digit number each response of the line carries. Each dialogue line the plugin adds needs that file for each voice type its speaker conditions name (GetIsID on an NPC, or GetIsVoiceType), or in any voice-type folder when they name none, so a line that would play silent is caught before release. Player lines, lines with no responses and lines that share another line's audio are skipped. Each `Voices_<language>.ba2` archive is checked on its own. A mod with dialogue and no voice files at all gets one NOTE instead of a warning per line, and `.wem` files with no `.ffxanim` lip file beside them get a NOTE. `--verbose` logs every line checked.
 
+- sf-mod-check is on nuget.org: `dotnet tool install --global sf-mod-check` installs it with no download. The release workflow pushes the tool package there with nuget.org Trusted Publishing (no stored key). The GitHub release files are unchanged.
+- `patch check` says `NOT CHECKED` (not "UP TO DATE ... nothing was checked" with exit 0) for a patch that isn't in the active load order. The release header counts say `1 plugin` and `1 archive` (not `1 plugins`). `find --json` for a name that isn't found carries the same reason as the text RESULT line. The CA1831 and CA1416 analyzer warnings are cleared.
+- The MO2 rerun command in the `conflict` reports and AI prompt and in `patch-report.md` repeats the `--data` and `--extra-data` you gave, so it reads the same files. Before, it left them out.
+
 ### Example
 
 A made-up mod, `MyVoicedMod.esm`, has two dialogue lines. `MyGreeting` is spoken by either of two voice types (a GetIsVoiceType condition on a form list of `MyGuardVoice` and `MyMerchantVoice`); `MyFarewell` names no voice type. The zip ships loose voice files for `MyGuardVoice` only, and no lip file for `MyFarewell`:

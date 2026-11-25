@@ -255,6 +255,27 @@ public class Mo2Tests
         Assert.DoesNotContain("*ModC.esm", withPatch);
     }
 
+    // 0.18.0: the rerun command in the reports repeats the --data and --extra-data the user gave (0.17.0 left them out)
+    [Fact]
+    public void The_MO2_rerun_command_repeats_the_data_and_extra_data_options()
+    {
+        using var mo2 = new Mo2();
+        var extra = Path.Combine(mo2.Dir, "extraloose");
+        Directory.CreateDirectory(extra);
+        File.WriteAllLines(Path.Combine(mo2.Profile, "plugins.txt"), ["# made-up", "*Base.esm", "*ModB.esm", "*ModA.esm", "ModC.esm"]);
+        var (code, _, _, _) = mo2.Conflict("--data", mo2.Data, "--extra-data", extra);
+        Assert.Equal(0, code);
+        var text = string.Join("\n", Directory.EnumerateFiles(Path.Combine(mo2.Dir, "report"), "*", SearchOption.AllDirectories)
+            .Where(f => !f.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).Select(File.ReadAllText));
+        Assert.Contains($"--data \"{Path.GetFullPath(mo2.Data)}\" --extra-data \"{Path.GetFullPath(extra)}\" again", text);
+
+        var outDir = Path.Combine(mo2.Dir, "patch");
+        (code, _, _) = ExeTests.RunSplit("patch", "--mo2", mo2.Instance, "--data", mo2.Data, "--extra-data", extra, "--out", outDir, "--quiet");
+        Assert.Equal(0, code);
+        var report = File.ReadAllText(Path.Combine(outDir, "patch-report.md"));
+        Assert.Contains($"--data \"{Path.GetFullPath(mo2.Data)}\" --extra-data \"{Path.GetFullPath(extra)}\"` again", report);
+    }
+
     // code review round 1 (0.16.0): MO2's default for a missing mod_directory or profiles_directory is
     // %BASE_DIR%/mods (or profiles), and Overwrite doesn't need modlist.txt
     [Fact]

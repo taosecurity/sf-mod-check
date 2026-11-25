@@ -65,6 +65,12 @@ new plugin to its own folder), or `check` on Bethesda's own masters (Starfield.e
 
 Pick one. Files come from https://github.com/taosecurity/sf-mod-check/releases (version 0.11.0 shown here).
 
+0. **dotnet tool from nuget.org (Windows or Linux, since 0.18.0; the first choice when the .NET SDK 9 or later is there):**
+
+       dotnet tool install --global sf-mod-check
+
+   Then `sf-mod-check --version` works from any prompt. The two ways below need no nuget.org.
+
 1. **Stand-alone exe (Windows):** download `sf-mod-check-0.11.0-win-x64.zip` and its `.sha256` file, check the
    checksum, and unzip it to a folder of your choice:
 

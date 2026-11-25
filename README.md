@@ -115,19 +115,22 @@ that folder (the output says so). When a plugin needs Starfield.esm and none is 
 
 ## Install
 
-Two ways, both from the [Releases](https://github.com/taosecurity/sf-mod-check/releases) page. Each file there has a
+Two ways. Each file on the [Releases](https://github.com/taosecurity/sf-mod-check/releases) page has a
 `.sha256` file next to it with its SHA-256 checksum.
 
-- **Stand-alone exe** (Windows, no .NET needed): `sf-mod-check-<version>-win-x64.zip`. Unzip it and run `sf-mod-check.exe`,
-  or drop plugins on it.
-- **dotnet tool** (Windows or Linux, needs the [.NET SDK](https://dotnet.microsoft.com/download) 9 or later):
-  download `sf-mod-check.<version>.nupkg` into a folder, then
+- **dotnet tool from nuget.org** (Windows or Linux, needs the [.NET SDK](https://dotnet.microsoft.com/download) 9 or
+  later; since 0.18.0):
 
-      dotnet tool install --global sf-mod-check --add-source <that folder> --version <version>
+      dotnet tool install --global sf-mod-check
 
-  After that, `sf-mod-check` works from any prompt. `dotnet tool update --global sf-mod-check --add-source <folder>`
-  installs a newer one, and `dotnet tool uninstall --global sf-mod-check` removes it. Coming from sfmodcheck 0.7.0 or
-  older: the package has a new name, so remove the old one first with `dotnet tool uninstall --global sfmodcheck`.
+  After that, `sf-mod-check` works from any prompt. `dotnet tool update --global sf-mod-check` installs a newer one, and
+  `dotnet tool uninstall --global sf-mod-check` removes it. Without nuget.org, download `sf-mod-check.<version>.nupkg`
+  from the Releases page into a folder and add `--add-source <that folder> --version <version>` to the install command.
+- **Stand-alone exe** (Windows, no .NET needed): `sf-mod-check-<version>-win-x64.zip` from the Releases page. Unzip it and
+  run `sf-mod-check.exe`, or drop plugins on it.
+
+Coming from sfmodcheck 0.7.0 or older: the package has a new name, so remove the old one first with
+`dotnet tool uninstall --global sfmodcheck`.
 
 ## Words used here
 

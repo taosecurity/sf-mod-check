@@ -287,6 +287,7 @@ public static class ConflictCommand
             Recommend.DataDir = dataDir;
             Recommend.PluginsTxt = pluginsTxt;
             Recommend.Mo2 = input.Mo2 is { } m2 ? (m2.Instance, m2.Profile) : null;
+            Recommend.Mo2Options = input.RerunOptions();
             try { Report.Write(outDir, lo, analysis); }
             catch (Exception e)
             {
