@@ -1536,6 +1536,7 @@ public static class PatchCommand
                 if (rp is null || lmp is null) continue;
                 object? lv = p.GetValue(lHeld), bv = bHeld.GetType().GetProperty(p.Name)?.GetValue(bHeld), sv = sHeld.GetType().GetProperty(p.Name)?.GetValue(sHeld);
                 if (Same(lv, bv)) continue;
+                if (Same(lv, sv)) continue;   // both made the same change: nothing to take, and no clash
                 if (typeof(IList).IsAssignableFrom(rp.PropertyType) && rp.PropertyType != typeof(byte[]))
                 {
                     var li2 = Items(lv); var bi = Items(bv); var si = Items(sv);
@@ -1932,7 +1933,8 @@ public static class PatchCommand
         var changed = getterFields.Any(p => built.TryGetValue(p.Name, out var bv)
             ? !FieldCompare.DeepEq(bv, VmadCopy(Held(p.Name, today[p.Name])), 0)
             : merged.TryGetValue(p.Name, out var st)
-            ? !ListSame(st.Select(x => x.Held).ToList(), Items(Held(p.Name, today[p.Name])))
+            // (stages and objectives as in-memory copies on both sides: one merged one level down was built in memory)
+            ? !ListSame(st.Select(x => QuestMerge.Plain(x.Held)).ToList(), Items(Held(p.Name, today[p.Name])).Select(QuestMerge.Plain).ToList())
             : source[p.Name] != today[p.Name] && !FieldCompare.DeepEq(Held(p.Name, source[p.Name]), Held(p.Name, today[p.Name]), 0));
         if (!changed)
         {
@@ -2165,8 +2167,10 @@ public static class PatchCommand
                     var have = FieldCompare.Get(p, w) is IEnumerable e ? e.Cast<object?>().ToList() : new();
                     // 0.19.0: a stage or objective merged one level down was built in memory, so it is compared with an
                     // in-memory copy of the written one (DeepEq compares values of one type)
-                    if (have.Count != want.Count || have.Zip(want).Any(x => !FieldCompare.DeepEq(
-                            x.First is not null && x.Second is not null && x.First.GetType() != x.Second.GetType() ? QuestMerge.CopyEntry(x.First) : x.First, x.Second, 0)))
+                    // (only stages and objectives are copied, so any other mismatch is reported, not thrown)
+                    if (have.Count != want.Count || have.Zip(want).Any(x => !(x.First is not null && x.Second is not null && x.First.GetType() != x.Second.GetType()
+                            ? FieldCompare.DeepEq(QuestMerge.Plain(x.First), QuestMerge.Plain(x.Second), 0)
+                            : FieldCompare.DeepEq(x.First, x.Second, 0))))
                         diffs.Add($"{r.RecordType} {r.EditorID} [{r.FormKey}]: merged list {p.Name} reads back differently ({have.Count} entries, {want.Count} meant)");
                     continue;
                 }

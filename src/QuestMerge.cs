@@ -62,6 +62,10 @@ public static class QuestMerge
         return d;
     }
 
+    /// <summary>A stage or objective as an in-memory copy, anything else as it is: lets an entry merged one level down
+    /// (built in memory) be compared with one read from a file (DeepEq compares values of one type).</summary>
+    public static object? Plain(object? x) => x is IQuestStageGetter or IQuestObjectiveGetter ? CopyEntry(x) : x;
+
     /// <summary>An in-memory copy of a stage or objective (the patch builds a merged one from it).</summary>
     public static object CopyEntry(object x) => x switch
     {

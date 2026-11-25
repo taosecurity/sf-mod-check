@@ -338,7 +338,13 @@ public static class QuestStages
                     case "callmethod":
                     {
                         var fn = i.Args[0].Text;
-                        if (fn.Equals("GetOwningQuest", StringComparison.OrdinalIgnoreCase)) { origin[i.Args[2].Text] = new(OriginKind.Owning); break; }
+                        // only the script's own GetOwningQuest is its owner quest; one called on a property or another
+                        // value (an alias of some other quest) has a quest that can't be told
+                        if (fn.Equals("GetOwningQuest", StringComparison.OrdinalIgnoreCase))
+                        {
+                            origin[i.Args[2].Text] = Of(i.Args[1]).Kind == OriginKind.Self ? new(OriginKind.Owning) : default;
+                            break;
+                        }
                         if (i.Args[2].IsIdent) origin[i.Args[2].Text] = default;
                         if (!fn.Equals("SetStage", StringComparison.OrdinalIgnoreCase) && !fn.Equals("SetStageNoWait", StringComparison.OrdinalIgnoreCase)) break;
                         if (i.Extra.Count == 0) break;
@@ -361,9 +367,11 @@ public static class QuestStages
                             case OriginKind.Prop when defaults.TryGetValue("::" + arg.Name + "_var", out var dv) || defaults.TryGetValue(arg.Name, out dv): numbers.Add((dv, false)); break;
                             case OriginKind.Param:
                             {
-                                // a helper function: the constants every call to it in this script passes
+                                // a helper function: the constants every call to it in this script passes (calls on
+                                // self only; a same-named function of another object is another function)
                                 var passed = functions.SelectMany(g => g.Code)
-                                    .Where(c => c.Name == "callmethod" && c.Args[0].Text.Equals(f.Name, StringComparison.OrdinalIgnoreCase) && c.Extra.Count > arg.Value)
+                                    .Where(c => c.Name == "callmethod" && c.Args[0].Text.Equals(f.Name, StringComparison.OrdinalIgnoreCase)
+                                        && c.Args[1].IsIdent && string.Equals(c.Args[1].Text, "self", StringComparison.OrdinalIgnoreCase) && c.Extra.Count > arg.Value)
                                     .Select(c => c.Extra[arg.Value]).ToList();
                                 if (passed.Count > 0 && passed.All(c => c.Kind == PexValueKind.Int)) numbers.AddRange(passed.Select(c => (c.Int, true)));
                                 else known = false;

@@ -101,6 +101,34 @@ public class QuestStagesTests
     }
 
     [Fact]
+    public void Calls_on_another_object_are_not_credited_to_the_scripts_own_quest()
+    {
+        // code review 0.19.0, round 2: GetOwningQuest on a property (an alias of another quest) is not this quest, and a
+        // same-named helper called on another object is not this script's helper
+        using var w = new World();
+        WriteScript(w, "SFM:OtherScript", "Quest",
+        [
+            PIns.CallMethod("GetOwningQuest", "::OtherAlias_var", "::temp1"),
+            SetStage("::temp1", PV.Int(90)),
+            PIns.CallMethod("Advance", "::OtherScript_var", "::NoneVar", PV.Int(80)),
+            PIns.CallMethod("Advance", "self", "::NoneVar", PV.Int(10)),
+        ], vars: [("::OtherAlias_var", "ReferenceAlias", PV.None), ("::OtherScript_var", "Quest", PV.None)],
+           locals: [("::temp0", "Bool"), ("::temp1", "Quest")], more:
+        [
+            new PFn("Advance", Params: [("aiStage", "Int")], Locals: [("::temp0", "Bool")], Code: [SetStage("self", PV.Id("aiStage"))]),
+        ]);
+        var p = w.Build("other", m =>
+        {
+            var q = StageQuest(m, "SFM_OtherQuest", 10);
+            q.VirtualMachineAdapter = new QuestAdapter();
+            q.VirtualMachineAdapter.Scripts.Add(Script("SFM:OtherScript"));
+        });
+        var r = w.Check(p);
+        Expect.No(r, Missing);
+        Expect.No(r, Unset);
+    }
+
+    [Fact]
     public void A_property_default_counts_as_set_but_never_as_missing()
     {
         using var w = new World();

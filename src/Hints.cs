@@ -72,7 +72,8 @@ public static class Hints
             "SetStage call sets it, so its log entry and fragment never run. CK: open the quest's Quest Stages tab, " +
             "then set the stage from a topic info's or scene's 'Set Parent Quest Stage' field or a script (SetStage), " +
             "or mark it Run On Start. If another mod's script or the game's engine sets it, ignore this. A NOTE means " +
-            "a script's stage number or the script itself couldn't be read, so the stages weren't checked.",
+            "a script's stage number or the script itself couldn't be read, so the stages weren't checked. A WARNING that " +
+            "says the check stopped is not about a stage: a script couldn't be read; run again with --verbose and report it.",
         ["quest-stage-missing"] =
             "A script sets a quest stage the quest doesn't have, so the call does nothing. CK: add the stage on the " +
             "quest's Quest Stages tab, or fix the number in the script (or in the script property the record sets) and " +

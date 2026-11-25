@@ -120,6 +120,34 @@ public class PatchQuestTests
     }
 
     [Fact]
+    public void Both_make_the_same_stage_change_no_clash_row()
+    {
+        // code review 0.19.0, round 2: one change both made is not a clash
+        using var game = new Game();
+        game.Mod("ModA.esm", q => { q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "A log" }); q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn; });
+        game.Mod("ModB.esm", q => { q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "B log" }); q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn; });
+        Ok(game.Patch());
+        var s10 = game.Quest().Stages[0];
+        Assert.Equal(new[] { "base 10", "B log", "A log" }, Notes(s10));
+        Assert.Equal(QuestStage.Flag.KeepInstanceDataFromHereOn, s10.Flags);
+        Assert.DoesNotContain("Flags; ", game.Report);
+    }
+
+    [Fact]
+    public void Winner_already_holding_the_loser_stage_change_writes_no_copy_of_the_quest()
+    {
+        // code review 0.19.0, round 2: a stage merged one level down that equals the winner's is no reason to write the
+        // quest (an identical copy only adds risk)
+        using var game = new Game();
+        game.Mod("ModA.esm", q => q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "A log" }));
+        game.Mod("ModB.esm", q => { q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "A log" }); q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "B log" }); q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn; });
+        var run = game.Patch();
+        Assert.True(run.Code == 0, run.Stdout + run.Stderr);
+        Assert.StartsWith("RESULT: OK, nothing to patch", ExeTests.ResultLine(run.Stdout));
+        Assert.Contains("the patched record would equal today's, so it is left out", game.Report);
+    }
+
+    [Fact]
     public void Both_add_the_same_new_stage_index_winner_kept_with_choice_row()
     {
         using var game = new Game();
@@ -589,6 +617,25 @@ public class PatchQuestTests
         Assert.Null(PatchCommand.WhyNotBuilt(typeof(IDialogResponsesGetter)));
         Assert.Equal("scenes and dialogue branches are not built by this version; copy the fields in xEdit", PatchCommand.WhyNotBuilt(typeof(ISceneGetter)));
         Assert.Equal("scenes and dialogue branches are not built by this version; copy the fields in xEdit", PatchCommand.WhyNotBuilt(typeof(IDialogBranchGetter)));
+    }
+
+    [Fact]
+    public void Quest_with_a_nonzero_unknown_and_a_patched_topic_reads_back()
+    {
+        // code review 0.19.0, round 2: with a topic in the patch the quest's dialogue group (and its Unknown) is written
+        using var game = new Game((b, q) => { BaseDialog(b, q); q.Unknown = 7; });
+        game.Mod("ModA.esm", q => Info(q, "B_Info1").Prompt = "A prompt");
+        game.Mod("ModB.esm", q => Info(q, "B_Info1").StartScenePhase = "B phase");
+        Ok(game.Patch());
+    }
+
+    [Fact]
+    public void Topic_patched_with_none_of_its_lines_reads_back()
+    {
+        using var game = new Game(BaseDialog);
+        game.Mod("ModA.esm", q => Topic(q).Priority = 60);
+        game.Mod("ModB.esm", q => { var t = Topic(q); t.TopicInfoList.Reverse(); });
+        Ok(game.Patch());
     }
 
     [Fact]
