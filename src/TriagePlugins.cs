@@ -683,7 +683,7 @@ public static class TriagePlugins
             if (hidden > 0)
                 DetailRow(rec.Key.Plugin, rec.First().Record, "", "…", "not shown",
                           $"{hidden:N0} more difference{(hidden == 1 ? "" : "s")} in this record (the table keeps {TriageDetail.MaxPerRecord:N0} per record, " +
-                          $"and {TriageDetail.MaxPerRecord:N0} more for its fields that differ only in their translations)", "");
+                          $"and {TriageDetail.MaxPerRecord:N0} more for its rows of the two translation kinds)", "");
         }
         if (detailCut > 0) note("", $"the field-by-field table lists the first {MaxDetailRows:N0} differences; {detailCut:N0} more aren't listed");
         foreach (var g in changes.GroupBy(ch => ch.Plugin, StringComparer.OrdinalIgnoreCase))
@@ -702,8 +702,14 @@ public static class TriagePlugins
                                        "(the game then shows the English text in every language)");
             if (added > 0) kinds.Add($"{added:N0} {(added == 1 ? "is a text" : "are texts")} with the same English text, now with translations");
             var trText = trOnly == 0 ? "" : $" ({trOnly:N0} of them only in their translations, not in English)";
+            // fields with no rows in the field-by-field table: records in cells and worldspaces, compared raw (code review
+            // 0.17.0 round 4: a mod that edits only placed objects was told its differences were in an empty table)
+            var noRows = g.Count(ch => ch.Detail.Count + ch.DetailNotShown == 0);
+            var where = noRows == 0 ? ", and each difference inside it in the field-by-field table"
+                      : noRows == n ? "; records in cells and worldspaces are compared raw, so the field-by-field table has no rows for them"
+                      : $", and each difference inside it in the field-by-field table, except for {noRows:N0} field{(noRows == 1 ? "" : "s")} with no rows there (records in cells and worldspaces are compared raw)";
             note(RelOf(g.Key), $"changes {n:N0} field{(n == 1 ? "" : "s")}{trText} in {recs:N0} official record{(recs == 1 ? "" : "s")}; most often {string.Join(", ", top)} " +
-                               "(each change, with the value before and after, is in the table, and each difference inside it in the field-by-field table)" +
+                               $"(each change, with the value before and after, is in the table{where})" +
                                (kinds.Count > 0 ? $". Of the differences listed there, {string.Join("; ", kinds)}: these are often harmless" : ""));
         }
         if (changes.Count > MaxRows) note("", $"{changes.Count:N0} changed fields in official records; the table lists the first {MaxRows:N0}");

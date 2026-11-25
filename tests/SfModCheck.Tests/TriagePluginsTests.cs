@@ -345,6 +345,21 @@ public class TriagePluginsTests
     // ---- records in cells, compared raw ----
 
     [Fact]
+    public void A_mod_that_changes_only_placed_objects_is_not_pointed_to_an_empty_field_by_field_table()
+    {
+        // 0.17.0 code review round 4: the NOTE said each difference was in the field-by-field table, which has no rows
+        // for records compared raw
+        using var game = new Game(dlc: false);
+        game.Mod("TrRaw.esm", (m, open) => PlacedOverride(m, open("Starfield.esm")));
+        var c = game.Context();
+        var f = Run(c);
+        var note = One(f, TriageLevel.Note, "trraw.esm", "changes 1 field in 1 official record");
+        Assert.Contains("compared raw, so the field-by-field table has no rows for them", note.Text);
+        Assert.DoesNotContain("each difference inside it", note.Text);
+        Assert.Empty(Table(c, "Changes to official records, field by field").Rows);
+    }
+
+    [Fact]
     public void An_official_change_to_a_placed_reference_the_mod_undoes_is_found_raw()
     {
         using var game = new Game(dlc: false);
