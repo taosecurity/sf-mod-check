@@ -11,17 +11,16 @@
 
 ### Example
 
-A made-up mod, `MyQuestFix.esm`, overrides a quest from a localized official plugin. The mod isn't localized, and it reorders one alias's factions:
+A made-up mod, `MyQuestFix.esm`, overrides a quest from a localized official plugin (a made-up one here). The mod isn't localized, and it reorders one alias's factions:
 
-    sf-mod-check triage MyQuestFix.esm
+    sf-mod-check triage MyQuestFix --game <Data folder>
 
-The new table in `MyQuestFix-triage.txt` (columns shortened here):
+This is the new table in `MyQuestFix-triage.txt` from a real run (the Plugin and Record columns left out):
 
-    -- Changes to official records, field by field (3 rows) --
-    Field    Path                                   Kind                                     Before                 After
-    Aliases  Aliases[5].Factions                    same entries, other order                [FactionA; FactionB]   [FactionB; FactionA] (first different at entry 1 of 2)
-    Name     Name                                   same English text, translations dropped  "My Quest"             "My Quest"
-    Stages   Stages[Index 100].LogEntries[0].Entry  same English text, translations dropped  "I found the box."     "I found the box."
+    -- Changes to official records, field by field (2 rows) --
+    Field    Path                    Kind                                     Before                                        After
+    Aliases  Aliases[ID 5].Factions  same entries, other order                [000800:Starfield.esm; 000801:Starfield.esm]  [000801:Starfield.esm; 000800:Starfield.esm] (first different at entry 1 of 2)
+    Name     Name                    same English text, translations dropped  "My Quest"                                    "My Quest"
 
 sf-mod-check 0.16.2 listed only the Aliases field, with both values cut at 160 characters, and not the Name or Stages fields.
 
