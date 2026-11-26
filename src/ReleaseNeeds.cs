@@ -122,6 +122,18 @@ public static class ReleaseNeeds
                 // each missing file's finding names its plugin and detail, so an --accept entry can name it (0.15.2)
                 void Add(MissingAsset m, ReleaseFinding f) => findings.Add(f with { Plugin = name, Subject = m.Kind == "script" ? m.Script ?? m.Path : m.Path });
                 int shown = 0;
+                // 0.23.0 code review round 3: with a master missing, its archives, banks and records aren't read, so every
+                // event the master provides would look missing. One NOTE replaces the per-event WARNINGs then (the plugin
+                // check already reports the missing master).
+                var uncheckedEvents = mastersMissing ? missing.Count(m => m.Kind == "sound-event") : 0;
+                if (uncheckedEvents > 0)
+                {
+                    missing = missing.Where(m => m.Kind != "sound-event").ToList();
+                    findings.Add(new(Level.Note, "sound-event-missing",
+                        $"{name}: {uncheckedEvents} sound event(s) were not checked, because a master is missing and its sound banks can't be read. " +
+                        "Install the master or give --masters-dir its folder, then run release again.") { Plugin = name });
+                    Log.Write($"needs: {name}: {uncheckedEvents} sound events not checked (a master is missing)");
+                }
                 foreach (var m in missing)
                 {
                     // the game's and --masters-dir archives were already looked in, through index.Fallback (0.14.0)

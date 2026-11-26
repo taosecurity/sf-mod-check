@@ -230,6 +230,32 @@ public class SoundEventsTests
     }
 
     [Fact]
+    public void Release_gives_one_note_not_event_warnings_when_a_master_is_missing()
+    {
+        // code review round 3: the missing master's banks can't be read, so its events would all look missing
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        ReleaseNeedsTests.Write(data, "Starfield.esm", (_, _) => { });
+        var elsewhere = s.Sub("elsewhere");
+        var master = Plugin.New("SeMaster.esm", PluginStyle.Full, "test", "a master the check can't find");
+        var kw = master.Keywords.AddNew("SEM_Keyword");
+        using (var g = new GameData(elsewhere)) PluginWriter.Write(master, elsewhere, g, new WriteOptions { GapCheck = false });
+        var pkg = s.Sub("SeOrphan");
+        var mod = Plugin.New("SeOrphan.esm", PluginStyle.Light, "test", "needs SeMaster.esm");
+        var misc = mod.MiscItems.AddNew("SE_Misc");
+        misc.Keywords = [kw.ToLink<IKeywordGetter>()];
+        misc.PickupSound = Snd(G1);
+        misc.DropdownSound = Snd(G2);
+        using (var g = new GameData(elsewhere)) { g.Open("SeMaster.esm"); PluginWriter.Write(mod, pkg, g, new WriteOptions { GapCheck = false }); }
+
+        var f = ReleaseNeeds.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
+        Assert.DoesNotContain(f, x => x.Rule == "sound-event-missing" && x.Level == Level.Warning);
+        var note = Assert.Single(f, x => x.Rule == "sound-event-missing");
+        Assert.Equal(Level.Note, note.Level);
+        Assert.StartsWith("SeOrphan.esm: 2 sound event(s) were not checked, because a master is missing", note.Text);
+    }
+
+    [Fact]
     public void Find_full_shows_a_sound_guid_in_the_manifest_form_too()
     {
         // 0.23.0 step 3: .NET's Guid text never matches a bank manifest, so --full adds the manifest form.
