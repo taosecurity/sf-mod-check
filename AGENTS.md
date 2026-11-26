@@ -520,7 +520,12 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
       `same`.
     - `types`: each `type` (the record type, such as REFR) with `own` and `overrides` count objects.
     - `fields_not_compared` (why Mutagen couldn't read the plugin, or null), and `changed`: each `key`, `type`,
-      `editor_id`, `override`, `fields` (the field names that differ), `not_compared`.
+      `editor_id`, `override`, `fields` (the field names that differ), `not_compared`, and (0.22.0) `detail`: one
+      object per changed value or list entry, as triage's field-by-field table has it: `field`, `path` (such as
+      `Keywords` or `Aliases[ID 3].Factions`), `kind` (`changed`, `added`, `removed`, `same entries, other order`,
+      `same English text, translations dropped` or `... added`), `before`, `after` (each at most 2,000 characters);
+      `detail_not_shown` counts the lines past the limit of 200 per record. The text report shows up to 10 of
+      these lines under each changed record (`--all` shows them all).
     - `renumbered`: each own record that kept its type and EditorID under a new FormID: `type`, `editor_id`,
       `old_key`, `new_key`.
     - `cells`: each `cell` (key), `editor_id`, `added`, `removed`, `changed` and `moved_out` (each an object of counts

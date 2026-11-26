@@ -73,7 +73,8 @@ public static class DiffCommand
         "usage: sf-mod-check diff <old> <new> [--data <Data folder>] [--json] [--out <file>] [--all] [--quiet] [--verbose] [--log <file>]\n" +
         "         <old> and <new> are two plugins (.esm .esp .esl), or two mods: each a .zip, .7z or .rar download or a folder.\n" +
         "         Plugins in two mods are paired by file name; one in only one of them is listed as added or removed.\n" +
-        "         The report counts records per type, names the fields that changed, groups placed objects by cell, and\n" +
+        "         The report counts records per type, names the fields that changed (with each changed value, a\n" +
+        "         reordered list and dropped translations named under the record), groups placed objects by cell, and\n" +
         "         lists leveled-list entries added and removed and base-object swaps. For two mods it also compares the\n" +
         "         loose files (by SHA-256), each archive's files (paired by name) and the objects, states and functions of\n" +
         "         changed scripts (.pex; names only, never code).\n" +
@@ -841,8 +842,11 @@ public sealed class DiffReport
         {
             sb.AppendLine($"  changed records ({d.Changed.Count:N0}; the fields that differ):");
             foreach (var c in all ? d.Changed : d.Changed.Take(ChangedShown))
+            {
                 sb.AppendLine($"    {c.Old.Sig} {c.Key.Show(pp.Name)} {c.New.EditorId ?? "(no EditorID)"}{(c.Key.Own ? "" : " (override)")}: " +
                               (c.NotCompared ?? string.Join(", ", c.Fields)));
+                DetailText(sb, c, all);
+            }
             if (!all && d.Changed.Count > ChangedShown) sb.AppendLine($"    ... and {d.Changed.Count - ChangedShown:N0} more (--all or --json lists them all)");
         }
         if (d.Renumbered.Count > 0)
@@ -856,6 +860,22 @@ public sealed class DiffReport
 
     /// <summary>How many changed records the text report lists per plugin (--all and the JSON list all).</summary>
     public const int ChangedShown = 100;
+    /// <summary>0.22.0: detail lines the text report shows under each changed record (--all and the JSON show every line
+    /// kept, up to TriageDetail.MaxPerRecord).</summary>
+    public const int DetailShown = 10;
+
+    /// <summary>0.22.0: a changed record's field-by-field detail, one line each ("Path: kind: before -> after", as
+    /// find --versions writes them), under its line in the changed records list.</summary>
+    static void DetailText(StringBuilder sb, ChangedRecord c, bool all)
+    {
+        var shown = all ? c.Detail : c.Detail.Take(DetailShown);
+        foreach (var (field, l) in shown)
+            sb.AppendLine("      " + RecordVersions.ChangeText(new VersionChange(field, l.Path, l.Kind, l.Before, l.After, ""), null));
+        int more = (all ? 0 : Math.Max(0, c.Detail.Count - DetailShown)) + c.DetailNotShown;
+        if (more > 0)
+            sb.AppendLine($"      ... and {more:N0} more detail line{(more == 1 ? "" : "s")}" +
+                          (c.DetailNotShown > 0 ? $" ({c.DetailNotShown:N0} past the limit of {SfModCheck.Conflict.TriageDetail.MaxPerRecord:N0} per record)" : " (--all or --json lists them all)"));
+    }
 
     static string Kind(TriageInputKind k) => k switch
     {
@@ -882,6 +902,11 @@ public sealed class DiffReport
                 {
                     ["key"] = c.Key.Show(pp.Name), ["type"] = c.Old.Sig, ["editor_id"] = c.New.EditorId, ["override"] = !c.Key.Own,
                     ["fields"] = new JsonArray(c.Fields.Select(f => (JsonNode)f).ToArray()), ["not_compared"] = c.NotCompared,
+                    ["detail"] = new JsonArray(c.Detail.Select(x => (JsonNode)new JsonObject
+                    {
+                        ["field"] = x.Field, ["path"] = x.Line.Path, ["kind"] = x.Line.Kind, ["before"] = x.Line.Before, ["after"] = x.Line.After,
+                    }).ToArray()),
+                    ["detail_not_shown"] = c.DetailNotShown,
                 }).ToArray()),
                 ["renumbered"] = new JsonArray(d.Renumbered.Select(r => (JsonNode)new JsonObject
                 {

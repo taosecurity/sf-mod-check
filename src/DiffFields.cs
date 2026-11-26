@@ -9,6 +9,7 @@ using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Order;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
+using SfModCheck.Conflict;
 
 namespace SfModCheck;
 
@@ -33,6 +34,11 @@ public sealed class ChangedRecord
     public bool OtherEntryChanges { get; set; }
     /// <summary>A placed object whose base object changed: the old and the new base (null when not a swap).</summary>
     public (RecKey? Old, RecKey? New)? BaseSwap { get; set; }
+    /// <summary>0.22.0: the field-by-field detail of the change, as triage has it since 0.17.0 (TriageDetail): one line
+    /// per changed value or list entry, a reordered list and dropped or added translations named. DetailNotShown counts
+    /// the lines past TriageDetail.MaxPerRecord.</summary>
+    public List<(string Field, DetailLine Line)> Detail { get; } = [];
+    public int DetailNotShown { get; set; }
 }
 
 /// <summary>One leveled-list entry as the diff shows it: level, the record it gives, and how many.</summary>
@@ -183,6 +189,35 @@ public static class DiffFields
         }
     }
 
+    /// <summary>0.22.0: fills c.Detail with TriageDetail's walk of each field that differs, and (when only one version is
+    /// localized) of the equal fields too, for the translation kinds. A field the walk can't read keeps its name in
+    /// c.Fields and gets no detail lines (logged).</summary>
+    static void FieldDetail(ChangedRecord c, IMajorRecordGetter a, IMajorRecordGetter b, string? translations, string name)
+    {
+        var detail = new TriageDetail();
+        var differ = c.Fields.ToHashSet(StringComparer.Ordinal);
+        foreach (var p in Compared(a.GetType()))
+        {
+            bool changed = differ.Contains(p.Name);
+            if (!changed && translations is null) continue;
+            try
+            {
+                object? va = p.GetValue(a), vb = p.GetValue(b);
+                if (p.Name == "MajorRecordFlagsRaw" && va is int fa && vb is int fb) { va = fa & ~CompressedFlag; vb = fb & ~CompressedFlag; }
+                var (lines, _) = detail.Field(p.Name, va, vb, translations, knownEqual: !changed);
+                foreach (var l in lines) c.Detail.Add((p.Name, l));
+            }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                Log.Write($"diff: {c.Old.Sig} {c.Key.Show(name)}: no detail for {p.Name} ({e.GetType().Name}: {SafeText.OneLine(e.Message)})");
+            }
+        }
+        c.DetailNotShown = detail.NotShown;
+        Log.Write($"diff: {c.Old.Sig} {c.Key.Show(name)}: {c.Detail.Count} detail line(s)" +
+                  (c.DetailNotShown > 0 ? $", {c.DetailNotShown} more past the limit of {TriageDetail.MaxPerRecord}" : "") +
+                  (translations is null ? "" : $"; one version is localized and the other isn't, so equal fields were walked for translations"));
+    }
+
     /// <summary>Compares the fields of every record in d.Changed. A record whose fields are all equal moves to d.Noise
     /// (its type's Changed count goes down and Noise up); the rest keep the fields that differ. When a plugin can't be
     /// read with Mutagen, or a record isn't found there, the record stays changed with NotCompared saying why.</summary>
@@ -213,6 +248,7 @@ public static class DiffFields
                 Log.Write($"diff: {name}: fields not compared: {why}");
                 return;
             }
+            var translations = TriageDetail.TranslationKind((d.Old.Header.Flags & Flags.Localized) != 0, (d.New.Header.Flags & Flags.Localized) != 0);
             var keep = new List<ChangedRecord>();
             foreach (var c in d.Changed)
             {
@@ -227,7 +263,7 @@ public static class DiffFields
                 if (c.Moved) c.Fields.Add(ParentCell);
                 if (c.Fields.Contains("Entries")) Entries(c, a, b, d.Old.Path, d.New.Path, name);
                 if (c.Fields.Contains("Base")) BaseSwap(c, a, b, d.Old.Path, d.New.Path, name);
-                if (c.Fields.Count > 0) { keep.Add(c); continue; }
+                if (c.Fields.Count > 0) { FieldDetail(c, a, b, translations, name); keep.Add(c); continue; }
                 var counts = d.CountsOf(c.Old.Sig, c.Key.Own);
                 counts.Changed--; counts.Noise++;
                 d.Noise.Add(c);
