@@ -910,8 +910,8 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   field; a change against another plugin says `(against <plugin>)`). A copy that doesn't have an earlier copy's
   plugin as a master gets a note that it may undo that plugin's changes. The RESULT line adds `, n copies`. It needs
   a record: with the `--plugin` listing it stops with exit 2.
-- `--refs` (0.20.0): list the records whose **winning copy** points at this record, each with the field that holds
-  the link (a reference placed in a cell shows `in <the cell>`; the cell itself isn't listed for it). **Only winning
+- `--refs` (0.20.0): list the records whose **winning copy** points at this record, each with its type and the
+  plugin of its winning copy (a reference placed in a cell shows `in <the cell>`; the cell itself isn't listed for it). **Only winning
   copies count**, because that is what the game uses: a copy that a later plugin overrides without the link isn't
   listed, so SFSearch's `refs2`, which also lists those copies, can show a few more. Links held in a script's struct
   members count. At most `--max <n>` records are listed (default 100; `--max 0` lists them all) and the RESULT line
