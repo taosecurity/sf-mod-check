@@ -85,7 +85,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" out/*.nupkg out/*.zip out/*.sha256 --clobber
+            # The .nupkg and its checksum are uploaded only when the release lacks the .nupkg, so a rerun can't leave a
+            # GitHub copy that differs from the one already on nuget.org. The zip and its checksum are replaced as before.
+            files=(out/*.zip out/*.zip.sha256)
+            nupkg=$(basename out/*.nupkg)
+            if gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | grep -qxF "$nupkg"; then
+              echo "release already has $nupkg: leaving it and its checksum alone"
+            else
+              files+=(out/*.nupkg out/*.nupkg.sha256)
+            fi
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else
             gh release create "$GITHUB_REF_NAME" out/*.nupkg out/*.zip out/*.sha256 \
               --title "sf-mod-check ${GITHUB_REF_NAME#v}" \
