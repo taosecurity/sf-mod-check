@@ -421,6 +421,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     response's number (its place in the INFO, from 1), text and emotion and face fields (text cut to one line; at most
     200 INFOs in text, 2,000 in JSON). On an INFO the tree already shows `Emotion`, `EmotionOut` and
     `Animation.FaceArchetype`. With `--json` a DIAL match gains `infos` (`total`, `records`, `notShown`, `unreadable`).
+    Each record has `formKey`, `editorId`, `winner` and `responses`, and when they apply `sharedFrom` (the INFO whose
+    lines it uses), `deleted` (its winner deletes it) and `linesFrom` (the winner is a partial form with no lines, so the
+    responses shown come from this earlier plugin).
     `--layout` reads the record's raw bytes: a heading (type, stored FormID, form version, flags, size, subrecord
     count), then one line per subrecord (offset, signature, size, a short preview: text of at most 48 characters or
     the first 16 bytes). A damaged record lists the subrecords before the bad spot and a `problem:` line. With `--json` each

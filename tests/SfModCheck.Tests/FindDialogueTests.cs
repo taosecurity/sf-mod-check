@@ -276,4 +276,32 @@ public class FindDialogueTests
         Assert.Empty(Assert.Single(t2.Records).Responses);
         Assert.Null(t2.Records[0].LinesFrom);
     }
+
+    [Fact]
+    public void A_partial_form_winner_keeps_its_own_EditorID_and_an_earlier_copys_shared_lines()
+    {
+        // Code review round 4: the merged line showed the earlier copy's EditorID, and a partial form over an INFO that
+        // uses shared lines (SharedDialog) showed "(no responses)".
+        var mod = Plugin.New("FdPart2.esm", PluginStyle.Full, "test", "made-up");
+        var quest = mod.Quests.AddNew("FQ_Quest");
+        var topic = new DialogTopic(mod) { EditorID = "FQ_Topic", Quest = quest.ToLink<IQuestGetter>() };
+        var source = new DialogResponses(mod) { EditorID = "FQ_Source" };
+        var info = new DialogResponses(mod) { EditorID = "FQ_Info" };
+        info.SharedDialog.SetTo(source);
+        topic.Responses.Add(info);
+        var over = topic.DeepCopy();
+        over.Responses[0].SharedDialog.Clear();
+        over.Responses[0].EditorID = "FQ_InfoRenamed";
+        over.Responses[0].MajorRecordFlagsRaw |= 0x4000;
+        var basePlugin = new SfModCheck.Conflict.PluginInfo(0, "FdPart2.esm", false, [], null!);
+        var modPlugin = new SfModCheck.Conflict.PluginInfo(1, "FdPart2Mod.esm", false, [], null!);
+
+        var t = TopicInfos.Collect([(basePlugin, topic), (modPlugin, over)], l => $"[{l.FormKey}]", null);
+        var line = Assert.Single(t.Records);
+        Assert.Equal("FdPart2Mod.esm", line.Winner);
+        Assert.Equal("FQ_InfoRenamed", line.EditorId);
+        Assert.Equal("FdPart2.esm", line.LinesFrom);
+        Assert.Equal($"[{source.FormKey}]", line.SharedFrom);
+        Assert.DoesNotContain(TopicInfos.Lines(t), l => l.Contains("(no responses)", StringComparison.Ordinal));
+    }
 }

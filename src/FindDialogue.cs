@@ -48,7 +48,8 @@ public static class TopicInfos
         var sw = Stopwatch.StartNew();
         var res = new TopicLines { PluginMode = pluginMode };
         var order = new List<FormKey>();
-        var winners = new Dictionary<FormKey, (string Plugin, IDialogResponsesGetter Info, string? LinesFrom)>();
+        // Info: the winning copy (its EditorID and Deleted flag); Lines: the copy whose responses or SharedDialog are shown.
+        var winners = new Dictionary<FormKey, (string Plugin, IDialogResponsesGetter Info, IDialogResponsesGetter Lines, string? LinesFrom)>();
         FormKey topicKey = default;
         foreach (var (plugin, rec) in copies)
         {
@@ -60,13 +61,14 @@ public static class TopicInfos
                 {
                     if (!winners.TryGetValue(info.FormKey, out var earlier)) order.Add(info.FormKey);
                     // A partial form with no responses merges with the copy before it, so the game keeps that copy's
-                    // lines (as find --refs reads partial forms; code review 0.22.0 round 3).
-                    else if (FieldCompare.IsPartial(info) && info.Responses.Count == 0 && earlier.Info.Responses.Count > 0)
+                    // lines, its own or shared ones (as find --refs reads partial forms; code review 0.22.0 rounds 3, 4).
+                    else if (FieldCompare.IsPartial(info) && info.Responses.Count == 0 && info.SharedDialog.IsNull
+                             && (earlier.Lines.Responses.Count > 0 || !earlier.Lines.SharedDialog.IsNull))
                     {
-                        winners[info.FormKey] = (plugin.FileName, earlier.Info, earlier.LinesFrom ?? earlier.Plugin);
+                        winners[info.FormKey] = (plugin.FileName, info, earlier.Lines, earlier.LinesFrom ?? earlier.Plugin);
                         continue;
                     }
-                    winners[info.FormKey] = (plugin.FileName, info, null);
+                    winners[info.FormKey] = (plugin.FileName, info, info, null);
                 }
             }
             catch (Exception e) when (Fatal.Recoverable(e))
@@ -77,21 +79,23 @@ public static class TopicInfos
         }
         foreach (var k in order)
         {
-            var (plugin, info, from) = winners[k];
-            res.Records.Add(Line(info, plugin, link) with { LinesFrom = from });
+            var (plugin, info, linesCopy, from) = winners[k];
+            res.Records.Add(Line(info, linesCopy, plugin, link) with { LinesFrom = from });
         }
         Log.Write($"full: {topicKey}: {res.Total} lines (INFOs), {res.Records.Sum(r => r.Responses.Count)} responses, {res.Unreadable} copies unreadable, {sw.Elapsed.TotalSeconds:F1} s");
         return res;
     }
 
-    static TopicLine Line(IDialogResponsesGetter info, string plugin, Func<IFormLinkGetter, string> link)
+    /// <summary>One line: the FormKey, EditorID and Deleted flag from the winning copy, the responses and SharedDialog
+    /// from linesCopy (the same copy unless the winner is a partial form with no lines).</summary>
+    static TopicLine Line(IDialogResponsesGetter info, IDialogResponsesGetter linesCopy, string plugin, Func<IFormLinkGetter, string> link)
     {
         var responses = new List<TopicResponse>();
         string? shared = null;
         try
         {
-            for (int i = 0; i < info.Responses.Count; i++) responses.Add(Response(i + 1, info.Responses[i], link));
-            if (info.Responses.Count == 0 && !info.SharedDialog.IsNull) shared = link(info.SharedDialog);
+            for (int i = 0; i < linesCopy.Responses.Count; i++) responses.Add(Response(i + 1, linesCopy.Responses[i], link));
+            if (linesCopy.Responses.Count == 0 && !linesCopy.SharedDialog.IsNull) shared = link(linesCopy.SharedDialog);
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
@@ -149,7 +153,7 @@ public static class TopicInfos
     }
 
     /// <summary>The JSON view: { total, records: [{ formKey, editorId, winner, responses: [{ number, text, Emotion, ... }],
-    /// sharedFrom? }], notShown?, unreadable? }. At most max records.</summary>
+    /// sharedFrom?, deleted?, linesFrom? }], notShown?, unreadable? }. At most max records.</summary>
     public static JsonObject Json(TopicLines t, int max = MaxJson)
     {
         var recs = new JsonArray();
