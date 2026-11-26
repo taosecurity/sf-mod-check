@@ -972,7 +972,8 @@ Use it to see which kinds of dialogue line an NPC speaks, and which kinds it sti
 - **Which lines count.** A line is the NPC's when (in this order of "found by"): its **speaker** is the NPC; a
   **condition** names the NPC (`GetIsID`; a condition of the line's quest or dialogue group counts too); a **quest
   alias** the NPC fills is named by a condition (`GetIsAliasRef`); or a **scene alias** the NPC fills is given the
-  line. Lines for the NPC's **voice type** (`GetIsVoiceType`) are listed apart as **shared lines**, because any NPC
+  line. A line whose own speaker or `GetIsID` names another NPC isn't this NPC's through a quest or scene alias.
+  Lines for the NPC's **voice type** (`GetIsVoiceType`) are listed apart as **shared lines**, because any NPC
   with that voice type may say them (not a line whose own speaker or `GetIsID` names another NPC). A negated condition doesn't make a line the NPC's. A line with no speaker, no
   speaker condition and no scene alias is **generic**: any NPC may say it, so it is counted and not listed. The
   player's own choices in the NPC's scenes are counted apart and not listed.
@@ -1060,13 +1061,14 @@ changes nothing.
   its quest's. A `GetIsVoiceType` form list is read through the lists it holds. An NPC named this way with no voice
   type of its own (one that takes its voice from a template) gives the line no row and a NOTE. A line that other lines share (they link it as their SharedDialog) and that names no voice
   type in its own conditions or speaker gets the voice types of the lines that share it, before its dialogue group's
-  and quest's lists (those count only when no sharing line names a voice type). A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
+  and quest's lists (those count only when no sharing line names a voice type or an NPC with none). A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
   An unknown `--voice` name still names the folder, with `SEX` empty and a NOTE. A voice type name is a folder in
   `FULL PATH`, so one that isn't a single folder name (it holds `\ / : * ? " < > |` or is `.` or `..`) gives no rows
   and a WARNING, and such a `--voice` name stops with exit 2.
 - **Left out:** player lines (scene choices), lines that link a SharedDialog line (the shared line has the row), and
   responses with no voice file number.
 - `--out <file>`: write the list there (default: the screen, stdout). Messages and the RESULT line go to stderr.
+  An `--out` path that is the plugin or one of its masters stops with exit 2 and leaves the file alone.
 
 Exit codes: 0 written (even with no rows), 2 couldn't run (this includes a plugin whose dialogue can't be read in
 full, a master whose quests, form lists or placed actors can't be read in full, or a master whose scenes can't be

@@ -213,6 +213,13 @@ public static class VoiceLinesCommand
                 try
                 {
                     var full = Path.GetFullPath(outFile);
+                    // never write the TSV over the plugin or one of its masters (code-review round 5)
+                    if (OutIsPlugin(full, lo, input.Plugin!))
+                    {
+                        Console.Error.WriteLine($"--out {SafeText.OneLine(outFile)} is the plugin or one of its masters; give a .tsv file name instead, for example --out {SafeText.OneLine(Path.GetFileNameWithoutExtension(full))}-lines.tsv");
+                        cantWhy = "the --out file is the plugin or a master";
+                        return 2;
+                    }
                     if (Path.GetDirectoryName(full) is { } d) Directory.CreateDirectory(d);
                     File.WriteAllBytes(full, bytes);
                     Log.Write($"wrote {full}: {bytes.Length} bytes");
@@ -389,14 +396,17 @@ public static class VoiceLinesCommand
             var settled = Resolve(i, topic, found, why, deep: !linked);
             if (!settled && linked)
             {
+                // a linker whose speaker or GetIsID names an NPC with no voice type settles the line too, so the group's
+                // and quest's lists don't add rows for it (code-review round 5)
+                var linkerSettled = false;
                 foreach (var lk in links!)
                     if (index.Topics.TryGetValue(lk.Topic, out var lt) && !index.PlayerTopics.Contains(lt.FormKey))
                     {
                         var before = why.Count;
-                        Resolve(lk.Info, lt, found, why);
+                        if (Resolve(lk.Info, lt, found, why)) linkerSettled = true;
                         for (int w = before; w < why.Count; w++) why[w] = $"shared by {lk.Info.FormKey}, {why[w]}";
                     }
-                if (found.Count == 0) Resolve(i, topic, found, why, deepOnly: true);
+                if (found.Count == 0 && !linkerSettled) Resolve(i, topic, found, why, deepOnly: true);
             }
             if (found.Count == 0 && extra.Count > 0)
                 foreach (var (n, sex) in extra) { found[n] = sex; why.Add($"--voice: {n}"); }
@@ -429,6 +439,15 @@ public static class VoiceLinesCommand
         var sorted = rows.Values.OrderBy(r => r.VoiceType, StringComparer.Ordinal).ThenBy(r => r.FileName, StringComparer.Ordinal).ToList();
         warnings.InsertRange(0, badNames);
         return (sorted, voiced, noVoice, warnings);
+    }
+
+    /// <summary>True when the --out path is the input plugin or a loaded plugin's file (code-review round 5).</summary>
+    internal static bool OutIsPlugin(string fullOut, LoadOrderSetup lo, string plugin)
+    {
+        static string Full(string p) { try { return Path.GetFullPath(p); } catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return ""; } }
+        return lo.Plugins.Select(p => p.Path).Append(plugin)
+            .Where(p => !string.IsNullOrEmpty(p))
+            .Any(p => string.Equals(Full(p), fullOut, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Tabs, line breaks and other control characters become spaces (one row a line, one field a column).</summary>

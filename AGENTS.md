@@ -438,7 +438,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `RESPONSE TEXT`, `FACE`, `SCRIPT NOTES`, `SEX`, `FULL PATH`, `INFO`, `RESPONSE`; tab-separated, CRLF,
     Windows-1252 unless `--utf8`. One row per voice type and file number; player lines and lines that link a SharedDialog
     line are left out (a shared line gets the voice types of the lines that link it, before its dialogue group's and quest's lists); a line with no voice type gets a NOTE (give `--voice <EditorID>` to name one); a voice type name that isn't one folder name gives no rows and a WARNING (a `--voice` one is exit 2). Messages go to stderr, the list
-    to `--out` or stdout. Exit 0 written, 2 couldn't run (also when the plugin's dialogue, a master's quests, form lists or placed actors, or the scenes of a master whose topics it adds lines to, can't be read in full).
+    to `--out` or stdout. Exit 0 written, 2 couldn't run (also when the plugin's dialogue, a master's quests, form lists or placed actors, or the scenes of a master whose topics it adds lines to, can't be read in full, or `--out` is the plugin or a master).
     Voice types come from the line's own conditions, else its speaker or alias, else its dialogue group's, else its quest's.
 
 ## 6. Inputs and outputs

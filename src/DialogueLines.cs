@@ -448,7 +448,11 @@ internal sealed class DialogueIndex
                         break;
                 }
             }
-            if (foundBy == null)
+            // a line whose own speaker or GetIsID names someone else isn't this NPC's through an alias or scene either
+            // (code-review round 5; voice-lines settles such a line at its own tier too)
+            var namedOther = (!i.Speaker.IsNull && i.Speaker.FormKey != npc) ||
+                             i.Conditions.Any(c => DialogueLines.Positive(c) && c.Data is IGetIsIDConditionDataGetter g && g.FirstParameter.Link.FormKey != npc);
+            if (foundBy == null && !namedOther)
                 foreach (var c in conds)
                     if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
                     {
@@ -462,14 +466,12 @@ internal sealed class DialogueIndex
                 {
                     if (!Fills(u.Quest, u.Alias)) { NoteSkip(u.Quest, u.Alias); continue; }
                     myScenes.Add(u.Scene);
-                    if (foundBy == null) { foundBy = "scene alias"; scene = u.Scene; }
+                    if (foundBy == null && !namedOther) { foundBy = "scene alias"; scene = u.Scene; }
                 }
             }
             // a line whose own speaker or GetIsID names someone else isn't shared with this NPC, even when a quest-wide
             // GetIsVoiceType list holds its voice type (code-review round 2)
-            if (shared && ((!i.Speaker.IsNull && i.Speaker.FormKey != npc) ||
-                           i.Conditions.Any(c => DialogueLines.Positive(c) && c.Data is IGetIsIDConditionDataGetter g && g.FirstParameter.Link.FormKey != npc)))
-                shared = false;
+            if (shared && namedOther) shared = false;
             if (foundBy == null && shared) foundBy = "voice type";
             else shared = false;
             var (responses, voiceInfo) = Responses(i);
