@@ -7,6 +7,7 @@
 // it lists every record the plugin holds (at most --max, default 100).
 // 0.20.0: --full prints every nested value of the winning copy as a tree (FindTree.cs) instead of the fields block.
 // 0.20.0: --versions lists every copy and what each changes against the copy it was built on (FindVersions.cs).
+// 0.20.0: --refs lists the records whose winning copy points at the record (FindRefs.cs).
 // Exit 0 = found, 1 = not found, 2 = could not run. The text output ends with one RESULT line; --json prints one object.
 using System.Collections;
 using System.Diagnostics;
@@ -30,9 +31,10 @@ public static class FindCommand
 {
     public const string Usage =
         "usage: sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
-        "                         [--data <Data folder>] [--extra-data <folder>] [--full] [--versions] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "                         [--data <Data folder>] [--extra-data <folder>] [--full] [--versions] [--refs [--max <n>]]\n" +
+        "                         [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "       sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]\n" +
-        "                         [--data <Data folder>] [--full] [--versions] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "                         [--data <Data folder>] [--full] [--versions] [--refs] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  EditorID  exact, letter case ignored: CityNewAtlantisLocation\n" +
         "  FormKey   <6 hex digits>:<plugin>: 01295A:Starfield.esm\n" +
         "  FormID    8 hex digits as the console shows them: 0001295A (the first digits pick the plugin by load order)\n" +
@@ -41,11 +43,15 @@ public static class FindCommand
         "            the plugin holds. Masters are looked for in the plugin's own folder, then each --masters-dir, then --data.\n" +
         "            Give the record as an EditorID or FormKey: a console FormID needs the whole load order.\n" +
         "  --masters-dir  another folder that holds the plugin's masters (can be given more than once)\n" +
-        "  --max     with --plugin and no record: list at most this many records (default 100; 0 lists them all)\n" +
+        "  --max     with --plugin and no record: list at most this many records (default 100; 0 lists them all);\n" +
+        "            with --refs: list at most this many referring records (default 100; 0 lists them all)\n" +
         "  --full    print every nested value of the winning copy as an indented tree (zeros included) instead of the\n" +
         "            main fields; --json adds it as \"tree\"\n" +
         "  --versions  list every copy of the record in load order and what each copy changes against the copy it was\n" +
         "            built on; --json adds it as \"versions\" (needs a record: not with the --plugin listing)\n" +
+        "  --refs    list the records whose winning copy points at the record (a reference counts, not its cell);\n" +
+        "            --json adds it as \"refs\" (needs a record: not with the --plugin listing). In a whole load order\n" +
+        "            this reads every plugin and takes a while; --plugin reads only the plugin and its masters.\n" +
         "Exit 0 = found, 1 = not found, 2 = could not run.";
 
     /// <summary>The field lines printed per record at most (the rest are counted on one line).</summary>
@@ -107,7 +113,7 @@ public static class FindCommand
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
         string? q = null, type = null, logFile = null;
-        bool quiet = false, verbose = false, json = false, full = false, versions = false;
+        bool quiet = false, verbose = false, json = false, full = false, versions = false, refs = false;
         int? max = null;
         var input = new LoadOrderInput(allowPlugin: true);
         for (int i = 0; i < a.Length; i++)
@@ -133,6 +139,7 @@ public static class FindCommand
                 case "--json": json = true; break;
                 case "--full": full = true; break;
                 case "--versions": versions = true; break;
+                case "--refs": refs = true; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
                 case "-h": case "--help": Console.WriteLine(Usage); return 0;
@@ -168,10 +175,18 @@ public static class FindCommand
             cantWhy = "--versions needs a record to look up";
             return 2;
         }
-        if (max != null && !listing)
+        if (refs && listing)
         {
-            Console.Error.WriteLine("--max limits the whole-plugin listing, so it goes with --plugin \"<plugin file>\" and no record to look up.");
-            cantWhy = "--max without a plugin listing";
+            // 0.20.0: --refs scans for one record; per listed record it would be one scan each
+            Console.Error.WriteLine("--refs looks at one record: give its EditorID or FormKey with --plugin \"<plugin file>\", or leave out --plugin.");
+            cantWhy = "--refs needs a record to look up";
+            return 2;
+        }
+        if (max != null && !listing && !refs)
+        {
+            Console.Error.WriteLine("--max limits the whole-plugin listing (--plugin \"<plugin file>\" and no record to look up) " +
+                                    "or the referring records --refs lists, so it goes with one of those.");
+            cantWhy = "--max without a plugin listing or --refs";
             return 2;
         }
         q ??= "";
@@ -276,17 +291,39 @@ public static class FindCommand
 
             FillFields(matches, lo, full);
             if (versions) FillVersions(matches, lo);
+            if (refs)
+            {
+                // --refs (0.20.0): one scan for every match; past the memory guard the run stops with exit 2
+                var refsUnread = new List<string>();
+                try
+                {
+                    var found = RecordRefs.Scan(matches.Select(m => m.Key).ToList(), lo.Plugins, refsUnread,
+                        quiet || json ? null : Console.Error.WriteLine);
+                    foreach (var m in matches) m.Refs = found[m.Key];
+                }
+                catch (MemoryLimitException e)
+                {
+                    foreach (var u in refsUnread) Console.Error.WriteLine($"note: {u}");
+                    Log.Write($"stopped: {e.Message}");
+                    cantWhy = $"memory passed {RecordRefs.MemoryLimit / 1e9:F1} GB while reading links; --plugin reads only one plugin and its masters";
+                    return 2;
+                }
+                foreach (var u in refsUnread) Console.Error.WriteLine($"note: {u}");
+            }
             var view = new View(input.Plugin != null ? Path.GetFileName(input.Plugin) : null,
-                lo.Plugins.Select(p => p.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase));
+                lo.Plugins.Select(p => p.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase), max ?? DefaultMax);
             resultPrinted = true;
-            if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "found", null));
+            if (json) Console.WriteLine(Json(version, q, type, source, lo.Plugins.Count, matches, "found", null, view: view));
             else
             {
                 if (!quiet) Console.WriteLine($"sf-mod-check {version} find: {SafeText.OneLine(q)} in {lo.Plugins.Count} plugins ({source})");
                 foreach (var m in matches) Print(m, view);
                 var copies = matches.Sum(m => m.Copies.Count);
+                var pointing = matches.Sum(m => m.Refs?.Records.Count ?? 0);
                 Console.WriteLine($"RESULT: FOUND {matches.Count} record{(matches.Count == 1 ? "" : "s")}" +
-                                  (versions ? $", {copies} cop{(copies == 1 ? "y" : "ies")}" : "") + $" ({sw.Elapsed.TotalSeconds:F0} s)");
+                                  (versions ? $", {copies} cop{(copies == 1 ? "y" : "ies")}" : "") +
+                                  (refs ? $"; {pointing} record{(pointing == 1 ? "" : "s")} point{(pointing == 1 ? "s" : "")} at {(matches.Count == 1 ? "it" : "them")}" : "") +
+                                  $" ({sw.Elapsed.TotalSeconds:F0} s)");
             }
             Log.Write($"result: found {matches.Count}, exit code 0, {sw.Elapsed.TotalSeconds:F1} s");
             return 0;
@@ -326,7 +363,7 @@ public static class FindCommand
     }
 
     /// <summary>What the views print beside a match: the --plugin file (null in a load order) and the loaded plugins.</summary>
-    sealed record View(string? PluginMode, HashSet<string> Loaded);
+    sealed record View(string? PluginMode, HashSet<string> Loaded, int MaxRefs);
 
     /// <summary>With --plugin, why the plugin itself didn't load (its load-order problems go to stderr), or null when it
     /// loaded. Both the listing and a record lookup stop with exit 2 then, so a lookup never answers from a master's copy
@@ -436,6 +473,8 @@ public static class FindCommand
         /// <summary>--versions (0.20.0): every copy and its changes, or null without --versions.</summary>
         public List<VersionInfo>? Versions;
         public bool TypesDiffer;
+        /// <summary>--refs (0.20.0): the records that point at it, or null without --refs.</summary>
+        public RefsInfo? Refs;
     }
 
     /// <summary>The plugin a console FormID points at, by the load order's runtime index: full plugins 00 to FC, medium
@@ -691,6 +730,8 @@ public static class FindCommand
         if (m.Versions != null)
             foreach (var l in RecordVersions.Lines(m.Versions, m.TypesDiffer, m.Key.ModKey.FileName.String, view?.Loaded.Contains(m.Key.ModKey.FileName.String) == true, view?.PluginMode))
                 Console.WriteLine(l);
+        if (m.Refs != null && view != null)
+            foreach (var l in RecordRefs.Lines(m.Refs, view.MaxRefs, view.PluginMode)) Console.WriteLine(l);
     }
 
     /// <summary>The heading, the plugins and the fields (or --full's tree) of one match.</summary>
@@ -726,7 +767,7 @@ public static class FindCommand
     }
 
     static string Json(string version, string? q, string? type, string source, int pluginCount, List<Match> matches, string result, string? hint,
-                       Action<JsonObject>? extra = null)
+                       Action<JsonObject>? extra = null, View? view = null)
     {
         var root = new JsonObject
         {
@@ -760,6 +801,7 @@ public static class FindCommand
                     if (m.TreeNotShown > 0) o["treeNotShown"] = m.TreeNotShown;
                 }
                 if (m.Versions != null) o["versions"] = RecordVersions.Json(m.Versions, m.TypesDiffer);   // --versions (0.20.0)
+                if (m.Refs != null) o["refs"] = RecordRefs.Json(m.Refs, view?.MaxRefs ?? DefaultMax);   // --refs (0.20.0)
                 return (JsonNode)o;
             }).ToArray()),
             ["result"] = result,

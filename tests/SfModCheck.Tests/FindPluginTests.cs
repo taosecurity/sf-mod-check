@@ -304,4 +304,28 @@ public class FindPluginTests
         Assert.Contains("--versions looks at one record", stderr);
         Assert.Contains("RESULT: CANNOT CHECK (--versions needs a record to look up)", stdout);
     }
+
+    [Fact]
+    public void Refs_with_plugin_says_it_read_the_plugin_and_its_masters_and_is_refused_in_the_listing()
+    {
+        using var s = new Set();
+        // Patch.esm's copy of BQ_Effect has a condition on BQ_Global
+        var (code, stdout, stderr) = s.Find("BQ_Global", "--plugin", s.Patch, "--masters-dir", s.Masters, "--refs");
+        Assert.True(code == 0, stdout + stderr);
+        var lines = stdout.Replace("\r", "").Split('\n');
+        int at = Array.IndexOf(lines, "  referenced by: 1 record (winning copies) (in Patch.esm and its masters)");
+        Assert.True(at > 0, stdout);
+        Assert.Equal($"    BQ_Effect [{s.Effect}] MGEF, winner Patch.esm", lines[at + 1]);
+        Assert.Contains("RESULT: FOUND 1 record; 1 record points at it (", stdout);
+        (code, stdout, _) = s.Find("BQ_Global", "--plugin", s.Patch, "--masters-dir", s.Masters, "--refs", "--json");
+        Assert.Equal(0, code);
+        var refs = Assert.Single(JsonDocument.Parse(stdout).RootElement.GetProperty("matches").EnumerateArray()).GetProperty("refs");
+        Assert.Equal(s.Effect.ToString(), Assert.Single(refs.GetProperty("records").EnumerateArray()).GetProperty("formKey").GetString());
+
+        // the listing (no record) refuses --refs: exit 2
+        (code, stdout, stderr) = s.Find("--plugin", s.Patch, "--masters-dir", s.Masters, "--refs");
+        Assert.Equal(2, code);
+        Assert.Contains("--refs looks at one record", stderr);
+        Assert.Contains("RESULT: CANNOT CHECK (--refs needs a record to look up)", stdout);
+    }
 }

@@ -456,6 +456,137 @@ public class FindTests
         finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }
     }
 
+    /// <summary>The --refs mods (0.20.0), all pointing at FB_Misc. FindRefA.esm (master FindBase.esm): the cell RA_Cell
+    /// with a reference whose base is FB_Misc, and three form lists that hold FB_Misc (RA_ListKept, RA_ListWalk,
+    /// RA_ListDropped). FindRefC.esm has only FindRefA.esm as a master and empties RA_ListDropped (it is read for
+    /// FormKeys only). FindRefD.esm (masters FindBase.esm and FindRefA.esm) keeps RA_ListKept's link and swaps
+    /// RA_ListWalk's for FB_Keyword. Returns the reference's and the cell's FormKeys.</summary>
+    static (FormKey Ref, FormKey Cell, FormKey Kept) AddRefMods(Game game)
+    {
+        FormKey refKey, cellKey, kept;
+        using (var g = new GameData(game.Data))
+        {
+            var baseMod = g.Open("FindBase.esm");
+            var a = Plugin.New("FindRefA.esm", PluginStyle.Full, "test", "made-up referrers");
+            var misc = baseMod.MiscItems.First();
+            var cell = new Cell(a) { EditorID = "RA_Cell" };
+            var placed = new PlacedObject(a) { Base = misc.ToLink<IPlaceableObjectGetter>() };
+            cell.Temporary.Add(placed);
+            a.Cells.Add(new CellBlock { SubBlocks = new Noggog.ExtendedList<CellSubBlock> { new CellSubBlock { Cells = new Noggog.ExtendedList<Cell> { cell } } } });
+            foreach (var n in new[] { "RA_ListKept", "RA_ListWalk", "RA_ListDropped" })
+                a.FormLists.AddNew(n).Items.Add(misc.ToLink<IStarfieldMajorRecordGetter>());
+            kept = a.FormLists.First(l => l.EditorID == "RA_ListKept").FormKey;
+            (refKey, cellKey) = (placed.FormKey, cell.FormKey);
+            PluginWriter.Write(a, game.Data, g, NoGap);
+        }
+        using (var g = new GameData(game.Data))
+        {
+            var a = g.Open("FindRefA.esm");
+            var c = Plugin.New("FindRefC.esm", PluginStyle.Light, "test", "made-up override without the target's plugin");
+            c.FormLists.GetOrAddAsOverride(a.FormLists.First(l => l.EditorID == "RA_ListDropped")).Items.Clear();
+            PluginWriter.Write(c, game.Data, g, NoGap);
+        }
+        using (var g = new GameData(game.Data))
+        {
+            var baseMod = g.Open("FindBase.esm");
+            var a = g.Open("FindRefA.esm");
+            var d = Plugin.New("FindRefD.esm", PluginStyle.Full, "test", "made-up later referrers");
+            d.FormLists.GetOrAddAsOverride(a.FormLists.First(l => l.EditorID == "RA_ListKept"));
+            var walk = d.FormLists.GetOrAddAsOverride(a.FormLists.First(l => l.EditorID == "RA_ListWalk"));
+            walk.Items.Clear();
+            walk.Items.Add(baseMod.Keywords.First().ToLink<IStarfieldMajorRecordGetter>());
+            PluginWriter.Write(d, game.Data, g, new WriteOptions { GapCheck = false, FixEffects = false, Masters = [ModKey.FromFileName("FindBase.esm"), ModKey.FromFileName("FindRefA.esm")] });
+        }
+        File.AppendAllLines(game.PluginsTxt, ["*FindRefA.esm", "*FindRefC.esm", "*FindRefD.esm"]);
+        return (refKey, cellKey, kept);
+    }
+
+    [Fact]
+    public void Refs_counts_a_reference_not_its_cell_and_only_winning_copies_that_keep_the_link()
+    {
+        using var game = new Game();
+        var (refKey, cellKey, kept) = AddRefMods(game);
+        var (code, stdout, stderr) = game.Find("FB_Misc", "--refs");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("Reading the links in 6 plugins (5 of them can point at it)", stderr);
+        var lines = stdout.Replace("\r", "").Split('\n');
+        int at = Array.IndexOf(lines, "  referenced by: 2 records (winning copies)");
+        Assert.True(at > 0, stdout);
+        Assert.True(Array.IndexOf(lines, "  fields:") is var f && f > 0 && f < at, stdout);   // after the field block
+        Assert.Equal($"    RA_ListKept [{kept}] FLST, winner FindRefD.esm", lines[at + 1]);
+        Assert.Equal($"    (no EditorID) [{refKey}] REFR in RA_Cell [{cellKey}], winner FindRefA.esm", lines[at + 2]);
+        // RA_ListDropped (FindRefC.esm, FormKeys only) and RA_ListWalk (FindRefD.esm) lost the link in a later copy
+        Assert.Equal("    note: 2 more records point at it only in a copy a later plugin overrides (--verbose names them)", lines[at + 3]);
+        Assert.DoesNotContain(lines, l => l.Contains("RA_ListWalk") || l.Contains("RA_ListDropped") || l.StartsWith("    RA_Cell"));
+        Assert.Contains("RESULT: FOUND 1 record; 2 records point at it (", stdout);
+
+        // --verbose names the overridden ones; --versions and --refs combine, versions first
+        (code, stdout, stderr) = game.Find("FB_Misc", "--refs", "--versions", "--verbose");
+        Assert.Equal(0, code);
+        Assert.Contains("pointed at it in FindRefA.esm; FindRefC.esm's copy overrides it without the link", stderr);
+        Assert.Contains("only in FindRefA.esm's copy; FindRefD.esm's copy wins without the link", stderr);
+        Assert.Contains("refs: FindRefC.esm (5/6): 1 records (FormKeys only)", stderr);
+        Assert.True(stdout.IndexOf("  versions:", StringComparison.Ordinal) < stdout.IndexOf("  referenced by:", StringComparison.Ordinal), stdout);
+        Assert.Contains("RESULT: FOUND 1 record, 3 copies; 2 records point at it (", stdout);
+
+        // --max limits the lines, not the count
+        (code, stdout, _) = game.Find("FB_Misc", "--refs", "--max", "1");
+        Assert.Equal(0, code);
+        Assert.Contains("  referenced by: 2 records (winning copies)", stdout);
+        Assert.Contains("    ... and 1 more (--max 0 lists them all)", stdout);
+        Assert.DoesNotContain("REFR in RA_Cell", stdout);
+
+        // --json: "refs" only with the flag
+        (code, stdout, _) = game.Find("FB_Misc", "--refs", "--json", "--max", "0");
+        Assert.Equal(0, code);
+        var m = Assert.Single(JsonDocument.Parse(stdout).RootElement.GetProperty("matches").EnumerateArray());
+        var refs = m.GetProperty("refs");
+        Assert.Equal(2, refs.GetProperty("total").GetInt32());
+        Assert.Equal(2, refs.GetProperty("listed").GetInt32());
+        Assert.Equal(2, refs.GetProperty("onlyInOverridden").GetInt32());
+        var rs = refs.GetProperty("records").EnumerateArray().ToList();
+        Assert.Equal("REFR", rs[1].GetProperty("type").GetString());
+        Assert.Equal(cellKey.ToString(), rs[1].GetProperty("in").GetString());
+        Assert.Equal(JsonValueKind.Null, rs[0].GetProperty("in").ValueKind);
+        Assert.Equal("FindRefD.esm", rs[0].GetProperty("winner").GetString());
+        (_, stdout, _) = game.Find("FB_Misc", "--json");
+        m = Assert.Single(JsonDocument.Parse(stdout).RootElement.GetProperty("matches").EnumerateArray());
+        Assert.False(m.TryGetProperty("refs", out _));
+
+        // a record nothing points at is still found
+        (code, stdout, _) = game.Find("FB_Keyword", "--refs");
+        Assert.Equal(0, code);
+        Assert.Contains("  referenced by: 1 record (winning copies)", stdout);   // RA_ListWalk's FindRefD.esm copy
+        Assert.Contains("RESULT: FOUND 1 record; 1 record points at it (", stdout);
+
+        // --max without the listing or --refs is still refused
+        (code, stdout, stderr) = game.Find("FB_Misc", "--max", "3");
+        Assert.Equal(2, code);
+        Assert.Contains("or the referring records --refs lists", stderr);
+    }
+
+    [Fact]
+    public void Refs_stops_past_its_memory_limit_and_restores_the_old_limit()
+    {
+        using var game = new Game();
+        var lo = LoadOrderSetup.Build(game.Data, game.PluginsTxt);
+        var (maxBefore, bytesBefore) = (Analyzer.MaxManagedBytes, Analyzer.ManagedBytes);
+        try
+        {
+            Analyzer.MaxManagedBytes = 123;
+            Analyzer.ManagedBytes = () => Analyzer.Where.Contains("for --refs") ? long.MaxValue : 0;
+            var unread = new List<string>();
+            var e = Assert.Throws<MemoryLimitException>(() => RecordRefs.Scan([game.BaseMisc], lo.Plugins, unread));
+            Assert.StartsWith("memory passed 16.0 GB while reading links in ", e.Message);
+            Assert.Equal(123, Analyzer.MaxManagedBytes);
+        }
+        finally
+        {
+            (Analyzer.MaxManagedBytes, Analyzer.ManagedBytes) = (maxBefore, bytesBefore);
+            foreach (var p in lo.Plugins) p.Mod.Dispose();
+        }
+    }
+
     [Fact]
     public void Bad_input_is_exit_2_and_help_is_exit_0()
     {
