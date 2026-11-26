@@ -69,7 +69,7 @@ public class Analysis
     // The assets check (0.6.0 part 2): each mod plugin's missing scripts, models, materials, textures and sounds, in load order. AssetsChecked is
     // false with --no-assets.
     public bool AssetsChecked;
-    public int ArchivesRead, AssetScriptUses, AssetModelUses, AssetTextureUses, AssetMaterialUses, AssetMeshUses, AssetSoundUses;
+    public int ArchivesRead, AssetScriptUses, AssetModelUses, AssetTextureUses, AssetMaterialUses, AssetMeshUses, AssetSoundUses, AssetSoundEventUses;
     // Missing path uses not reported because the version the override replaces (in the last of its masters that has
     // the record) names the same path: inherited, often from Bethesda's own records (a hand check of a large load order, 2026-11-18).
     public int AssetsInherited;

@@ -323,14 +323,15 @@ public static class Report
         if (N("material") is var m and > 0) parts.Add(One(m, "material"));
         if (N("mesh") is var me and > 0) parts.Add($"{me} mesh{(me == 1 ? "" : "es")}");
         if (N("sound") is var so and > 0) parts.Add(One(so, "sound"));
+        if (N("sound-event") is var se and > 0) parts.Add(One(se, "sound event"));
         // any other kind still counts, so the parts add up to the total (as AssetActions does); a guard only:
-        // conflict makes no kind beyond these six today (face data is looked for only in release)
-        var other = a.MissingAssets.Count(f => KindOrder(f.Asset.Kind) == 6);
+        // conflict makes no kind beyond these seven today (face data is looked for only in release)
+        var other = a.MissingAssets.Count(f => KindOrder(f.Asset.Kind) == 7);
         if (other > 0) parts.Add($"{other} other");
         return string.Join(", ", parts);
     }
 
-    static int KindOrder(string kind) => kind switch { "script" => 0, "model" => 1, "mesh" => 2, "material" => 3, "texture" => 4, "sound" => 5, _ => 6 };
+    static int KindOrder(string kind) => kind switch { "script" => 0, "model" => 1, "mesh" => 2, "material" => 3, "texture" => 4, "sound" => 5, "sound-event" => 6, _ => 7 };
 
     /// <summary>The section's first paragraph: what was checked, or that the check was off.</summary>
     public static string AssetsIntro(Analysis a) => !a.AssetsChecked
@@ -343,6 +344,7 @@ public static class Report
           "(named by records, by the mods' own .nif files and by their .mat files), " +
           (a.AssetMeshUses > 0 ? $"{a.AssetMeshUses} geometry (.mesh) file{(a.AssetMeshUses == 1 ? "" : "s")} named by the mods' own .nif files, " : "") +
           (a.AssetSoundUses > 0 ? $"and {a.AssetSoundUses} streamed sound{(a.AssetSoundUses == 1 ? "" : "s")} of the mods' own sound banks, " : "") +
+          (a.AssetSoundEventUses > 0 ? $"and {a.AssetSoundEventUses} Wwise sound event{(a.AssetSoundEventUses == 1 ? "" : "s")} named by records (each must be in a loaded bank's manifest and bank), " : "") +
           $"in the mod plugins against {a.ArchivesRead} archive{(a.ArchivesRead == 1 ? "" : "s")} " +
           "and the loose files; a material also counts when a loaded material database (the game's or a plugin's own .cdb) holds it. A missing script is an ERROR (that record's script never runs); a missing model, mesh, material, texture or sound is a WARNING " +
           "(an empty or error mesh, a missing part of a model, a wrong-looking surface, or silence, in game). Official plugins are not checked, and neither is a missing path an override " +
@@ -366,7 +368,7 @@ public static class Report
 
     /// <summary>The "What this report does not check" line about assets.</summary>
     public static string AssetsNotChecked(Analysis a) => a.AssetsChecked
-        ? "Voice and animation files, .mesh geometry that only other mods' or the game's .nif files name, music, sounds outside the mods' own sound banks, and script parents are not checked, and neither are official plugins' assets."
+        ? "Voice and animation files, .mesh geometry that only other mods' or the game's .nif files name, the streamed sounds of banks other than the mods' own, and script parents are not checked, and neither are official plugins' assets."
         : a.AssetsFailed != null
             ? $"Scripts, models and other assets are not checked: the step stopped ({a.AssetsFailed})."
             : "Scripts, models and other assets are not checked (--no-assets); only plugin records.";
@@ -385,6 +387,7 @@ public static class Report
         ("script", "those records' scripts never run"), ("model", "those records show an empty or error mesh"),
         ("mesh", "parts of those models don't show"),
         ("material", "those surfaces look wrong"), ("texture", "those surfaces look wrong"), ("sound", "those sounds are silent"),
+        ("sound-event", "those sounds are silent"),
     };
 
     public static List<Recommendation> AssetActions(Analysis a)
@@ -401,7 +404,7 @@ public static class Report
             {
                 var n = g.Count(f => f.Kind == kind);
                 if (n == 0) continue;
-                parts.Add($"{n} missing {kind}{(n == 1 ? "" : kind == "mesh" ? "es" : "s")}");
+                parts.Add($"{n} missing {(kind == "sound-event" ? "sound event" : kind)}{(n == 1 ? "" : kind == "mesh" ? "es" : "s")}");
                 if (!effects.Contains(effect)) effects.Add(effect);
             }
             // any other kind still gets a count and an effect, never a blank action

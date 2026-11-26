@@ -108,8 +108,13 @@ public static class ReleaseNeeds
                 // the loose sound banks of this plugin's own zip are its own, so each is reported under the plugin it
                 // ships with; the first plugin also takes those of zips with no plugin (0.14.0)
                 index.OwnLooseDirs = c.Packages.Where(p => p == pkg || p.Plugins.Count == 0 && path == plugins[0].Path).Select(p => p.Root).ToList();
+                // 0.23.0: the game's and the masters' archives hold the banks the mod's sound events usually name
+                index.SoundArchivesBefore = external.SoundArchives();
                 var uses = new AssetUses();
-                var (scriptUses, modelUses, missing, inherited) = Assets.Find(mod, index, Checker.Name, Original, uses, faces: true);
+                var masterMods = game.LoadOrder.Where(m => m.ModKey != mod.ModKey).Cast<IModGetter>().ToList();
+                var (scriptUses, modelUses, missing, inherited) = Assets.Find(mod, index, Checker.Name, Original, uses, faces: true, masters: () => masterMods);
+                SoundBankRules(c, name, index, findings);
+                int soundEvents = 0;
                 if (c.Options.DmmDeps == null)
                     foreach (var n in uses.Notes)
                         findings.Add(new(Level.Note, "material-missing", $"{name}: {n}."));
@@ -137,6 +142,12 @@ public static class ReleaseNeeds
                             $"{name}: the sound bank {Assets.Users(m.Users)} streams {m.Path}, which is in none of {Zips(c)} loose files or archives, " +
                             "a --masters-dir mod's archives or the game's archives, so that sound is silent in the game. Put the .wem file in the zip " +
                             "or its archive (under sound\\soundbanks), or generate the bank again in Wwise with its media."));
+                    }
+                    else if (m.Kind == "sound-event")
+                    {
+                        // 0.23.0: DMMDeps doesn't read sound events, so this runs with --dmmdeps too; capped per plugin
+                        if (++soundEvents > Assets.SoundEventLines) continue;
+                        Add(m, new(Level.Warning, "sound-event-missing", $"{name}: {m.SoundEventText}."));
                     }
                     else if (m.Kind == "mesh")
                     {
@@ -178,6 +189,12 @@ public static class ReleaseNeeds
                             $"or the game's archives (used by {Assets.Users(m.Users)}). Put the file in the zip or its archive, or fix the path."));
                     }
                 }
+                if (soundEvents > Assets.SoundEventLines)
+                    findings.Add(new(Level.Warning, "sound-event-missing", $"{name}: {soundEvents - Assets.SoundEventLines} more sound event(s) are in no loaded sound bank, so those sounds won't play (--verbose lists them all)."));
+                foreach (var t in uses.SilentTracks)
+                    findings.Add(new(Level.Note, "music-track-silent", $"{name}: the music track {t} is a single track with no start event and no event mapping, so it plays nothing. " +
+                                                                        "Give it its Wwise event (the MTSH sound), or make it a silent track if silence is meant.") { Plugin = name, Subject = t });
+                Log.Write($"needs: {name}: {uses.SoundEvents} sound event uses, {uses.SilentTracks.Count} silent music tracks");
                 Log.Write($"needs: {name}: {scriptUses} script uses, {modelUses} model uses, {uses.Textures} texture paths, {uses.Materials} material paths, {uses.Sounds} streamed sounds, {uses.Faces} NPC faces " +
                           $"({uses.FilesRead} of its own .nif, .mat and .bnk files read), {shown} missing" +
                           (inherited > 0 ? $", {inherited} inherited from the record it overrides (not reported)" : ""));
@@ -192,6 +209,61 @@ public static class ReleaseNeeds
             }
         }
         return result;
+    }
+
+    /// <summary>The sound-bank rules for one plugin's own banks (0.23.0): the .bnk files in its own archives and in its
+    /// zip's loose files (index.OwnLooseDirs).
+    /// sound-bank-manifest-missing (WARNING): a bank with no manifest of the same name anywhere in the zips (the game
+    /// reads sound\soundbanks\&lt;id&gt;.json to tie a record's GUID to the bank's event; every bank the game's add-ons
+    /// ship has one). sound-bank-name (NOTE): a bank not named FNV-1 of the plugin's lower-case base name, which every
+    /// add-on's bank is (proved by data only, so a NOTE).</summary>
+    static void SoundBankRules(ReleaseContext c, string name, AssetIndex index, List<ReleaseFinding> findings)
+    {
+        var own = new List<(string Rel, string Where)>();
+        var zipFiles = new HashSet<string>(StringComparer.Ordinal);
+        void FromArchive(string ba2, bool mine)
+        {
+            try
+            {
+                foreach (var n in Ba2Names.Read(ba2).Where(SoundBankIndex.IsBankFile))
+                {
+                    zipFiles.Add(n);
+                    if (mine && n.EndsWith(".bnk", StringComparison.Ordinal)) own.Add((n, Path.GetFileName(ba2)));
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { Log.Write($"needs: {Path.GetFileName(ba2)}: sound banks not listed ({e.Message})"); }
+        }
+        var mineArchives = index.OwnArchives(name).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var ba2 in index.GeneralArchivesInLoadOrder()) FromArchive(ba2, mineArchives.Contains(Path.GetFullPath(ba2)));
+        var mineLoose = (index.OwnLooseDirs ?? []).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in c.Packages.Select(p => p.Root))
+        {
+            try
+            {
+                foreach (var (rel, path) in SoundBankIndex.LooseFiles(root))
+                {
+                    zipFiles.Add(rel);
+                    if (mineLoose.Contains(Path.GetFullPath(root)) && rel.EndsWith(".bnk", StringComparison.Ordinal)) own.Add((rel, "loose files"));
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write($"needs: sound banks under {root} not listed ({e.Message})"); }
+        }
+        var expected = AssetFiles.Fnv1(Path.GetFileNameWithoutExtension(name).ToLowerInvariant());
+        foreach (var (rel, where) in own.DistinctBy(o => o.Rel))
+        {
+            var stem = Path.GetFileNameWithoutExtension(rel);
+            var json = rel[..^4] + ".json";
+            Log.Write($"needs: {name}: its sound bank {rel} (in {where}): manifest {(zipFiles.Contains(json) ? "shipped" : "missing")}, name {(stem == expected.ToString() ? "matches the plugin" : $"not {expected}")}");
+            if (!zipFiles.Contains(json))
+                findings.Add(new(Level.Warning, "sound-bank-manifest-missing",
+                    $"{name}: the sound bank {rel} (in {where}) has no manifest {json} in {Zips(c)} files. The game reads that manifest to tie the records' " +
+                    "sound events to the bank's events, so without it the bank's sounds don't play. Ship the .json Wwise generates beside the .bnk.") { Plugin = name, Subject = rel });
+            if (stem != expected.ToString())
+                findings.Add(new(Level.Note, "sound-bank-name",
+                    $"{name}: the sound bank {rel} (in {where}) isn't named after the plugin. Every bank the game's add-ons ship is named by the Wwise ID of its " +
+                    $"plugin's lower-case base name, which for {name} is {expected} (sound\\soundbanks\\{expected}.bnk and .json). A bank with another name may not load, " +
+                    "unless it replaces a bank of that name on purpose. This is known from the game's files, not yet from its code, so it is a NOTE.") { Plugin = name, Subject = rel });
+        }
     }
 
     /// <summary>Master styles for reading a plugin whose masters aren't all installed: the opened ones as they are, a
@@ -255,7 +327,7 @@ public static class ReleaseNeeds
                 foreach (var (_, n, _) in AssetIndex.IniArchives([ini]))
                 {
                     var p = Path.Combine(data, n.TrimStart('\\', '/'));
-                    if (n.IndexOf(':') < 0 && !n.Contains("..") && File.Exists(p)) Read(p);
+                    if (n.IndexOf(':') < 0 && !n.Contains("..") && File.Exists(p)) { iniPaths.Add(Path.GetFullPath(p)); Read(p); }
                 }
             }
         }
@@ -276,12 +348,21 @@ public static class ReleaseNeeds
                 Read(ba2);
         }
 
+        readonly List<string> iniPaths = new(), order = new();
+
+        /// <summary>The general archives read, for the sound-bank index (0.23.0): the INI's archives in INI order,
+        /// then the others in the order read (--masters-dir mods', the official masters', Data masters').</summary>
+        public List<string> SoundArchives() =>
+            iniPaths.Where(p => order.Contains(p, StringComparer.OrdinalIgnoreCase))
+                .Concat(order.Where(o => !iniPaths.Contains(o, StringComparer.OrdinalIgnoreCase))).ToList();
+
         void Read(string ba2)
         {
             if (!read.Add(Path.GetFullPath(ba2))) return;
             try
             {
                 var type = Ba2Names.Type(ba2);
+                if (type == "GNRL") order.Add(Path.GetFullPath(ba2));
                 int n = 0;
                 foreach (var name in Ba2Names.Read(ba2))
                 {

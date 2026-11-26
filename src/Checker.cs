@@ -553,7 +553,7 @@ public static class Checker
             index = AssetIndex.Build(assetPlugins, assetDirs, AssetIndex.DefaultInis(o.DataDir, o.Inis), o.Language, own: (self, ownDir));
             Assets.AfterIndex?.Invoke();
             var uses = new AssetUses();
-            var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache, uses);
+            var (scriptCount, modelCount) = Assets.Check(mod, index, Name, add, game.LinkCache, uses, game.LoadOrder.Cast<IModGetter>().ToList());
             r.Scripts = scriptCount; r.Models = modelCount;
             Stage($"assets: {scriptCount} script uses, {modelCount} model uses, {uses.Textures} textures, {uses.Materials} materials, {uses.Meshes} meshes " +
                   $"({uses.FilesRead} of the plugin's own .nif, .mat and .bnk files read), {index.Loaded.Count} archives read");

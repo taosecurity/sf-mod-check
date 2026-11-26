@@ -107,24 +107,32 @@ public sealed class SoundBankIndex
     public void AddLoose(string dir)
     {
         LooseDirs.Add(dir);
-        var ci = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive };
         try
         {
-            if (!Directory.Exists(dir)) return;
-            foreach (var sound in Directory.EnumerateDirectories(dir, "sound", ci))
-                foreach (var banks in Directory.EnumerateDirectories(sound, "soundbanks", ci))
-                    foreach (var f in Directory.EnumerateFiles(banks, "*", ci).Order(StringComparer.Ordinal))
-                    {
-                        var rel = Ba2Names.Normalize(@"sound\soundbanks\" + Path.GetFileName(f));
-                        if (!IsBankFile(rel)) continue;
-                        var file = f;
-                        Offer(rel, file, new FileInfo(file).Length, () => File.ReadAllBytes(file));
-                    }
+            foreach (var (rel, file) in LooseFiles(dir))
+                Offer(rel, file, new FileInfo(file).Length, () => File.ReadAllBytes(file));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             Notes.Add($"sound banks under {dir} couldn't be listed ({SafeText.OneLine(e.Message)})");
         }
+    }
+
+    /// <summary>The loose banks and manifests under one folder's sound\soundbanks (any case), as (data-relative name,
+    /// full path). Throws IOException or UnauthorizedAccessException when a folder can't be listed.</summary>
+    public static List<(string Rel, string Path)> LooseFiles(string dir)
+    {
+        var list = new List<(string, string)>();
+        var ci = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive };
+        if (!Directory.Exists(dir)) return list;
+        foreach (var sound in Directory.EnumerateDirectories(dir, "sound", ci))
+            foreach (var banks in Directory.EnumerateDirectories(sound, "soundbanks", ci))
+                foreach (var f in Directory.EnumerateFiles(banks, "*", ci).Order(StringComparer.Ordinal))
+                {
+                    var rel = Ba2Names.Normalize(@"sound\soundbanks\" + Path.GetFileName(f));
+                    if (IsBankFile(rel)) list.Add((rel, f));
+                }
+        return list;
     }
 
     /// <summary>The index for a load order: the general archives in load order (AssetIndex.GeneralArchivesInLoadOrder),

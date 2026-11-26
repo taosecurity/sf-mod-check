@@ -321,6 +321,32 @@ public sealed class AssetIndex
     /// <summary>The folders searched for loose files, first one first (a loose file in an earlier folder wins).</summary>
     public IReadOnlyList<string> LooseDirs => looseDirs;
 
+    /// <summary>release (0.23.0): general archives outside this index that load before its own (the game's and the
+    /// masters' archives, in load order), read for sound banks too. Null elsewhere. A longer list than the one the
+    /// bank index was built from builds it again.</summary>
+    public List<string>? SoundArchivesBefore { get; set; }
+
+    SoundBankIndex? soundBanks;
+    int soundBanksFrom = -1;
+    bool soundNotesTaken;
+
+    /// <summary>The Wwise bank index for this load order (0.23.0), built on first use: SoundArchivesBefore, then this
+    /// index's general archives in load order, then its loose folders.</summary>
+    public SoundBankIndex SoundBanks()
+    {
+        var before = SoundArchivesBefore ?? [];
+        if (soundBanks == null || before.Count != soundBanksFrom)
+        {
+            soundBanks = SoundBankIndex.Build(before.Concat(GeneralArchivesInLoadOrder()).Distinct(StringComparer.OrdinalIgnoreCase), looseDirs);
+            soundBanksFrom = before.Count;
+            soundNotesTaken = false;
+        }
+        return soundBanks;
+    }
+
+    /// <summary>True once per bank index: its notes are reported with the first plugin that uses it, not with each.</summary>
+    internal bool TakeSoundNotes() { var first = !soundNotesTaken; soundNotesTaken = true; return first; }
+
     /// <summary>The general archives named after this plugin (its own archives), in the order found.</summary>
     public IReadOnlyList<string> OwnArchives(string plugin) => ownArchives.TryGetValue(plugin, out var l) ? l : Array.Empty<string>();
 
@@ -526,18 +552,30 @@ public static class Assets
     /// <summary>Checks one plugin's own records (overrides included). add: (severity, check, text). masters: the
     /// plugin's masters, to find the version an override replaces (see Find).</summary>
     public static (int Scripts, int Models) Check(IModGetter mod, AssetIndex index, Func<IMajorRecordGetter, string> name, Action<string, string, string> add,
-                                                 ILinkCache? masters = null, AssetUses? uses = null)
+                                                 ILinkCache? masters = null, AssetUses? uses = null, IReadOnlyList<IModGetter>? masterMods = null)
     {
         uses ??= new AssetUses();
-        var (scripts, models, missing, inherited) = Find(mod, index, name, masters == null ? null : rec => Resolve(masters, rec), uses);
+        var (scripts, models, missing, inherited) = Find(mod, index, name, masters == null ? null : rec => Resolve(masters, rec), uses,
+                                                         masters: masterMods == null ? null : () => masterMods);
         if (inherited > 0) Log.Write($"assets: {inherited} missing path use(s) not reported: the master version of the record already names them");
-        foreach (var m in missing) add(m.Severity, "assets", m.Text);
+        int soundEvents = 0;
+        foreach (var m in missing)
+        {
+            // 0.23.0: at most SoundEventLines sound-event lines per plugin, then a count (as voice-missing does)
+            if (m.Kind == "sound-event" && ++soundEvents > SoundEventLines) continue;
+            add(m.Severity, "assets", m.Text);
+        }
+        if (soundEvents > SoundEventLines)
+            add("WARNING", "assets", $"{soundEvents - SoundEventLines} more sound event(s) are in no loaded sound bank (--verbose lists them all)");
         // check has no NOTE level: a file it couldn't read, or materials it couldn't check, is a WARNING (0.14.0)
         foreach (var n in uses.Notes.Concat(uses.SoundNotes)) add("WARNING", "assets", n);
         foreach (var (a, why) in index.Unreadable)
             add("WARNING", "assets", UnreadableText(a, why));
         return (scripts, models);
     }
+
+    /// <summary>Sound-event lines per plugin in check and release, before a count (0.23.0).</summary>
+    public const int SoundEventLines = 25;
 
     public static string UnreadableText(string archive, string why) => $"archive {archive} could not be read ({why}), so its files count as missing";
 
@@ -595,10 +633,11 @@ public static class Assets
             if (p.Official) { Log.Write($"assets: {p.FileName} not checked (official plugin)"); continue; }
             checkedPlugins++;
             var uses = new AssetUses();
-            var (s, m, missing, inherited) = Find(p.Mod, index, Checker.Name, rec => Original(p, rec), uses);
+            var (s, m, missing, inherited) = Find(p.Mod, index, Checker.Name, rec => Original(p, rec), uses,
+                masters: () => p.Masters.Select(n => byName.GetValueOrDefault(n)).OfType<Conflict.PluginInfo>().Select(x => (IModGetter)x.Mod));
             scripts += s; models += m; inheritedAll += inherited;
             analysis.AssetTextureUses += uses.Textures; analysis.AssetMaterialUses += uses.Materials; analysis.AssetSoundUses += uses.Sounds;
-            analysis.AssetMeshUses += uses.Meshes;
+            analysis.AssetMeshUses += uses.Meshes; analysis.AssetSoundEventUses += uses.SoundEvents;
             foreach (var f in missing) analysis.MissingAssets.Add(new Conflict.AssetFinding(p.FileName, f));
             // a file it couldn't read, or materials it couldn't check, goes to "Tool limits hit" (0.14.0)
             foreach (var n in uses.Notes.Concat(uses.SoundNotes)) { analysis.Errors.Add($"assets: {p.FileName}: {n}"); analysis.AssetNotes++; }
@@ -657,7 +696,8 @@ public static class Assets
     /// isn't reported; Inherited counts those uses. The lookup runs only for missing paths. faces: also look for NPC face
     /// data (0.14.0; only release asks for it, see FindFaces).</summary>
     public static (int Scripts, int Models, List<MissingAsset> Missing, int Inherited) Find(IModGetter mod, AssetIndex index, Func<IMajorRecordGetter, string> name,
-        Func<IMajorRecordGetter, IMajorRecordGetter?>? original = null, AssetUses? uses = null, bool faces = false)
+        Func<IMajorRecordGetter, IMajorRecordGetter?>? original = null, AssetUses? uses = null, bool faces = false,
+        Func<IEnumerable<IModGetter>>? masters = null)
     {
         uses ??= new AssetUses();
         int inherited = 0;
@@ -688,6 +728,7 @@ public static class Assets
         var wanted = new List<(string Kind, string Path, string User, IMajorRecordGetter? Rec)>();
         int scripts = 0, models = 0;
         var npcs = new List<INpcGetter>();
+        var soundRefs = new List<(IMajorRecordGetter Rec, string Field, UInt128 Guid)>();
         // Records are read lazily: a damaged one stops the walk. The read check already reports it as an ERROR, so the
         // records read up to there are checked and the stop is only logged.
         try
@@ -721,6 +762,17 @@ public static class Assets
                 }
                 foreach (var (k, p) in tm) wanted.Add((k, p, name(rec), rec));
                 if (faces && rec is INpcGetter npc) npcs.Add(npc);
+                // 0.23.0: the Wwise event GUIDs the record names, and a single music track that plays nothing
+                if (SoundRefs.MayHaveSounds(rec))
+                {
+                    try
+                    {
+                        foreach (var (field, g) in SoundRefs.Guids(rec)) soundRefs.Add((rec, field, AssetFiles.SoundGuid(g)));
+                        if (SoundRefs.IsSilentTrack(rec) && (rec.FormKey.ModKey == mod.ModKey || original?.Invoke(rec) is not { } ot || ReferenceEquals(ot, rec) || !SoundRefs.IsSilentTrack(ot)))
+                            uses.SilentTracks.Add(name(rec));
+                    }
+                    catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"assets: {name(rec)}: could not list its sound events ({e.GetType().Name}: {e.Message})"); }
+                }
             }
         }
         catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"assets: stopped at a record Mutagen can't read ({e.GetType().Name}: {e.Message}); the read check lists it"); }
@@ -867,6 +919,7 @@ public static class Assets
             }
             Log.Write($"assets: {rel} (from {where}): bank version {version}, {streamed.Count} streamed sound(s), {lacking} not found");
         }
+        var soundFindings = FindSoundEvents(mod, soundRefs, index, name, original, masters, uses);
         var faceFindings = FindFaces(mod, npcs, index, name, original, uses);
         if (uses.Unverified.Count > 0)
             uses.Notes.Add($"{uses.Unverified.Count} material path(s) are neither loose files nor in a loaded archive, and {index.CdbProblem}, so they couldn't be checked " +
@@ -879,8 +932,80 @@ public static class Assets
             missing.Add(Odd(new MissingAsset("WARNING", "model", path, null, users.Distinct().ToList()), index));
         foreach (var ((kind, path), users) in missingOther.OrderBy(x => x.Key.Kind == "material" ? 0 : 1).ThenBy(x => x.Key.Path, StringComparer.Ordinal))
             missing.Add(Odd(new MissingAsset("WARNING", kind, path, null, users.Distinct().ToList()), index));
+        missing.AddRange(soundFindings);
         missing.AddRange(faceFindings);
         return (scripts, models, missing, inherited);
+    }
+
+    /// <summary>The Wwise sound-event check (0.23.0, kind "sound-event", a WARNING): each sound GUID the plugin's
+    /// records name must be in a loaded bank's manifest (else miss A) whose event a loaded bank holds (else miss B).
+    /// Not reported: a GUID the overridden version of the record names too (the override rule), and a GUID any record
+    /// of a master names (the master-GUID rule: Bethesda's own dangling GUIDs). The bank index and the masters' GUIDs
+    /// are read only when a GUID needs them. One finding per GUID, with the records and fields that name it.</summary>
+    static List<MissingAsset> FindSoundEvents(IModGetter mod, List<(IMajorRecordGetter Rec, string Field, UInt128 Guid)> refs, AssetIndex index,
+        Func<IMajorRecordGetter, string> name, Func<IMajorRecordGetter, IMajorRecordGetter?>? original, Func<IEnumerable<IModGetter>>? masters, AssetUses uses)
+    {
+        var list = new List<MissingAsset>();
+        if (refs.Count == 0) return list;
+        var banks = index.SoundBanks();
+        if (index.TakeSoundNotes()) uses.SoundNotes.AddRange(banks.Notes);
+        HashSet<UInt128>? masterGuids = null;
+        var misses = new Dictionary<UInt128, (SoundEventState State, SoundBankIndex.Event? Event, List<string> Users)>();
+        int resolved = 0, unchecked_ = 0, kept = 0, fromMaster = 0;
+        foreach (var (rec, field, guid) in refs)
+        {
+            uses.SoundEvents++;
+            var text = AssetFiles.SoundGuidText(guid);
+            var state = banks.Resolve(guid, out var ev);
+            if (state == SoundEventState.Resolved) { resolved++; Log.Write($"assets: sound event {text} ({name(rec)} {field}): {ev!.Name} in {ev.Bank}"); continue; }
+            if (state == SoundEventState.Unchecked) { unchecked_++; Log.Write($"assets: sound event {text} ({name(rec)} {field}): {ev!.Name}, but its bank couldn't be read; not checked"); continue; }
+            try
+            {
+                if (rec.FormKey.ModKey != mod.ModKey && original?.Invoke(rec) is { } o && !ReferenceEquals(o, rec) &&
+                    SoundRefs.Guids(o).Any(x => AssetFiles.SoundGuid(x.Guid) == guid))
+                {
+                    kept++;
+                    Log.Write($"assets: sound event {text} ({name(rec)} {field}): in no loaded bank, but the record it overrides names it too: not reported");
+                    continue;
+                }
+            }
+            catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"assets: {name(rec)}: could not read the record it overrides ({e.GetType().Name}: {e.Message})"); }
+            if (masters != null)
+            {
+                if (masterGuids == null)
+                {
+                    masterGuids = new();
+                    foreach (var m in masters()) masterGuids.UnionWith(SoundRefs.AllGuids(m));
+                }
+                if (masterGuids.Contains(guid))
+                {
+                    fromMaster++;
+                    Log.Write($"assets: sound event {text} ({name(rec)} {field}): in no loaded bank, but a master's own record names it too: not reported");
+                    continue;
+                }
+            }
+            Log.Write($"assets: sound event {text} ({name(rec)} {field}): " +
+                      (state == SoundEventState.NotInManifest ? "in no loaded bank manifest" : $"{ev!.Name} is in the manifest {ev.Manifest}, but no loaded bank holds event {ev.Id}"));
+            if (!misses.TryGetValue(guid, out var mm)) misses[guid] = mm = (state, ev, new());
+            mm.Users.Add($"{name(rec)} {field}");
+        }
+        Log.Write($"assets: {mod.ModKey.FileName}: {refs.Count} sound event use(s): {resolved} resolved, {unchecked_} in banks that couldn't be read, " +
+                  $"{kept} kept from the overridden record, {fromMaster} named by a master too, {misses.Count} missing event(s)");
+        var where = SoundWhere(banks);
+        foreach (var (guid, (state, ev, users)) in misses.OrderBy(x => x.Key))
+            list.Add(new MissingAsset("WARNING", "sound-event", AssetFiles.SoundGuidText(guid), null, users.Distinct().ToList())
+                { SoundState = state, SoundEvent = ev, SoundWhere = where });
+        return list;
+    }
+
+    /// <summary>"62 archives and 1 loose folder were searched; banks were found in A, B and 3 more" (the miss
+    /// message's last part, so a missing --masters-dir or archive shows).</summary>
+    static string SoundWhere(SoundBankIndex b)
+    {
+        // a loose bank's Where is its full path; an archive's is the archive's file name
+        var holders = b.Banks.Values.Select(w => Path.IsPathRooted(w) ? "loose files" : w).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return $"{b.Archives.Count} archive{(b.Archives.Count == 1 ? "" : "s")} and {b.LooseDirs.Count} loose folder{(b.LooseDirs.Count == 1 ? "" : "s")} were searched for sound banks, " +
+               (holders.Count == 0 ? "and none held a bank" : $"and banks were found in {string.Join(", ", holders.Take(4))}{(holders.Count > 4 ? $" and {holders.Count - 4} more" : "")}");
     }
 
     /// <summary>The four face textures per NPC, after its 8-hex ID (0.14.0, D5).</summary>
@@ -1003,6 +1128,9 @@ public static class Assets
 public sealed class AssetUses
 {
     public int Textures, Materials, Meshes, Sounds, Faces, FilesRead;
+    /// <summary>0.23.0: sound GUIDs looked up (one per record field), and the single music tracks that play nothing.</summary>
+    public int SoundEvents;
+    public readonly List<string> SilentTracks = new();
     public readonly List<string> Notes = new();
     /// <summary>Sound banks it couldn't read or whose version isn't a known one (kept apart: release reports them under
     /// sound-missing, which runs with --dmmdeps too).</summary>
@@ -1035,7 +1163,19 @@ public sealed record MissingAsset(string Severity, string Kind, string Path, str
         "plugin that defines the NPC ships, not the mod's own, so the game shows the old face. If the face should look the way you made it, bake " +
         "it in the Creation Kit (BakeFCT and Bake Char Gen Mesh Geometry) and pack the files, under the defining plugin's name, with the mod";
 
-    public string Text => Kind == "face" ? FaceText : Kind == "face-stale" ? StaleFaceText : Trimmed == null
+    /// <summary>Kind "sound-event" (0.23.0): miss A (NotInManifest) or B (NotInBank), the manifest's event for B, and
+    /// what was searched. Path is the GUID in the manifest's form; Users are "record field".</summary>
+    public SoundEventState SoundState { get; init; }
+    public SoundBankIndex.Event? SoundEvent { get; init; }
+    public string? SoundWhere { get; init; }
+
+    public string SoundEventText => SoundState == SoundEventState.NotInBank && SoundEvent is { } ev
+        ? $"sound event {Path} ({ev.Name}, ID {ev.Id}) is listed in the bank manifest {ev.Manifest} (from {System.IO.Path.GetFileName(ev.Where)}), but no loaded sound bank holds " +
+          $"that event, so the sound won't play: the manifest is stale or doesn't match its bank. Generate the bank and its manifest again in Wwise and ship both; used by {Assets.Users(Users)}. {SoundWhere}"
+        : $"sound event {Path} is in no loaded sound bank's manifest, so the sound won't play. If the mod has its own bank, ship sound\\soundbanks\\<bank id>.json " +
+          $"beside the .bnk; if the sound comes from another mod, make that mod a master; used by {Assets.Users(Users)}. {SoundWhere}";
+
+    public string Text => Kind == "face" ? FaceText : Kind == "face-stale" ? StaleFaceText : Kind == "sound-event" ? SoundEventText : Trimmed == null
         ? $"{What} is in no loose file or loaded archive; used by {Assets.Users(Users)}"
         : TrimmedFound
             ? $"{What} has a part that ends in a dot or a space. Windows trims it and opens the loose file {Trimmed}, so the game may load it on Windows, but an archive lookup uses the exact name, so the file goes missing once it is packed into a .ba2. Fix the path in the record; used by {Assets.Users(Users)}"
