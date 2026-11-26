@@ -407,7 +407,7 @@ public static class ScenesCommand
             {
                 if (p.Steps.Count == 0) continue;
                 var pw = SceneWords.Text(p.Conditions, tree.Link, skipNpc);
-                L($"Part {p.Index + 1}" + (p.Name.Length > 0 ? $" \"{p.Name}\"" : "") +
+                L($"Part {p.Index + 1}" + (p.Name.Length > 0 ? $" \"{SafeText.OneLine(p.Name)}\"" : "") +
                   (pw.Count > 0 ? $" (runs only {string.Join(", and ", pw)}; otherwise skipped)" : "") + ".");
                 L();
                 foreach (var st in p.Steps)

@@ -323,7 +323,7 @@ internal sealed class SceneTree
 
     /// <summary>A GetStageDone condition read while walking the shown scenes: done (after) or not done (before), and
     /// where it sits ("ScTopicA" for a scene's own condition, "ScTopicA, part 2" for a part's or a line's).</summary>
-    readonly record struct Gate(FormKey Quest, int Stage, bool After, string Where, FormKey Record);
+    readonly record struct Gate(FormKey Quest, int Stage, bool After, string Where, FormKey Record, bool Required);
 
     /// <summary>A GetStageDone condition as (quest, stage, after), or null for any other condition or a comparison
     /// that isn't a plain 0 or 1.</summary>
@@ -389,8 +389,11 @@ internal sealed class SceneTree
         void Touch(FormKey q) { if (!touched.Contains(q) && PluginOfQuest(q) != null) touched.Add(q); }
         void Conds(IReadOnlyList<IConditionGetter> cs, string where, FormKey rec)
         {
-            foreach (var c in cs)
-                if (StageDone(c) is { } g) { gates.Add(new Gate(g.Quest, g.Stage, g.After, where, rec)); Touch(g.Quest); }
+            // a stage check OR-joined with other alternatives is only one way through, so it is listed in the stage
+            // table but isn't a required gate for stage-gate-unset (0.24.0 code-review round 1)
+            foreach (var part in DialogueLines.AndParts(cs))
+                foreach (var c in part)
+                    if (StageDone(c) is { } g) { gates.Add(new Gate(g.Quest, g.Stage, g.After, where, rec, part.Count == 1)); Touch(g.Quest); }
         }
 
         foreach (var s in shown)
@@ -420,7 +423,7 @@ internal sealed class SceneTree
         }
 
         // stage-gate-unset (WARNING, or a NOTE when the plugin's setters couldn't all be read)
-        foreach (var grp in gates.Where(g => g.After).GroupBy(g => (g.Quest, g.Stage)))
+        foreach (var grp in gates.Where(g => g.After && g.Required).GroupBy(g => (g.Quest, g.Stage)))
         {
             var (q, n) = grp.Key;
             if (PluginOfQuest(q) is not { } pl || pl.Setters.IsSet(q, n)) continue;
@@ -544,19 +547,17 @@ internal sealed record StagePlugin(IStarfieldModGetter Mod, QuestStages.State Se
 /// a condition to the next one, so a run of ORs prints as one item joined with "or".</summary>
 internal static class SceneWords
 {
-    /// <summary>The conditions as a list of items (each an AND part). A GetIsID of skipNpc is left out (it is the
-    /// speaker check of the NPC asked for).</summary>
+    /// <summary>The conditions as a list of items (each an AND part). An AND part holding a GetIsID of skipNpc is left
+    /// out (it is the speaker check of the NPC asked for, and that NPC meets it).</summary>
     public static List<string> Text(IReadOnlyList<IConditionGetter> conds, Func<IFormLinkGetter, string> link, FormKey? skipNpc = null)
     {
         var o = new List<string>();
-        var run = new List<string>();
-        for (int i = 0; i < conds.Count; i++)
+        // an AND part that holds the asked-for NPC's GetIsID is met by that NPC, so the whole part is left out, not
+        // just that one alternative (0.24.0 code-review round 1)
+        foreach (var part in DialogueLines.AndParts(conds))
         {
-            var c = conds[i];
-            if (!(skipNpc is { } n && IsIdOf(c, n))) run.Add(One(c, link));
-            if (c.Flags.HasFlag(Condition.Flag.OR) && i + 1 < conds.Count) continue;   // joined to the next one
-            if (run.Count > 0) o.Add(string.Join(" or ", run));
-            run.Clear();
+            if (skipNpc is { } n && part.Any(c => IsIdOf(c, n))) continue;
+            o.Add(string.Join(" or ", part.Select(c => One(c, link))));
         }
         return o;
     }

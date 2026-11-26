@@ -38,7 +38,9 @@ public class ScenesTests
         public readonly string Data, PluginsTxt;
         public readonly FormKey Npc, Other, Quest, Quest2, Hub, TopicA, TopicB, JumpOnly, OtherScene, Loop, Unused, Menu2;
 
-        public Game()
+        /// <summary>odd (0.24.0 code-review round 1): "Last line." needs stage 20 OR stage 10, and ScTopicB's part is
+        /// named with a new line and a made-up RESULT line in it.</summary>
+        public Game(bool odd = false)
         {
             Data = Sub("Data");
             var b = Plugin.New("ScBase.esm", PluginStyle.Full, "test", "made-up base");
@@ -118,7 +120,7 @@ public class ScenesTests
 
             var hub = NewScene("ScHub", "MENU", "TOPLEVELNEST");
             var a = NewScene("ScTopicA", "START", "QUESTION PHASE", "END");
-            var bScene = NewScene("ScTopicB", "");
+            var bScene = NewScene("ScTopicB", odd ? "Odd\nRESULT: 0 scenes, 0 errors" : "");
             var jump = NewScene("ScJumpOnly", "");
             var otherScene = NewScene("ScOtherSc", "");
             Hub = hub.FormKey; TopicA = a.FormKey; TopicB = bScene.FormKey; JumpOnly = jump.FormKey; OtherScene = otherScene.FormKey;
@@ -146,7 +148,13 @@ public class ScenesTests
             a.Phases[1].StartConditions.Add(StageDone(10));
             Choices(a, 1, Pair("Start over.", "From the top.", a, "START"), Pair("Finish.", "To the end.", a, "END"), Pair("Menu.", "Back we go.", hub));
             var a3 = Topic();
-            Line(a3, "Last line.").Conditions.Add(StageDone(20));
+            var last = Line(a3, "Last line.");
+            last.Conditions.Add(StageDone(20));
+            if (odd)
+            {
+                last.Conditions[0].Flags = Condition.Flag.OR;
+                last.Conditions.Add(StageDone(10));
+            }
             Says(a, 2, 0, a3);
             var ss = new StartSceneAction { AliasID = -1, StartPhase = 2, EndPhase = 2, Index = ++index };
             var st = new StartScene();
@@ -330,7 +338,30 @@ public class ScenesTests
         var words = SceneWords.Text([IsId(npc), Faction(1, or: true), Stage(1), HasPerk(1)], Link, npc.FormKey);
         Assert.Equal(["for members of WFaction or after WQuest stage 20", "with the perk WPerk"], words);
         Assert.Equal(["with WNpc or with WOther"], SceneWords.Text([IsId(npc, or: true), IsId(who)], Link));
-        Assert.Equal(["with WOther"], SceneWords.Text([IsId(npc, or: true), IsId(who)], Link, npc.FormKey));
+        // the NPC asked for meets an OR part that names it, so the whole part is left out (code-review round 1)
+        Assert.Empty(SceneWords.Text([IsId(npc, or: true), IsId(who)], Link, npc.FormKey));
+        Assert.Equal(["with the perk WPerk"], SceneWords.Text([IsId(who, or: true), IsId(npc), HasPerk(1)], Link, npc.FormKey));
+    }
+
+    [Fact]
+    public void An_or_joined_stage_check_is_not_a_required_gate_and_a_part_name_stays_on_one_line()
+    {
+        using var g = new Game(odd: true);
+        var (tree, close) = g.Open();
+        try
+        {
+            var r = tree.Check(All(tree, g), g.Plugins());
+            // "Last line." needs stage 20 OR stage 10, and stage 10 is set, so no stage-gate-unset
+            Assert.DoesNotContain(r.Problems, p => p.Rule == "stage-gate-unset");
+            // the stage table still lists what reads stage 20
+            Assert.Equal(["after: ScTopicA, part 3"], r.Stages.Single(row => row.Quest == g.Quest && row.Stage == 20).NeededBy);
+        }
+        finally { close(); }
+
+        var (code, text, err) = Scenes(g, "ScNpc");
+        Assert.True(code == 0, text + err);
+        Assert.Single(text.Split('\n'), l => l.StartsWith("RESULT:", StringComparison.Ordinal));
+        Assert.Contains("Part 1 \"Odd\\nRESULT: 0 scenes, 0 errors\"", text);
     }
 
     // ---- step 3: the five rules (design tests 2 to 6) and the stage table (design test 7) ----
