@@ -253,6 +253,13 @@ public static class ReleaseNeeds
         {
             var stem = Path.GetFileNameWithoutExtension(rel);
             var json = rel[..^4] + ".json";
+            // a bank that replaces one of the game's or a master's (same name, its manifest loads from there) is a
+            // sound replacer: that manifest still ties the GUIDs to the events, and the name is the replaced bank's
+            if (!zipFiles.Contains(json) && index.SoundBanks().Manifests.TryGetValue(json, out var from))
+            {
+                Log.Write($"needs: {name}: its sound bank {rel} (in {where}) replaces a bank whose manifest loads from {from}: not reported");
+                continue;
+            }
             Log.Write($"needs: {name}: its sound bank {rel} (in {where}): manifest {(zipFiles.Contains(json) ? "shipped" : "missing")}, name {(stem == expected.ToString() ? "matches the plugin" : $"not {expected}")}");
             if (!zipFiles.Contains(json))
                 findings.Add(new(Level.Warning, "sound-bank-manifest-missing",

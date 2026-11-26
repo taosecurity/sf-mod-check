@@ -209,7 +209,8 @@ public class SoundEventsTests
         var own = AssetFiles.Fnv1("rnsound");
         File.WriteAllBytes(Path.Combine(pkg, "RnSound - Main.ba2"), AssetFilesTests.Gnrl(
             ($@"sound\soundbanks\{own}.bnk", Bnk(140, 8001)), ($@"sound\soundbanks\{own}.json", Manifest("RnSound", (G3, 8001, "Play_RnSound_A"))),
-            (@"sound\soundbanks\12345.bnk", Bnk(140, 8002))));   // misnamed, and no manifest
+            (@"sound\soundbanks\12345.bnk", Bnk(140, 8002)),     // misnamed, and no manifest
+            (@"sound\soundbanks\100.bnk", Bnk(140, 7001))));     // replaces the game's bank, whose manifest still loads: neither rule
 
         var f = ReleaseNeeds.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
         var ev = Assert.Single(f, x => x.Rule == "sound-event-missing");
@@ -221,6 +222,8 @@ public class SoundEventsTests
         var name = Assert.Single(f, x => x.Rule == "sound-bank-name");
         Assert.Equal(Level.Note, name.Level);
         Assert.Contains($"which for RnSound.esm is {own}", name.Text);
+        Assert.DoesNotContain(f, x => x.Rule.StartsWith("sound-bank") && x.Text.Contains(@"soundbanks\100.bnk"));
+        Assert.DoesNotContain(f, x => x.Rule == "sound-event-missing" && x.Subject == G1);   // the replacement bank holds the event
         var silent = Assert.Single(f, x => x.Rule == "music-track-silent");
         Assert.Equal(Level.Note, silent.Level);
         Assert.Contains("RN_Silent", silent.Text);

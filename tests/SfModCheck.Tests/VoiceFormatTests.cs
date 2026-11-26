@@ -127,7 +127,7 @@ public class VoiceFormatTests
         File.WriteAllBytes(bad, Encoding.ASCII.GetBytes("not an archive at all, just text"));
         var (code, stdout, _) = b.Run(bad);
         Assert.Equal(2, code);
-        Assert.Contains("not read: Broken - Voices_en.ba2: Broken - Voices_en.ba2 is not a BA2 archive", stdout);
+        Assert.Contains("not read: Broken - Voices_en.ba2 is not a BA2 archive", stdout);   // the name once (bug hunt, step 5)
         Assert.Contains("RESULT: CANNOT CHECK (no input could be read", stdout);
         Assert.Equal(2, b.Run(b.Plugin, "--bogus").Code);
         Assert.Equal(0, b.Run("--help").Code);

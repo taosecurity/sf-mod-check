@@ -702,7 +702,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    and the GUID must be in the manifest (`sound\soundbanks\<id>.json`) of a loaded sound bank whose `.bnk` holds the
    event, else the sound is silent. A GUID the overridden record or any master's record names is not reported; an
    official plugin's own are counted in the log only. `release` adds `sound-bank-manifest-missing` (WARNING: a bank
-   of the mod's own with no `.json` beside it), `sound-bank-name` (NOTE: a bank not named by the FNV-1 Wwise ID of
+   of the mod's own with no `.json` beside it; a bank replacing a game's or master's bank whose manifest still
+   loads is not reported), `sound-bank-name` (NOTE: a bank not named by the FNV-1 Wwise ID of
    the plugin's lower-case base name) and `music-track-silent` (NOTE: a single track with no start event). The
    fix for a miss is to ship the bank's `.json` beside the `.bnk`, or make the mod that owns the sound a master.
    Since 0.18.0 `release` checks voice files (rule `voice-missing`, a WARNING): each dialogue line a plugin adds, other

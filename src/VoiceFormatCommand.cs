@@ -239,7 +239,9 @@ public static class VoiceFormatCommand
                 try { index = Ba2Command.Read(path); }
                 catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
                 {
-                    r.NotRead.Add($"{Path.GetFileName(path)}: {e.Message}");
+                    // Ba2Command.Read's messages already name the archive
+                    var file = Path.GetFileName(path);
+                    r.NotRead.Add(e.Message.StartsWith(file, StringComparison.OrdinalIgnoreCase) ? e.Message : $"{file}: {e.Message}");
                     continue;
                 }
                 foreach (var it in index.Items) if (it.Name.EndsWith(".ffxanim", StringComparison.Ordinal)) lips.Add(it.Name);
