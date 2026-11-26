@@ -46,7 +46,8 @@ public static class FindCommand
         "  --max     with --plugin and no record: list at most this many records (default 100; 0 lists them all);\n" +
         "            with --refs: list at most this many referring records (default 100; 0 lists them all)\n" +
         "  --full    print every nested value of the winning copy as an indented tree (zeros included) instead of the\n" +
-        "            main fields; --json adds it as \"tree\"\n" +
+        "            main fields; --json adds it as \"tree\". On a dialogue topic (DIAL) it also lists the topic's lines\n" +
+        "            (INFOs): each one's winner and each response's number, text, emotion and face fields (\"infos\")\n" +
         "  --versions  list every copy of the record in load order and what each copy changes against the copy it was\n" +
         "            built on; --json adds it as \"versions\" (needs a record: not with the --plugin listing)\n" +
         "  --refs    list the records whose winning copy points at the record (a reference counts, not its cell);\n" +
@@ -289,7 +290,7 @@ public static class FindCommand
                 return 1;
             }
 
-            FillFields(matches, lo, full);
+            FillFields(matches, lo, full, input.Plugin != null ? Path.GetFileName(input.Plugin) : null);
             if (versions) FillVersions(matches, lo);
             if (refs)
             {
@@ -305,7 +306,7 @@ public static class FindCommand
                 {
                     foreach (var u in refsUnread) Console.Error.WriteLine($"note: {u}");
                     Log.Write($"stopped: {e.Message}");
-                    cantWhy = $"memory passed {RecordRefs.MemoryLimit / 1e9:F1} GB while reading links; --plugin reads only one plugin and its masters";
+                    cantWhy = MemoryStop(input.Plugin != null ? Path.GetFileName(input.Plugin) : null);
                     return 2;
                 }
                 foreach (var u in refsUnread) Console.Error.WriteLine($"note: {u}");
@@ -331,8 +332,16 @@ public static class FindCommand
         finally { foreach (var p in lo.Plugins) p.Mod.Dispose(); }
     }
 
-    /// <summary>The winning copies' fields and list entries, links named from the load order.</summary>
-    static void FillFields(List<Match> matches, LoadOrderSetup lo, bool full)
+    /// <summary>Why --refs stopped past its memory limit (0.22.0, D: with --plugin the run already read only the plugin
+    /// and its masters, so suggesting --plugin would be no help).</summary>
+    internal static string MemoryStop(string? pluginMode) => pluginMode == null
+        ? $"memory passed {RecordRefs.MemoryLimit / 1e9:F1} GB while reading links; --plugin reads only one plugin and its masters"
+        : $"memory passed {RecordRefs.MemoryLimit / 1e9:F1} GB while reading links in {SafeText.OneLine(pluginMode)} and its masters, " +
+          "which is already the smallest set --refs reads; close other programs and try again, or look the links up with sf-mod-check conflict on the plugin";
+
+    /// <summary>The winning copies' fields and list entries, links named from the load order. --full also builds the
+    /// tree, and for a dialogue topic its lines (0.22.0); pluginMode is the --plugin file or null.</summary>
+    static void FillFields(List<Match> matches, LoadOrderSetup lo, bool full, string? pluginMode)
     {
         var idCache = lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
         string Link(IFormLinkGetter link) => LinkText(link, idCache);
@@ -345,6 +354,12 @@ public static class FindCommand
             Analyzer.Where = $"building the --full tree of {m.Key} from {m.Winner.Plugin.FileName}";
             (m.Tree, m.TreeNotShown) = FindTree.Build(m.Winner.Rec, Link);
             Log.Write($"full: {m.Key}: {Count(m.Tree)} nodes, {m.TreeNotShown} not shown, {sw.Elapsed.TotalSeconds:F1} s");
+            // 0.22.0: a topic's lines (its INFO children are records of their own, so they aren't in the tree)
+            if (m.Winner.Rec is IDialogTopicGetter)
+            {
+                Analyzer.Where = $"listing the lines of {m.Key}";
+                m.Lines = TopicInfos.Collect(m.Copies, Link, pluginMode);
+            }
         }
         static int Count(List<TreeNode> ns) => ns.Sum(n => 1 + (n.Children != null ? Count(n.Children) : 0));
     }
@@ -414,7 +429,7 @@ public static class FindCommand
         var byKey = Copies(known.Keys.ToHashSet(), known, lo.Plugins, unread).ToDictionary(m => m.Key);
         var matches = listed.Select(r => byKey[r.FormKey]).ToList();
         foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
-        FillFields(matches, lo, full);
+        FillFields(matches, lo, full, name);
 
         var summary = $"{target.FileName} holds {all.Count} record{(all.Count == 1 ? "" : "s")}: {newCount} new, {all.Count - newCount} override{(all.Count - newCount == 1 ? "" : "s")}" +
                       (byType.Count > 0 ? $"; by type: {string.Join(", ", byType.Select(t => $"{t.Type} {t.Count}"))}" : "");
@@ -475,6 +490,8 @@ public static class FindCommand
         public bool TypesDiffer;
         /// <summary>--refs (0.20.0): the records that point at it, or null without --refs.</summary>
         public RefsInfo? Refs;
+        /// <summary>--full on a dialogue topic (0.22.0): its lines, or null.</summary>
+        public TopicLines? Lines;
     }
 
     /// <summary>The plugin a console FormID points at, by the load order's runtime index: full plugins 00 to FC, medium
@@ -727,6 +744,7 @@ public static class FindCommand
     static void Print(Match m, View? view = null)
     {
         PrintFields(m);
+        if (m.Lines != null) foreach (var l in TopicInfos.Lines(m.Lines)) Console.WriteLine(l);   // --full on a topic (0.22.0)
         if (m.Versions != null)
             foreach (var l in RecordVersions.Lines(m.Versions, m.TypesDiffer, m.Key.ModKey.FileName.String, view?.Loaded.Contains(m.Key.ModKey.FileName.String) == true, view?.PluginMode))
                 Console.WriteLine(l);
@@ -800,6 +818,7 @@ public static class FindCommand
                     o["tree"] = FindTree.Json(m.Tree);
                     if (m.TreeNotShown > 0) o["treeNotShown"] = m.TreeNotShown;
                 }
+                if (m.Lines != null) o["infos"] = TopicInfos.Json(m.Lines);   // --full on a topic (0.22.0)
                 if (m.Versions != null) o["versions"] = RecordVersions.Json(m.Versions, m.TypesDiffer);   // --versions (0.20.0)
                 if (m.Refs != null) o["refs"] = RecordRefs.Json(m.Refs, view?.MaxRefs ?? DefaultMax);   // --refs (0.20.0)
                 return (JsonNode)o;

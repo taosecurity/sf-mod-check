@@ -694,6 +694,58 @@ public class FindTests
         Assert.Contains("    note: 1 more record points at it only in a copy a later plugin overrides", stdout);
     }
 
+    // 0.22.0 (D, next step 10): a partial-form winner that carries its own EditorID shows that EditorID, not the earlier
+    // copy's (0.21.0 kept "RP_Old"); a partial form without one keeps the earlier EditorID
+    [Fact]
+    public void Refs_shows_the_EditorID_a_later_partial_form_copy_gives_the_record()
+    {
+        using var game = new Game();
+        using (var g = new GameData(game.Data))
+        {
+            var misc = g.Open("FindBase.esm").MiscItems.First();
+            var a = Plugin.New("FindRefRA.esm", PluginStyle.Full, "test", "made-up quests that point at the misc item");
+            QuestAdapter Vm() => new()
+            {
+                Scripts = { new ScriptEntry { Name = "SfmTest:Holder", Properties =
+                    { new ScriptObjectProperty { Name = "Target", Object = new FormLink<IStarfieldMajorRecordGetter>(misc.FormKey) } } } },
+            };
+            a.Quests.AddNew("RP_Old").VirtualMachineAdapter = Vm();
+            a.Quests.AddNew("RP_Kept").VirtualMachineAdapter = Vm();
+            PluginWriter.Write(a, game.Data, g, new WriteOptions { GapCheck = false, FixEffects = false, Masters = [ModKey.FromFileName("FindBase.esm")] });
+        }
+        using (var g = new GameData(game.Data))
+        {
+            var a = g.Open("FindRefRA.esm");
+            var b = Plugin.New("FindRefRB.esm", PluginStyle.Full, "test", "later partial copies");
+            var renamed = b.Quests.GetOrAddAsOverride(a.Quests.First(q => q.EditorID == "RP_Old"));
+            renamed.VirtualMachineAdapter = null;
+            renamed.EditorID = "RP_New";
+            renamed.MajorRecordFlagsRaw |= SfModCheck.Conflict.FieldCompare.PartialFormFlag;
+            var kept = b.Quests.GetOrAddAsOverride(a.Quests.First(q => q.EditorID == "RP_Kept"));
+            kept.VirtualMachineAdapter = null;
+            kept.EditorID = null;
+            kept.MajorRecordFlagsRaw |= SfModCheck.Conflict.FieldCompare.PartialFormFlag;
+            PluginWriter.Write(b, game.Data, g, new WriteOptions { GapCheck = false, FixEffects = false, Masters = [ModKey.FromFileName("FindBase.esm"), ModKey.FromFileName("FindRefRA.esm")] });
+        }
+        File.AppendAllLines(game.PluginsTxt, ["*FindRefRA.esm", "*FindRefRB.esm"]);
+        var (code, stdout, stderr) = game.Find("FB_Misc", "--refs");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("  referenced by: 2 records (winning copies)", stdout);
+        Assert.Contains("    RP_New [", stdout);
+        Assert.DoesNotContain("RP_Old", stdout);
+        Assert.Contains("    RP_Kept [", stdout);
+    }
+
+    // 0.22.0 (D, next step 10): the memory stop gives other advice when the run already used --plugin
+    [Fact]
+    public void Refs_memory_stop_suggests_plugin_only_when_the_run_did_not_use_it()
+    {
+        Assert.EndsWith("--plugin reads only one plugin and its masters", FindCommand.MemoryStop(null));
+        var withPlugin = FindCommand.MemoryStop("MyMod.esm");
+        Assert.DoesNotContain("--plugin reads", withPlugin);
+        Assert.Contains("while reading links in MyMod.esm and its masters, which is already the smallest set --refs reads", withPlugin);
+    }
+
     [Fact]
     public void Refs_stops_past_its_memory_limit_and_restores_the_old_limit()
     {

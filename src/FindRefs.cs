@@ -96,6 +96,8 @@ public static class RecordRefs
                 // with the copy below) and copies whose links couldn't all be read
                 var adds = new HashSet<FormKey>();
                 var partial = new HashSet<FormKey>();
+                // 0.22.0 (D): a partial form that carries an EditorID renames the record in game, so the winner shows it
+                var partialIds = new Dictionary<FormKey, string>();
                 int records = 0;
                 try
                 {
@@ -105,7 +107,11 @@ public static class RecordRefs
                         if (records % LogEvery == 0) Log.Write($"refs: {p.FileName}: {records} records read, {sw.Elapsed.TotalSeconds:F0} s");
                         var fk = rec.FormKey;
                         if (referrers.ContainsKey(fk)) present.Add(fk);
-                        if (FieldCompare.IsPartial(rec)) { adds.Add(fk); partial.Add(fk); }
+                        if (FieldCompare.IsPartial(rec))
+                        {
+                            adds.Add(fk); partial.Add(fk);
+                            if (!string.IsNullOrEmpty(rec.EditorID)) partialIds[fk] = SafeText.OneLine(rec.EditorID)!;
+                        }
                         if (!walk) continue;   // a target's copies are read too: one match can point at another, but not at itself
                         Dictionary<(FormKey, Type), int>? counts = null, plain = null;
                         try
@@ -185,6 +191,7 @@ public static class RecordRefs
                         holding.Add(fk);
                         points.UnionWith(r.Targets);
                         if (partial.Contains(fk)) r.Plugin = p.FileName;
+                        if (partialIds.TryGetValue(fk, out var renamed)) r.EditorId = renamed;
                         r.Targets = points;
                         foreach (var t in counts.Where(c => c.Value > 0).Select(c => c.Key.Item1)) r.HeldIn[t] = p.FileName;
                         linksFound += counts.Values.Sum();
@@ -208,6 +215,7 @@ public static class RecordRefs
                         // a partial form without the link keeps the earlier copy's (the game merges the two); an unreadable copy changes nothing
                         if (r.Targets.Count > 0) Log.Write($"refs: {fk}: {p.FileName}'s copy {(partial.Contains(fk) ? "is a partial form" : "can't be read")}, so {r.Plugin}'s links stay");
                         if (partial.Contains(fk)) r.Plugin = p.FileName;   // the merged copy wins in game
+                        if (partialIds.TryGetValue(fk, out var renamed)) r.EditorId = renamed;
                         continue;
                     }
                     if (r.Targets.Count > 0) Log.Write($"refs: {fk} pointed at it in {r.Plugin}; {p.FileName}'s copy overrides it without the link");
