@@ -304,4 +304,37 @@ public class FindDialogueTests
         Assert.Equal($"[{source.FormKey}]", line.SharedFrom);
         Assert.DoesNotContain(TopicInfos.Lines(t), l => l.Contains("(no responses)", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void A_partial_form_winner_with_no_EditorID_keeps_the_earlier_copys_EditorID()
+    {
+        // Code review round 5: a bare partial form (no EDID, no lines) showed "(no EditorID)".
+        var mod = Plugin.New("FdPart3.esm", PluginStyle.Full, "test", "made-up");
+        var quest = mod.Quests.AddNew("FQ_Quest");
+        var topic = new DialogTopic(mod) { EditorID = "FQ_Topic", Quest = quest.ToLink<IQuestGetter>() };
+        var info = new DialogResponses(mod) { EditorID = "FQ_Info" };
+        info.Responses.Add(new DialogResponse { ResponseText = "made-up line" });
+        topic.Responses.Add(info);
+        var over = topic.DeepCopy();
+        over.Responses[0].Responses.Clear();
+        over.Responses[0].EditorID = null;
+        over.Responses[0].MajorRecordFlagsRaw |= 0x4000;
+        var over2 = topic.DeepCopy();   // a partial form that keeps its lines but has no EditorID
+        over2.Responses[0].EditorID = null;
+        over2.Responses[0].MajorRecordFlagsRaw |= 0x4000;
+        var p0 = new SfModCheck.Conflict.PluginInfo(0, "FdPart3.esm", false, [], null!);
+        var p1 = new SfModCheck.Conflict.PluginInfo(1, "FdPart3Mod.esm", false, [], null!);
+
+        var t = TopicInfos.Collect([(p0, topic), (p1, over)], l => $"[{l.FormKey}]", null);
+        var line = Assert.Single(t.Records);
+        Assert.Equal("FQ_Info", line.EditorId);
+        Assert.Equal("FdPart3.esm", line.LinesFrom);
+        Assert.Contains(TopicInfos.Lines(t), l => l.Contains("FQ_Info [", StringComparison.Ordinal));
+        var rec = JsonDocument.Parse(TopicInfos.Json(t).ToJsonString()).RootElement.GetProperty("records")[0];
+        Assert.Equal("FQ_Info", rec.GetProperty("editorId").GetString());
+
+        var t2 = TopicInfos.Collect([(p0, topic), (p1, over2)], l => $"[{l.FormKey}]", null);
+        Assert.Equal("FQ_Info", Assert.Single(t2.Records).EditorId);
+        Assert.Null(t2.Records[0].LinesFrom);
+    }
 }

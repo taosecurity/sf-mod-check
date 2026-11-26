@@ -95,6 +95,7 @@ public static class RecordLayouts
         }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
+            Log.Write($"find --layout: {SafeText.OneLine(p.FileName)}: {e.GetType().Name}: {SafeText.OneLine(e.Message)}");
             foreach (var lay in result.Values)
                 if (lay.FileOffset < 0 && lay.Problem == null) lay.Problem = $"{SafeText.OneLine(p.FileName)} can't be read ({e.GetType().Name})";
         }

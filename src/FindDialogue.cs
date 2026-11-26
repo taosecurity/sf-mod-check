@@ -17,8 +17,9 @@ namespace SfModCheck;
 /// as (Mutagen name, text) pairs, in a fixed order.</summary>
 public sealed record TopicResponse(int Number, string Text, List<(string Name, string Value)> Details);
 
-/// <summary>One INFO of the topic as its winning copy has it. SharedFrom: the INFO whose lines it uses when it has none of
-/// its own (SharedDialog), or null.</summary>
+/// <summary>One INFO of the topic as the game uses it: Winner is the winning copy, but when that is a partial form with no
+/// lines, Responses and SharedFrom come from the earlier copy named by LinesFrom (and a partial form with no EditorID keeps
+/// the earlier one). SharedFrom: the INFO whose lines it uses when it has none of its own (SharedDialog), or null.</summary>
 public sealed record TopicLine(FormKey FormKey, string? EditorId, string Winner, List<TopicResponse> Responses, string? SharedFrom, bool Deleted = false)
 {
     /// <summary>0.22.0: the winner is a partial form with no responses, so its lines come from this earlier plugin.</summary>
@@ -48,8 +49,9 @@ public static class TopicInfos
         var sw = Stopwatch.StartNew();
         var res = new TopicLines { PluginMode = pluginMode };
         var order = new List<FormKey>();
-        // Info: the winning copy (its EditorID and Deleted flag); Lines: the copy whose responses or SharedDialog are shown.
-        var winners = new Dictionary<FormKey, (string Plugin, IDialogResponsesGetter Info, IDialogResponsesGetter Lines, string? LinesFrom)>();
+        // Info: the winning copy (its Deleted flag); Lines: the copy whose responses or SharedDialog are shown; EditorId:
+        // the winner's own, or for a partial form with none, the earlier copy's (as find --refs; code review round 5).
+        var winners = new Dictionary<FormKey, (string Plugin, IDialogResponsesGetter Info, IDialogResponsesGetter Lines, string? LinesFrom, string? EditorId)>();
         FormKey topicKey = default;
         foreach (var (plugin, rec) in copies)
         {
@@ -65,10 +67,13 @@ public static class TopicInfos
                     else if (FieldCompare.IsPartial(info) && info.Responses.Count == 0 && info.SharedDialog.IsNull
                              && (earlier.Lines.Responses.Count > 0 || !earlier.Lines.SharedDialog.IsNull))
                     {
-                        winners[info.FormKey] = (plugin.FileName, info, earlier.Lines, earlier.LinesFrom ?? earlier.Plugin);
+                        winners[info.FormKey] = (plugin.FileName, info, earlier.Lines, earlier.LinesFrom ?? earlier.Plugin,
+                                                 string.IsNullOrEmpty(info.EditorID) ? earlier.EditorId : info.EditorID);
                         continue;
                     }
-                    winners[info.FormKey] = (plugin.FileName, info, info, null);
+                    // any other partial form with no EditorID keeps the earlier one too (Provides: empty means "keep")
+                    var edid = string.IsNullOrEmpty(info.EditorID) && earlier.Info != null && FieldCompare.IsPartial(info) ? earlier.EditorId : info.EditorID;
+                    winners[info.FormKey] = (plugin.FileName, info, info, null, edid);
                 }
             }
             catch (Exception e) when (Fatal.Recoverable(e))
@@ -79,16 +84,17 @@ public static class TopicInfos
         }
         foreach (var k in order)
         {
-            var (plugin, info, linesCopy, from) = winners[k];
-            res.Records.Add(Line(info, linesCopy, plugin, link) with { LinesFrom = from });
+            var (plugin, info, linesCopy, from, edid) = winners[k];
+            res.Records.Add(Line(info, linesCopy, edid, plugin, link) with { LinesFrom = from });
         }
         Log.Write($"full: {topicKey}: {res.Total} lines (INFOs), {res.Records.Sum(r => r.Responses.Count)} responses, {res.Unreadable} copies unreadable, {sw.Elapsed.TotalSeconds:F1} s");
         return res;
     }
 
-    /// <summary>One line: the FormKey, EditorID and Deleted flag from the winning copy, the responses and SharedDialog
-    /// from linesCopy (the same copy unless the winner is a partial form with no lines).</summary>
-    static TopicLine Line(IDialogResponsesGetter info, IDialogResponsesGetter linesCopy, string plugin, Func<IFormLinkGetter, string> link)
+    /// <summary>One line: the FormKey and Deleted flag from the winning copy, the EditorID given (the winner's, or an
+    /// earlier copy's under a partial form with none), the responses and SharedDialog from linesCopy (the same copy
+    /// unless the winner is a partial form with no lines).</summary>
+    static TopicLine Line(IDialogResponsesGetter info, IDialogResponsesGetter linesCopy, string? editorId, string plugin, Func<IFormLinkGetter, string> link)
     {
         var responses = new List<TopicResponse>();
         string? shared = null;
@@ -101,7 +107,7 @@ public static class TopicInfos
         {
             responses.Add(new TopicResponse(responses.Count + 1, $"(unreadable: {e.GetType().Name})", new()));
         }
-        return new TopicLine(info.FormKey, string.IsNullOrEmpty(info.EditorID) ? null : SafeText.OneLine(info.EditorID), plugin, responses, shared,
+        return new TopicLine(info.FormKey, string.IsNullOrEmpty(editorId) ? null : SafeText.OneLine(editorId), plugin, responses, shared,
                              info.IsDeleted);
     }
 
