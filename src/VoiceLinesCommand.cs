@@ -172,6 +172,14 @@ public static class VoiceLinesCommand
                 cantWhy = $"{target.FileName}'s dialogue can't be read in full";
                 return 2;
             }
+            if (index.UnreadScenePlugins.Count > 0)
+            {
+                // the unread scenes may make some of the plugin's lines player lines (code-review round 2)
+                var which = string.Join(", ", index.UnreadScenePlugins.Order(StringComparer.OrdinalIgnoreCase));
+                Console.Error.WriteLine($"can't read all the scenes of {which}, which may use {target.FileName}'s lines, so the list could be wrong. Check the plugin in xEdit and retry.");
+                cantWhy = $"the scenes of {which} can't be read in full";
+                return 2;
+            }
             var cache = lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache();
             var (rows, voiced, noVoice, warnings) = Collect(index, cache, target, voices);
 
@@ -275,14 +283,18 @@ public static class VoiceLinesCommand
                 found[n] = sex;
                 why.Add($"{how}: {n}");
             }
+            // named: an NPC was named, even one whose voice type can't be read (a templated NPC); that settles the line
+            // too, so a quest-wide list doesn't fill in for it (code-review round 2)
+            bool named = false;
             void AddNpc(FormKey npc, string how)
             {
                 if (Npc(npc) is not { } n) return;
+                named = true;
                 if (n.Voice.IsNull) { why.Add($"{how}: NPC {npc} has no voice type of its own"); return; }
                 AddVt(n.Voice.FormKey, $"{how} {npc}");
             }
-            // voice-missing's condition rules
-            foreach (var tier in index.ConditionTiers(i, topic))
+            // voice-missing's condition rules, on one tier of conditions
+            void Tier(IReadOnlyList<IConditionGetter> tier)
             {
                 foreach (var c in tier)
                 {
@@ -292,13 +304,17 @@ public static class VoiceLinesCommand
                     {
                         var k = gv.VoiceTypeOrList.Link.FormKey;
                         if (IsVoiceType(k)) AddVt(k, "GetIsVoiceType");
-                        else if (index.FormLists.TryGetValue(k, out var items))
-                            foreach (var x in items) if (IsVoiceType(x)) AddVt(x, $"GetIsVoiceType list {k}");
+                        else foreach (var x in index.ListItems(k)) if (IsVoiceType(x)) AddVt(x, $"GetIsVoiceType list {k}");
                     }
                 }
-                if (found.Count > 0) return;
             }
-            // the lines rules for a speaker
+            bool Settled() => found.Count > 0 || named;
+            var tiers = index.ConditionTiers(i, topic);
+            // 1. the line's own conditions
+            Tier(tiers[0]);
+            if (Settled()) return;
+            // 2. the lines rules for a speaker: the line's speaker, a GetIsAliasRef alias, a scene alias. They come before
+            // the dialogue group's and the quest's lists, since the game ANDs those with the line's own (code-review round 2)
             if (!i.Speaker.IsNull) AddNpc(i.Speaker.FormKey, "speaker");
             foreach (var c in index.ConditionsOf(i, topic))
                 if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
@@ -306,6 +322,13 @@ public static class VoiceLinesCommand
             if (index.SceneTopics.TryGetValue(topic.FormKey, out var uses))
                 foreach (var u in uses)
                     foreach (var npc in index.AliasNpcs(u.Quest, u.Alias)) AddNpc(npc, $"scene {u.Scene} alias {u.Alias}");
+            if (Settled()) return;
+            // 3. the dialogue group's conditions, then the quest's DialogConditions
+            foreach (var tier in tiers.Skip(1))
+            {
+                Tier(tier);
+                if (Settled()) return;
+            }
         }
 
         // the plugin's lines that link a SharedDialog line: that line is spoken by their voice types

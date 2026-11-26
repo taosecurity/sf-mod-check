@@ -172,7 +172,28 @@ internal sealed class DialogueIndex
     public readonly List<string> Unread = new();
     /// <summary>The plugins whose dialogue (topics, lines, scenes, quests) couldn't be read in full.</summary>
     public readonly HashSet<string> UnreadPlugins = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>voice-lines: the masters whose scenes couldn't be read in full (their player choices may be missed).</summary>
+    public readonly HashSet<string> UnreadScenePlugins = new(StringComparer.OrdinalIgnoreCase);
     readonly ILinkCache ids;
+
+    /// <summary>A form list's items, with the items of the lists it holds (code-review round 2: Starfield's voice-type
+    /// lists can hold other lists). Empty when k isn't a form list.</summary>
+    public HashSet<FormKey> ListItems(FormKey k)
+    {
+        var o = new HashSet<FormKey>();
+        var seen = new HashSet<FormKey>();
+        var todo = new Stack<FormKey>();
+        todo.Push(k);
+        while (todo.Count > 0)
+        {
+            var l = todo.Pop();
+            if (!seen.Add(l) || !FormLists.TryGetValue(l, out var items)) continue;
+            foreach (var i in items)
+                if (FormLists.ContainsKey(i)) todo.Push(i);
+                else o.Add(i);
+        }
+        return o;
+    }
     readonly Dictionary<FormKey, string?> edids = new();
 
     DialogueIndex(ILinkCache ids) => this.ids = ids;
@@ -224,14 +245,18 @@ internal sealed class DialogueIndex
 
         // onlyDialogueOf: a topic the plugin overrides (to add lines to a master's topic) may be used by the master's
         // scenes, as a player choice or spoken by an alias, so read those plugins' scenes too and keep the ones that use
-        // the plugin's topics (code-review round 1). The plugin's own copy of a scene wins.
+        // the plugin's topics (code-review round 1). The plugin's own copy of a scene wins; among the other plugins the
+        // last copy wins, and every one of them is read, since a DLC master may override a base game scene that uses the
+        // topic without owning the topic (code-review round 2).
         if (onlyDialogueOf != null)
         {
-            var owners = x.Topics.Keys.Where(k => !k.ModKey.FileName.String.Equals(onlyDialogueOf, StringComparison.OrdinalIgnoreCase))
-                .Select(k => k.ModKey.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var overrides = x.Topics.Keys.Any(k => !k.ModKey.FileName.String.Equals(onlyDialogueOf, StringComparison.OrdinalIgnoreCase));
+            var own = scenes.Keys.ToHashSet();
+            var masters = plugins.FirstOrDefault(p => p.FileName.Equals(onlyDialogueOf, StringComparison.OrdinalIgnoreCase))?.Masters
+                          .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in plugins)
             {
-                if (!owners.Contains(p.FileName)) continue;
+                if (!overrides || !masters.Contains(p.FileName)) continue;
                 var sw = Stopwatch.StartNew();
                 Analyzer.Where = $"the scenes in {p.FileName}";
                 progress?.Invoke($"Reading the scenes in {p.FileName}");
@@ -241,14 +266,15 @@ internal sealed class DialogueIndex
                     foreach (var s in p.Mod.EnumerateMajorRecords<ISceneGetter>())
                     {
                         Tick();
-                        if (scenes.ContainsKey(s.FormKey) || !UsesTopic(s, x.Topics)) continue;
-                        scenes[s.FormKey] = s;
-                        kept++;
+                        if (own.Contains(s.FormKey)) continue;
+                        if (UsesTopic(s, x.Topics)) { scenes[s.FormKey] = s; kept++; }
+                        else scenes.Remove(s.FormKey);   // a later copy that no longer uses the topics wins
                     }
                 }
                 catch (Exception e) when (Fatal.Recoverable(e))
                 {
                     x.Unread.Add($"{p.FileName}'s scenes couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); its later scenes weren't read");
+                    x.UnreadScenePlugins.Add(p.FileName);
                 }
                 Log.Write($"lines: scenes in {p.FileName}: {kept} use the topics of {onlyDialogueOf}, {sw.Elapsed.TotalSeconds:F1} s");
             }
@@ -415,7 +441,7 @@ internal sealed class DialogueIndex
                     case IGetIsVoiceTypeConditionDataGetter gv:
                         anyRule = true;
                         var k = gv.VoiceTypeOrList.Link.FormKey;
-                        if (voiceType is { } vt && (k == vt || (FormLists.TryGetValue(k, out var items) && items.Contains(vt)))) shared = true;
+                        if (voiceType is { } vt && (k == vt || ListItems(k).Contains(vt))) shared = true;
                         break;
                 }
             }
@@ -436,6 +462,11 @@ internal sealed class DialogueIndex
                     if (foundBy == null) { foundBy = "scene alias"; scene = u.Scene; }
                 }
             }
+            // a line whose own speaker or GetIsID names someone else isn't shared with this NPC, even when a quest-wide
+            // GetIsVoiceType list holds its voice type (code-review round 2)
+            if (shared && ((!i.Speaker.IsNull && i.Speaker.FormKey != npc) ||
+                           i.Conditions.Any(c => DialogueLines.Positive(c) && c.Data is IGetIsIDConditionDataGetter g && g.FirstParameter.Link.FormKey != npc)))
+                shared = false;
             if (foundBy == null && shared) foundBy = "voice type";
             else shared = false;
             var (responses, voiceInfo) = Responses(i);

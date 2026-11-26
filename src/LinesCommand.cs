@@ -218,7 +218,6 @@ public static class LinesCommand
             // the NPC
             var matches = Lookup(mainQ, lo, out var notFoundWhy);
             var source = lo.OrderSource;
-            var npcs = matches.Where(m => m.Winner.Rec is INpcGetter).ToList();
             if (matches.Count == 0)
             {
                 var what = NotFoundWhat(mainQ, lo, notFoundWhy);
@@ -422,10 +421,13 @@ public static class LinesCommand
         var v = npc.Voice.FormKey;
         var name = index.EditorId(v, typeof(IVoiceTypeGetter));
         bool? female = null;
-        var unread = new List<string>();
-        var copies = FindCommand.Copies(new HashSet<FormKey> { v }, new(), lo.Plugins, unread);
-        foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
-        if (copies.Count > 0 && copies[0].Winner.Rec is IVoiceTypeGetter vtr) female = vtr.Flags.HasFlag(VoiceType.Flag.Female);
+        // one record: a link cache, not a scan of every plugin (code-review round 2)
+        try
+        {
+            var cache = lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache();
+            if (cache.TryResolve<IVoiceTypeGetter>(v, out var vtr)) female = vtr.Flags.HasFlag(VoiceType.Flag.Female);
+        }
+        catch (Exception e) when (Fatal.Recoverable(e)) { Console.Error.WriteLine($"note: voice type {v} couldn't be read ({e.GetType().Name})"); }
         return (v, name, female);
     }
 

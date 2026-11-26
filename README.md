@@ -973,7 +973,7 @@ Use it to see which kinds of dialogue line an NPC speaks, and which kinds it sti
   **condition** names the NPC (`GetIsID`; a condition of the line's quest or dialogue group counts too); a **quest
   alias** the NPC fills is named by a condition (`GetIsAliasRef`); or a **scene alias** the NPC fills is given the
   line. Lines for the NPC's **voice type** (`GetIsVoiceType`) are listed apart as **shared lines**, because any NPC
-  with that voice type may say them. A negated condition doesn't make a line the NPC's. A line with no speaker, no
+  with that voice type may say them (not a line whose own speaker or `GetIsID` names another NPC). A negated condition doesn't make a line the NPC's. A line with no speaker, no
   speaker condition and no scene alias is **generic**: any NPC may say it, so it is counted and not listed. The
   player's own choices in the NPC's scenes are counted apart and not listed.
 - **Types.** Lines are grouped by their topic's Category and Subtype, such as `Combat / Hit` or `Misc / Idle`, with a
@@ -1053,10 +1053,11 @@ changes nothing.
 - **Rows:** one row per voice type and file number, ordered by voice type and then file number. A line that several
   voice types may speak gets one row per voice type. Two lines that share one file number with different texts give
   one row (the lower INFO) and a WARNING.
-- **Which voice types:** from the line's conditions (`GetIsID` and `GetIsVoiceType`), else those of its dialogue
-  group, else those of its quest (the first of these that names one is used), else from its speaker (the line's
-  speaker, or the NPC that fills its quest alias or scene alias; scenes in the masters count for a master's topic the
-  plugin adds lines to). A line that other lines share (they link it as their SharedDialog) and that names no voice
+- **Which voice types:** the first of these that names an NPC or a voice type is used: the line's own conditions
+  (`GetIsID` and `GetIsVoiceType`); its speaker (the line's speaker, or the NPC that fills its quest alias or scene
+  alias; the masters' scenes count for a master's topic the plugin adds lines to); its dialogue group's conditions;
+  its quest's. A `GetIsVoiceType` form list is read through the lists it holds. An NPC named this way with no voice
+  type of its own (one that takes its voice from a template) gives the line no row and a NOTE. A line that other lines share (they link it as their SharedDialog) and that names no voice
   type itself gets the voice types of the lines that share it. A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
   An unknown `--voice` name still names the folder, with `SEX` empty and a NOTE.
 - **Left out:** player lines (scene choices), lines that link a SharedDialog line (the shared line has the row), and
@@ -1064,7 +1065,8 @@ changes nothing.
 - `--out <file>`: write the list there (default: the screen, stdout). Messages and the RESULT line go to stderr.
 
 Exit codes: 0 written (even with no rows), 2 couldn't run (this includes a plugin whose dialogue can't be read in
-full, so the list never misses lines without saying so). `--plugin`, `--plugins`, `--mo2`, `--profile` and
+full, or a master whose scenes can't be read in full when the plugin adds lines to that master's topics, so the list
+never misses lines without saying so). `--plugin`, `--plugins`, `--mo2`, `--profile` and
 `--extra-data` aren't options of this command (the plugin is the argument) and stop with exit 2.
 
 ## Look over a downloaded mod: `sf-mod-check triage`
