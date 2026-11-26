@@ -385,7 +385,7 @@ public static class ScenesCommand
         if (l.StageOnEnd >= 0 && l.StageOnEnd != l.StageOnBegin) yield return l.StageOnEnd;
     }
 
-    static bool Spoken(LineNode l) => l.HasText || l.SharedFrom != null;
+    static bool Spoken(LineNode l) => l.Shown;
 
     static string Markdown(SceneTree tree, bool isNpc, string targetName, List<SceneNode> shown, int total, FormKey? skipNpc, SceneCheck check)
     {

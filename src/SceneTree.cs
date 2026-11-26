@@ -25,6 +25,9 @@ internal sealed record LineNode(
     public bool HasText => Text.Length > 0;
     /// <summary>The line starts a scene, names a part or ends the conversation: its "Then" is worth printing.</summary>
     public bool Jumps => Goodbye || StartScene != null || !string.IsNullOrEmpty(StartPart);
+    /// <summary>The line is shown and its "Then" read: it has text, shares a line, or jumps (a silent line that ends
+    /// the conversation or starts a scene still decides where the talk goes).</summary>
+    public bool Shown => HasText || SharedFrom != null || Jumps;
 }
 
 /// <summary>One player choice of a Player Dialogue action: the player's topic and the NPC's answer topic.</summary>
@@ -43,12 +46,12 @@ internal sealed record ScenePart(int Index, string Name, IReadOnlyList<IConditio
 internal sealed record SceneNode(
     FormKey Key, string? EditorId, FormKey Quest, IReadOnlyList<IConditionGetter> Conditions, IReadOnlyList<ScenePart> Parts, bool Script)
 {
-    /// <summary>The part with exactly this name (the game's own match), or -1.</summary>
+    /// <summary>The part with this name, letter case ignored (as Rules.CheckScenePhase), or -1.</summary>
     public int PartIndex(string? name)
     {
         if (string.IsNullOrEmpty(name)) return -1;
         for (int i = 0; i < Parts.Count; i++)
-            if (Parts[i].Name.Length > 0 && Parts[i].Name == name) return i;
+            if (Parts[i].Name.Length > 0 && string.Equals(Parts[i].Name, name, StringComparison.OrdinalIgnoreCase)) return i;
         return -1;
     }
 }
@@ -270,7 +273,7 @@ internal sealed class SceneTree
     /// line; "The scene ends." style text from Then, or "" when the choice has no player line either.</summary>
     public string ChoiceThen(SceneNode scene, int part, Choice c)
     {
-        var spoken = c.Player.Where(l => l.HasText || l.SharedFrom != null).ToList();
+        var spoken = c.Player.Where(l => l.Shown).ToList();
         var line = spoken.FirstOrDefault(l => l.StartScene != null) ?? spoken.FirstOrDefault();
         return line == null ? "" : Then(scene, part, line);
     }
@@ -512,7 +515,7 @@ internal sealed class SceneTree
     /// any player line that jumps) is "Back to these choices." A choice with no lines at all doesn't count.</summary>
     bool Loops(SceneNode s, int part, Choice c)
     {
-        var thens = c.Answers.Where(l => l.HasText || l.SharedFrom != null).Select(l => Then(s, part, l))
+        var thens = c.Answers.Where(l => l.Shown).Select(l => Then(s, part, l))
             .Concat(c.Player.Where(l => l.Jumps).Select(l => Then(s, part, l))).ToList();
         if (thens.Count == 0 && ChoiceThen(s, part, c) is { Length: > 0 } t) thens.Add(t);
         return thens.Count > 0 && thens.All(t => t == Back);

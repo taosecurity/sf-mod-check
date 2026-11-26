@@ -504,7 +504,8 @@ public static class Rules
         var s = sceneOf(info.StartScene.FormKey);
         if (s == null) return;
         var parts = s.Phases.Select(p => p.Name ?? "").ToList();
-        if (parts.Contains(info.StartScenePhase)) return;
+        // letter case is ignored (the engine's names are usually case-blind; a case-only difference is not reported)
+        if (parts.Contains(info.StartScenePhase, StringComparer.OrdinalIgnoreCase)) return;
         var sn = $"{SafeText.OneLine(s.EditorID) ?? "(no EditorID)"} [SCEN:{s.FormKey}]";
         add("ERROR", ScenePhaseMissing, ScenePhaseText(name, sn, info.StartScenePhase, parts));
     }

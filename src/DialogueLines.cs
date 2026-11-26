@@ -236,6 +236,14 @@ internal sealed class DialogueIndex
     /// caller set in Analyzer.MaxManagedBytes. onlyDialogueOf (voice-lines, 0.21.0 step 3a): read topics, lines and
     /// scenes from that plugin only (its masters can't use its topics) and follow forced aliases only in the quests its
     /// topics and scenes name; quests and form lists are still read from every plugin.</summary>
+    /// <summary>A later copy wins, except a partial form (flag 0x4000) over a full copy: a partial form holds only some
+    /// fields, so the full copy before it (as Rules.FullQuest picks for `check`) is what the tree reads.</summary>
+    static void KeepFull<T>(Dictionary<FormKey, T> d, T rec) where T : IMajorRecordGetter
+    {
+        if (Rules.IsPartial(rec) && d.TryGetValue(rec.FormKey, out var earlier) && !Rules.IsPartial(earlier)) return;
+        d[rec.FormKey] = rec;
+    }
+
     public static DialogueIndex Build(List<PluginInfo> plugins, Action<string>? progress, string? onlyDialogueOf = null)
     {
         var idCache = plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
@@ -262,11 +270,17 @@ internal sealed class DialogueIndex
                     {
                         Tick();
                         x.Topics[t.FormKey] = t;
-                        foreach (var i in t.Responses) { Tick(); x.Infos[i.FormKey] = new(i, t.FormKey, p.FileName); infos++; }
+                        foreach (var i in t.Responses)
+                        {
+                            Tick(); infos++;
+                            // a partial form with no lines of its own keeps the earlier copy, as `find` reads it
+                            if (Rules.IsPartial(i) && i.Responses.Count == 0 && i.SharedDialog.IsNull && x.Infos.ContainsKey(i.FormKey)) continue;
+                            x.Infos[i.FormKey] = new(i, t.FormKey, p.FileName);
+                        }
                     }
-                    foreach (var s in p.Mod.EnumerateMajorRecords<ISceneGetter>()) { Tick(); scenes[s.FormKey] = s; }
+                    foreach (var s in p.Mod.EnumerateMajorRecords<ISceneGetter>()) { Tick(); KeepFull(scenes, s); }
                 }
-                foreach (var q in p.Mod.EnumerateMajorRecords<IQuestGetter>()) { Tick(); x.Quests[q.FormKey] = q; }
+                foreach (var q in p.Mod.EnumerateMajorRecords<IQuestGetter>()) { Tick(); KeepFull(x.Quests, q); }
                 foreach (var l in p.Mod.EnumerateMajorRecords<IFormListGetter>()) { Tick(); x.FormLists[l.FormKey] = l.Items.Select(i => i.FormKey).ToHashSet(); }
             }
             catch (Exception e) when (Fatal.Recoverable(e))
@@ -301,6 +315,7 @@ internal sealed class DialogueIndex
                     {
                         Tick();
                         if (own.Contains(s.FormKey)) continue;
+                        if (Rules.IsPartial(s) && scenes.TryGetValue(s.FormKey, out var full) && !Rules.IsPartial(full)) continue;
                         if (UsesTopic(s, x.Topics)) { scenes[s.FormKey] = s; kept++; }
                         else scenes.Remove(s.FormKey);   // a later copy that no longer uses the topics wins
                     }

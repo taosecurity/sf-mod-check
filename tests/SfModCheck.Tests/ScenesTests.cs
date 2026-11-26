@@ -40,7 +40,7 @@ public class ScenesTests
 
         /// <summary>odd (0.24.0 code-review round 1): "Last line." needs stage 20 OR stage 10, and ScTopicB's part is
         /// named with a new line and a made-up RESULT line in it.</summary>
-        public Game(bool odd = false)
+        public Game(bool odd = false, bool round2 = false)
         {
             Data = Sub("Data");
             var b = Plugin.New("ScBase.esm", PluginStyle.Full, "test", "made-up base");
@@ -202,10 +202,42 @@ public class ScenesTests
             Line(o1, "Not ScNpc.");
             Says(otherScene, 0, 1, o1);
 
+            // round2 (0.24.0 code-review round 2): ScQuiet in ScQuest2, part "ASK2": "Wait." gets a silent answer that
+            // ends the conversation, "Again?" gets an answer that starts ScQuiet at "ask2" (letter case only differs)
+            if (round2)
+            {
+                var quiet = NewSceneOf(quest2, "ScQuiet", "ASK2");
+                Quiet = quiet.FormKey;
+                var waitP = Topic(DialogTopic.CategoryEnum.Player, quest2);
+                Line(waitP, "Wait.");
+                var waitA = Topic(on: quest2);
+                waitA.Responses.Add(new DialogResponses(b) { EditorID = "SC_SilentBye", Flags = new DialogResponseFlags { Flags = LineNode.GoodbyeFlag } });
+                Choices(quiet, 0, (waitP, waitA), Pair("Again?", "Sure again.", quiet, "ask2", on: quest2));
+            }
+
             using (var g = new GameData(Data)) PluginWriter.Write(b, Data, g, NoGap);
             PluginsTxt = Path.Combine(Dir, "Plugins.txt");
             File.WriteAllLines(PluginsTxt, ["*ScBase.esm"]);
+
+            // round2: ScPatch.esm overrides ScQuest and ScHub as partial forms (flag 0x4000) holding no aliases, parts or
+            // actions, as a DLC does with only EDID and VMAD; the tree must keep reading ScBase's full copies
+            if (round2)
+            {
+                var p = Plugin.New("ScPatch.esm", PluginStyle.Full, "test", "made-up partial patch");
+                var q = quest.DeepCopy();
+                q.Aliases.Clear(); q.Stages.Clear(); q.DialogTopics.Clear(); q.Scenes.Clear();
+                q.MajorRecordFlagsRaw |= 0x4000;
+                var h = hub.DeepCopy();
+                h.Phases.Clear(); h.Actions = new();
+                h.MajorRecordFlagsRaw |= 0x4000;
+                q.Scenes.Add(h);
+                p.Quests.Add(q);
+                using (var g = new GameData(Data)) { g.Open("ScBase.esm"); PluginWriter.Write(p, Data, g, NoGap); }
+                File.WriteAllLines(PluginsTxt, ["*ScBase.esm", "*ScPatch.esm"]);
+            }
         }
+
+        public FormKey Quiet;
 
         /// <summary>ScBase.esm as read by the last Open().</summary>
         public IStarfieldModGetter? BaseMod;
@@ -362,6 +394,34 @@ public class ScenesTests
         Assert.True(code == 0, text + err);
         Assert.Single(text.Split('\n'), l => l.StartsWith("RESULT:", StringComparison.Ordinal));
         Assert.Contains("Part 1 \"Odd\\nRESULT: 0 scenes, 0 errors\"", text);
+    }
+
+    [Fact]
+    public void A_partial_override_keeps_the_full_copy_case_is_ignored_and_a_silent_goodbye_is_a_way_out()
+    {
+        // 0.24.0 code-review round 2: a partial-form quest or scene override emptied the aliases and parts; a part name
+        // differing only in letter case was an ERROR; a silent answer that ends the conversation was dropped, so its
+        // choice part was a false scene-no-exit
+        using var g = new Game(round2: true);
+        var (tree, close) = g.Open();
+        try
+        {
+            Assert.Equal("ScNpc", tree.Speaker(g.Quest, 0));
+            Assert.Equal(["MENU", "TOPLEVELNEST"], tree.Scene(g.Hub)!.Parts.Select(p => p.Name));
+            Assert.Equal(g.Hub, tree.ForNpc(g.Npc)[0].Key);
+
+            var quiet = tree.Scene(g.Quiet)!;
+            Assert.Equal("Back to these choices.", tree.Then(quiet, 0, Answer(quiet, 0, "Sure again.")));
+            var r = tree.Check(All(tree, g), g.Plugins());
+            Assert.DoesNotContain(r.Problems, p => p.Message.Contains("ScQuiet"));
+            Assert.Single(r.Problems, p => p.Rule == "scene-phase-missing");   // only the old "QUESTIONPHASE" one
+            Assert.Equal(20, r.Stages.Single(row => row.Quest == g.Quest && row.Stage == 20).Stage);
+        }
+        finally { close(); }
+
+        var (code, text, err) = Scenes(g, "ScQuest2");
+        Assert.True(code == 0, text + err);
+        Assert.Contains("| \"Wait.\" | (no text) | The conversation ends. |", text);
     }
 
     // ---- step 3: the five rules (design tests 2 to 6) and the stage table (design test 7) ----
