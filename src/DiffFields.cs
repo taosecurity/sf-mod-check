@@ -32,6 +32,9 @@ public sealed class ChangedRecord
     public List<LeveledEntry>? EntriesAdded { get; set; }
     public List<LeveledEntry>? EntriesRemoved { get; set; }
     public bool OtherEntryChanges { get; set; }
+    /// <summary>0.22.0 (code review round 2): the entries in both versions (the old list less EntriesRemoved, the new
+    /// less EntriesAdded), so the detail can still show a change inside a kept entry (its conditions or chance).</summary>
+    internal (List<object> Old, List<object> New)? EntriesKept { get; set; }
     /// <summary>A placed object whose base object changed: the old and the new base (null when not a swap).</summary>
     public (RecKey? Old, RecKey? New)? BaseSwap { get; set; }
     /// <summary>0.22.0: the field-by-field detail of the change, as triage has it since 0.17.0 (TriageDetail): one line
@@ -120,6 +123,10 @@ public static class DiffFields
     /// <summary>The name the field list gives a move to another cell.</summary>
     public const string ParentCell = "(parent cell)";
 
+    /// <summary>The path the detail gives the leveled-list entries in both versions (numbered among themselves) when
+    /// entries were also added or removed.</summary>
+    public const string KeptEntries = "Entries (in both versions)";
+
     /// <summary>A form link's key as the record index has it, or null for a null link.</summary>
     static RecKey? LinkKey(object? v, ModKey self) =>
         v is IFormLinkGetter fl && !fl.IsNull ? KeyOf(fl.FormKey, self) : null;
@@ -128,17 +135,17 @@ public static class DiffFields
 
     /// <summary>A leveled list's entries as (level, reference, count), read by name so every leveled type with an
     /// Entries list (LVLI, LVLN, LVLB, LVLP and others) works; null when the record has none that read this way.</summary>
-    static List<LeveledEntry>? EntriesOf(IMajorRecordGetter r, ModKey self)
+    static List<(LeveledEntry Key, object Entry)>? EntriesOf(IMajorRecordGetter r, ModKey self)
     {
         if (Member(r, "Entries") is not System.Collections.IEnumerable list) return null;
-        var l = new List<LeveledEntry>();
+        var l = new List<(LeveledEntry, object)>();
         foreach (var e in list)
         {
             if (e == null) continue;
             var t = e.GetType();
             if (t.GetProperty("Reference") is not { } refProp) return null;
             static int Num(object? v) => v == null ? 0 : Convert.ToInt32(v, System.Globalization.CultureInfo.InvariantCulture);
-            l.Add(new LeveledEntry(Num(Member(e, "Level")), LinkKey(refProp.GetValue(e), self), Num(Member(e, "Count"))));
+            l.Add((new LeveledEntry(Num(Member(e, "Level")), LinkKey(refProp.GetValue(e), self), Num(Member(e, "Count"))), e));
         }
         return l;
     }
@@ -147,7 +154,7 @@ public static class DiffFields
     /// and then once is one removed).</summary>
     static void Entries(ChangedRecord c, IMajorRecordGetter a, IMajorRecordGetter b, string oldPath, string newPath, string name)
     {
-        List<LeveledEntry>? ea, eb;
+        List<(LeveledEntry Key, object Entry)>? ea, eb;
         try
         {
             ea = EntriesOf(a, ModKey.FromFileName(Path.GetFileName(oldPath)));
@@ -159,17 +166,22 @@ public static class DiffFields
             return;
         }
         if (ea == null || eb == null) return;
-        static List<LeveledEntry> Minus(List<LeveledEntry> x, List<LeveledEntry> y)
+        // x less y as multisets: the entries only in x, and x's entries that y also has (in x's order)
+        static (List<LeveledEntry> Only, List<object> Kept) Minus(List<(LeveledEntry Key, object Entry)> x, List<(LeveledEntry Key, object Entry)> y)
         {
-            var left = y.GroupBy(e => e).ToDictionary(g => g.Key, g => g.Count());
-            var l = new List<LeveledEntry>();
+            var left = y.GroupBy(e => e.Key).ToDictionary(g => g.Key, g => g.Count());
+            var only = new List<LeveledEntry>();
+            var kept = new List<object>();
             foreach (var e in x)
-                if (left.TryGetValue(e, out var n) && n > 0) left[e] = n - 1;
-                else l.Add(e);
-            return l;
+                if (left.TryGetValue(e.Key, out var n) && n > 0) { left[e.Key] = n - 1; kept.Add(e.Entry); }
+                else only.Add(e.Key);
+            return (only, kept);
         }
-        c.EntriesAdded = Minus(eb, ea);
-        c.EntriesRemoved = Minus(ea, eb);
+        var (added, keptNew) = Minus(eb, ea);
+        var (removed, keptOld) = Minus(ea, eb);
+        c.EntriesAdded = added;
+        c.EntriesRemoved = removed;
+        c.EntriesKept = (keptOld, keptNew);
         c.OtherEntryChanges = c.EntriesAdded.Count == 0 && c.EntriesRemoved.Count == 0;
     }
 
@@ -201,11 +213,20 @@ public static class DiffFields
             bool changed = differ.Contains(p.Name);
             if (!changed && translations is null) continue;
             // Already reported in their own lines: the leveled-list entries added and removed, and a base-object swap.
-            if (p.Name == "Entries" && c.EntriesAdded != null && !c.OtherEntryChanges) continue;
+            // For the entries, only those in both versions are walked, so a change inside a kept entry (its conditions or
+            // chance) still shows (code review 0.22.0 round 2).
+            bool keptOnly = p.Name == "Entries" && c.EntriesAdded != null && !c.OtherEntryChanges && c.EntriesKept != null;
             if (p.Name == "Base" && c.BaseSwap != null) continue;
             try
             {
                 object? va = p.GetValue(a), vb = p.GetValue(b);
+                if (keptOnly)
+                {
+                    var (ko, kn) = c.EntriesKept!.Value;
+                    var (kl, _) = detail.Field(KeptEntries, ko, kn, translations);
+                    foreach (var l in kl) c.Detail.Add((p.Name, l));
+                    continue;
+                }
                 if (p.Name == "MajorRecordFlagsRaw" && va is int fa && vb is int fb) { va = fa & ~CompressedFlag; vb = fb & ~CompressedFlag; }
                 var (lines, _) = detail.Field(p.Name, va, vb, translations, knownEqual: !changed);
                 foreach (var l in lines) c.Detail.Add((p.Name, l));

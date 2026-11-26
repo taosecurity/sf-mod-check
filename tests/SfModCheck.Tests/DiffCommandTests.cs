@@ -1244,6 +1244,39 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void A_change_inside_a_kept_entry_shows_in_the_detail_when_other_entries_were_added_or_removed()
+    {
+        // 0.22.0 code review round 2: an entry added or removed used to skip the whole Entries detail, so a kept
+        // entry's new condition showed nowhere.
+        using var s = new Sandbox();
+        string Make(string sub, bool condition, short secondLevel) =>
+            Build(s, sub, "Mod.esm", PluginStyle.Full, (mod, _) =>
+            {
+                var a = Misc(mod, 0x801, "MOD_MiscA"); var b = Misc(mod, 0x802, "MOD_MiscB");
+                var list = mod.LeveledItems.AddNew(new FormKey(mod.ModKey, 0x803));
+                list.EditorID = "MOD_List";
+                var kept = new LeveledItemEntry { Level = 1, Reference = a.ToLink<IItemGetter>(), Count = 1 };
+                if (condition)
+                    kept.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, Data = new GetIsIDConditionData(), ComparisonValue = 1 });
+                list.Entries = [kept, new LeveledItemEntry { Level = secondLevel, Reference = b.ToLink<IItemGetter>(), Count = 1 }];
+            });
+        var v1 = Make("v1", condition: false, secondLevel: 5);
+        var v2 = Make("v2", condition: true, secondLevel: 2);
+        var l = Assert.Single(CompareFields(v1, v2).Changed);
+        Assert.Single(l.EntriesAdded!);
+        Assert.Single(l.EntriesRemoved!);
+        var lines = l.Detail.Where(x => x.Field == "Entries").Select(x => x.Line.Path).ToList();
+        Assert.NotEmpty(lines);
+        Assert.All(lines, p => Assert.StartsWith(DiffFields.KeptEntries, p));
+        Assert.Contains(lines, p => p.Contains("Conditions", StringComparison.Ordinal));
+
+        // the same add and remove with the kept entry unchanged: no Entries detail (the +/- lines say it all)
+        var v3 = Make("v3", condition: false, secondLevel: 2);
+        var same = Assert.Single(CompareFields(v1, v3).Changed);
+        Assert.DoesNotContain(same.Detail, x => x.Field == "Entries");
+    }
+
+    [Fact]
     public void Master_editor_ids_come_from_the_master_or_the_report_says_it_is_missing()
     {
         using var s = new Sandbox();

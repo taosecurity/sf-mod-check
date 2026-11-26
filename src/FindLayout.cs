@@ -84,7 +84,13 @@ public static class RecordLayouts
                         : "the record wasn't found in the file's raw layout";
                     continue;
                 }
-                Fill(lay, f, r, cap);
+                // a read that fails names this record only; the others are still filled (code review 0.22.0 round 2)
+                try { Fill(lay, f, r, cap); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    lay.Problem ??= $"the record's data can't be read ({e.GetType().Name})";
+                    Log.Write($"find --layout: {SafeText.OneLine(p.FileName)} {k}: {e.GetType().Name}: {SafeText.OneLine(e.Message)}");
+                }
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
