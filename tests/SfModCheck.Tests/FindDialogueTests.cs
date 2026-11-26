@@ -242,4 +242,38 @@ public class FindDialogueTests
         Assert.False(recs[0].TryGetProperty("deleted", out _));
         Assert.True(recs[1].GetProperty("deleted").GetBoolean());
     }
+
+    [Fact]
+    public void A_partial_form_winner_with_no_responses_keeps_the_earlier_copys_lines()
+    {
+        // Code review round 3: a partial-form INFO override (a condition change only) showed "(no responses)",
+        // though the game merges it with the copy before it and keeps that copy's lines.
+        var mod = Plugin.New("FdPart.esm", PluginStyle.Full, "test", "made-up");
+        var quest = mod.Quests.AddNew("FP_Quest");
+        var topic = new DialogTopic(mod) { EditorID = "FP_Topic", Quest = quest.ToLink<IQuestGetter>() };
+        var info = new DialogResponses(mod) { EditorID = "FP_Info" };
+        info.Responses.Add(new DialogResponse { ResponseText = "Made-up partial line." });
+        topic.Responses.Add(info);
+        var over = topic.DeepCopy();
+        over.Responses[0].Responses.Clear();
+        over.Responses[0].MajorRecordFlagsRaw |= 0x4000;
+        var full = topic.DeepCopy();
+        full.Responses[0].Responses.Clear();
+        var basePlugin = new SfModCheck.Conflict.PluginInfo(0, "FdPart.esm", false, [], null!);
+        var modPlugin = new SfModCheck.Conflict.PluginInfo(1, "FdPartMod.esm", false, [], null!);
+
+        var t = TopicInfos.Collect([(basePlugin, topic), (modPlugin, over)], l => $"[{l.FormKey}]", null);
+        var line = Assert.Single(t.Records);
+        Assert.Equal("FdPartMod.esm", line.Winner);
+        Assert.Equal("FdPart.esm", line.LinesFrom);
+        Assert.Equal("Made-up partial line.", Assert.Single(line.Responses).Text);
+        Assert.Contains(TopicInfos.Lines(t), l => l.EndsWith("winner FdPartMod.esm (a partial form; its lines come from FdPart.esm)", StringComparison.Ordinal));
+        var rec = JsonDocument.Parse(TopicInfos.Json(t).ToJsonString()).RootElement.GetProperty("records")[0];
+        Assert.Equal("FdPart.esm", rec.GetProperty("linesFrom").GetString());
+
+        // a full (not partial) override with no responses still wins with none
+        var t2 = TopicInfos.Collect([(basePlugin, topic), (modPlugin, full)], l => $"[{l.FormKey}]", null);
+        Assert.Empty(Assert.Single(t2.Records).Responses);
+        Assert.Null(t2.Records[0].LinesFrom);
+    }
 }

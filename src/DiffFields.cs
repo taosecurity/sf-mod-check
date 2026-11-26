@@ -166,19 +166,32 @@ public static class DiffFields
             return;
         }
         if (ea == null || eb == null) return;
-        // x less y as multisets: the entries only in x, and x's entries that y also has (in x's order)
-        static (List<LeveledEntry> Only, List<object> Kept) Minus(List<(LeveledEntry Key, object Entry)> x, List<(LeveledEntry Key, object Entry)> y)
-        {
-            var left = y.GroupBy(e => e.Key).ToDictionary(g => g.Key, g => g.Count());
-            var only = new List<LeveledEntry>();
-            var kept = new List<object>();
-            foreach (var e in x)
-                if (left.TryGetValue(e.Key, out var n) && n > 0) { left[e.Key] = n - 1; kept.Add(e.Entry); }
-                else only.Add(e.Key);
-            return (only, kept);
-        }
-        var (added, keptNew) = Minus(eb, ea);
-        var (removed, keptOld) = Minus(ea, eb);
+        // Pair the old and the new entries as multisets by (level, reference, count). Within one key, an entry equal in
+        // every field is paired first, then the rest in order, so an unchanged entry isn't paired with a removed one.
+        // The kept pairs are listed in the new order on both sides, so the detail compares each entry with its own old
+        // copy even when the kept entries moved (code review 0.22.0 round 3).
+        var matchedOld = new int[eb.Count];
+        Array.Fill(matchedOld, -1);
+        var usedOld = new bool[ea.Count];
+        for (int pass = 0; pass < 2; pass++)
+            for (int j = 0; j < eb.Count; j++)
+            {
+                if (matchedOld[j] >= 0) continue;
+                for (int i = 0; i < ea.Count; i++)
+                {
+                    if (usedOld[i] || !ea[i].Key.Equals(eb[j].Key)) continue;
+                    if (pass == 0 && !Equals(ea[i].Entry, eb[j].Entry)) continue;
+                    usedOld[i] = true; matchedOld[j] = i; break;
+                }
+            }
+        var keptOld = new List<object>();
+        var keptNew = new List<object>();
+        var added = new List<LeveledEntry>();
+        for (int j = 0; j < eb.Count; j++)
+            if (matchedOld[j] >= 0) { keptOld.Add(ea[matchedOld[j]].Entry); keptNew.Add(eb[j].Entry); }
+            else added.Add(eb[j].Key);
+        var removed = new List<LeveledEntry>();
+        for (int i = 0; i < ea.Count; i++) if (!usedOld[i]) removed.Add(ea[i].Key);
         c.EntriesAdded = added;
         c.EntriesRemoved = removed;
         c.EntriesKept = (keptOld, keptNew);

@@ -86,7 +86,7 @@ public static class RecordLayouts
                 }
                 // a read that fails names this record only; the others are still filled (code review 0.22.0 round 2)
                 try { Fill(lay, f, r, cap); }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                catch (Exception e) when (Fatal.Recoverable(e))
                 {
                     lay.Problem ??= $"the record's data can't be read ({e.GetType().Name})";
                     Log.Write($"find --layout: {SafeText.OneLine(p.FileName)} {k}: {e.GetType().Name}: {SafeText.OneLine(e.Message)}");
@@ -213,7 +213,8 @@ public static class RecordLayouts
         foreach (var f in shown)
             yield return $"    {f.Offset,6}  {f.Sig}  {f.Size,6}{(f.Big ? " (XXXX)" : "")}  {f.Preview}";
         if (l.Total > shown.Count) yield return $"    ... and {l.Total - shown.Count:N0} more subrecords (--json lists up to {MaxJson:N0})";
-        if (l.Problem != null) yield return $"    problem: {l.Problem}; the subrecords after it can't be read";
+        if (l.Problem != null)
+            yield return $"    problem: {l.Problem}; " + (l.Total == 0 ? "no subrecords were read" : "the subrecords after it can't be read");
     }
 
     public static JsonObject Json(RecordLayout l)

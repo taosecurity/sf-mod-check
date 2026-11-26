@@ -1277,6 +1277,44 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void Kept_entries_are_paired_with_their_own_old_copy_when_they_moved_or_share_a_key()
+    {
+        // 0.22.0 code review round 3: the kept entries were compared by position in each version's own order, so a
+        // reordered list (the same item at two levels) compared the wrong pairs; and among entries with the same key an
+        // unchanged one could be paired with the removed one.
+        using var s = new Sandbox();
+        static ConditionFloat Cond(float v) => new() { CompareOperator = CompareOperator.EqualTo, Data = new GetIsIDConditionData(), ComparisonValue = v };
+        string Make(string sub, Func<IItemGetter, IItemGetter, IItemGetter, LeveledItemEntry[]> entries) =>
+            Build(s, sub, "Mod.esm", PluginStyle.Full, (mod, _) =>
+            {
+                var a = Misc(mod, 0x801, "MOD_MiscA"); var b = Misc(mod, 0x802, "MOD_MiscB"); var c = Misc(mod, 0x804, "MOD_MiscC");
+                var list = mod.LeveledItems.AddNew(new FormKey(mod.ModKey, 0x803));
+                list.EditorID = "MOD_List";
+                list.Entries = [.. entries(a, b, c)];
+            });
+        static LeveledItemEntry E(IItemGetter r, short level, float? cond = null)
+        {
+            var e = new LeveledItemEntry { Level = level, Reference = r.ToLink<IItemGetter>(), Count = 1 };
+            if (cond is { } v) e.Conditions.Add(Cond(v));
+            return e;
+        }
+        // reordered: [A L1, A L10, B] -> [A L10 (new condition), A L1, C]
+        var v1 = Make("v1", (a, b, c) => [E(a, 1), E(a, 10), E(b, 1)]);
+        var v2 = Make("v2", (a, b, c) => [E(a, 10, 1), E(a, 1), E(c, 1)]);
+        var l = Assert.Single(CompareFields(v1, v2).Changed);
+        var paths = l.Detail.Where(x => x.Field == "Entries").Select(x => x.Line.Path).ToList();
+        Assert.Contains(paths, p => p.Contains("Conditions", StringComparison.Ordinal));
+        Assert.DoesNotContain(paths, p => p.EndsWith(".Level", StringComparison.Ordinal));
+
+        // same key twice: [A c1, A c2] -> [A c2, C]: A c1 was removed and A c2 is unchanged, so no Entries detail
+        var v3 = Make("v3", (a, b, c) => [E(a, 1, 1), E(a, 1, 2)]);
+        var v4 = Make("v4", (a, b, c) => [E(a, 1, 2), E(c, 1)]);
+        var d = Assert.Single(CompareFields(v3, v4).Changed);
+        Assert.Single(d.EntriesRemoved!);
+        Assert.DoesNotContain(d.Detail, x => x.Field == "Entries");
+    }
+
+    [Fact]
     public void Master_editor_ids_come_from_the_master_or_the_report_says_it_is_missing()
     {
         using var s = new Sandbox();

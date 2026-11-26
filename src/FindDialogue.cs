@@ -19,7 +19,11 @@ public sealed record TopicResponse(int Number, string Text, List<(string Name, s
 
 /// <summary>One INFO of the topic as its winning copy has it. SharedFrom: the INFO whose lines it uses when it has none of
 /// its own (SharedDialog), or null.</summary>
-public sealed record TopicLine(FormKey FormKey, string? EditorId, string Winner, List<TopicResponse> Responses, string? SharedFrom, bool Deleted = false);
+public sealed record TopicLine(FormKey FormKey, string? EditorId, string Winner, List<TopicResponse> Responses, string? SharedFrom, bool Deleted = false)
+{
+    /// <summary>0.22.0: the winner is a partial form with no responses, so its lines come from this earlier plugin.</summary>
+    public string? LinesFrom { get; init; }
+}
 
 /// <summary>What --full lists under one topic.</summary>
 public sealed class TopicLines
@@ -44,7 +48,7 @@ public static class TopicInfos
         var sw = Stopwatch.StartNew();
         var res = new TopicLines { PluginMode = pluginMode };
         var order = new List<FormKey>();
-        var winners = new Dictionary<FormKey, (string Plugin, IDialogResponsesGetter Info)>();
+        var winners = new Dictionary<FormKey, (string Plugin, IDialogResponsesGetter Info, string? LinesFrom)>();
         FormKey topicKey = default;
         foreach (var (plugin, rec) in copies)
         {
@@ -54,8 +58,15 @@ public static class TopicInfos
             {
                 foreach (var info in topic.Responses)
                 {
-                    if (!winners.ContainsKey(info.FormKey)) order.Add(info.FormKey);
-                    winners[info.FormKey] = (plugin.FileName, info);
+                    if (!winners.TryGetValue(info.FormKey, out var earlier)) order.Add(info.FormKey);
+                    // A partial form with no responses merges with the copy before it, so the game keeps that copy's
+                    // lines (as find --refs reads partial forms; code review 0.22.0 round 3).
+                    else if (FieldCompare.IsPartial(info) && info.Responses.Count == 0 && earlier.Info.Responses.Count > 0)
+                    {
+                        winners[info.FormKey] = (plugin.FileName, earlier.Info, earlier.LinesFrom ?? earlier.Plugin);
+                        continue;
+                    }
+                    winners[info.FormKey] = (plugin.FileName, info, null);
                 }
             }
             catch (Exception e) when (Fatal.Recoverable(e))
@@ -66,8 +77,8 @@ public static class TopicInfos
         }
         foreach (var k in order)
         {
-            var (plugin, info) = winners[k];
-            res.Records.Add(Line(info, plugin, link));
+            var (plugin, info, from) = winners[k];
+            res.Records.Add(Line(info, plugin, link) with { LinesFrom = from });
         }
         Log.Write($"full: {topicKey}: {res.Total} lines (INFOs), {res.Records.Sum(r => r.Responses.Count)} responses, {res.Unreadable} copies unreadable, {sw.Elapsed.TotalSeconds:F1} s");
         return res;
@@ -103,7 +114,11 @@ public static class TopicInfos
             if (!a.NpcAnimation.IsNull) d.Add(("Animation.NpcAnimation", link(a.NpcAnimation)));
         }
         var text = SafeText.OneLine(r.ResponseText?.String ?? "") ?? "";
-        if (text.Length > TriageDetail.MaxValue) text = text[..TriageDetail.MaxValue] + "...";
+        if (text.Length > TriageDetail.MaxValue)
+        {
+            int cut = char.IsHighSurrogate(text[TriageDetail.MaxValue - 1]) ? TriageDetail.MaxValue - 1 : TriageDetail.MaxValue;
+            text = text[..cut] + "...";
+        }
         return new TopicResponse(number, text, d);
     }
 
@@ -114,7 +129,8 @@ public static class TopicInfos
         var lines = new List<string> { $"  lines: {t.Total} INFO{(t.Total == 1 ? "" : "s")} (winning copies{where})" };
         foreach (var l in t.Records.Take(MaxListed))
         {
-            lines.Add($"    {l.EditorId ?? "(no EditorID)"} [{l.FormKey}], winner {l.Winner}{(l.Deleted ? " (DELETED by its winner: the game doesn't use this line)" : "")}");
+            lines.Add($"    {l.EditorId ?? "(no EditorID)"} [{l.FormKey}], winner {l.Winner}{(l.Deleted ? " (DELETED by its winner: the game doesn't use this line)" : "")}" +
+                      (l.LinesFrom != null ? $" (a partial form; its lines come from {SafeText.OneLine(l.LinesFrom)})" : ""));
             if (l.SharedFrom != null) lines.Add($"      (no responses of its own: it uses the lines of {l.SharedFrom})");
             else if (l.Responses.Count == 0) lines.Add("      (no responses)");
             foreach (var r in l.Responses)
@@ -149,6 +165,7 @@ public static class TopicInfos
             var rec = new JsonObject { ["formKey"] = l.FormKey.ToString(), ["editorId"] = l.EditorId, ["winner"] = l.Winner, ["responses"] = rs };
             if (l.SharedFrom != null) rec["sharedFrom"] = l.SharedFrom;
             if (l.Deleted) rec["deleted"] = true;
+            if (l.LinesFrom != null) rec["linesFrom"] = l.LinesFrom;
             recs.Add(rec);
         }
         var j = new JsonObject { ["total"] = t.Total, ["records"] = recs };
