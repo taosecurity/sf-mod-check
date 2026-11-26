@@ -23,7 +23,7 @@ public static class ReleaseAccept
 {
     /// <summary>The rules whose findings name one plugin and one missing file, so an entry can name them exactly.</summary>
     public static readonly string[] Rules =
-        ["script-missing", "model-missing", "mesh-missing", "texture-missing", "material-missing", "sound-missing", "face-missing"];
+        ["script-missing", "model-missing", "mesh-missing", "texture-missing", "material-missing", "sound-missing", "face-missing", "sound-event-missing", "sound-bank-manifest-missing"];
 
     const string Form = "an --accept entry is <rule>:<plugin>:<detail>, for example script-missing:OtherMod.esm:OtherMod:Toggle";
 

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.23.0
+
+### What's new
+
+- **Sound events.** A record can name a Wwise sound event that no loaded sound bank holds, and then the sound is silent in the game. `release` (rule `sound-event-missing`, WARNING), `check` and `conflict` (under the assets check) now find these. A record names an event by its Wwise GUID; the tool reads every loaded bank and its manifest (`sound\soundbanks\<id>.json`) from the game's, the masters' and the mod's own archives and loose files, and reports a GUID that no manifest has, or that a manifest has but its bank doesn't. A GUID the overridden record already names, or that a master's record names, is not reported, and an official plugin's own are counted in the log only. At most 25 per plugin are listed, then a count.
+- `release` rule `sound-bank-manifest-missing` (WARNING): a bank of the mod's own with no `.json` manifest beside it, which the game needs to play its sounds. Rule `sound-bank-name` (NOTE): a bank not named by the Wwise ID of the plugin's lower-case name. Rule `music-track-silent` (NOTE): a single music track with no start event. `--accept` takes `sound-event-missing` and `sound-bank-manifest-missing`.
+- `voice-format <plugin | archive | folder>...` reports how many voice files (`.wem`) have each codec, channel count and sample rate, and how many have their `.ffxanim` lip file in an archive, loose or nowhere. It is a report and never flags a format (the game ships 32, 44.1 and 48 kHz).
+- `find --full` prints a sound GUID also in the form a Wwise bank manifest uses.
+- Existing findings do not change.
+
+### Example
+
+A made-up mod `Demo.esm` whose weapon names a sound event, with no bank of its own:
+
+    sf-mod-check release Demo-1.0.0.zip
+    WARNING [sound-event-missing] Demo.esm: sound event {0B6F2A4C-1D3E-4A5B-8C7D-9E0F1A2B3C4D} is in no loaded sound bank's manifest, so the sound won't play. If the mod has its own bank, ship sound\soundbanks\<bank id>.json beside the .bnk; if the sound comes from another mod, make that mod a master; used by DemoRifle [WEAP:000800:Demo.esm] Idle.Start.
+    RESULT: OK (0 problems, 0 to review, 1 warning)
+
+    sf-mod-check voice-format "Demo - Voices.ba2"
+    Demo - Voices.ba2 (archive): 12 voice files (.wem)
+      wwise-vorbis     mono        32,000 Hz        10   e.g. sound\voice\demo.esm\npcfdemo\00000801.wem
+      wwise-vorbis     mono        48,000 Hz         2   e.g. sound\voice\demo.esm\npcfdemo\00000810.wem
+      lip files (.ffxanim): 11 in an archive, 0 loose, 1 with none
+    RESULT: REPORT (12 voice files in 1 input, 2 formats, 1 with no lip file, 0 unreadable)
+
 ## 0.22.0 (2026-11-26)
 
 ### What's new

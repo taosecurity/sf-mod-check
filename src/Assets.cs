@@ -552,19 +552,23 @@ public static class Assets
     /// <summary>Checks one plugin's own records (overrides included). add: (severity, check, text). masters: the
     /// plugin's masters, to find the version an override replaces (see Find).</summary>
     public static (int Scripts, int Models) Check(IModGetter mod, AssetIndex index, Func<IMajorRecordGetter, string> name, Action<string, string, string> add,
-                                                 ILinkCache? masters = null, AssetUses? uses = null, IReadOnlyList<IModGetter>? masterMods = null)
+                                                 ILinkCache? masters = null, AssetUses? uses = null, IReadOnlyList<IModGetter>? masterMods = null, bool official = false)
     {
         uses ??= new AssetUses();
         var (scripts, models, missing, inherited) = Find(mod, index, name, masters == null ? null : rec => Resolve(masters, rec), uses,
                                                          masters: masterMods == null ? null : () => masterMods);
         if (inherited > 0) Log.Write($"assets: {inherited} missing path use(s) not reported: the master version of the record already names them");
-        int soundEvents = 0;
+        int soundEvents = 0, officialSoundEvents = 0;
         foreach (var m in missing)
         {
             // 0.23.0: at most SoundEventLines sound-event lines per plugin, then a count (as voice-missing does)
+            // An official plugin's own dangling GUIDs are the game's, not a mod's fault: counted in the log only (as ITMs are, step 4).
+            if (m.Kind == "sound-event" && official) { officialSoundEvents++; continue; }
             if (m.Kind == "sound-event" && ++soundEvents > SoundEventLines) continue;
             add(m.Severity, "assets", m.Text);
         }
+        if (officialSoundEvents > 0)
+            Log.Write($"assets: {officialSoundEvents} sound event(s) of this official plugin are in no loaded sound bank (official plugin: count only)");
         if (soundEvents > SoundEventLines)
             add("WARNING", "assets", $"{soundEvents - SoundEventLines} more sound event(s) are in no loaded sound bank (--verbose lists them all)");
         // check has no NOTE level: a file it couldn't read, or materials it couldn't check, is a WARNING (0.14.0)

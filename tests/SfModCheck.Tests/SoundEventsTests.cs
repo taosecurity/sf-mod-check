@@ -166,6 +166,21 @@ public class SoundEventsTests
     }
 
     [Fact]
+    public void Check_counts_an_official_plugins_sound_events_without_findings()
+    {
+        using var s = new Sandbox();
+        var index = Index(s);
+        var mod = Mod("SeOfficial.esm");
+        mod.MiscItems.AddNew("SE_Misc").PickupSound = Snd("{00000001-0000-0000-0000-000000000000}");
+        var lines = new List<string>();
+        Assets.Check(mod, index, r => r.EditorID ?? "", (sev, check, text) => { if (check == "assets") lines.Add($"{sev} {text}"); }, official: true);
+        Assert.DoesNotContain(lines, l => l.Contains("sound event"));
+        lines.Clear();
+        Assets.Check(mod, index, r => r.EditorID ?? "", (sev, check, text) => { if (check == "assets") lines.Add($"{sev} {text}"); });
+        Assert.Contains(lines, l => l.StartsWith("WARNING sound event {"));
+    }
+
+    [Fact]
     public void Conflict_counts_sound_events_as_their_own_kind()
     {
         var a = new Conflict.Analysis { AssetsChecked = true };

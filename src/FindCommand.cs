@@ -48,7 +48,9 @@ public static class FindCommand
         "            with --refs: list at most this many referring records (default 100; 0 lists them all)\n" +
         "  --full    print every nested value of the winning copy as an indented tree (zeros included) instead of the\n" +
         "            main fields; --json adds it as \"tree\". On a dialogue topic (DIAL) it also lists the topic's lines\n" +
-        "            (INFOs): each one's winner and each response's number, text, emotion and face fields (\"infos\")\n" +
+        "            (INFOs): each one's winner and each response's number, text, emotion and face fields (\"infos\").\n" +
+        "            A sound GUID (SoundReference, WWED) also prints in the form a Wwise bank manifest uses\n" +
+        "            ({XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}), so you can look it up in a sound bank's .json file\n" +
         "  --versions  list every copy of the record in load order and what each copy changes against the copy it was\n" +
         "            built on; --json adds it as \"versions\" (needs a record: not with the --plugin listing)\n" +
         "  --refs    list the records whose winning copy points at the record (a reference counts, not its cell);\n" +

@@ -193,7 +193,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     section lists each one with the plugin and the records or files using it. In conflicts.json, scripts and models
     are in `missingAssets` (`kind`: `script` or `model`), and materials, textures and sounds are in `missingFiles`
     (0.14.0, the same keys; `kind`: `material`, `texture` or `sound`). A mod's `.nif`, `.mat` or `.bnk` that can't be
-    read, or a sound bank of an unknown Wwise version, is an assets-check note.
+    read, or a sound bank of an unknown Wwise version, is an assets-check note. Since 0.23.0 a sound event no loaded
+    bank holds is kind `sound-event` in `missingFiles` ("1 sound event" in the counts).
     A missing file an override inherits (the version it overrides, in the last of its masters that has the record,
     names it too; often a vanilla record) isn't reported against the override; `inheritedAssetUses` counts those uses
     and `--log` lists them. If the assets step stops part way, the report is still written and conflicts.json's
@@ -278,8 +279,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
         sf-mod-check release MyPatch-1.0.0.zip --accept-file known-gaps.txt
 
     An entry is `<rule>:<plugin>:<detail>`: one of the rules `script-missing`, `model-missing`, `mesh-missing`,
-    `texture-missing`, `material-missing`, `sound-missing` and `face-missing`; the plugin's file name; and the
-    script's name (for `script-missing`) or the missing file's path. Case doesn't matter, and wildcards aren't
+    `texture-missing`, `material-missing`, `sound-missing`, `face-missing`, `sound-event-missing` and
+    `sound-bank-manifest-missing`; the plugin's file name; and the script's name (for `script-missing`), the event's
+    GUID in braces (`sound-event-missing`) or the missing file's path. Case doesn't matter, and wildcards aren't
     allowed. The finding still prints, as an `ACCEPTED [rule] ...` line naming the entry, and no longer counts toward
     FAIL. An entry that matches nothing is a `WARNING [accept]` line. A malformed entry, or an `--accept-file` that
     can't be read, is exit 2. The file holds one entry per line; `#` starts a comment. Accept only a finding the
@@ -474,6 +476,17 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     with exit 2 before writing anything if the files add up to more than `--max-size` GB (default 2). Exit 0 all written,
     1 some refused or failed, 2 could not run. Game archives are the game's: extract only what you need for a test and
     never publish it.
+
+22. Report the voice files' formats (0.23.0), for example before sending a mod's voice files to a tester:
+
+        sf-mod-check voice-format "C:\Mods\MyMod\MyMod.esm"
+        sf-mod-check voice-format "C:\Mods\MyMod - Voices.ba2"
+
+    It takes plugins, `.ba2` archives or folders and prints, per input, the count of `.wem` files by codec, channels and
+    sample rate (from each file's header, with an example path), and how many have their `.ffxanim` lip file in an
+    archive, loose or nowhere, ending in `RESULT: REPORT (...)`. It is a report: it never prints a WARNING or ERROR and
+    never judges a rate (the game ships 32, 44.1 and 48 kHz). Exit 0 report written, 2 could not run. Reading is
+    bounded (4 KB per stored file, 64 MB per compressed entry) and a damaged archive or file is a line, not a crash.
 
 ## 6. Inputs and outputs
 
@@ -683,7 +696,15 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
    `assets` check in both looks up the names of attached scripts, models, materials, textures, the `.mesh` geometry
    files a mod's own `.nif` files name (since 0.15.0; `release` rule `mesh-missing`) and the sounds of a mod's own
    sound banks in loose files and BA2 archives. It reads only names from a mod's own `.nif`, `.mat` and `.bnk` files,
-   never geometry, texture or sound data, and it doesn't check face data, voice files or music.
+   never geometry, texture or sound data, and it doesn't check face data or voice files.
+   Since 0.23.0 the assets check also looks up the Wwise sound events that a plugin's records name (rule
+   `sound-event-missing` in `release`, a WARNING; also in `check` and `conflict`): a record names an event by its GUID,
+   and the GUID must be in the manifest (`sound\soundbanks\<id>.json`) of a loaded sound bank whose `.bnk` holds the
+   event, else the sound is silent. A GUID the overridden record or any master's record names is not reported; an
+   official plugin's own are counted in the log only. `release` adds `sound-bank-manifest-missing` (WARNING: a bank
+   of the mod's own with no `.json` beside it), `sound-bank-name` (NOTE: a bank not named by the FNV-1 Wwise ID of
+   the plugin's lower-case base name) and `music-track-silent` (NOTE: a single track with no start event). The
+   fix for a miss is to ship the bank's `.json` beside the `.bnk`, or make the mod that owns the sound a master.
    Since 0.18.0 `release` checks voice files (rule `voice-missing`, a WARNING): each dialogue line a plugin adds, other
    than player lines, needs `sound\voice\<plugin>\<voice type>\<number>.wem` (`<number>`: the response's number in
    8 hex digits with the top byte set to `00`, since the game uses only its low 24 bits) in the plugin's own voice archives or

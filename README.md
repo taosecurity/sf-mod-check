@@ -37,6 +37,8 @@ commands:
   for voice tools.
 - [`ba2`](#list-or-extract-the-files-in-a-ba2-archive-sf-mod-check-ba2) lists a BA2 archive's files and extracts
   files from a general archive.
+- [`voice-format`](#voice-file-formats-sf-mod-check-voice-format) reports the codec, channels and sample rate of the
+  voice files in a plugin, an archive or a folder, and whether each line has its lip file.
 
 **First command:** drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
 
@@ -765,9 +767,9 @@ so the game plays them silent, and everything `check` finds in each plugin.
 - `--accept <rule>:<plugin>:<detail>` (0.15.2): accept one known finding, for a plugin you ship with a known gap in
   someone else's work (a script their plugin names that ships nowhere, say):
   `sf-mod-check release MyPatch-1.0.0.zip --accept script-missing:OtherMod.esm:OtherMod:Toggle`. The rule is one
-  of `script-missing`, `model-missing`, `mesh-missing`, `texture-missing`, `material-missing`, `sound-missing` and
-  `face-missing`; the plugin is the plugin's file name; the detail is the script's name for `script-missing` (a
-  name with a namespace keeps its colon, as above) and the missing file's path for the others (as the finding
+  of `script-missing`, `model-missing`, `mesh-missing`, `texture-missing`, `material-missing`, `sound-missing`,
+  `face-missing`, `sound-event-missing` and `sound-bank-manifest-missing`; the plugin is the plugin's file name; the detail is the script's name for `script-missing` (a
+  name with a namespace keeps its colon, as above), the event's GUID in braces for `sound-event-missing` and the missing file's path for the others (as the finding
   prints it, either slash). Case doesn't matter. Wildcards (`*`, `?`) aren't allowed. The finding still prints, as
   an `ACCEPTED` line that names the entry, and no longer counts toward FAIL or the exit code. An entry that matches
   nothing is a WARNING (rule `accept`), so a stale entry shows. A malformed entry stops the check (exit 2) and says
@@ -822,6 +824,10 @@ texture, `.mesh` geometry or sound shows the same way, as a WARNING line that na
 | `material-missing`, `texture-missing` | basic, house (WARNING) | 0.14.0: a material or texture the plugin's records, or its own `.nif` and `.mat` files, name is in none of those places (a material may also be one of the game's own, in its material database). A `.nif` or `.mat` that can't be read is a NOTE. Left out with `--dmmdeps`, which reports these files itself. |
 | `mesh-missing` | basic, house (WARNING) | 0.15.0: a geometry file (`geometries\...\<name>.mesh`) that one of the plugin's own `.nif` files names is in none of those places, so that part of the model doesn't show. Runs with `--dmmdeps` too, since DMMDeps doesn't follow the geometry a `.nif` names. |
 | `sound-missing` | basic, house (WARNING) | 0.14.0: a sound that one of the mod's own sound banks (`sound\soundbanks\*.bnk`, loose in the zip or in its archives) streams, `sound\soundbanks\<id>.wem`, is in none of those places, so that sound is silent. A bank that can't be read, or of a Wwise version the tool doesn't know (it knows version 140, the game's own), is a NOTE. Runs with `--dmmdeps` too, since DMMDeps doesn't read sound banks. |
+| `sound-event-missing` | basic, house (WARNING) | 0.23.0: a record the plugin adds or overrides names a Wwise sound event (a SoundReference's Start or Stop, or a WWED's) that no loaded sound bank holds, so the sound is silent. Records name an event by its Wwise GUID; every loaded bank has a manifest (`sound\soundbanks\<bank id>.json`) that ties the GUID to the bank's event, and the tool reads the game's, the masters' and the zips' banks and manifests. The finding says whether no manifest has the GUID (ship the `.json` beside the `.bnk`, or make the other mod a master) or a manifest has it but its bank doesn't. A GUID the overridden record already names, or that any master's record names, isn't reported (the game's own files have a few dangling ones). At most 25 per plugin, then a count (`--verbose` lists them all). Runs with `--dmmdeps` too. |
+| `sound-bank-manifest-missing` | basic, house (WARNING) | 0.23.0: a sound bank of the mod's own (in its archive or loose in the zip) has no `.json` manifest of the same name in the zips. The game reads that manifest to tie the records' sound events to the bank, so without it the bank's sounds don't play. |
+| `sound-bank-name` | never (NOTE) | 0.23.0: a bank of the mod's own that isn't named by the Wwise ID (FNV-1 hash) of the plugin's lower-case base name, which is how every add-on of the game names its bank. It may not load. A NOTE because the naming is known from the game's files, not its code. |
+| `music-track-silent` | never (NOTE) | 0.23.0: a single music track the plugin adds (or makes silent by an override) has no start event and no event mapping, so it plays nothing. |
 | `face-missing` | basic, house (NOTE) | 0.14.0: an NPC a plugin adds with its own face (head parts, tints, face morphs or morph blends), or an override that changes another plugin's NPC face, has none of its five baked face files: `meshes\actors\character\facegendata\facegeom\<plugin>\<id>.nif` and the `_ao`, `_color`, `_normal` and `_rough` `.dds` under `textures\actors\character\facecustomization\<plugin>\`. `<plugin>` is the file name of the plugin that defines the NPC and `<id>` its local ID in 8 hex digits. An NPC whose template gives its Traits isn't looked at. It is a NOTE, not a WARNING, because some of Bethesda's own NPCs have no baked face data either, and others only part of it, so one file is enough to count. Runs with `--dmmdeps` too, since DMMDeps can't see face files. Since 0.15.0, an override that changes an NPC's face, where every face file found is outside the zips (the defining plugin's own), gets a NOTE that the baked face is stale: the game shows the master's old face. |
 | `dmmdeps` | basic, house | With `--dmmdeps`: a file the plugin needs isn't in the zip (PROBLEM), a file is referenced but found nowhere (PROBLEM), a file in the zip is not used (REVIEW), or also in the game's archives (REVIEW). |
 | `plugin-check` | basic, house | An ERROR from the same checks as `check`, run on every plugin in the zips, or a plugin that can't be checked. |
@@ -927,6 +933,8 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   this reads every plugin and takes about two minutes for a popular location; `--plugin` reads only the plugin and
   its masters. It stops with exit 2 if memory passes 16 GB. It needs a record, as `--versions` does. `--max` works
   only with the `--plugin` listing or with `--refs`.
+  **A sound GUID (0.23.0):** a SoundReference's or WWED's GUID prints as the .NET form followed by the form a Wwise bank
+  manifest uses, `(manifest form {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX})`, so you can search a bank's `.json` for it.
   **On a topic (DIAL), `--full` also lists its dialogue lines (0.22.0):** after the tree, a `lines:` block with one
   entry per INFO (a spoken line of the topic): the INFO's FormKey, EditorID and the plugin that wins it, then
   each response's number (its place in the INFO, from 1), its text on one line and its emotion and face fields
@@ -1139,6 +1147,38 @@ Example, on a made-up archive `Demo - Main.ba2` with two scripts:
     sf-mod-check ba2 extract "Demo - Main.ba2" "scripts\demo\q*" --out C:\Work\out
     wrote scripts\demo\questscript.pex (812 bytes)
     RESULT: OK (wrote 1 of 1 files, 812 bytes, to C:\Work\out)
+
+## Voice file formats: `sf-mod-check voice-format`
+
+Use it to see what voice files (`.wem`) a mod ships, or the game ships, and whether every line has its lip file
+(0.23.0). It is a report, never a check: no format is called wrong, because the game itself ships voice lines at
+32, 44.1 and 48 kHz.
+
+    sf-mod-check voice-format "C:\Mods\MyMod\MyMod.esm"
+    sf-mod-check voice-format "C:\Mods\MyMod - Main.ba2"
+
+    sf-mod-check voice-format <plugin | archive.ba2 | folder>... [--quiet] [--verbose] [--log <file>]
+
+- A **plugin** reads its own archives (`<plugin name> - *.ba2` in its folder) and its loose `sound\voice\<plugin>\`.
+  An **archive** reads its own `sound\voice\*.wem` and looks for lip files in it, in the other archives of its plugin
+  and loose beside it. A **folder** reads the loose files under its `sound\voice\` (or the folder itself).
+- For each input it prints how many files there are of each codec, channel count and sample rate (read from the
+  `fmt ` chunk of each file's header, with one example path), how many have their `.ffxanim` lip file in an archive,
+  loose or nowhere, and how many files couldn't be read. It never prints a WARNING or ERROR.
+- **Safety:** only the first 4 KB of a stored file is read; a compressed entry is unpacked only up to 64 MB. A damaged
+  archive or file is a "not read" line, never a crash. Folder links are not followed.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`.
+
+Exit codes: 0 report written, 2 couldn't run (no input, a missing input, or no input could be read).
+
+Example, on a made-up archive `Demo - Voices.ba2`:
+
+    sf-mod-check voice-format "Demo - Voices.ba2"
+    Demo - Voices.ba2 (archive): 12 voice files (.wem)
+      wwise-vorbis     mono        32,000 Hz        10   e.g. sound\voice\demo.esm\npcfdemo\00000801.wem
+      wwise-vorbis     mono        48,000 Hz         2   e.g. sound\voice\demo.esm\npcfdemo\00000810.wem
+      lip files (.ffxanim): 11 in an archive, 0 loose, 1 with none (first: sound\voice\demo.esm\npcfdemo\00000810.wem)
+    RESULT: REPORT (12 voice files in 1 input, 2 formats, 1 with no lip file, 0 unreadable)
 
 ## Look over a downloaded mod: `sf-mod-check triage`
 
@@ -1513,7 +1553,14 @@ Each finding names its check in brackets.
     in the places below. Sounds held inside the bank need no file. Loose banks in the Data folder aren't read by
     `check` or `conflict`, since every mod shares that folder (`release` reads the zip's loose banks). A bank that
     can't be read, or whose Wwise version isn't 140 (the version of every bank the game ships), is one WARNING
-    naming the file. Voice files and music aren't checked.
+    naming the file. Voice files aren't checked here.
+  - **Sound events** (0.23.0, WARNING, `check` and `conflict`): a record the plugin adds or overrides names a Wwise
+    event by its GUID (a SoundReference's Start or Stop, or a WWED's Start or End, wherever it sits in the record).
+    The GUID must be in the manifest of a loaded sound bank (`sound\soundbanks\<id>.json`, read from the INIs'
+    archives, the plugins' archives and loose files, a later copy replacing an earlier one) and that bank must hold
+    the event, else the sound is silent. A GUID the overridden record already names, or that any master's record
+    names, is not reported. At most 25 per plugin, then a count; an official plugin's own are counted in the log
+    only. In `conflict` they join the missing-asset counts as `sound event`.
   - **Geometry** (0.15.0, WARNING): each of the plugin's own `.nif` files (as above) names the `.mesh` files that hold
     its shapes' geometry, and each must be a `geometries\...\<name>.mesh` file in the places below, else that part of
     the model doesn't show in the game. The game's own models give the name without the folder and extension
@@ -1625,7 +1672,7 @@ filter.
 - Voice files matched to dialogue lines are checked only by `release` (since 0.18.0, rule `voice-missing`): not
   for lines another plugin adds or that an override changes, and a line whose speaker conditions name no voice type
   passes when any voice-type folder has its file. Player lines in other plugins' scenes aren't recognized as
-  player lines. Not checked: music tracks and the Wwise events records name,
+  player lines. Not checked: whether a Wwise event's sound files exist beyond the bank's own streamed ones, music playlists,
   and what is inside loose files or BA2 archives beyond the material, texture and `.mesh` names in a mod's own `.nif` and
   `.mat` files and the streamed sounds in its own sound banks (the `assets` check looks up names; it doesn't read
   geometry, texture or sound data). The `.mesh` names are read from the `.nif` layout of the game's current

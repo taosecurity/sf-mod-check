@@ -97,7 +97,11 @@ public static class ReleaseCommand
         "                          [--profile basic|house|creations] [--creations-master <plugin>]... [--size-total]\n" +
         "                          [--tested <zip|ba2>]... [--stage <folder>]\n" +
         "                          [--accept <rule>:<plugin>:<detail>]... [--accept-file <file>]...\n" +
-        "                          [--quiet] [--verbose] [--log <file>]";
+        "                          [--quiet] [--verbose] [--log <file>]\n" +
+        "  Sound rules (0.23.0): sound-event-missing (WARNING) a record names a Wwise event that no loaded sound bank holds,\n" +
+        "  so the sound is silent; sound-bank-manifest-missing (WARNING) a bank of the mod's own has no <bank id>.json beside\n" +
+        "  it; sound-bank-name and music-track-silent (NOTE). --accept takes sound-event-missing and\n" +
+        "  sound-bank-manifest-missing (the detail is the event's GUID in braces, or the bank's path under Data).";
 
     static readonly string[] PluginExts = [".esm", ".esp", ".esl"];
 
