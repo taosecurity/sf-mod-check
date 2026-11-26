@@ -109,6 +109,13 @@ public static class RecordRefs
                                 counts ??= new();
                                 counts[(l.FormKey, l.Type)] = counts.GetValueOrDefault((l.FormKey, l.Type)) + 1;
                             }
+                            // Mutagen's enumerator skips links held in struct members of script properties
+                            foreach (var l in ScriptStructLinks.Of(rec))
+                            {
+                                if (!wanted.Contains(l.FormKey)) continue;
+                                counts ??= new();
+                                counts[(l.FormKey, l.Type)] = counts.GetValueOrDefault((l.FormKey, l.Type)) + 1;
+                            }
                         }
                         catch (Exception e) when (Fatal.Recoverable(e))
                         {

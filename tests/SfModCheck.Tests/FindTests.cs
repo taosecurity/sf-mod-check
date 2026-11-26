@@ -566,6 +566,37 @@ public class FindTests
     }
 
     [Fact]
+    public void Refs_finds_a_link_held_in_a_script_struct_member()
+    {
+        using var game = new Game();
+        using (var g = new GameData(game.Data))
+        {
+            var misc = g.Open("FindBase.esm").MiscItems.First();
+            var s = Plugin.New("FindRefS.esm", PluginStyle.Full, "test", "made-up quests with struct properties");
+            ScriptObjectProperty Target() => new() { Name = "Target", Object = new FormLink<IStarfieldMajorRecordGetter>(misc.FormKey) };
+            var q = s.Quests.AddNew("RS_Quest");
+            q.VirtualMachineAdapter = new QuestAdapter
+            {
+                Scripts = { new ScriptEntry { Name = "SfmTest:Holder", Properties =
+                    { new ScriptStructListProperty { Name = "Stages", Structs = { new ScriptEntryStructs { Members = { Target() } } } } } } },
+            };
+            var p = s.Quests.AddNew("RS_Plain");
+            p.VirtualMachineAdapter = new QuestAdapter
+            {
+                Scripts = { new ScriptEntry { Name = "SfmTest:Holder2", Properties =
+                    { new ScriptStructProperty { Name = "One", Members = { new ScriptEntry { Properties = { Target() } } } } } } },
+            };
+            PluginWriter.Write(s, game.Data, g, new WriteOptions { GapCheck = false, FixEffects = false, Masters = [ModKey.FromFileName("FindBase.esm")] });
+        }
+        File.AppendAllLines(game.PluginsTxt, ["*FindRefS.esm"]);
+        var (code, stdout, stderr) = game.Find("FB_Misc", "--refs");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("  referenced by: 2 records (winning copies)", stdout);
+        Assert.Contains("RS_Quest [", stdout);
+        Assert.Contains("RS_Plain [", stdout);
+    }
+
+    [Fact]
     public void Refs_stops_past_its_memory_limit_and_restores_the_old_limit()
     {
         using var game = new Game();
