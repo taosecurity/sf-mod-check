@@ -90,6 +90,7 @@ public static class VoiceLinesCommand
                 case "--voice":
                     if (Cli.Value(a, ref i, "a voice type's EditorID", Usage) is not { } v) return 2;
                     if (v.Trim().Length == 0) { Console.Error.WriteLine("--voice needs a voice type's EditorID, not an empty name."); return 2; }
+                    if (!Mo2Profile.IsFolderName(v.Trim())) { Console.Error.WriteLine($"--voice {SafeText.OneLine(v.Trim())}: a voice type's EditorID is one folder name, with no \\ / : * ? \" < > | characters and not . or .."); return 2; }
                     voices.Add(v.Trim()); break;
                 case "--log":
                     if (Cli.Value(a, ref i, "a file name", Usage) is not { } lf) return 2;
@@ -250,6 +251,7 @@ public static class VoiceLinesCommand
     {
         var modKey = target.Mod.ModKey;
         var vtInfo = new Dictionary<FormKey, (string? Name, string Sex)>();
+        var badNames = new List<string>();
         (string? Name, string Sex) Vt(FormKey k)
         {
             if (vtInfo.TryGetValue(k, out var x)) return x;
@@ -257,6 +259,13 @@ public static class VoiceLinesCommand
             try { cache.TryResolve(k, out v); } catch (Exception e) when (Fatal.Recoverable(e)) { v = null; }
             x = v == null ? (index.EditorId(k, typeof(IVoiceTypeGetter))?.ToLowerInvariant(), "")
                           : (string.IsNullOrEmpty(v.EditorID) ? null : v.EditorID.ToLowerInvariant(), v.Flags.HasFlag(VoiceType.Flag.Female) ? "female" : "male");
+            // the name becomes a folder in FULL PATH, which the voice tools write to: one that isn't a plain folder
+            // name (..\ or a drive) gets no rows (code-review round 4)
+            if (x.Name != null && !Mo2Profile.IsFolderName(x.Name))
+            {
+                badNames.Add($"voice type {k} has the EditorID {SafeText.OneLine(x.Name)}, which isn't one folder name, so its lines get no rows for it");
+                x = (null, x.Sex);
+            }
             return vtInfo[k] = x;
         }
         INpcGetter? Npc(FormKey k)
@@ -285,7 +294,9 @@ public static class VoiceLinesCommand
         // used, so a quest-wide GetIsVoiceType list doesn't add rows to a line whose own GetIsID names one NPC.
         // deep: false stops before the dialogue group's and quest's lists (a SharedDialog line's linkers come first there,
         // code-review round 3).
-        void Resolve(IDialogResponsesGetter i, IDialogTopicGetter topic, SortedDictionary<string, string> found, List<string> why, bool deep = true)
+        // deepOnly: only the dialogue group's and quest's lists (the last pass of a linked line, whose own tiers were read).
+        // Returns whether the line is settled: a voice type found, or an NPC named (code-review round 4).
+        bool Resolve(IDialogResponsesGetter i, IDialogTopicGetter topic, SortedDictionary<string, string> found, List<string> why, bool deep = true, bool deepOnly = false)
         {
             void AddVt(FormKey k, string how)
             {
@@ -321,25 +332,29 @@ public static class VoiceLinesCommand
             }
             bool Settled() => found.Count > 0 || named;
             var tiers = index.ConditionTiers(i, topic);
-            // 1. the line's own conditions
-            Tier(tiers[0]);
-            if (Settled()) return;
-            // 2. the lines rules for a speaker: the line's speaker, a GetIsAliasRef alias, a scene alias. They come before
-            // the dialogue group's and the quest's lists, since the game ANDs those with the line's own (code-review round 2)
-            if (!i.Speaker.IsNull) AddNpc(i.Speaker.FormKey, "speaker");
-            foreach (var c in index.ConditionsOf(i, topic))
-                if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
-                    foreach (var npc in index.AliasNpcs(topic.Quest.FormKey, ar.FirstParameter)) AddNpc(npc, $"GetIsAliasRef {ar.FirstParameter}");
-            if (index.SceneTopics.TryGetValue(topic.FormKey, out var uses))
-                foreach (var u in uses)
-                    foreach (var npc in index.AliasNpcs(u.Quest, u.Alias)) AddNpc(npc, $"scene {u.Scene} alias {u.Alias}");
-            if (Settled() || !deep) return;
+            if (!deepOnly)
+            {
+                // 1. the line's own conditions
+                Tier(tiers[0]);
+                if (Settled()) return true;
+                // 2. the lines rules for a speaker: the line's speaker, a GetIsAliasRef alias, a scene alias. They come before
+                // the dialogue group's and the quest's lists, since the game ANDs those with the line's own (code-review round 2)
+                if (!i.Speaker.IsNull) AddNpc(i.Speaker.FormKey, "speaker");
+                foreach (var c in index.ConditionsOf(i, topic))
+                    if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
+                        foreach (var npc in index.AliasNpcs(topic.Quest.FormKey, ar.FirstParameter)) AddNpc(npc, $"GetIsAliasRef {ar.FirstParameter}");
+                if (index.SceneTopics.TryGetValue(topic.FormKey, out var uses))
+                    foreach (var u in uses)
+                        foreach (var npc in index.AliasNpcs(u.Quest, u.Alias)) AddNpc(npc, $"scene {u.Scene} alias {u.Alias}");
+                if (Settled() || !deep) return Settled();
+            }
             // 3. the dialogue group's conditions, then the quest's DialogConditions
             foreach (var tier in tiers.Skip(1))
             {
                 Tier(tier);
-                if (Settled()) return;
+                if (Settled()) return true;
             }
+            return false;
         }
 
         // the plugin's lines that link a SharedDialog line: that line is spoken by their voice types
@@ -370,8 +385,9 @@ public static class VoiceLinesCommand
             // a line other lines link: its own conditions and speaker first, then the linkers, and only then its dialogue
             // group's and quest's lists, so a quest-wide list on the shared topic doesn't beat the linkers' speakers
             var linked = linkers.TryGetValue(key, out var links);
-            Resolve(i, topic, found, why, deep: !linked);
-            if (found.Count == 0 && linked)
+            // a named NPC with no voice type settles a linked line too (no rows, the NOTE), as for any line
+            var settled = Resolve(i, topic, found, why, deep: !linked);
+            if (!settled && linked)
             {
                 foreach (var lk in links!)
                     if (index.Topics.TryGetValue(lk.Topic, out var lt) && !index.PlayerTopics.Contains(lt.FormKey))
@@ -380,7 +396,7 @@ public static class VoiceLinesCommand
                         Resolve(lk.Info, lt, found, why);
                         for (int w = before; w < why.Count; w++) why[w] = $"shared by {lk.Info.FormKey}, {why[w]}";
                     }
-                if (found.Count == 0) Resolve(i, topic, found, why);
+                if (found.Count == 0) Resolve(i, topic, found, why, deepOnly: true);
             }
             if (found.Count == 0 && extra.Count > 0)
                 foreach (var (n, sex) in extra) { found[n] = sex; why.Add($"--voice: {n}"); }
@@ -411,6 +427,7 @@ public static class VoiceLinesCommand
             }
         }
         var sorted = rows.Values.OrderBy(r => r.VoiceType, StringComparer.Ordinal).ThenBy(r => r.FileName, StringComparer.Ordinal).ToList();
+        warnings.InsertRange(0, badNames);
         return (sorted, voiced, noVoice, warnings);
     }
 

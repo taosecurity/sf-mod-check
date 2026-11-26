@@ -268,6 +268,13 @@ public static class LinesCommand
                 return 2;
             }
             foreach (var u in index.Unread) Console.Error.WriteLine($"note: {u}");
+            if (input.Plugin != null && Path.GetFileName(input.Plugin) is { } targetName && index.UnreadPlugins.Contains(targetName))
+            {
+                // a part list of the plugin being checked would look complete (code-review round 4), as in voice-lines
+                Console.Error.WriteLine($"can't read all of {SafeText.OneLine(targetName)}'s dialogue, so the list would miss lines. Check the plugin in xEdit or the Creation Kit, save it again, and retry.");
+                cantWhy = $"{SafeText.OneLine(targetName)}'s dialogue can't be read in full";
+                return 2;
+            }
             var (vt, vtName, female) = VoiceOf(npc, index, lo);
             var found = index.LinesOf(npcKey, vt);
             bool Keep(LineRow l) => type == null || TypeMatches(type, l.Category, l.Subtype);

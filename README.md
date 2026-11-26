@@ -1018,7 +1018,8 @@ A real run on made-up plugins:
     RESULT: FOUND 4 lines of LnNpc (1 shared, 3 types) (1 s)
 
 Exit codes: 0 the NPC was found (even with no lines), 1 not found, 2 couldn't run (a bad option, no load order, a
-missing master or `--compare` NPC, a name that is another kind of record, or one EditorID shared by several NPCs). A run on a vanilla companion in a whole load order of 158 plugins takes about
+missing master or `--compare` NPC, a name that is another kind of record, one EditorID shared by several NPCs, or a
+`--plugin` plugin whose dialogue can't be read in full). A run on a vanilla companion in a whole load order of 158 plugins takes about
 45 seconds and under 1 GB of memory; one plugin with its masters takes a few seconds.
 
 ## A plugin's voiced lines as a list: `sf-mod-check voice-lines`
@@ -1060,7 +1061,9 @@ changes nothing.
   type of its own (one that takes its voice from a template) gives the line no row and a NOTE. A line that other lines share (they link it as their SharedDialog) and that names no voice
   type in its own conditions or speaker gets the voice types of the lines that share it, before its dialogue group's
   and quest's lists (those count only when no sharing line names a voice type). A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
-  An unknown `--voice` name still names the folder, with `SEX` empty and a NOTE.
+  An unknown `--voice` name still names the folder, with `SEX` empty and a NOTE. A voice type name is a folder in
+  `FULL PATH`, so one that isn't a single folder name (it holds `\ / : * ? " < > |` or is `.` or `..`) gives no rows
+  and a WARNING, and such a `--voice` name stops with exit 2.
 - **Left out:** player lines (scene choices), lines that link a SharedDialog line (the shared line has the row), and
   responses with no voice file number.
 - `--out <file>`: write the list there (default: the screen, stdout). Messages and the RESULT line go to stderr.
