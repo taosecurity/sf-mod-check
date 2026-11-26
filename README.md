@@ -953,6 +953,113 @@ Exit codes: 0 found, 1 not found (with `--plugin` and no record: the plugin hold
 plugin in the load order: about 20 seconds for the game's own 18 plugins. A `--plugin` run reads only the plugin and
 its masters, but a master as big as Starfield.esm still takes about 10 seconds.
 
+## Dialogue lines of one NPC: `sf-mod-check lines`
+
+Use it to see which kinds of dialogue line an NPC speaks, and which kinds it still lacks next to a vanilla companion
+(0.21.0). It reads your load order and changes nothing.
+
+    sf-mod-check lines Companion_SarahMorgan
+    sf-mod-check lines MyNpc --compare Companion_SarahMorgan
+    sf-mod-check lines 000801:MyMod.esm --plugin "C:\Downloads\MyMod\MyMod.esm" --type "Combat / Hit"
+
+    sf-mod-check lines <EditorID | FormKey | FormID> [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
+                        [--data <Data folder>] [--extra-data <folder>] [--compare <NPC>] [--type <name>] [--max <n>]
+                        [--no-files] [--json] [--quiet] [--verbose] [--log <file>]
+    sf-mod-check lines <EditorID | FormKey> --plugin <plugin file> [--masters-dir <folder>]... [...]
+
+- The NPC is given as for `find`: an EditorID, a FormKey or a console FormID (with `--plugin`, an EditorID or a
+  FormKey). `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`, `--plugin` and `--masters-dir` work as for `find`.
+- **Which lines count.** A line is the NPC's when (in this order of "found by"): its **speaker** is the NPC; a
+  **condition** names the NPC (`GetIsID`; a condition of the line's quest or dialogue group counts too); a **quest
+  alias** the NPC fills is named by a condition (`GetIsAliasRef`); or a **scene alias** the NPC fills is given the
+  line. Lines for the NPC's **voice type** (`GetIsVoiceType`) are listed apart as **shared lines**, because any NPC
+  with that voice type may say them. A negated condition doesn't make a line the NPC's. A line with no speaker, no
+  speaker condition and no scene alias is **generic**: any NPC may say it, so it is counted and not listed. The
+  player's own choices in the NPC's scenes are counted apart and not listed.
+- **Types.** Lines are grouped by their topic's Category and Subtype, such as `Combat / Hit` or `Misc / Idle`, with a
+  count per type. `--type Combat` keeps one category; `--type "Combat / Hit"` keeps one type (letter case ignored).
+  It filters the table and the RESULT line too.
+- **Each line** shows its FormKey, topic EditorID, response number, text (cut at 200 characters), whether its voice
+  file (`wem`) and lip file (`lip`, an `.ffxanim`) exist, its face (emotion) and how it was found. The files are looked
+  for under `sound\voice\<plugin>\<voice type>\` in the plugin's own archives (`<plugin> - *.ba2`) and as loose files;
+  `?` means unknown (the NPC has no voice type of its own). `--no-files` skips the look-up and is faster.
+- `--compare <NPC>`: count another NPC's own lines per type too, for example a vanilla companion, in a second column.
+  A type the other NPC has and this NPC has no line of at all (own or shared) is marked `missing`. This is the
+  coverage report: the `missing` types are the kinds of line still to write. A `--compare` NPC that can't be found is
+  exit 2.
+- `--max <n>`: list at most n lines (default 200; `--max 0` lists all). The counts are always complete.
+- `--json`: one JSON object on stdout: `tool`, `version`, `query`, `npc`, `source`, `lines` (each with `info`,
+  `topic`, `topicEditorId`, `category`, `subtype`, `response`, `text`, `emotion`, `foundBy`, `shared`, `wem`, `lip`,
+  `quest` and `scene`), `counts` per type (`category`, `subtype`, `count`, `shared`, and with `--compare`
+  `reference` and `missing`), `reference` (with `--compare`), `playerLines`, `genericLines` and `result`.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`. Memory is limited to 16 GB (exit 2 past it).
+
+A real run on made-up plugins:
+
+    > sf-mod-check lines LnNpc
+    sf-mod-check 0.21.0 lines: LnNpc [000802:LnBase.esm] in 2 plugins
+      voice type: LnVoice [000800:LnBase.esm] (female)
+
+    its lines:
+     Combat / Hit (2 lines)
+      000800:LnAddon.esm LnHit r1 "Made-up addon ouch." wem yes, lip yes, (none), condition
+      00080C:LnBase.esm LnHit r1 "Made-up ouch, overridden." wem yes, lip no, (none), condition
+     Misc / Hello (1 line)
+      00080A:LnBase.esm LnHello r1 "Made-up hello." wem yes, lip yes, Happy, speaker
+
+    shared lines (voice type LnVoice: any NPC with this voice type may say them):
+     Misc / Idle (1 line)
+      000811:LnBase.esm LnIdle r1 "Made-up shared line." wem no, lip no, (none), voice type
+
+    types (this NPC | shared):
+      Combat / Hit        2      0
+      Misc / Hello        1      0
+      Misc / Idle         0      1
+    RESULT: FOUND 4 lines of LnNpc (1 shared, 3 types) (1 s)
+
+Exit codes: 0 the NPC was found (even with no lines), 1 not found, 2 couldn't run (a bad option, no load order, a
+missing master or `--compare` NPC). A run on a vanilla companion in a whole load order of 158 plugins takes about
+45 seconds and under 1 GB of memory; one plugin with its masters takes a few seconds.
+
+## A plugin's voiced lines as a list: `sf-mod-check voice-lines`
+
+Use it to get every voiced line a plugin adds as a tab-separated file in the Creation Kit's dialogue-export columns,
+the list that voice tools such as Starfield Voice Cloner read (0.21.0). It reads the plugin and its masters and
+changes nothing.
+
+    sf-mod-check voice-lines "C:\Downloads\MyMod\MyMod.esm" --out MyMod-lines.tsv
+
+    sf-mod-check voice-lines <plugin> [--out <file>] [--voice <voice type EditorID>]... [--utf8]
+                                      [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [--verbose] [--log <file>]
+
+- Masters are found in the plugin's own folder, then each `--masters-dir`, then `--data` (Steam's Data by default); a
+  missing master is exit 2.
+- **The columns** (the header line exactly as below, tab-separated, lines end with CRLF, no byte order mark):
+  `VOICE TYPE`, `FILENAME`, `RESPONSE TEXT`, `FACE`, `SCRIPT NOTES`, `SEX`, `FULL PATH`, `INFO`, `RESPONSE`.
+  - `VOICE TYPE`: the voice type's EditorID, in lower case (`npcfastrid`).
+  - `FILENAME`: the response's voice file number as **8 upper-case hex digits** with the top byte `00`, no extension
+    (`0009BB4B` for `0009BB4B.wem`). It is the low 24 bits of the response's file number.
+  - `RESPONSE TEXT`: the line; a field with a quote is quoted CSV-style, and tabs and other control characters
+    become spaces.
+  - `FACE`: the emotion (for example `Happy`), `Neutral` when none. `SCRIPT NOTES`: the response's script notes, when present.
+  - `SEX`: `female` or `male` from the voice type's flag; empty when the voice type isn't known.
+  - `FULL PATH`: the plugin's file name, which Voice Cloner uses to find the plugin. `INFO`: the line's FormKey.
+    `RESPONSE`: the response number inside the line, from 1.
+- **Encoding:** Windows-1252 by default (what the Creation Kit writes and Voice Cloner reads); a character it can't
+  hold becomes `?` and a NOTE counts them. `--utf8` writes UTF-8 instead.
+- **Rows:** one row per voice type and file number, ordered by voice type and then file number. A line that several
+  voice types may speak gets one row per voice type. Two lines that share one file number with different texts give
+  one row (the lower INFO) and a WARNING.
+- **Which voice types:** from the line's conditions (`GetIsID` and `GetIsVoiceType`, also those of its quest and
+  dialogue group), else from its speaker (the line's speaker, or the NPC that fills its quest alias or scene alias).
+  A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
+  An unknown `--voice` name still names the folder, with `SEX` empty and a NOTE.
+- **Left out:** player lines (scene choices), SharedDialog lines, and responses with no voice file number.
+- `--out <file>`: write the list there (default: the screen, stdout). Messages and the RESULT line go to stderr.
+
+Exit codes: 0 written (even with no rows), 2 couldn't run. `--plugin`, `--plugins`, `--mo2`, `--profile` and
+`--extra-data` aren't options of this command (the plugin is the argument) and stop with exit 2.
+
 ## Look over a downloaded mod: `sf-mod-check triage`
 
 Run it on a mod you downloaded, before you install it or build on it. It writes one report that lists what the mod

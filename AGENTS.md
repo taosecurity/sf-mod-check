@@ -415,6 +415,31 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     and `--masters-dir` or `--max` without it, are exit 2. A list field prints its count and then one `      - ` line
     per entry (at most 50); a condition reads `[OR ]Function(parameters) operator value (run on ...)`.
 
+19. Dialogue coverage for one NPC (0.21.0): the lines an NPC can speak, by type, and the types it lacks next to
+    another NPC. Read only:
+
+        sf-mod-check lines Companion_SarahMorgan
+        sf-mod-check lines MyNpc --compare Companion_SarahMorgan
+        sf-mod-check lines 000801:MyMod.esm --plugin "C:\Downloads\MyMod\MyMod.esm" --type "Combat / Hit"
+
+    The NPC is an EditorID, FormKey or console FormID as for `find`; the load-order options are the same too. Lines are
+    found by speaker, by a condition naming the NPC (`GetIsID`, also on its quest or dialogue group), by a quest alias
+    or scene alias it fills, and (listed apart as shared) by its voice type. `--compare <NPC>` adds that NPC's counts
+    and marks the types this NPC has no line of as `missing`: those are the kinds of line still to write. Each line
+    says whether its voice and lip files exist (`--no-files` skips that). `--max` (default 200, 0 = all) limits the
+    list, never the counts; `--json` prints one object. Exit 0 found, 1 NPC not found, 2 couldn't run (a `--compare`
+    NPC that isn't found is 2). A whole load order takes about 45 seconds.
+
+20. A plugin's voiced lines as a Creation Kit style list (0.21.0), for voice tools such as Starfield Voice Cloner:
+
+        sf-mod-check voice-lines "C:\Downloads\MyMod\MyMod.esm" --out MyMod-lines.tsv
+
+    Columns, in this order: `VOICE TYPE`, `FILENAME` (8 upper-case hex digits, top byte `00`, no extension),
+    `RESPONSE TEXT`, `FACE`, `SCRIPT NOTES`, `SEX`, `FULL PATH`, `INFO`, `RESPONSE`; tab-separated, CRLF,
+    Windows-1252 unless `--utf8`. One row per voice type and file number; player lines and SharedDialog lines are left
+    out; a line with no voice type gets a NOTE (give `--voice <EditorID>` to name one). Messages go to stderr, the list
+    to `--out` or stdout. Exit 0 written, 2 couldn't run.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's

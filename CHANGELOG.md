@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.21.0
+
+### What's new
+
+- `lines <NPC>` is a dialogue coverage report: it lists every line an NPC can speak, grouped by the topic's type (for example `Combat / Hit`), with a count per type. A line counts when its speaker is the NPC, a condition names the NPC (also a condition of the line's quest or dialogue group), a quest alias or scene alias the NPC fills gives it the line, or it is a shared line for the NPC's voice type (listed apart). Each line says whether its voice and lip files exist. `--compare <NPC>` counts another NPC's lines too, for example a vanilla companion, and marks the types this NPC has no line of as `missing`. Also `--type`, `--max`, `--no-files`, `--json`. It works in a load order and with `--plugin`.
+- `voice-lines <plugin>` writes every voiced line a plugin adds as a tab-separated list in the Creation Kit dialogue-export columns that voice tools read: `VOICE TYPE`, `FILENAME` (8 upper-case hex digits, top byte `00`), `RESPONSE TEXT`, `FACE`, `SCRIPT NOTES`, `SEX`, `FULL PATH`, `INFO`, `RESPONSE`. One row per voice type and file number; Windows-1252 by default, `--utf8` for UTF-8.
+- Existing commands print the same as in 0.20.0.
+
+### Example
+
+A made-up NPC, `LnNpc`, in `LnBase.esm` and `LnAddon.esm`:
+
+    sf-mod-check lines LnNpc
+
+This is a real run on those made-up plugins (the byline's load order left out):
+
+    types (this NPC | shared):
+      Combat / Hit        2      0
+      Misc / Hello        1      0
+      Misc / Idle         0      1
+    RESULT: FOUND 4 lines of LnNpc (1 shared, 3 types) (1 s)
+
 ## 0.20.0 (2026-11-25)
 
 ### What's new
