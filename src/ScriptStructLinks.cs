@@ -7,16 +7,29 @@ using Mutagen.Bethesda.Starfield;
 /// member), so `find --refs` adds them. Plain object properties and lists are not repeated here: Mutagen does them.</summary>
 static class ScriptStructLinks
 {
-    /// <summary>Every non-null link held in a struct member of the record's scripts (record and alias scripts). Every
+    /// <summary>Every non-null link held in a struct member of the record's scripts (record, fragment and alias scripts). Every
     /// script-holding record type counts: plain scripted records, quests, dialogue lines, scenes, packages, perks and
     /// terminal menus each have their own adapter type, all of them an IAVirtualMachineAdapterGetter.</summary>
     public static IEnumerable<IFormLinkGetter> Of(IMajorRecordGetter rec)
     {
         if (rec is not IHaveVirtualMachineAdapterGetter { VirtualMachineAdapter: { } vm }) yield break;
         foreach (var s in vm.Scripts) foreach (var l in InScript(s)) yield return l;
+        // the fragment script (QF_, TIF_, SF_, PF_, PRKF_, TMF_ ...) has its own properties
+        if (Fragment(vm) is { } frag) foreach (var l in InScript(frag)) yield return l;
         if (vm is IQuestAdapterGetter q)
             foreach (var a in q.Aliases) foreach (var s in a.Scripts) foreach (var l in InScript(s)) yield return l;
     }
+
+    static IScriptEntryGetter? Fragment(IAVirtualMachineAdapterGetter vm) => vm switch
+    {
+        IQuestAdapterGetter q => q.Script,
+        IDialogResponsesAdapterGetter d => d.ScriptFragments?.Script,
+        ISceneAdapterGetter s => s.ScriptFragments?.Script,
+        IPackageAdapterGetter p => p.ScriptFragments?.Script,
+        IPerkAdapterGetter k => k.ScriptFragments?.Script,
+        IVirtualMachineAdapterIndexedGetter x => x.ScriptFragments?.Script,
+        _ => null,
+    };
 
     static IEnumerable<IFormLinkGetter> InScript(IScriptEntryGetter s)
     {

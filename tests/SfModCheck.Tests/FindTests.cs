@@ -615,6 +615,9 @@ public class FindTests
                     { new ScriptObjectProperty { Name = "Where", Object = new FormLink<IStarfieldMajorRecordGetter>(loc.FormKey) } } } } } },
             };
             x.Packages.AddNew("RX_Package").VirtualMachineAdapter = new PackageAdapter { Scripts = { Holder() } };
+            // fragment scripts (a quest's stage fragments, a perk's fragments) hold properties of their own
+            x.Quests.AddNew("RX_FragQuest").VirtualMachineAdapter = new QuestAdapter { Script = Holder() };
+            x.Perks.AddNew("RX_Perk").VirtualMachineAdapter = new PerkAdapter { ScriptFragments = new PerkScriptFragments { Script = Holder() } };
             var quest = x.Quests.AddNew("RX_Quest");
             quest.Scenes.Add(new Scene(x) { EditorID = "RX_Scene", Quest = quest.ToNullableLink(), VirtualMachineAdapter = new SceneAdapter { Scripts = { Holder() } } });
             var topic = new DialogTopic(x) { EditorID = "RX_Topic", Quest = quest.ToLink<IQuestGetter>() };
@@ -641,8 +644,8 @@ public class FindTests
 
         var (code, stdout, stderr) = game.Find("RX_Loc", "--refs", "--max", "0");
         Assert.True(code == 0, stdout + stderr);
-        Assert.Contains("  referenced by: 5 records (winning copies)", stdout);
-        foreach (var n in new[] { "RX_Scene [", "RX_Package [", "RX_Info [", "RX_Cell [" }) Assert.Contains(n, stdout);
+        Assert.Contains("  referenced by: 7 records (winning copies)", stdout);
+        foreach (var n in new[] { "RX_Scene [", "RX_Package [", "RX_Info [", "RX_Cell [", "RX_FragQuest [", "RX_Perk [" }) Assert.Contains(n, stdout);
         Assert.Contains($"[{refKey}] REFR in RX_Cell [{cellKey}]", stdout);
 
         (code, stdout, stderr) = game.Find("RX_Same", "--refs", "--max", "0");

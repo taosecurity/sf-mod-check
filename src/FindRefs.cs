@@ -121,6 +121,9 @@ public static class RecordRefs
                         }
                         catch (Exception e) when (Fatal.Recoverable(e))
                         {
+                            // a copy that can't be read keeps what earlier plugins said about the record
+                            if (referrers.ContainsKey(fk)) present.Remove(fk);
+                            if (counts != null && plain == null) plain = new(counts);
                             unreadable++;
                             Log.Write($"refs: {Name(rec)} in {p.FileName}: its links can't be read ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])})");
                         }
