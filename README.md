@@ -1036,15 +1036,18 @@ changes nothing.
   missing master is exit 2.
 - **The columns** (the header line exactly as below, tab-separated, lines end with CRLF, no byte order mark):
   `VOICE TYPE`, `FILENAME`, `RESPONSE TEXT`, `FACE`, `SCRIPT NOTES`, `SEX`, `FULL PATH`, `INFO`, `RESPONSE`.
-  - `VOICE TYPE`: the voice type's EditorID, in lower case (`npcfastrid`).
+  - `VOICE TYPE`: the voice type's EditorID, in lower case (`npcfmyvoice`).
   - `FILENAME`: the response's voice file number as **8 upper-case hex digits** with the top byte `00`, no extension
-    (`0009BB4B` for `0009BB4B.wem`). It is the low 24 bits of the response's file number.
+    (`0001A2B3` for `0001a2b3.wem`). It is the low 24 bits of the response's file number.
   - `RESPONSE TEXT`: the line; a field with a quote is quoted CSV-style, and tabs and other control characters
     become spaces.
-  - `FACE`: the emotion (for example `Happy`), `Neutral` when none. `SCRIPT NOTES`: the response's script notes, when present.
+  - `FACE`: the emotion keyword's EditorID without `AnimFaceArchetype` (for example `Happy`); a keyword with
+    another name gives its whole EditorID; empty when the line has no emotion. `SCRIPT NOTES`: the response's script
+    notes, empty when there are none.
   - `SEX`: `female` or `male` from the voice type's flag; empty when the voice type isn't known.
-  - `FULL PATH`: the plugin's file name, which Voice Cloner uses to find the plugin. `INFO`: the line's FormKey.
-    `RESPONSE`: the response number inside the line, from 1.
+  - `FULL PATH`: `Data\Sound\Voice\<plugin file name>\<VOICE TYPE>\<FILENAME>.wem`
+    (`Data\Sound\Voice\MyMod.esm\npcfmyvoice\0001A2B3.wem`); Voice Cloner takes the plugin from it.
+    `INFO`: the line's FormKey. `RESPONSE`: the response number inside the line, from 1.
 - **Encoding:** Windows-1252 by default (what the Creation Kit writes and Voice Cloner reads); a character it can't
   hold becomes `?` and a NOTE counts them. `--utf8` writes UTF-8 instead.
 - **Rows:** one row per voice type and file number, ordered by voice type and then file number. A line that several
