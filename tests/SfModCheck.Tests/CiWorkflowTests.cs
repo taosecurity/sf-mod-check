@@ -21,15 +21,14 @@ public class CiWorkflowTests
         var lines = CiLines();
         if (lines.Length == 0) return;
         var text = string.Join("\n", lines);
-        // the release's asset list is read before the .nupkg is added to the upload
+        // the release's asset list is read before any file is uploaded to an existing release
         Assert.Contains("--json assets", text);
         int check = text.IndexOf("--json assets", StringComparison.Ordinal);
-        int add = text.IndexOf("files+=(out/*.nupkg", StringComparison.Ordinal);
-        Assert.True(add > check, "the .nupkg is added to the upload only after the asset check");
-        // the one --clobber upload takes the list, never a literal .nupkg
-        foreach (var l in lines.Where(l => l.Contains("--clobber")))
-            Assert.DoesNotContain(".nupkg", l);
-        foreach (var l in lines.Where(l => l.Contains("gh release upload")))
-            Assert.DoesNotContain(".nupkg", l);
+        int upload = text.IndexOf("gh release upload", StringComparison.Ordinal);
+        Assert.True(upload > check, "files are uploaded to an existing release only after the asset check");
+        // a rerun never replaces a published file (0.24.0: the release job has no --clobber at all)
+        Assert.DoesNotContain("--clobber", text.Replace("no --clobber", ""));
+        // a release that has every file is not re-uploaded: its published package goes to nuget.org
+        Assert.Contains("gh release download", text);
     }
 }
