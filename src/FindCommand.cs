@@ -8,6 +8,7 @@
 // 0.20.0: --full prints every nested value of the winning copy as a tree (FindTree.cs) instead of the fields block.
 // 0.20.0: --versions lists every copy and what each changes against the copy it was built on (FindVersions.cs).
 // 0.20.0: --refs lists the records whose winning copy points at the record (FindRefs.cs).
+// 0.22.0: --layout lists the winning copy's raw subrecords in file order (FindLayout.cs).
 // Exit 0 = found, 1 = not found, 2 = could not run. The text output ends with one RESULT line; --json prints one object.
 using System.Collections;
 using System.Diagnostics;
@@ -32,9 +33,9 @@ public static class FindCommand
     public const string Usage =
         "usage: sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
         "                         [--data <Data folder>] [--extra-data <folder>] [--full] [--versions] [--refs [--max <n>]]\n" +
-        "                         [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "                         [--layout] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "       sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]\n" +
-        "                         [--data <Data folder>] [--full] [--versions] [--refs] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "                         [--data <Data folder>] [--full] [--versions] [--refs] [--layout] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  EditorID  exact, letter case ignored: CityNewAtlantisLocation\n" +
         "  FormKey   <6 hex digits>:<plugin>: 01295A:Starfield.esm\n" +
         "  FormID    8 hex digits as the console shows them: 0001295A (the first digits pick the plugin by load order)\n" +
@@ -53,6 +54,9 @@ public static class FindCommand
         "  --refs    list the records whose winning copy points at the record (a reference counts, not its cell);\n" +
         "            --json adds it as \"refs\" (needs a record: not with the --plugin listing). In a whole load order\n" +
         "            this reads every plugin and takes a while; --plugin reads only the plugin and its masters.\n" +
+        "  --layout  list the winning copy's subrecords as the file stores them, in order: offset, signature, size and a\n" +
+        "            short preview of the value (text, a number, or the first 16 bytes in hex); --json adds it as\n" +
+        "            \"layout\". A damaged record lists the subrecords before the bad spot and says what is wrong.\n" +
         "Exit 0 = found, 1 = not found, 2 = could not run.";
 
     /// <summary>The field lines printed per record at most (the rest are counted on one line).</summary>
@@ -114,7 +118,7 @@ public static class FindCommand
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
         string? q = null, type = null, logFile = null;
-        bool quiet = false, verbose = false, json = false, full = false, versions = false, refs = false;
+        bool quiet = false, verbose = false, json = false, full = false, versions = false, refs = false, layout = false;
         int? max = null;
         var input = new LoadOrderInput(allowPlugin: true);
         for (int i = 0; i < a.Length; i++)
@@ -141,6 +145,7 @@ public static class FindCommand
                 case "--full": full = true; break;
                 case "--versions": versions = true; break;
                 case "--refs": refs = true; break;
+                case "--layout": layout = true; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
                 case "-h": case "--help": Console.WriteLine(Usage); return 0;
@@ -240,7 +245,7 @@ public static class FindCommand
             foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
             if (!quiet && !json) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
             if (input.Plugin != null && Unloaded(lo, input.Plugin) is { } unloadedWhy) { cantWhy = unloadedWhy; return 2; }
-            if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, full, version, sw, out resultPrinted, out cantWhy);
+            if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, full, layout, version, sw, out resultPrinted, out cantWhy);
 
             var unread = new List<string>();
             string? notFoundWhy = null;
@@ -291,6 +296,7 @@ public static class FindCommand
             }
 
             FillFields(matches, lo, full, input.Plugin != null ? Path.GetFileName(input.Plugin) : null);
+            if (layout) FillLayout(matches, lo);
             if (versions) FillVersions(matches, lo);
             if (refs)
             {
@@ -364,6 +370,23 @@ public static class FindCommand
         static int Count(List<TreeNode> ns) => ns.Sum(n => 1 + (n.Children != null ? Count(n.Children) : 0));
     }
 
+    /// <summary>--layout (0.22.0): the winning copy's raw subrecords (FindLayout.cs), read from its plugin file.</summary>
+    static void FillLayout(List<Match> matches, LoadOrderSetup lo)
+    {
+        if (matches.Count == 0) return;
+        var (files, masterLists) = PatchSources.Styles(lo);
+        foreach (var m in matches)
+        {
+            var sw = Stopwatch.StartNew();
+            var (plugin, _) = m.Winner;
+            Analyzer.Where = $"reading the raw layout of {m.Key} in {plugin.FileName}";
+            m.Layout = RecordLayouts.Read(plugin, m.Key, files, masterLists.GetValueOrDefault(plugin.FileName) ?? [], RecordLayouts.MaxJson);
+            Log.Write($"layout: {m.Key} in {plugin.FileName}: " +
+                      (m.Layout.FileOffset < 0 ? "not read" : $"record at 0x{m.Layout.FileOffset:X}, {m.Layout.Total} subrecords") +
+                      (m.Layout.Problem != null ? $", problem: {m.Layout.Problem}" : "") + $", {sw.Elapsed.TotalSeconds:F1} s");
+        }
+    }
+
     /// <summary>--versions (0.20.0): every copy of each match and what it changes (FindVersions.cs).</summary>
     static void FillVersions(List<Match> matches, LoadOrderSetup lo)
     {
@@ -395,7 +418,7 @@ public static class FindCommand
 
     /// <summary>find --plugin with no record (0.16.1): every record the plugin holds, group by group as Mutagen reads
     /// them, at most max (0 = all), each through the same printer, then a summary of all of them.</summary>
-    static int ListPlugin(LoadOrderSetup lo, string pluginPath, string? type, int max, bool json, bool quiet, bool full, string version,
+    static int ListPlugin(LoadOrderSetup lo, string pluginPath, string? type, int max, bool json, bool quiet, bool full, bool layout, string version,
                           Stopwatch sw, out bool resultPrinted, out string cantWhy)
     {
         resultPrinted = false;
@@ -430,6 +453,7 @@ public static class FindCommand
         var matches = listed.Select(r => byKey[r.FormKey]).ToList();
         foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
         FillFields(matches, lo, full, name);
+        if (layout) FillLayout(matches, lo);
 
         var summary = $"{target.FileName} holds {all.Count} record{(all.Count == 1 ? "" : "s")}: {newCount} new, {all.Count - newCount} override{(all.Count - newCount == 1 ? "" : "s")}" +
                       (byType.Count > 0 ? $"; by type: {string.Join(", ", byType.Select(t => $"{t.Type} {t.Count}"))}" : "");
@@ -492,6 +516,8 @@ public static class FindCommand
         public RefsInfo? Refs;
         /// <summary>--full on a dialogue topic (0.22.0): its lines, or null.</summary>
         public TopicLines? Lines;
+        /// <summary>--layout (0.22.0): the winning copy's raw subrecords, or null without --layout.</summary>
+        public RecordLayout? Layout;
     }
 
     /// <summary>The plugin a console FormID points at, by the load order's runtime index: full plugins 00 to FC, medium
@@ -744,6 +770,7 @@ public static class FindCommand
     static void Print(Match m, View? view = null)
     {
         PrintFields(m);
+        if (m.Layout != null) foreach (var l in RecordLayouts.Lines(m.Layout)) Console.WriteLine(l);   // --layout (0.22.0)
         if (m.Lines != null) foreach (var l in TopicInfos.Lines(m.Lines)) Console.WriteLine(l);   // --full on a topic (0.22.0)
         if (m.Versions != null)
             foreach (var l in RecordVersions.Lines(m.Versions, m.TypesDiffer, m.Key.ModKey.FileName.String, view?.Loaded.Contains(m.Key.ModKey.FileName.String) == true, view?.PluginMode))
@@ -819,6 +846,7 @@ public static class FindCommand
                     if (m.TreeNotShown > 0) o["treeNotShown"] = m.TreeNotShown;
                 }
                 if (m.Lines != null) o["infos"] = TopicInfos.Json(m.Lines);   // --full on a topic (0.22.0)
+                if (m.Layout != null) o["layout"] = RecordLayouts.Json(m.Layout);   // --layout (0.22.0)
                 if (m.Versions != null) o["versions"] = RecordVersions.Json(m.Versions, m.TypesDiffer);   // --versions (0.20.0)
                 if (m.Refs != null) o["refs"] = RecordRefs.Json(m.Refs, view?.MaxRefs ?? DefaultMax);   // --refs (0.20.0)
                 return (JsonNode)o;
