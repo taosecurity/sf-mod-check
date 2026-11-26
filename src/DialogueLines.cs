@@ -133,7 +133,7 @@ internal sealed class VoiceFileIndex
 
     /// <summary>A folder under root whose names match these parts in any letter case (Linux and macOS folders are
     /// case-sensitive, the game's aren't); null when there is none.</summary>
-    static string? CiDir(string root, params string[] parts)
+    internal static string? CiDir(string root, params string[] parts)
     {
         var cur = root;
         foreach (var part in parts)

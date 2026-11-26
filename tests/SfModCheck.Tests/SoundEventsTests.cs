@@ -210,4 +210,18 @@ public class SoundEventsTests
         Assert.Equal(Level.Note, silent.Level);
         Assert.Contains("RN_Silent", silent.Text);
     }
+
+    [Fact]
+    public void Find_full_shows_a_sound_guid_in_the_manifest_form_too()
+    {
+        // 0.23.0 step 3: .NET's Guid text never matches a bank manifest, so --full adds the manifest form.
+        var misc = Mod("SeFind.esm").MiscItems.AddNew("SE_FindMisc");
+        misc.PickupSound = Snd(G3);
+        var (nodes, _) = FindTree.Build(misc, l => $"[{l.FormKey}]");
+        var lines = FindTree.Lines(nodes, 0, "");
+        var start = Assert.Single(lines, l => l.TrimStart().StartsWith("Start"));
+        Assert.Contains($"{Rec(G3)} (manifest form {G3})", start);
+        Assert.Contains("(manifest form", FindTree.Json(nodes).ToJsonString());   // the JSON view prints the same text
+        Assert.DoesNotContain(lines, l => l.TrimStart().StartsWith("Stop") && l.Contains("manifest"));   // an empty GUID gets no form
+    }
 }

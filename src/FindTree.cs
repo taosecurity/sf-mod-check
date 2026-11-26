@@ -137,6 +137,10 @@ internal static class FindTree
                 if (s.Length == 0) { skip = true; return null; }
                 return Quote(s);
             case IConditionGetter c: return link == null ? "" : FindCommand.ConditionText(c, link);
+            case Guid g:
+                // 0.23.0: a sound GUID (a SoundReference's Start or Stop, a WWED's Start or End) also in the form a
+                // Wwise bank manifest (.json) writes it, so it can be looked up there. .NET's own form never matches.
+                return g == Guid.Empty ? g.ToString() : $"{g} (manifest form {AssetFiles.SoundGuidText(AssetFiles.SoundGuid(g))})";
             case IEnumerable<byte> bytes:
             {
                 var arr = bytes.ToArray();
