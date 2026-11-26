@@ -493,6 +493,34 @@ public static class Rules
         ConditionWalker.ForEach(s, c => { foreach (var (id, w) in ConditionAliases(c)) Need(id, w, "WARNING"); });
     }
 
+    public const string ScenePhaseMissing = "scene-phase-missing";
+
+    /// <summary>0.24.0 `scene-phase-missing` (ERROR), shared by `check` and `scenes`: a dialogue line starts a scene at
+    /// a part name (StartScenePhase) that the scene doesn't have; the game matches the name exactly, so the jump goes
+    /// wrong. sceneOf: the scene as the game builds it, or null (the link check reports a missing scene).</summary>
+    public static void CheckScenePhase(IDialogResponsesGetter info, string name, Func<FormKey, ISceneGetter?> sceneOf, Action<string, string, string> add)
+    {
+        if (info.StartScene.IsNull || string.IsNullOrEmpty(info.StartScenePhase)) return;
+        var s = sceneOf(info.StartScene.FormKey);
+        if (s == null) return;
+        var parts = s.Phases.Select(p => p.Name ?? "").ToList();
+        if (parts.Contains(info.StartScenePhase)) return;
+        var sn = $"{SafeText.OneLine(s.EditorID) ?? "(no EditorID)"} [SCEN:{s.FormKey}]";
+        add("ERROR", ScenePhaseMissing, ScenePhaseText(name, sn, info.StartScenePhase, parts));
+    }
+
+    /// <summary>The scene-phase-missing message: the part whose name matches with spaces and letter case ignored is the
+    /// suggestion; with none, the scene's parts are listed.</summary>
+    internal static string ScenePhaseText(string line, string scene, string wanted, IReadOnlyList<string> parts)
+    {
+        static string Squash(string t) => new string(t.Where(c => !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
+        var close = parts.FirstOrDefault(p => p.Length > 0 && Squash(p) == Squash(wanted));
+        var named = parts.Where(p => p.Length > 0).Select(p => $"\"{SafeText.OneLine(p)}\"").ToList();
+        var tail = close != null ? $" Did you mean \"{SafeText.OneLine(close)}\"?"
+            : named.Count > 0 ? $" Its parts are {string.Join(", ", named)}." : " Its parts have no names.";
+        return $"{line} starts {scene} at the part \"{SafeText.OneLine(wanted)}\", which it doesn't have, so the jump doesn't go where it should.{tail}";
+    }
+
     // ---- raw: INFO Emotion and NAVI NVMI lists ----
 
     public sealed class RawFindings

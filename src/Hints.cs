@@ -79,6 +79,28 @@ public static class Hints
             "A script sets a quest stage the quest doesn't have, so the call does nothing. CK: add the stage on the " +
             "quest's Quest Stages tab, or fix the number in the script (or in the script property the record sets) and " +
             "compile it again.",
+        ["scene-phase-missing"] =
+            "A dialogue line starts a scene at a part (phase) name the scene doesn't have; the game matches the name " +
+            "exactly, so the jump goes to the wrong place. CK: open the topic info and pick the scene's real phase in " +
+            "its Start Scene phase field, or rename the scene's phase to match. xEdit: fix the INFO's TPLS (phase " +
+            "name) to the name of one of the scene's phases, letter for letter.",
+        ["scene-no-exit"] =
+            "Every choice in this part of the scene leads back to the same choices, so the player can't leave the " +
+            "conversation. CK: give at least one choice's response a way out: the End Running Scene flag, a jump to " +
+            "another scene or a later phase, or no jump so the scene moves on.",
+        ["stage-gate-unset"] =
+            "A line or scene needs a quest stage done that nothing in the plugin sets, so it never plays. CK: set the " +
+            "stage from a topic info's or scene's 'Set Parent Quest Stage' field or a script (SetStage), or fix the " +
+            "condition's stage number. If another mod or the game sets it, ignore this. A NOTE means a script or a " +
+            "stage number couldn't be read, so it wasn't checked.",
+        ["stage-set-unchecked"] =
+            "The plugin sets a quest stage that no condition in the plugin checks. That is fine when a script, the " +
+            "stage's own fragment or its log entry is the point; otherwise add the GetStageDone condition you meant " +
+            "to the line or scene, or drop the stage set.",
+        ["scene-topic-unused"] =
+            "A topic of the Scene category has spoken lines, but no scene action or player choice uses it, so they " +
+            "never play. CK: add the topic to a scene's Dialogue or Player Dialogue action, or delete it. xEdit: " +
+            "check the topic's Referenced By tab for a scene.",
         ["editorids"] =
             "Give each new record its own Editor ID that no master uses either. CK: open the form and change its " +
             "ID. xEdit: edit the EDID field. This usually comes from duplicating a record or Copy as New Record.",

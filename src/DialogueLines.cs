@@ -69,6 +69,35 @@ internal static class DialogueLines
     internal static bool Positive(IConditionGetter c) =>
         c.CompareOperator == CompareOperator.EqualTo && c is IConditionFloatGetter f && f.ComparisonValue == 1 &&
         c.Data.RunOnType == Condition.RunOnType.Subject;
+
+    /// <summary>The conditions in their AND parts (0.24.0, the 0.21.1 OR fix): an OR flag joins a condition to the next
+    /// one, so a run of ORs is one part whose conditions are alternatives (the game reads (A OR B) AND C). A trailing OR
+    /// on the last condition joins nothing. The same reading as SceneWords.Text.</summary>
+    internal static List<List<IConditionGetter>> AndParts(IReadOnlyList<IConditionGetter> conds)
+    {
+        var o = new List<List<IConditionGetter>>();
+        var run = new List<IConditionGetter>();
+        for (int i = 0; i < conds.Count; i++)
+        {
+            run.Add(conds[i]);
+            if (conds[i].Flags.HasFlag(Condition.Flag.OR) && i + 1 < conds.Count) continue;
+            o.Add(run);
+            run = new();
+        }
+        return o;
+    }
+
+    /// <summary>Whether the conditions require an NPC other than <paramref name="npc"/>: an AND part whose every
+    /// alternative is a positive GetIsID of another NPC. A GetIsID OR-joined with anything else (an alias the NPC may fill,
+    /// a GetIsID of this NPC) is only one choice, so it doesn't rule the NPC out (0.21.1 OR fix).</summary>
+    internal static bool NamesOther(IReadOnlyList<IConditionGetter> conds, FormKey npc) =>
+        AndParts(conds).Any(p => p.All(c => Positive(c) && c.Data is IGetIsIDConditionDataGetter g && g.FirstParameter.Link.FormKey != npc));
+
+    /// <summary>Whether an AND part mixes a positive GetIsID with a positive GetIsAliasRef (the shape the 0.21.1 OR fix
+    /// changes; counted in the --verbose log of lines and voice-lines).</summary>
+    internal static bool MixedOr(IReadOnlyList<IConditionGetter> conds) =>
+        AndParts(conds).Any(p => p.Count > 1 && p.Any(c => Positive(c) && c.Data is IGetIsIDConditionDataGetter) &&
+                                 p.Any(c => Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter));
 }
 
 /// <summary>The voice and lip files of the plugins a load order holds (0.21.0, `lines`): for a plugin, every name under
@@ -160,6 +189,9 @@ internal sealed class DialogueIndex
     public readonly Dictionary<FormKey, IDialogTopicGetter> Topics = new();
     public readonly Dictionary<FormKey, InfoCopy> Infos = new();
     public readonly Dictionary<FormKey, IQuestGetter> Quests = new();
+    /// <summary>The winning copy of every scene read (0.24.0, `scenes`; voice-lines keeps only the ones that use its
+    /// plugin's topics).</summary>
+    public readonly Dictionary<FormKey, ISceneGetter> Scenes = new();
     /// <summary>Topics spoken by an alias in a scene (Dialogue actions with alias >= 0, Player Dialogue NPC responses).</summary>
     public readonly Dictionary<FormKey, List<SceneUse>> SceneTopics = new();
     /// <summary>Player topics per scene (Dialogue actions with alias -2, Player Dialogue player choices).</summary>
@@ -208,7 +240,7 @@ internal sealed class DialogueIndex
     {
         var idCache = plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
         var x = new DialogueIndex(idCache);
-        var scenes = new Dictionary<FormKey, ISceneGetter>();
+        var scenes = x.Scenes;
         int n = 0;
         void Tick()
         {
@@ -366,6 +398,25 @@ internal sealed class DialogueIndex
         s.Add(topic);
     }
 
+    Dictionary<FormKey, List<FormKey>>? topicLines;
+
+    /// <summary>A topic's lines (0.24.0, `scenes`), the winning copy of each, in the order the plugins list them (each
+    /// topic copy holds only the lines its plugin adds or overrides, so a line keeps the place its first plugin gave it;
+    /// that is the order of random picks). Empty for an unknown topic.</summary>
+    public IReadOnlyList<InfoCopy> TopicLines(FormKey topic)
+    {
+        if (topicLines == null)
+        {
+            topicLines = new();
+            foreach (var (k, c) in Infos)   // insertion order: an overwritten key keeps its first place
+            {
+                if (!topicLines.TryGetValue(c.Topic, out var l)) topicLines[c.Topic] = l = new();
+                l.Add(k);
+            }
+        }
+        return topicLines.TryGetValue(topic, out var keys) ? keys.Select(k => Infos[k]).ToList() : [];
+    }
+
     public string? EditorId(FormKey k, Type type)
     {
         if (edids.TryGetValue(k, out var e)) return e;
@@ -415,6 +466,7 @@ internal sealed class DialogueIndex
 
         var myScenes = new HashSet<FormKey>();
         var playerRows = new Dictionary<FormKey, int>();   // response rows per player topic
+        int mixedOr = 0;   // lines whose own conditions OR a GetIsID with a GetIsAliasRef (the 0.21.1 OR fix)
         foreach (var (info, copy) in Infos)
         {
             if (!Topics.TryGetValue(copy.Topic, out var topic)) continue;
@@ -449,9 +501,15 @@ internal sealed class DialogueIndex
                 }
             }
             // a line whose own speaker or GetIsID names someone else isn't this NPC's through an alias or scene either
-            // (code-review round 5; voice-lines settles such a line at its own tier too)
-            var namedOther = (!i.Speaker.IsNull && i.Speaker.FormKey != npc) ||
-                             i.Conditions.Any(c => DialogueLines.Positive(c) && c.Data is IGetIsIDConditionDataGetter g && g.FirstParameter.Link.FormKey != npc);
+            // (code-review round 5; voice-lines settles such a line at its own tier too). A GetIsID OR-joined with another
+            // choice doesn't name someone else (0.24.0, the 0.21.1 OR fix): GetIsID Other OR GetIsAliasRef X stays this
+            // NPC's when it fills X.
+            var namedOther = (!i.Speaker.IsNull && i.Speaker.FormKey != npc) || DialogueLines.NamesOther(i.Conditions, npc);
+            if (DialogueLines.MixedOr(i.Conditions))
+            {
+                mixedOr++;
+                Log.Write($"lines: {info} ORs a GetIsID with a GetIsAliasRef ({(namedOther ? "names someone else" : "an alias may give the speaker")})");
+            }
             if (foundBy == null && !namedOther)
                 foreach (var c in conds)
                     if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
@@ -497,7 +555,7 @@ internal sealed class DialogueIndex
                 foreach (var pt in pts)
                     if (counted.Add(pt)) res.PlayerLines += playerRows.GetValueOrDefault(pt);
         Log.Write($"lines: {npc}: {res.Lines.Count} response rows ({res.Lines.Count(l => l.Shared)} shared), {res.PlayerLines} player rows in {myScenes.Count} scenes, " +
-                  $"{res.GenericLines} generic rows, {skipped.Count} aliases filled another way");
+                  $"{res.GenericLines} generic rows, {skipped.Count} aliases filled another way, {mixedOr} NPC lines read (anyone's) OR a GetIsID with an alias");
         return res;
     }
 

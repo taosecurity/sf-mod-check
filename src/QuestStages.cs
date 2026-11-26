@@ -110,20 +110,30 @@ public static class QuestStages
     sealed record Attached(string Script, IReadOnlyList<IScriptPropertyGetter> Properties, FormKey? Owner, bool SelfIsQuest, string Where,
         IReadOnlySet<string>? LiveFragments = null);
 
-    sealed class State
+    /// <summary>What sets each quest stage in one plugin (QuestStages.Setters): the stages set per quest, with how
+    /// (How), the quests with a SetStage call whose number is worked out at run time (Dynamic), the stage numbers a call
+    /// with an unknown target quest uses, the scripts that couldn't be found or read, and the firm script calls.</summary>
+    internal sealed class State
     {
+        public const string StartFlag = "the start stage flag";
         public readonly Dictionary<FormKey, HashSet<int>> Set = new();
+        public readonly Dictionary<(FormKey Quest, int Stage), List<string>> How = new();
         public readonly Dictionary<FormKey, int> Dynamic = new();
         public readonly HashSet<int> UnknownTargetStages = new();
         public readonly SortedDictionary<string, string> Unreadable = new(StringComparer.OrdinalIgnoreCase);
         public readonly List<(string Script, FormKey Quest, int Stage)> Calls = new();
-        public int CallCount;
+        public int CallCount, AttachedCount;
 
         public void Mark(FormKey q, int stage, string how)
         {
             if (!Set.TryGetValue(q, out var s)) Set[q] = s = new();
+            if (!How.TryGetValue((q, stage), out var h)) How[(q, stage)] = h = new();
+            if (!h.Contains(how)) h.Add(how);
             if (s.Add(stage) && Log.On) Log.Write($"quest stages: {q} stage {stage} set by {how}");
         }
+
+        /// <summary>The stage counts as set: something sets it, or a call whose quest can't be told uses its number.</summary>
+        public bool IsSet(FormKey q, int stage) => Set.TryGetValue(q, out var s) && s.Contains(stage) || UnknownTargetStages.Contains(stage);
     }
 
     /// <summary>Runs the check on one plugin. questOf: a quest by FormKey as the game builds it (the plugin's own
@@ -134,6 +144,17 @@ public static class QuestStages
         var self = mod.ModKey;
         if (Checker.IsOfficial(self.FileName.String)) { Log.Write("quest stages: skipped (an official plugin)"); return; }
         var newQuests = mod.Quests.Where(q => q.FormKey.ModKey == self && q.Stages.Count > 0).ToList();
+        var st = Setters(mod, scripts, name);
+        Log.Write($"quest stages: {newQuests.Count} new quest(s) with stages, {st.AttachedCount} attached script(s), {st.CallCount} stage-setting call(s), " +
+                  $"{st.Unreadable.Count} script(s) not found or unreadable");
+        Report(st, newQuests, questOf, name, add);
+    }
+
+    /// <summary>What sets each stage in one plugin (0.24.0: shared by `check` and `scenes`): the start stage flag,
+    /// dialogue responses', scenes' and scene phases' "set parent quest stage" values, and SetStage or SetStageNoWait
+    /// calls in the scripts the plugin attaches. scripts: finds a script by name.</summary>
+    internal static State Setters(IStarfieldModGetter mod, Func<string, (PexFile? Pex, string? Problem)> scripts, Func<IMajorRecordGetter, string> name)
+    {
         var st = new State();
         var attached = new List<Attached>();
         var topicQuest = new Dictionary<FormKey, FormKey>();
@@ -148,7 +169,7 @@ public static class QuestStages
             {
                 case IQuestGetter q:
                     foreach (var s in q.Stages)
-                        if (s.Flags.HasFlag(QuestStage.Flag.RunOnStart)) st.Mark(q.FormKey, s.Index, "the start stage flag");
+                        if (s.Flags.HasFlag(QuestStage.Flag.RunOnStart)) st.Mark(q.FormKey, s.Index, State.StartFlag);
                     if (q.VirtualMachineAdapter is { } qa)
                     {
                         foreach (var e in qa.Scripts) Attach(e, q.FormKey, true, name(q));
@@ -220,9 +241,12 @@ public static class QuestStages
         }
 
         foreach (var a in attached) Scan(a, scripts, st);
-        Log.Write($"quest stages: {newQuests.Count} new quest(s) with stages, {attached.Count} attached script(s), {st.CallCount} stage-setting call(s), " +
-                  $"{st.Unreadable.Count} script(s) not found or unreadable");
+        st.AttachedCount = attached.Count;
+        return st;
+    }
 
+    static void Report(State st, List<IQuestGetter> newQuests, Func<FormKey, IQuestGetter?> questOf, Func<IMajorRecordGetter, string> name, Action<string, string, string> add)
+    {
         // quest-stage-unset
         var unsetQuests = new List<(IQuestGetter Quest, List<int> Stages)>();
         foreach (var q in newQuests)

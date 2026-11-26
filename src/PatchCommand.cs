@@ -149,6 +149,18 @@ public static class PatchCommand
     static string LogName(string recordType, string? editorId, FormKey fk) =>
         string.IsNullOrEmpty(editorId) ? $"{recordType} [{fk}]" : $"{recordType} {SafeText.OneLine(editorId)} [{fk}]";
 
+    // 0.22.0 (B) NOTE text, after "<key>'s <list>: ". When the remover also dropped entries the changer left alone
+    // (base [A, B, C], remover [A], changer [A, B', C] gives [A, B']), the patch holds fewer entries than the changer's
+    // list, and the NOTE says so (0.24.0).
+    internal static string RemovalNoteText(string remover, string changer, int removed, int kept, int changerTotal)
+    {
+        var head = $"{remover} removed {removed} entr{(removed == 1 ? "y" : "ies")} and {changer} changed the list; ";
+        if (kept >= changerTotal) return head + $"the patch kept {changer}'s entries. Check it in-game.";
+        int lost = changerTotal - kept;
+        return head + $"the patch has {kept} of {changer}'s {changerTotal} entries: {changer}'s new entries and {remover}'s " +
+               $"removals, so {lost} entr{(lost == 1 ? "y" : "ies")} {changer} kept {(lost == 1 ? "is" : "are")} gone too. Check it in-game.";
+    }
+
     /// <summary>Why a record type can't be built, or null when it can.</summary>
     public static string? WhyNotBuilt(Type getter)
     {
@@ -218,14 +230,14 @@ public static class PatchCommand
         bool quiet = false, verbose = false, includeOfficial = false;
         var only = new List<string>();
         var picks = new List<Pick>();
-        string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
+        string? Value(ref int i, string what, string? example = null) => Cli.Value(a, ref i, what, Usage, example);
         for (int i = 0; i < a.Length; i++)
         {
             if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }
             switch (a[i])
             {
                 case "--out":
-                    if (Value(ref i, "a folder") is not { } o) return 2;
+                    if (Value(ref i, "a folder", "\"C:\\MyPatch\"") is not { } o) return 2;
                     outDir = o; break;
                 case "--name":
                     if (Value(ref i, "a plugin file name such as MyPatch.esm") is not { } n) return 2;
@@ -1413,7 +1425,9 @@ public static class PatchCommand
         // 0.22.0 (B): a stage's log entries or an objective's targets where one plugin only removed entries and the
         // other changed the list: the merge keeps the changer's entries, and an edit can't be told from a remove plus
         // an add, so the report gets a NOTE (the merge itself is F1's, unchanged)
-        var removalNotes = new List<string>();
+        // 0.24.0: each NOTE belongs to the merged entry it describes, and goes in only when the patch's final list still
+        // holds that entry (a third plugin's change, a --pick or a whole-value replace can throw it away)
+        var removalNotes = new List<(string Field, object Entry, string Note)>();
         // who removed a keyed entry from the merged list (the list's own plugin when it never had it)
         var removedBy = new Dictionary<(string Field, string Key), int>();
         var stateOrigin = new Dictionary<string, int>();
@@ -1513,14 +1527,13 @@ public static class PatchCommand
                 subMerged.Add(entry);
                 did.Changed++;
                 Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {field}, {key}: merged one level down with {From(S.Origin)}'s version");
-                foreach (var (list, removerIsS, count) in removals)
+                foreach (var r in removals)
                 {
-                    var (remover, changer) = removerIsS ? (From(S.Origin), loser) : (loser, From(S.Origin));
+                    var (remover, changer) = r.RemoverIsS ? (From(S.Origin), loser) : (loser, From(S.Origin));
                     var qn = string.IsNullOrEmpty(l.EditorID) ? "" : SafeText.OneLine(l.EditorID) + " ";
-                    var note = $"Quest {qn}[{fk}] {key}'s {list}: {remover} removed {count} entr{(count == 1 ? "y" : "ies")} and {changer} " +
-                               $"changed the list; the patch kept {changer}'s entries. Check it in-game.";
-                    if (!removalNotes.Contains(note)) removalNotes.Add(note);
-                    Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {field}, {key}'s {list}: {remover} removed {count} entr{(count == 1 ? "y" : "ies")} and {changer} changed the list; {changer}'s entries are kept (a NOTE)");
+                    var note = $"Quest {qn}[{fk}] {key}'s {r.List}: {RemovalNoteText(remover, changer, r.Count, r.Kept, r.ChangerTotal)}";
+                    if (!removalNotes.Any(x => x.Note == note)) removalNotes.Add((field, entry, note));
+                    Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {field}, {key}'s {r.List}: {remover} removed {r.Count} entr{(r.Count == 1 ? "y" : "ies")} and {changer} changed the list; the patch has {r.Kept} of {changer}'s {r.ChangerTotal} entries (a NOTE)");
                 }
                 if (clash.Count > 0)
                     Row(key, kept, dropped, $"both changed {key}'s {string.Join(" and ", clash)}; {kept}'s value is kept");
@@ -1561,11 +1574,11 @@ public static class PatchCommand
         // One stage or objective both sides changed: a new entry from the kept side's copy, with each field the other
         // side changed alone taken from it, and each list (log entries, targets) merged entry by entry (an entry is
         // compared whole). When both sides removed or edited one base entry, that list is one value.
-        (object Entry, List<string> Clash, List<(string List, bool RemoverIsS, int Count)> Removals) SubMerge(object sHeld, object sMut, object bHeld, object lHeld, object lMut, bool keepS)
+        (object Entry, List<string> Clash, List<(string List, bool RemoverIsS, int Count, int Kept, int ChangerTotal)> Removals) SubMerge(object sHeld, object sMut, object bHeld, object lHeld, object lMut, bool keepS)
         {
             var result = QuestMerge.CopyEntry(sMut);
             var clash = new List<string>();
-            var removals = new List<(string, bool, int)>();
+            var removals = new List<(string, bool, int, int, int)>();
             foreach (var p in FieldCompare.NestedProperties(lHeld.GetType()))
             {
                 if (p.Name == "Index") continue;
@@ -1605,8 +1618,10 @@ public static class PatchCommand
                             bool sAdds = si.Any(x => !bBag.Contains(x)), lAdds = li2.Any(x => !bBag.Contains(x));
                             var sGone = bi.Where(x => !sBag.Contains(x)).ToList();
                             var lGone = bi.Where(x => !lBag.Contains(x)).ToList();
-                            if (sGone.Count > 0 && !sAdds && lAdds && sGone.Any(x => !lBag.Contains(x))) removals.Add((p.Name, true, sGone.Count));
-                            else if (lGone.Count > 0 && !lAdds && sAdds && lGone.Any(x => !sBag.Contains(x))) removals.Add((p.Name, false, lGone.Count));
+                            // the kept list is always a part of the changer's list: Kept against ChangerTotal says
+                            // whether the remover also dropped entries the changer left alone
+                            if (sGone.Count > 0 && !sAdds && lAdds && sGone.Any(x => !lBag.Contains(x))) removals.Add((p.Name, true, sGone.Count, keep.Count, li2.Count));
+                            else if (lGone.Count > 0 && !lAdds && sAdds && lGone.Any(x => !sBag.Contains(x))) removals.Add((p.Name, false, lGone.Count, keep.Count, si.Count));
                             continue;
                         }
                     }
@@ -1989,7 +2004,16 @@ public static class PatchCommand
             : source[p.Name] != today[p.Name] && !FieldCompare.DeepEq(Held(p.Name, source[p.Name]), Held(p.Name, today[p.Name]), 0));
         // the B notes go in only for a record that got this far (a refused record has its own row); a record left out
         // because it equals today's says the game keeps those entries
-        foreach (var n in removalNotes) plan.Notes.Add(changed ? n : n.Replace("; the patch kept ", "; the game keeps "));
+        // (only the notes whose merged entry is still in the patch's final list)
+        foreach (var (nf, entry, n) in removalNotes)
+        {
+            if (!merged.TryGetValue(nf, out var final) || !final.Any(x => ReferenceEquals(x.Held, entry)))
+            {
+                Log.Write($"patch: {fk} {nf}: a removal NOTE is dropped, a later plugin replaced the entry it was about");
+                continue;
+            }
+            plan.Notes.Add(changed ? n : n.Replace("; the patch kept ", "; the game keeps ").Replace("; the patch has ", "; the game has "));
+        }
         if (!changed)
         {
             plan.Notes.Add($"{first.RecordType} {first.EditorID} [{fk}]: the patched record would equal today's, so it is left out");

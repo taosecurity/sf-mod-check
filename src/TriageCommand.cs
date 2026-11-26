@@ -322,7 +322,7 @@ public static class TriageCommand
         var o = new TriageOptions();
         bool quiet = false, verbose = false;
         string? logFile = null, game = null;
-        string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
+        string? Value(ref int i, string what, string? example = null) => Cli.Value(a, ref i, what, Usage, example);
         for (int i = 0; i < a.Length; i++)
         {
             switch (a[i])
@@ -331,7 +331,7 @@ public static class TriageCommand
                     if (Value(ref i, "the game's folder (or its Data folder)") is not { } g) return BadArgs();
                     game = g; break;
                 case "--out":
-                    if (Value(ref i, "a folder for the report") is not { } of) return BadArgs();
+                    if (Value(ref i, "a folder for the report", "triage-report") is not { } of) return BadArgs();
                     o.Out = of; break;
                 case "--manalyze":
                     if (Value(ref i, "the path of manalyze.exe") is not { } ma) return BadArgs();

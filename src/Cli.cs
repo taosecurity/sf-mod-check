@@ -8,11 +8,12 @@ public static class Cli
 
     /// <summary>The value after option a[i] (and moves i past it); null, after an error naming the option, an example
     /// and the usage, when it is missing. An empty value ("" from a script, or a variable that wasn't set) counts as
-    /// missing (0.5.0).</summary>
-    public static string? Value(string[] a, ref int i, string what, string usage)
+    /// missing (0.5.0). <paramref name="example"/> overrides the shared example, for an option such as --out whose
+    /// value differs per command (0.24.0: --out suggested conflict-report for every command).</summary>
+    public static string? Value(string[] a, ref int i, string what, string usage, string? example = null)
     {
         if (i + 1 < a.Length && !a[i + 1].StartsWith("--") && a[i + 1].Trim().Length > 0) return a[++i];
-        Console.Error.WriteLine($"{a[i]} needs {what} after it{(i + 1 < a.Length && a[i + 1].Trim().Length == 0 ? " (it was given an empty value)" : "")}, for example: {a[i]} {Example(a[i])}");
+        Console.Error.WriteLine($"{a[i]} needs {what} after it{(i + 1 < a.Length && a[i + 1].Trim().Length == 0 ? " (it was given an empty value)" : "")}, for example: {a[i]} {example ?? Example(a[i])}");
         Console.Error.WriteLine(usage);
         return null;
     }

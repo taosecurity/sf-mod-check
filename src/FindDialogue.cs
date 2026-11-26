@@ -139,9 +139,9 @@ public static class TopicInfos
         var lines = new List<string> { $"  lines: {t.Total} INFO{(t.Total == 1 ? "" : "s")} (winning copies{where})" };
         foreach (var l in t.Records.Take(MaxListed))
         {
-            lines.Add($"    {l.EditorId ?? "(no EditorID)"} [{l.FormKey}], winner {l.Winner}{(l.Deleted ? " (DELETED by its winner: the game doesn't use this line)" : "")}" +
+            lines.Add($"    {l.EditorId ?? "(no EditorID)"} [{l.FormKey}], winner {SafeText.OneLine(l.Winner)}{(l.Deleted ? " (DELETED by its winner: the game doesn't use this line)" : "")}" +
                       (l.LinesFrom != null ? $" (a partial form; its lines come from {SafeText.OneLine(l.LinesFrom)})" : ""));
-            if (l.SharedFrom != null) lines.Add($"      (no responses of its own: it uses the lines of {l.SharedFrom})");
+            if (l.SharedFrom != null) lines.Add($"      (no responses of its own: it uses the lines of {SafeText.OneLine(l.SharedFrom)})");
             else if (l.Responses.Count == 0) lines.Add("      (no responses)");
             foreach (var r in l.Responses)
             {

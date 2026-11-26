@@ -181,6 +181,42 @@ public class PatchQuestTests
     }
 
     [Fact]
+    public void Remover_drops_more_than_the_changer_touched_the_note_says_what_the_patch_holds()
+    {
+        // 0.24.0 (0.22.1 nit): base [A, B, C], ModB (the winner) [A], ModA [A, B edit, C] gives [A, B edit]: C is gone
+        // too, so "the patch kept ModA.esm's entries" would understate it
+        using var game = new Game(q => { q.Stages[0].LogEntries.Clear(); foreach (var n in new[] { "A", "B", "C" }) q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = n }); });
+        game.Mod("ModA.esm", q => q.Stages[0].LogEntries[1].Note = "B edit");
+        game.Mod("ModB.esm", q => { q.Stages[0].LogEntries.RemoveAt(2); q.Stages[0].LogEntries.RemoveAt(1); });
+        Ok(game.Patch());
+        Assert.Equal(new[] { "A", "B edit" }, Notes(game.Quest().Stages[0]));
+        var report = game.Report;
+        Assert.Contains("stage 10's LogEntries: ModB.esm removed 2 entries and ModA.esm changed the list; the patch has 2 of ModA.esm's 3 entries: " +
+                        "ModA.esm's new entries and ModB.esm's removals, so 1 entry ModA.esm kept is gone too. Check it in-game.", report);
+        Assert.DoesNotContain("the patch kept ModA.esm's entries", report);
+    }
+
+    [Fact]
+    public void A_third_plugin_replaces_the_merged_stage_the_removal_note_is_dropped()
+    {
+        // 0.24.0 (0.22.1 nit): ModA edits B, ModB removes it (a NOTE), then ModC changes stage 10 too, and its whole
+        // stage is kept (three or more plugins changed it). The NOTE is about a list the patch no longer holds. ModD,
+        // the winner, changes only the quest's name, so the stage changes are all forwarded
+        using var game = TwoLogEntries();
+        game.Mod("ModA.esm", q => q.Stages[0].LogEntries[1].Note = "B edit");
+        game.Mod("ModB.esm", q => q.Stages[0].LogEntries.RemoveAt(1));
+        game.Mod("ModC.esm", q => q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn);
+        game.Mod("ModD.esm", q => q.Name = "D name");
+        Ok(game.Patch());
+        var s10 = game.Quest().Stages[0];
+        Assert.Equal(new[] { "A", "B" }, Notes(s10));
+        Assert.Equal(QuestStage.Flag.KeepInstanceDataFromHereOn, s10.Flags);
+        var report = game.Report;
+        Assert.Contains("three or more plugins changed stage 10", report);
+        Assert.DoesNotContain(RemovalNote, report);
+    }
+
+    [Fact]
     public void One_removes_an_objective_target_the_other_changes_it_the_report_has_a_note()
     {
         // 0.22.0 (B) for targets: ModA (the loser) removes objective 10's target and changes its text, ModB (the

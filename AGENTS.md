@@ -429,7 +429,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `--layout` reads the record's raw bytes: a heading (type, stored FormID, form version, flags, size, subrecord
     count), then one line per subrecord (offset, signature, size, a short preview: text of at most 48 characters or
     the first 16 bytes). A damaged record lists the subrecords before the bad spot and a `problem:` line. With `--json` each
-    match gains `layout`. With the `--plugin` listing, `--type QUST --layout` surveys every quest's layout.
+    match gains `layout`. With the `--plugin` listing, `--type QUST --layout` surveys every quest's layout. Since 0.24.0
+    a read failure part way through a file marks only the records the walk never reached, and a record one plugin holds
+    twice shows its first copy with a `note:` line (the other copies' offsets; `--json` `otherCopies`).
 
     Masters are looked for in the plugin's own folder, then each `--masters-dir` in order, then `--data` (Steam's
     Data by default); a master in none of them is exit 2. `--plugin` with `--plugins`, `--mo2` or `--extra-data`,
@@ -448,7 +450,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     or scene alias it fills, and (listed apart as shared) by its voice type. `--compare <NPC>` adds that NPC's counts
     and marks the types this NPC has no line of as `missing`: those are the kinds of line still to write. Each line
     says whether its voice and lip files exist (`--no-files` skips that). `--max` (default 200, 0 = all) limits the
-    list, never the counts; `--json` prints one object. Exit 0 found, 1 NPC not found, 2 couldn't run (a `--compare`
+    list, never the counts; `--json` prints one object. Since 0.24.0 conditions joined with OR are read as a group: `GetIsID`
+    of another NPC OR `GetIsAliasRef` of an alias this NPC fills still counts for this NPC. Exit 0 found, 1 NPC not found, 2 couldn't run (a `--compare`
     NPC that isn't found, a name that is another kind of record, several NPCs with one EditorID, or a `--plugin` plugin whose dialogue can't be read in full is 2). A whole load order takes about 45 seconds.
 
 20. A plugin's voiced lines as a Creation Kit style list (0.21.0), for voice tools such as Starfield Voice Cloner:
@@ -487,6 +490,36 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     archive, loose or nowhere, ending in `RESULT: REPORT (...)`. It is a report: it never prints a WARNING or ERROR and
     never judges a rate (the game ships 32, 44.1 and 48 kHz). Exit 0 report written, 2 could not run. Reading is
     bounded (4 KB per stored file, 64 MB per compressed entry) and a damaged archive or file is a line, not a crash.
+
+23. Read and check an NPC's or a quest's conversations (0.24.0). Read only:
+
+        sf-mod-check scenes Companion_MyNpc
+        sf-mod-check scenes MyQuest --out MyQuest-scenes.md
+        sf-mod-check scenes 000801:MyMod.esm --plugin "C:\Downloads\MyMod\MyMod.esm" --max 0
+
+    The argument is an NPC (its scenes: those where a quest alias it fills speaks, plus scenes they jump to in the same
+    quests) or a quest (all its scenes), as an EditorID, FormKey or console FormID; the load-order options are those of
+    `lines`. The output is Markdown: one section per scene (when it can start), each part as the NPC's lines or a table
+    `You say | <NPC> answers | Then`. "Then" is one of: The conversation ends. / Back to these choices. / Back to part N.
+    / On to part N. / Goes to <scene> (part "<name>"). / Back to the talk menu. / The scene ends. Then come `## Problems`
+    (rule lines plus one HINT per rule), `## Remarks` when there are any, and one stage table per quest
+    (`Stage | Author's note | Set by | Needed by`; a stage something sets that the quest lacks says "(no such stage)").
+    The talk menu is found by counting jumps (a jump to any part counts; a tie goes to the scene no other tied scene
+    enters before its choices); `--hub <scene>` names it when the guess is wrong.
+    Rules: `scene-phase-missing` (ERROR: a line starts a scene at a part name it doesn't have; the game matches the name
+    exactly; the message suggests the part whose name matches with spaces and case ignored; it runs in `check` too),
+    `scene-no-exit` (WARNING), `stage-gate-unset` (WARNING, NOTE when scripts can't be read or a SetStage number is worked
+    out at run time), `stage-set-unchecked` (NOTE) and `scene-topic-unused` (WARNING). The stage and topic rules cover only
+    the plugin that adds the quest or topic and never an official plugin, so a vanilla NPC shows no stage table.
+    `--max <n>` (default 50, 0 = all) limits the scenes shown, never the problems or stage table. `--out <file.md>`
+    writes the Markdown and prints only a "Wrote" line and the RESULT line; `--out` with `--json` is exit 2. `--json`
+    prints one object: `tool`, `version`, `query`, `kind` (`npc` or `quest`), `formKey`, `editorId`, `hub` (a list),
+    `scenes` (`formKey`, `editorId`, `quest`, `conditions`, `words`, `parts`; each part `index`, `name`, `conditions`,
+    `words`, `steps` of type `says`, `choices` or `other`), `remarks`, `problems` (`severity`, `rule`, `message`, `hint`,
+    `record`), `stages` (`quest`, `stage`, `note`, `setBy`, `neededBy`), `unread` and `result` (`scenes`, `shown`,
+    `errors`, `warnings`, `notes`). Exit 0 found (even with problems), 1 not found, 2 couldn't run. One NPC with `--plugin`
+    and Starfield.esm as a master takes about 25 seconds and 3 to 4 GB. When a user asks "why does this conversation
+    dead-end or go to the wrong place", run `scenes` on the NPC and read the Problems list first.
 
 ## 6. Inputs and outputs
 

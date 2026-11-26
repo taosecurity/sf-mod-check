@@ -32,8 +32,10 @@ public static class VoiceLinesCommand
         "  Writes the plugin's voiced dialogue lines as a tab-separated file in the Creation Kit dialogue-export columns\n" +
         "  that voice tools read, one row per voice type and file number:\n" +
         "    VOICE TYPE  FILENAME  RESPONSE TEXT  FACE  SCRIPT NOTES  SEX  FULL PATH  INFO  RESPONSE\n" +
-        "  A line's voice types come from its conditions (GetIsID, GetIsVoiceType), else from its speaker (the line's\n" +
-        "  Speaker, or the NPC that fills its alias or scene alias). Player lines and SharedDialog lines are left out.\n" +
+        "  A line's voice types come from the first of these that names an NPC or a voice type: its own conditions\n" +
+        "  (GetIsID, GetIsVoiceType; each alternative of an OR counts), its speaker (the line's Speaker, or the NPC that\n" +
+        "  fills its alias or scene alias), its dialogue group's conditions, its quest's. --voice covers lines with none.\n" +
+        "  Player lines and lines that link a SharedDialog line are left out.\n" +
         "  <plugin>        the plugin file; its masters are found in its folder, then each --masters-dir, then --data\n" +
         "  --out           write the list to this file (default: the screen, stdout)\n" +
         "  --voice         a voice type (EditorID) for the lines that name none; may be given more than once\n" +
@@ -86,7 +88,7 @@ public static class VoiceLinesCommand
                     if (input.TryOption(a, ref i, Usage) == false) return 2;
                     continue;
                 case "--out":
-                    if (Cli.Value(a, ref i, "a file to write the list to", Usage) is not { } o) return 2;
+                    if (Cli.Value(a, ref i, "a file to write the list to", Usage, "voice-lines.txt") is not { } o) return 2;
                     outFile = o; break;
                 case "--voice":
                     if (Cli.Value(a, ref i, "a voice type's EditorID", Usage) is not { } v) return 2;
@@ -204,8 +206,9 @@ public static class VoiceLinesCommand
 
             foreach (var w in warnings) Console.Error.WriteLine($"WARNING: {w}");
             if (noVoice.Count > 0)
-                Console.Error.WriteLine($"NOTE: {noVoice.Count} voiced line{(noVoice.Count == 1 ? " has" : "s have")} no voice type (first: {noVoice[0]}): no condition names " +
-                                        "an NPC or voice type and no speaker or alias gives one, so they have no rows. Give their voice type with --voice <EditorID>.");
+                Console.Error.WriteLine($"NOTE: {noVoice.Count} voiced line{(noVoice.Count == 1 ? " has" : "s have")} no voice type (first: {noVoice[0]}): no condition, speaker or " +
+                                        "alias names one, or the NPC they name takes its voice from a template (it has no voice type of its own), so they have no rows. " +
+                                        "Give their voice type with --voice <EditorID>.");
             if (replaced > 0)
                 Console.Error.WriteLine($"NOTE: {replaced} character{(replaced == 1 ? "" : "s")} can't be written in Windows-1252 and became ?. Use --utf8 if the voice tool reads UTF-8.");
 
@@ -324,18 +327,29 @@ public static class VoiceLinesCommand
                 AddVt(n.Voice.FormKey, $"{how} {npc}");
             }
             // voice-missing's condition rules, on one tier of conditions
+            // (0.24.0, the 0.21.1 OR fix) In an OR run that names an NPC or a voice type, a GetIsAliasRef alternative is
+            // a speaker too: GetIsID Other OR GetIsAliasRef X gives Other's voice type and the voice types of X's NPCs.
             void Tier(IReadOnlyList<IConditionGetter> tier)
             {
-                foreach (var c in tier)
+                foreach (var part in DialogueLines.AndParts(tier))
                 {
-                    if (!DialogueLines.Positive(c)) continue;
-                    if (c.Data is IGetIsIDConditionDataGetter g) AddNpc(g.FirstParameter.Link.FormKey, "GetIsID");
-                    if (c.Data is IGetIsVoiceTypeConditionDataGetter gv)
+                    bool names = false;
+                    foreach (var c in part)
                     {
-                        var k = gv.VoiceTypeOrList.Link.FormKey;
-                        if (IsVoiceType(k)) AddVt(k, "GetIsVoiceType");
-                        else foreach (var x in index.ListItems(k)) if (IsVoiceType(x)) AddVt(x, $"GetIsVoiceType list {k}");
+                        if (!DialogueLines.Positive(c)) continue;
+                        if (c.Data is IGetIsIDConditionDataGetter g) { names = true; AddNpc(g.FirstParameter.Link.FormKey, "GetIsID"); }
+                        if (c.Data is IGetIsVoiceTypeConditionDataGetter gv)
+                        {
+                            names = true;
+                            var k = gv.VoiceTypeOrList.Link.FormKey;
+                            if (IsVoiceType(k)) AddVt(k, "GetIsVoiceType");
+                            else foreach (var x in index.ListItems(k)) if (IsVoiceType(x)) AddVt(x, $"GetIsVoiceType list {k}");
+                        }
                     }
+                    if (!names || part.Count < 2) continue;
+                    foreach (var c in part)
+                        if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
+                            foreach (var npc in index.AliasNpcs(topic.Quest.FormKey, ar.FirstParameter)) AddNpc(npc, $"GetIsAliasRef {ar.FirstParameter} (OR)");
                 }
             }
             bool Settled() => found.Count > 0 || named;

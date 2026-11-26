@@ -95,7 +95,7 @@ public static class Ba2Command
             switch (a[i])
             {
                 case "--out" when mode == "extract":
-                    if (Cli.Value(a, ref i, "a folder to write the files to", Usage) is not { } o) return 2;
+                    if (Cli.Value(a, ref i, "a folder to write the files to", Usage, "extracted") is not { } o) return 2;
                     outDir = o; break;
                 case "--force" when mode == "extract": force = true; break;
                 case "--max-size" when mode == "extract":

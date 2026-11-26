@@ -31,6 +31,9 @@ public sealed class RecordLayout
     public int Total;
     /// <summary>Why the layout stops early or couldn't be read, or null.</summary>
     public string? Problem;
+    /// <summary>Where other copies of the record start in the same file, when the plugin holds it more than once (the
+    /// first copy is the one shown; 0.24.0).</summary>
+    public List<long> OtherCopies = new();
 }
 
 public static class RecordLayouts
@@ -47,10 +50,12 @@ public static class RecordLayouts
         => ReadMany(p, [key], files, masters, cap)[key];
 
     /// <summary>The layouts of several records' copies in plugin p from one pass over its record headers (a --plugin
-    /// listing with --layout reads each file once, not once per record). Every key gets a result.</summary>
+    /// listing with --layout reads each file once, not once per record). Every key gets a result. A read that fails
+    /// part way marks only the records it never reached (0.24.0). afterRecord runs after each record header is seen
+    /// (tests use it to make the walk fail at a chosen record).</summary>
     public static Dictionary<FormKey, RecordLayout> ReadMany(PluginInfo p, IReadOnlyCollection<FormKey> keys,
                                     IReadOnlyDictionary<string, (ModKey Key, Style Style)> files,
-                                    IReadOnlyCollection<string> masters, int cap)
+                                    IReadOnlyCollection<string> masters, int cap, Action<RawRecord>? afterRecord = null)
     {
         var result = keys.Distinct().ToDictionary(k => k, _ => new RecordLayout { Plugin = p.FileName });
         if (!files.TryGetValue(p.FileName, out var self))
@@ -62,28 +67,50 @@ public static class RecordLayouts
         {
             using var f = new RawFile(p.Path);
             var map = new IdMap(p.FileName, self.Style, masters.Select(m => (m, files.TryGetValue(m, out var x) ? x.Style : Style.Full)));
-            var hits = new Dictionary<FormKey, RawRecord>();
+            // every copy of each wanted record, in file order (a plugin can hold one record twice)
+            var hits = new Dictionary<FormKey, List<RawRecord>>();
+            long lastSeen = -1;
             var w = new RawWalker(f, deep: false, (_, _, _) => { })
             {
                 OnRecord = rec =>
                 {
-                    if (hits.Count == result.Count) return;
+                    lastSeen = rec.Offset;
                     var (file, local, _) = map.Decode(rec.FormId);
-                    if (file is null || !files.TryGetValue(file, out var mk)) return;
-                    var k = new FormKey(mk.Key, IdMap.Mask(local, mk.Style));
-                    if (result.ContainsKey(k)) hits.TryAdd(k, rec);
+                    if (file is not null && files.TryGetValue(file, out var mk))
+                    {
+                        var k = new FormKey(mk.Key, IdMap.Mask(local, mk.Style));
+                        if (result.ContainsKey(k))
+                        {
+                            if (!hits.TryGetValue(k, out var copies)) hits[k] = copies = new();
+                            copies.Add(rec);
+                        }
+                    }
+                    afterRecord?.Invoke(rec);
                 },
             };
-            w.Walk();
+            // a walk that fails part way keeps the records it already reached (0.24.0: it used to mark every record)
+            string? walkFailed = null;
+            try { w.Walk(); }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                walkFailed = lastSeen < 0 ? $"{SafeText.OneLine(p.FileName)} can't be read ({e.GetType().Name})"
+                    : $"the file can't be read past the record at 0x{lastSeen:X} ({e.GetType().Name})";
+                Log.Write($"find --layout: {SafeText.OneLine(p.FileName)}: the walk stopped: {e.GetType().Name}: {SafeText.OneLine(e.Message)}");
+            }
             foreach (var (k, lay) in result)
             {
-                if (!hits.TryGetValue(k, out var r))
+                if (!hits.TryGetValue(k, out var copies))
                 {
-                    lay.Problem = w.StoppedEarly is { } why
+                    lay.Problem = walkFailed is { } failed ? $"the record wasn't reached: {failed}"
+                        : w.StoppedEarly is { } why
                         ? $"the record wasn't reached: the file can't be read past a bad spot ({SafeText.OneLine(why)})"
                         : "the record wasn't found in the file's raw layout";
                     continue;
                 }
+                var r = copies[0];
+                lay.OtherCopies = copies.Skip(1).Select(c => c.Offset).ToList();
+                if (lay.OtherCopies.Count > 0)
+                    Log.Write($"find --layout: {SafeText.OneLine(p.FileName)} {k}: {copies.Count} copies in the file; the first is shown");
                 // a read that fails names this record only; the others are still filled (code review 0.22.0 round 2)
                 try { Fill(lay, f, r, cap); }
                 catch (Exception e) when (Fatal.Recoverable(e))
@@ -210,6 +237,10 @@ public static class RecordLayouts
         yield return $"  layout ({SafeText.OneLine(l.Plugin)}, record at 0x{l.FileOffset:X}): {l.Sig} {l.StoredId:X8}, form version {l.FormVersion}, " +
                      $"flags 0x{l.Flags:X8}, {l.DataSize:N0} bytes" + (l.Compressed ? $" compressed ({l.BodySize:N0} unpacked)" : "") +
                      $", {l.Total:N0} subrecord{(l.Total == 1 ? "" : "s")}";
+        if (l.OtherCopies.Count > 0)
+            yield return $"    note: {SafeText.OneLine(l.Plugin)} holds this record {l.OtherCopies.Count + 1} times; this is the first copy, " +
+                         $"the other{(l.OtherCopies.Count == 1 ? " starts" : "s start")} at {string.Join(", ", l.OtherCopies.Take(10).Select(o => $"0x{o:X}"))}" +
+                         (l.OtherCopies.Count > 10 ? $" and {l.OtherCopies.Count - 10} more" : "");
         var shown = l.Fields.Take(MaxText).ToList();
         foreach (var f in shown)
             yield return $"    {f.Offset,6}  {f.Sig}  {f.Size,6}{(f.Big ? " (XXXX)" : "")}  {f.Preview}";
@@ -239,6 +270,7 @@ public static class RecordLayouts
                 return (JsonNode)x;
             }).ToArray());
             if (l.Total > l.Fields.Count) o["notShown"] = l.Total - l.Fields.Count;
+            if (l.OtherCopies.Count > 0) o["otherCopies"] = new JsonArray(l.OtherCopies.Select(x => (JsonNode)x).ToArray());
         }
         if (l.Problem != null) o["problem"] = l.Problem;
         return o;

@@ -337,6 +337,10 @@ public static class Checker
         foreach (var (rec, _) in perRecord) if (rec is IQuestGetter q && !Rules.IsPartial(q)) ownQuests.TryAdd(q.FormKey, q);   // a partial override holds no aliases
         IQuestGetter? QuestOf(FormKey fk) =>
             ownQuests.TryGetValue(fk, out var q) ? q : Rules.FullQuest(game.LinkCache, fk);
+        var ownScenes = new Dictionary<FormKey, ISceneGetter>();
+        foreach (var (rec, _) in perRecord) if (rec is ISceneGetter sc) ownScenes.TryAdd(sc.FormKey, sc);
+        ISceneGetter? SceneOf(FormKey fk) =>
+            ownScenes.TryGetValue(fk, out var sc) ? sc : game.LinkCache.TryResolve<ISceneGetter>(fk, out var m) ? m : null;
         // Official scenes (overrides, or an official master checked itself): the ones that break the rule on purpose
         // are skipped. Their list is learned from Data's official masters and cached (LearnedCache); the private
         // build's built-in list only fills in when Data lacks the master. With neither, the scene isn't checked and
@@ -385,6 +389,8 @@ public static class Checker
                 if (rec is IQuestGetter or IDialogResponsesGetter or IPackageGetter)
                     Rules.CheckConditionAliases(rec, Name(rec), AliasQuestOf(rec), () => Rules.OfficialAliasUses(game.LinkCache, rec, IsOfficial), add);
                 if (rec is ISceneGetter s && !SkipOfficialScene(s)) Rules.CheckScene(s, Name(rec), QuestOf, add);
+                // 0.24.0: a line that starts a scene at a part the scene doesn't have; official lines are skipped
+                if (rec is IDialogResponsesGetter info && !IsOfficial(rec.FormKey.ModKey.FileName.String)) Rules.CheckScenePhase(info, Name(rec), SceneOf, add);
             }
             // (the name is built without the EditorID here: on a damaged record reading it is what throws)
             catch (Exception e) when (Fatal.Recoverable(e)) { add("ERROR", "read", $"[{SigOf(rec) ?? rec.GetType().Name}:{rec.FormKey}]: Mutagen can't read this record's conditions, scene data or EditorID ({e.GetType().Name}: {e.Message})"); }

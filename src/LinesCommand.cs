@@ -332,7 +332,7 @@ public static class LinesCommand
     }
 
     /// <summary>An NPC query as given: an EditorID, a FormKey or a console FormID.</summary>
-    sealed record Query(string Text, bool IsFormId, bool IsFormKey, FormKey Key);
+    internal sealed record Query(string Text, bool IsFormId, bool IsFormKey, FormKey Key);
 
     /// <summary>One type's counts: this NPC's own and shared lines, and the --compare NPC's (null without --compare).</summary>
     sealed record TypeCount(DialogTopic.CategoryEnum Category, DialogTopic.SubtypeEnum Subtype, int Own, int Shared, int? Ref)
@@ -342,7 +342,7 @@ public static class LinesCommand
     }
 
     /// <summary>Checks an NPC query's form before the load order is read; label is "" for the NPC, "--compare " for the reference.</summary>
-    static Query? Parse(string q, string? plugin, string label, out string cantWhy)
+    internal static Query? Parse(string q, string? plugin, string label, out string cantWhy)
     {
         cantWhy = "";
         bool isFormId = ConsoleId.IsMatch(q), isFormKey = !isFormId && q.Contains(':');
@@ -364,7 +364,7 @@ public static class LinesCommand
     }
 
     /// <summary>Every record the query names in the load order (unread plugins are noted on stderr).</summary>
-    static List<FindCommand.Match> Lookup(Query query, LoadOrderSetup lo, out string? notFoundWhy)
+    internal static List<FindCommand.Match> Lookup(Query query, LoadOrderSetup lo, out string? notFoundWhy)
     {
         var unread = new List<string>();
         notFoundWhy = null;
@@ -388,14 +388,14 @@ public static class LinesCommand
         return matches;
     }
 
-    static string NotFoundWhat(Query query, LoadOrderSetup lo, string? notFoundWhy)
+    internal static string NotFoundWhat(Query query, LoadOrderSetup lo, string? notFoundWhy)
     {
         var q = SafeText.OneLine(query.Text);
         return (query.IsFormKey ? $"no record {q}" : query.IsFormId ? $"no record with FormID {q}" : $"no record with EditorID {q}") +
                $" in {lo.Plugins.Count} plugins" + (notFoundWhy != null ? $": {notFoundWhy}" : "");
     }
 
-    static string Quoted(string q) => q.Contains(' ') ? $"\"{SafeText.OneLine(q)}\"" : SafeText.OneLine(q);
+    internal static string Quoted(string q) => q.Contains(' ') ? $"\"{SafeText.OneLine(q)}\"" : SafeText.OneLine(q);
 
     /// <summary>The one NPC among the matches, or null (with the message printed) when it is another record type or
     /// several NPCs share the EditorID.</summary>

@@ -4,7 +4,7 @@ sf-mod-check finds problems in a Starfield plugin before you play it or release 
 changes a plugin, and it checks a typical mod in about 4 seconds.
 
 Install it with `dotnet tool install --global sf-mod-check` (from nuget.org, since 0.18.0), or download the exe zip
-from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it ([Install](#install)). It has eleven
+from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it ([Install](#install)). It has twelve
 commands:
 
 - [`check`](#run-it) reads one plugin (`.esm`) and reports problems that would break it in the game: damaged files,
@@ -35,6 +35,9 @@ commands:
 - [`lines`](#dialogue-lines-of-one-npc-sf-mod-check-lines) lists every dialogue line an NPC can speak, by type, and
   [`voice-lines`](#a-plugins-voiced-lines-as-a-list-sf-mod-check-voice-lines) writes a plugin's voiced lines as a list
   for voice tools.
+- [`scenes`](#an-npcs-or-quests-conversations-as-a-tree-sf-mod-check-scenes) prints an NPC's or a quest's
+  conversations as a tree (each part, the player's choices, where the talk goes next) and checks them: a jump to a part
+  a scene doesn't have, choices with no way out, stages never set or never checked, and unused Scene topics.
 - [`ba2`](#list-or-extract-the-files-in-a-ba2-archive-sf-mod-check-ba2) lists a BA2 archive's files and extracts
   files from a general archive.
 - [`voice-format`](#voice-file-formats-sf-mod-check-voice-format) reports the codec, channels and sample rate of the
@@ -949,7 +952,10 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   hex, or the first 16 bytes). Use it to survey how a record type is laid out without a throwaway reader. It reads the
   raw bytes, so a damaged record lists the subrecords before the bad spot and a `problem:` line instead of failing.
   It prints at most 500 subrecords per record (JSON 5,000). With the `--plugin` listing, `--type QUST --layout`
-  shows every quest's layout. It works in a load order and with `--plugin`.
+  shows every quest's layout. It works in a load order and with `--plugin`. Since 0.24.0, a file that can't be read
+  part way marks only the records the walk never reached ("the record wasn't reached: ..."), not every record, and a
+  record that one plugin holds twice shows its first copy with a `note:` line giving the other copy's offset (up to 10
+  offsets, then a count); with `--json` the layout has `otherCopies` (the other copies' file offsets).
 - `--json`: print one JSON object on stdout instead of the text: `tool`, `version`, `query`, `type`, `loadOrder`
   (`source`, `plugins`), `matches` (each with `formKey`, `editorId`, `type`, `name`, `definedIn`, `winner`,
   `plugins` in load order, `fields` and, 0.16.1, `entries`: each list field's entries as text), `result` (`found`,
@@ -957,7 +963,8 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   `total` (the records that match `--type`), `listed` and `byType` (every record in the plugin, counted by type), and
   its `query` is null. Since 0.20.0 each match also has `tree` (with `--full`; `treeNotShown` when a cap cut it),
   `versions` (with `--versions`) and `refs` (with `--refs`), and only with those flags. Since 0.22.0, `infos` (a
-  topic with `--full`: `total`, `records`, `notShown`) and `layout` (with `--layout`).
+  topic with `--full`: `total`, `records`, `notShown`, `unreadable`) and `layout` (with `--layout`; since 0.24.0 it can
+  also have `otherCopies`, the file offsets of the other copies of a record that one plugin holds twice).
 - `--quiet`: no byline or progress on stderr. `--verbose`, `--log <file>`: as for `check`.
 
 For each record it prints the heading `EditorID [FormKey] TYPE "Name"`, then `defined in:` (the plugin the record
@@ -1004,7 +1011,7 @@ Use it to see which kinds of dialogue line an NPC speaks, and which kinds it sti
 - **Which lines count.** A line is the NPC's when (in this order of "found by"): its **speaker** is the NPC; a
   **condition** names the NPC (`GetIsID`; a condition of the line's quest or dialogue group counts too); a **quest
   alias** the NPC fills is named by a condition (`GetIsAliasRef`); or a **scene alias** the NPC fills is given the
-  line. A line whose own speaker or `GetIsID` names another NPC isn't this NPC's through a quest or scene alias.
+  line. A line whose own speaker or `GetIsID` names another NPC isn't this NPC's through a quest or scene alias. Conditions joined with OR are read as one group (0.24.0): `GetIsID <other NPC>` OR `GetIsAliasRef <an alias this NPC fills>` still counts for the NPC, because the alias may be the speaker; only an AND group whose every alternative is another NPC's `GetIsID` rules the NPC out.
   Lines for the NPC's **voice type** (`GetIsVoiceType`) are listed apart as **shared lines**, because any NPC
   with that voice type may say them (not a line whose own speaker or `GetIsID` names another NPC). A negated condition doesn't make a line the NPC's. A line with no speaker, no
   speaker condition and no scene alias is **generic**: any NPC may say it, so it is counted and not listed. The
@@ -1055,6 +1062,113 @@ missing master or `--compare` NPC, a name that is another kind of record, one Ed
 `--plugin` plugin whose dialogue can't be read in full). A run on a vanilla companion in a whole load order of 158 plugins takes about
 45 seconds and under 1 GB of memory; one plugin with its masters takes a few seconds.
 
+## An NPC's or quest's conversations as a tree: `sf-mod-check scenes`
+
+Use it to read a conversation the way a player meets it, and to check it, without clicking through the Creation Kit's
+scene windows (0.24.0). It reads your load order and changes nothing.
+
+    sf-mod-check scenes Companion_MyNpc
+    sf-mod-check scenes MyQuest --out MyQuest-scenes.md
+    sf-mod-check scenes 000801:MyMod.esm --plugin "C:\Downloads\MyMod\MyMod.esm" --max 0
+
+    sf-mod-check scenes <EditorID | FormKey | FormID> [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
+                        [--data <Data folder>] [--extra-data <folder>] [--hub <scene>] [--out <file.md>] [--json]
+                        [--max <n>] [--quiet] [--verbose] [--log <file>]
+    sf-mod-check scenes <EditorID | FormKey> --plugin <plugin file> [--masters-dir <folder>]... [...]
+
+- **What you give it.** An NPC (the scenes where a quest alias the NPC fills speaks, plus every scene those scenes jump
+  to in the same quests) or a quest (all its scenes). It is an EditorID (letter case ignored), a FormKey or a console
+  FormID; the load-order options work as for `find` and `lines`. Anything that is neither an NPC nor a quest is exit 2.
+- **The tree.** One section per scene, with when it can start (its own conditions, in words). Each part is either what
+  the NPC says (one line, or "one of these at random") or a table of the player's choices:
+  `| You say | <NPC> answers | Then |`. Conditions on a line or choice are in words ("only after MyQuest stage 100",
+  "only with the perk Charm", "30% of the time"); the stage's own note is in the stage table at the end.
+- **The "Then" column** says where the talk goes after that line: "The conversation ends." (the line's End Running Scene
+  flag), "Back to these choices.", "Back to part N.", "On to part N.", "Goes to <scene> (part "<name>").",
+  "Back to the talk menu." or "The scene ends.". A choice with no spoken answer reads "(no spoken answer)" when
+  the player line itself jumps, or "(the topic's own scene answers)" when the answer is a scene of its own.
+- **The talk menu** is the scene that conversations keep coming back to. It is found, not named: in each quest it is the
+  scene that the most other scenes jump to (a jump to any of its parts counts, because real talks return to the menu's
+  choice part, not its first part), when at least two do. When two scenes tie (a menu and a submenu that jump to each
+  other), the one that no other tied scene enters before its choices wins; if that leaves none or several, no menu is
+  marked. `--hub <scene>` (an EditorID or FormKey) names it yourself when the guess is wrong.
+- **Problems.** After the tree, five checks run on the scenes shown (a hint per rule follows, as in `check`):
+
+  | Rule | Level | Finds |
+  | --- | --- | --- |
+  | `scene-phase-missing` | ERROR | A line starts a scene at a part name that scene doesn't have. The game matches the name exactly (spaces and case included), so the jump goes to the wrong place. It suggests the part whose name matches with spaces and case ignored. It also runs in `check`. |
+  | `scene-no-exit` | WARNING | A choice part where every choice leads back to the same choices, so the player can't leave the conversation. |
+  | `stage-gate-unset` | WARNING | A condition needs a quest stage done that nothing in the plugin sets (an INFO's or scene's set-stage value, a quest fragment, a script `SetStage` call). It becomes a NOTE when the plugin has `SetStage` calls with a number worked out at run time, or scripts that couldn't be read. Only quests the plugin itself adds. |
+  | `stage-set-unchecked` | NOTE | A stage is set but no condition in the plugin reads it (scripts aren't searched, and the message says so). |
+  | `scene-topic-unused` | WARNING | A Scene-category topic of the plugin, with at least one spoken line, that no scene action, player choice or NPC answer uses. |
+
+  The stage and topic rules cover the plugin that adds the quest or topic, and only when it is in scope: official
+  plugins are never covered, and with `--plugin` only that plugin is. The two scene rules cover every scene shown. A
+  line whose Start Scene Phase is set but whose Start Scene is empty isn't a finding (the game ignores the name); the
+  tree says so in a remark.
+- **The stage table.** One table per quest the shown scenes touch: `| Stage | Author's note | Set by | Needed by |`.
+  The note is the stage's log entry text ("(none)" if empty). "Set by" lists the lines, scene actions, fragments and
+  scripts that set it ("nothing found" if none). "Needed by" lists "after: <scene>, part N" or "before: <scene>, part N"
+  from the conditions ("nothing" if none). A stage that something sets but the quest doesn't have is listed with the
+  note "(no such stage)".
+- `--plugin <file>`: read only that plugin and its masters, and show only the scenes it adds or overrides.
+- `--max <n>`: show at most n scenes (default 50; `--max 0` shows all). The problems and the stage table always cover
+  every scene picked, not only the ones shown.
+- `--out <file.md>`: write the tree to a Markdown file and print only a "Wrote ..." line with the counts, then the RESULT line. It can't be
+  combined with `--json` (exit 2).
+- `--json`: one object on stdout: `tool`, `version`, `query`, `kind` (`npc` or `quest`), `formKey`, `editorId`, `hub`
+  (a list: one talk menu per quest, as found), `scenes` (each with `formKey`, `editorId`, `quest`, `conditions`, `words`
+  and `parts`; each part has `index`, `name`, `conditions`, `words` and `steps`; each step has `type` (`says`,
+  `choices` or `other`), `alias`, `speaker`, `random`, `lines` (each with `formKey`, `text`, `conditions`, `words`,
+  `then`, `setsStage`, `goodbye`, `random`, `startScene`, `startPart`), `choices` (`player`, `answers`, `then`) and
+  `text`), `remarks`, `problems` (`severity`, `rule`, `message`, `hint`, `record`), `stages` (`quest`, `stage`, `note`,
+  `setBy`, `neededBy`), `unread` and `result` (`scenes`, `shown`, `errors`, `warnings`, `notes`). `--max` caps `scenes`
+  (and `result.shown`), never `problems` or `stages`.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`. `--verbose` logs each scene picked and why, the talk menu
+  chosen and its jump count, each rule's count and the timings.
+
+A run on a made-up plugin (shortened):
+
+    > sf-mod-check scenes MyQuest --plugin MyMod.esm
+    # Conversations of MyQuest
+
+    ## MyQuest_Talk
+
+    Scene 000810:MyMod.esm (quest MyQuest). It can start only after MyQuest stage 10.
+
+    Part 1 "OPENER".
+
+    Hana says:
+
+    - "Made-up greeting."
+
+    Part 2 "ASKPHASE".
+
+    Your choices:
+
+    | You say | Hana answers | Then |
+    | --- | --- | --- |
+    | "Tell me about the ship." | "Made-up answer." [sets stage 20] | Goes to MyQuest_Ship (part "SHIPPART"). |
+    | "Never mind." | "Made-up goodbye." | The conversation ends. |
+
+    ## Problems
+
+    - ERROR scene-phase-missing: MyQuest_Talk: line 000820:MyMod.esm starts MyQuest_Ship at the part "SHIPPART", which it doesn't have. Did you mean "SHIP PART"?
+    - HINT (scene-phase-missing): ...
+
+    ## Stages of MyQuest
+
+    | Stage | Author's note | Set by | Needed by |
+    | --- | --- | --- | --- |
+    | 10 | Talk to Hana. | the start stage flag | after: MyQuest_Talk |
+    | 20 | Ship tour done. | 000821:MyMod.esm (on end) | nothing |
+    RESULT: 2 scenes, 1 error, 0 warnings, 1 note (12 s)
+
+Exit codes: 0 the NPC or quest was found (even with problems or no scenes), 1 not found, 2 couldn't run (a bad option,
+no load order, a missing master, a name that is another kind of record, one EditorID shared by several records, or a
+`--plugin` plugin whose dialogue or scenes can't be read in full). A run on one NPC with `--plugin` and Starfield.esm as
+a master took about 25 seconds and 3 to 4 GB of memory (about 10 seconds of that is loading Starfield.esm).
+
 ## A plugin's voiced lines as a list: `sf-mod-check voice-lines`
 
 Use it to get every voiced line a plugin adds as a tab-separated file in the Creation Kit's dialogue-export columns,
@@ -1088,7 +1202,9 @@ changes nothing.
 - **Rows:** one row per voice type and file number, ordered by voice type and then file number. A line that several
   voice types may speak gets one row per voice type. Two lines that share one file number with different texts give
   one row (the lower INFO) and a WARNING.
-- **Which voice types:** the first of these that names an NPC or a voice type is used: the line's own conditions
+- **Which voice types** (0.24.0: a condition group joined with OR that names an NPC or a voice type also takes the NPCs of
+  its `GetIsAliasRef` alternatives, so a `GetIsID` OR `GetIsAliasRef` line gets both voice types; `--help` and the
+  no-voice-type NOTE now give the full order and the templated-NPC reason): the first of these that names an NPC or a voice type is used: the line's own conditions
   (`GetIsID` and `GetIsVoiceType`); its speaker (the line's speaker, or the NPC that fills its quest alias or scene
   alias; the masters' scenes count for a master's topic the plugin adds lines to); its dialogue group's conditions;
   its quest's. A `GetIsVoiceType` form list is read through the lists it holds. An NPC named this way with no voice
@@ -1607,6 +1723,11 @@ What each check's findings mean and how to fix them. These are the same lines sf
 - **scenes**: A scene uses a quest alias its quest doesn't have, or has no quest. CK: open the scene's quest, check the Quest Aliases tab, then fix each scene actor, action and condition that names the alias (or set the scene's quest). xEdit: compare the scene's alias IDs with the quest's alias list.
 - **quest-stage-unset**: A stage of a quest the plugin adds is never set: no start stage, dialogue response, scene or script SetStage call sets it, so its log entry and fragment never run. CK: open the quest's Quest Stages tab, then set the stage from a topic info's or scene's 'Set Parent Quest Stage' field or a script (SetStage), or mark it Run On Start. If another mod's script or the game's engine sets it, ignore this. A NOTE means a script's stage number or the script itself couldn't be read, so the stages weren't checked. A WARNING that says the check stopped is not about a stage: any error inside the check can cause it (for example a script that couldn't be read); run again with --verbose and report it.
 - **quest-stage-missing**: A script sets a quest stage the quest doesn't have, so the call does nothing. CK: add the stage on the quest's Quest Stages tab, or fix the number in the script (or in the script property the record sets) and compile it again.
+- **scene-phase-missing**: A dialogue line starts a scene at a part (phase) name the scene doesn't have; the game matches the name exactly, so the jump goes to the wrong place. CK: open the topic info and pick the scene's real phase in its Start Scene phase field, or rename the scene's phase to match. xEdit: fix the INFO's TPLS (phase name) to the name of one of the scene's phases, letter for letter.
+- **scene-no-exit**: Every choice in this part of the scene leads back to the same choices, so the player can't leave the conversation. CK: give at least one choice's response a way out: the End Running Scene flag, a jump to another scene or a later phase, or no jump so the scene moves on.
+- **stage-gate-unset**: A line or scene needs a quest stage done that nothing in the plugin sets, so it never plays. CK: set the stage from a topic info's or scene's 'Set Parent Quest Stage' field or a script (SetStage), or fix the condition's stage number. If another mod or the game sets it, ignore this. A NOTE means a script or a stage number couldn't be read, so it wasn't checked.
+- **stage-set-unchecked**: The plugin sets a quest stage that no condition in the plugin checks. That is fine when a script, the stage's own fragment or its log entry is the point; otherwise add the GetStageDone condition you meant to the line or scene, or drop the stage set.
+- **scene-topic-unused**: A topic of the Scene category has spoken lines, but no scene action or player choice uses it, so they never play. CK: add the topic to a scene's Dialogue or Player Dialogue action, or delete it. xEdit: check the topic's Referenced By tab for a scene.
 - **editorids**: Give each new record its own Editor ID that no master uses either. CK: open the form and change its ID. xEdit: edit the EDID field. This usually comes from duplicating a record or Copy as New Record.
 - **itm**: Identical to Master (ITM) records change nothing but can undo other mods' edits to the same record. xEdit: right-click the plugin > Remove "Identical to Master" records (or run QuickAutoClean). In the CK they come from opening a form and pressing OK without changes.
 - **trees**: The plugin edits an official Story Manager or Planet Content Manager node. Every mod that edits the same node conflicts, and the last one loaded wins. CK: make your own node under the official branch (Story Manager: set its parent and previous sibling) and revert your edits to the official one. xEdit: remove the override (right-click > Remove) once your own node does the job. Keep the edit only if you mean to.

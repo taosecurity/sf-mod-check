@@ -12,6 +12,7 @@
 //   sf-mod-check diff <old> <new> [...]          (two versions of a plugin or mod: DiffCommand.cs, 0.11.0; exit 0, 1 or 2)
 //   sf-mod-check find <record> [...]             (looks up one record in a load order: FindCommand.cs, 0.16.0; exit 0, 1 or 2)
 //   sf-mod-check lines <NPC> [...]               (the dialogue lines one NPC can speak: LinesCommand.cs, 0.21.0; exit 0, 1 or 2)
+//   sf-mod-check scenes <NPC | quest> [...]      (an NPC's or a quest's conversations as a tree, checked: ScenesCommand.cs, 0.24.0; exit 0, 1 or 2)
 //   sf-mod-check voice-lines <plugin> [...]      (a plugin's voiced lines as a voice-tool TSV: VoiceLinesCommand.cs, 0.21.0; exit 0 or 2)
 //   sf-mod-check ba2 list|extract <archive> ... (lists or extracts a BA2's files: Ba2Command.cs, 0.22.0; exit 0, 1 or 2)
 //   sf-mod-check voice-format <input>... (a report of voice files' formats and lip files: VoiceFormatCommand.cs, 0.23.0; exit 0 or 2)
@@ -48,6 +49,7 @@ const string Usage =
     "       sf-mod-check gap <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [...]   (sf-mod-check gap --help)\n" +
     "       sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--json] [...]   (sf-mod-check find --help)\n" +
     "       sf-mod-check lines <NPC EditorID | FormKey | FormID> [--plugin <plugin file>] [--type <name>] [--json] [...]   (sf-mod-check lines --help)\n" +
+    "       sf-mod-check scenes <NPC | quest> [--plugin <plugin file>] [--out <file.md>] [--json] [--max <n>] [...]   (sf-mod-check scenes --help)\n" +
     "       sf-mod-check voice-lines <plugin> [--out <file>] [--voice <voice type EditorID>]... [--utf8] [...]   (sf-mod-check voice-lines --help)\n" +
     "       sf-mod-check ba2 list <archive> [<pattern>]   |   ba2 extract <archive> <pattern> --out <folder> [--force] [...]   (sf-mod-check ba2 --help)\n" +
     "       sf-mod-check voice-format <plugin | archive.ba2 | folder>... [--quiet] [--verbose] [--log <file>]   (sf-mod-check voice-format --help)\n" +
@@ -148,6 +150,7 @@ int Dispatch(string[] args)
     if (args.Length > 0 && args[0] == "gap") return GapCheck.Command(args.Skip(1).ToArray(), Version, Byline);   // 0.15.0
     if (args.Length > 0 && args[0] == "find") return FindCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.16.0
     if (args.Length > 0 && args[0] == "lines") return LinesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.21.0
+    if (args.Length > 0 && args[0] == "scenes") return ScenesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.24.0
     if (args.Length > 0 && args[0] == "voice-lines") return VoiceLinesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.21.0
     if (args.Length > 0 && args[0] == "ba2") return Ba2Command.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.22.0
     if (args.Length > 0 && args[0] == "voice-format") return VoiceFormatCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.23.0

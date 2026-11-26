@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.24.0
+
+### What's new
+
+- **`scenes <NPC or quest>`** prints an NPC's or a quest's conversations as a tree and checks them. One section per scene, with when it can start. Each part is the NPC's lines (or "one of these at random") or a table `You say | <NPC> answers | Then`. The "Then" column says where the talk goes: the conversation ends, back to these choices, back to part N, on to part N, goes to another scene (at a part), back to the talk menu, or the scene ends. Random picks, perk, faction and stage conditions and stage sets are in plain words. A Problems list and a stage table (stage, the author's note, what sets it, what needs it) follow. Options: `--plugin`, `--hub <scene>`, `--out <file.md>`, `--json`, `--max <n>` (default 50 scenes), and the load-order options of `lines`. Exit 0 found, 1 not found, 2 couldn't run.
+- **The talk menu is found, not named:** in each quest it is the scene that the most other scenes jump to (a jump to any of its parts counts), when at least two do. A tie between a menu and a submenu that jump to each other goes to the one no other tied scene enters before its choices. `--hub` overrides it.
+- **Five rules**, each with a hint: `scene-phase-missing` (ERROR: a line starts a scene at a part name the scene doesn't have; it suggests the part whose name matches with spaces and case ignored; also runs in `check`), `scene-no-exit` (WARNING: every choice leads back to the same choices), `stage-gate-unset` (WARNING, or NOTE when scripts can't be read: a condition needs a stage that nothing in the plugin sets), `stage-set-unchecked` (NOTE: a stage is set and nothing in the plugin checks it) and `scene-topic-unused` (WARNING: a Scene topic with spoken lines that no scene uses). The stage and topic rules cover only the plugin that adds the quest or topic, and never an official plugin. The stage table also lists a stage that something sets but the quest doesn't have, as "(no such stage)".
+- **`lines` and `voice-lines` read OR conditions as a group.** A line whose condition is `GetIsID <another NPC>` OR `GetIsAliasRef <an alias the NPC fills>` now counts for the NPC in `lines` (before, the other NPC's `GetIsID` ruled it out), and `voice-lines` gives such a line the voice types of both. Only an AND group whose every alternative is another NPC's `GetIsID` rules the NPC out. This changes which lines are reported only for that rare mixed shape (2 lines in Starfield.esm, none in the two plugins checked).
+- `find --layout`: a read failure part way through a file marks only the records the walk never reached (before, every listed record said it was unreadable); a record that one plugin holds twice shows its first copy with a note giving the other copy's offset, and `--json` adds `otherCopies`.
+- `patch`: the NOTE about entries one plugin removed from a quest stage's log entries or an objective's targets keeps its 0.22.0 wording when the patch holds all the other plugin's entries, and gives the counts when it holds fewer. A NOTE is dropped when a later plugin's whole entry, a `--pick` or a whole-value replace replaced the entry it was about.
+- Smaller: `voice-lines --help` gives the full order voice types are found in, and the no-voice-type NOTE names the templated-NPC reason; `--out` with no value suggests each command's own file name; `find --full` topic lines are cleaned of control characters; the README lists the `unreadable` key of `infos`.
+- The release job takes its notes from the version's own section of this file, fails when that section is empty, and no longer overwrites a published release's files.
+- Existing findings do not change.
+
+### Example
+
+A made-up plugin `Demo.esm` whose talk scene starts the ship scene at the part "SHIPPART" when the ship scene's part is named "SHIP PART":
+
+    sf-mod-check scenes DemoQuest --plugin Demo.esm
+    ## DemoQuest_Talk
+    Scene 000810:Demo.esm (quest DemoQuest). It can start only after DemoQuest stage 10.
+    Part 2 "ASKPHASE". Your choices:
+    | You say | Hana answers | Then |
+    | "Tell me about the ship." | "Made-up answer." [sets stage 20] | Goes to DemoQuest_Ship (part "SHIPPART"). |
+    | "Never mind." | "Made-up goodbye." | The conversation ends. |
+    ## Problems
+    - ERROR scene-phase-missing: DemoQuest_Talk: line 000820:Demo.esm starts DemoQuest_Ship at the part "SHIPPART", which it doesn't have. Did you mean "SHIP PART"?
+    RESULT: 2 scenes, 1 error, 0 warnings, 0 notes (12 s)
+
 ## 0.23.0 (2026-11-26)
 
 ### What's new

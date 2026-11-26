@@ -252,6 +252,61 @@ public class FindLayoutTests
         Assert.Equal("the record wasn't found in the file's raw layout", many[missing].Problem);
     }
 
+    static Dictionary<string, (ModKey Key, Style Style)> LayFiles() => new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["LayBase.esm"] = (ModKey.FromFileName("LayBase.esm"), Style.Full),
+        ["LayMod.esm"] = (ModKey.FromFileName("LayMod.esm"), Style.Light),
+    };
+
+    [Fact]
+    public void A_read_failure_late_in_the_file_marks_only_the_records_it_never_reached()
+    {
+        // 0.24.0 (0.22.1 nit): a walk that failed after reaching one listed record marked every listed record as
+        // unreadable. The failure is made at the first of the two records, so the second is never reached
+        using var game = new Game();
+        var files = LayFiles();
+        var p = new PluginInfo(1, "LayMod.esm", false, ["LayBase.esm"], null!) { Path = game.ModPath };
+        var good = RecordLayouts.ReadMany(p, [game.Misc, game.Key], files, ["LayBase.esm"], RecordLayouts.MaxJson);
+        var (first, second) = good[game.Misc].FileOffset < good[game.Key].FileOffset ? (game.Misc, game.Key) : (game.Key, game.Misc);
+        var stopAt = good[first].FileOffset;
+        var many = RecordLayouts.ReadMany(p, [game.Misc, game.Key], files, ["LayBase.esm"], RecordLayouts.MaxJson,
+            rec => { if (rec.Offset == stopAt) throw new IOException("made-up read error"); });
+        Assert.Equal(stopAt, many[first].FileOffset);
+        Assert.Null(many[first].Problem);
+        Assert.Equal(good[first].Fields, many[first].Fields);
+        Assert.Equal(-1, many[second].FileOffset);
+        Assert.Equal($"the record wasn't reached: the file can't be read past the record at 0x{stopAt:X} (IOException)", many[second].Problem);
+    }
+
+    [Fact]
+    public void A_record_held_twice_in_one_plugin_shows_the_first_copy_and_says_where_the_other_is()
+    {
+        // 0.24.0 (0.22.1 nit): a second copy of a record in the same file was silently left out
+        using var game = new Game();
+        var files = LayFiles();
+        var p = new PluginInfo(1, "LayMod.esm", false, ["LayBase.esm"], null!) { Path = game.ModPath };
+        var one = RecordLayouts.Read(p, game.Key, files, ["LayBase.esm"], RecordLayouts.MaxJson);
+        Assert.Empty(one.OtherCopies);
+        Assert.DoesNotContain("holds this record", string.Join("\n", RecordLayouts.Lines(one)));
+        // copy the KYWD record right after itself and grow its group by the copy's length
+        var bytes = File.ReadAllBytes(game.ModPath);
+        int at = (int)one.FileOffset, len = 24 + (int)one.DataSize;
+        // the top group's header: "GRUP", its size, then the label KYWD (grup = where the label starts)
+        int grup = Enumerable.Range(8, at - 8).First(i => Encoding.ASCII.GetString(bytes, i - 8, 4) == "GRUP" && Encoding.ASCII.GetString(bytes, i, 4) == "KYWD");
+        var twice = bytes[..(at + len)].Concat(bytes[at..(at + len)]).Concat(bytes[(at + len)..]).ToArray();
+        BitConverter.TryWriteBytes(twice.AsSpan(grup - 4, 4), BitConverter.ToUInt32(bytes, grup - 4) + (uint)len);
+        var path = Path.Combine(game.Sub("twice"), "LayMod.esm");
+        File.WriteAllBytes(path, twice);
+
+        var lay = RecordLayouts.Read(p with { Path = path }, game.Key, files, ["LayBase.esm"], RecordLayouts.MaxJson);
+        Assert.Equal(at, lay.FileOffset);
+        Assert.Null(lay.Problem);
+        Assert.Equal(new long[] { at + len }, lay.OtherCopies);
+        Assert.Contains($"    note: LayMod.esm holds this record 2 times; this is the first copy, the other starts at 0x{at + len:X}", RecordLayouts.Lines(lay));
+        var json = JsonDocument.Parse(RecordLayouts.Json(lay).ToJsonString()).RootElement;
+        Assert.Equal(at + len, json.GetProperty("otherCopies")[0].GetInt64());
+    }
+
     [Fact]
     public void A_cut_XXXX_says_the_data_ran_out_not_a_wrong_size()
     {
