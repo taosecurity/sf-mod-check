@@ -506,8 +506,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     (`Stage | Author's note | Set by | Needed by`; a stage something sets that the quest lacks says "(no such stage)").
     The talk menu is found by counting jumps (a jump to any part counts; a tie goes to the scene no other tied scene
     enters before its choices); `--hub <scene>` names it when the guess is wrong.
-    Rules: `scene-phase-missing` (ERROR: a line starts a scene at a part name it doesn't have; the game matches the name
-    exactly; the message suggests the part whose name matches with spaces and case ignored; it runs in `check` too),
+    Rules: `scene-phase-missing` (ERROR: a line starts a scene at a part name it doesn't have; letter case doesn't
+    count, spaces do; the message suggests the part whose name matches with spaces and case ignored; it runs in `check` too),
     `scene-no-exit` (WARNING), `stage-gate-unset` (WARNING, NOTE when scripts can't be read or a SetStage number is worked
     out at run time), `stage-set-unchecked` (NOTE) and `scene-topic-unused` (WARNING). The stage and topic rules cover only
     the plugin that adds the quest or topic and never an official plugin, so a vanilla NPC shows no stage table.

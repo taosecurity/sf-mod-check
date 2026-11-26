@@ -338,9 +338,10 @@ public static class Checker
         IQuestGetter? QuestOf(FormKey fk) =>
             ownQuests.TryGetValue(fk, out var q) ? q : Rules.FullQuest(game.LinkCache, fk);
         var ownScenes = new Dictionary<FormKey, ISceneGetter>();
-        foreach (var (rec, _) in perRecord) if (rec is ISceneGetter sc) ownScenes.TryAdd(sc.FormKey, sc);
+        // A partial-form scene override usually holds no parts, so the parts come from the newest full copy.
+        foreach (var (rec, _) in perRecord) if (rec is ISceneGetter sc && !Rules.IsPartial(sc)) ownScenes.TryAdd(sc.FormKey, sc);
         ISceneGetter? SceneOf(FormKey fk) =>
-            ownScenes.TryGetValue(fk, out var sc) ? sc : game.LinkCache.TryResolve<ISceneGetter>(fk, out var m) ? m : null;
+            ownScenes.TryGetValue(fk, out var sc) ? sc : game.LinkCache.ResolveAll<ISceneGetter>(fk).FirstOrDefault(s => !Rules.IsPartial(s));
         // Official scenes (overrides, or an official master checked itself): the ones that break the rule on purpose
         // are skipped. Their list is learned from Data's official masters and cached (LearnedCache); the private
         // build's built-in list only fills in when Data lacks the master. With neither, the scene isn't checked and

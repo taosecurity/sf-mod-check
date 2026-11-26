@@ -231,6 +231,18 @@ public class ScenesTests
                 h.Phases.Clear(); h.Actions = new();
                 h.MajorRecordFlagsRaw |= 0x4000;
                 q.Scenes.Add(h);
+                // round 3: a partial-form override of "Here it is." with no lines, which adds a condition and now
+                // starts the talk menu at "TOPLEVELNEST"; it keeps ScBase's lines and stage set
+                var tt = tell.Item2!.DeepCopy();
+                tt.Responses.Clear();
+                var pi = tell.Item2!.Responses[0].DeepCopy();
+                pi.Responses.Clear(); pi.SetParentQuestStage = null; pi.EditorID = null;
+                pi.MajorRecordFlagsRaw |= 0x4000;
+                pi.Conditions.Add(StageDone(10));
+                pi.StartScene.SetTo(hub);
+                pi.StartScenePhase = "TOPLEVELNEST";
+                tt.Responses.Add(pi);
+                q.DialogTopics.Add(tt);
                 p.Quests.Add(q);
                 using (var g = new GameData(Data)) { g.Open("ScBase.esm"); PluginWriter.Write(p, Data, g, NoGap); }
                 File.WriteAllLines(PluginsTxt, ["*ScBase.esm", "*ScPatch.esm"]);
@@ -416,8 +428,21 @@ public class ScenesTests
             Assert.DoesNotContain(r.Problems, p => p.Message.Contains("ScQuiet"));
             Assert.Single(r.Problems, p => p.Rule == "scene-phase-missing");   // only the old "QUESTIONPHASE" one
             Assert.Equal(20, r.Stages.Single(row => row.Quest == g.Quest && row.Stage == 20).Stage);
+
+            // round 3: the partial "Here it is." keeps ScBase's lines, EditorID and stage set, with its own condition and jump
+            var hub = tree.Scene(g.Hub)!;
+            var told = Answer(hub, 0, "Here it is.");
+            Assert.Equal("SC_Hereitis", told.EditorId);
+            Assert.Single(told.Conditions);
+            Assert.Equal(g.Hub, told.StartScene);
+            Assert.Equal("TOPLEVELNEST", told.StartPart);
+            Assert.Equal(10, told.StageOnEnd);
         }
         finally { close(); }
+
+        // round 3: `check` on the patch reads the partial ScHub's parts from ScBase's full copy (no false ERROR)
+        var checkedPatch = Checker.Run(new Options { Plugin = Path.Combine(g.Data, "ScPatch.esm"), DataDir = g.Data, MastersDirs = [g.Data], NoAssets = true });
+        Assert.False(checkedPatch.Has("ERROR", "scene-phase-missing"), string.Join("\n", checkedPatch.Findings.Select(f => f.Text)));
 
         var (code, text, err) = Scenes(g, "ScQuest2");
         Assert.True(code == 0, text + err);

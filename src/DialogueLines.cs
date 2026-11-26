@@ -244,6 +244,24 @@ internal sealed class DialogueIndex
         d[rec.FormKey] = rec;
     }
 
+    /// <summary>A partial-form INFO with no lines over its earlier copy: the earlier copy (its lines, and every field the
+    /// partial form leaves out), with the fields the partial form holds laid over it. An empty list or a missing field
+    /// counts as left out, since a partial form's absent fields read as empty.</summary>
+    internal static IDialogResponsesGetter PartialOver(IDialogResponsesGetter partial, IDialogResponsesGetter earlier)
+    {
+        var m = earlier.DeepCopy();
+        m.MajorRecordFlagsRaw = partial.MajorRecordFlagsRaw;
+        if (!string.IsNullOrEmpty(partial.EditorID)) m.EditorID = partial.EditorID;
+        if (partial.Conditions.Count > 0) { m.Conditions.Clear(); m.Conditions.AddRange(partial.Conditions.Select(c => c.DeepCopy())); }
+        if (partial.Flags != null) m.Flags = partial.Flags.DeepCopy();
+        if (!partial.StartScene.IsNull) m.StartScene.SetTo(partial.StartScene.FormKey);
+        if (!string.IsNullOrEmpty(partial.StartScenePhase)) m.StartScenePhase = partial.StartScenePhase;
+        if (partial.SetParentQuestStage != null) m.SetParentQuestStage = partial.SetParentQuestStage.DeepCopy();
+        if (!partial.Speaker.IsNull) m.Speaker.SetTo(partial.Speaker.FormKey);
+        if (!partial.Perk.IsNull) m.Perk.SetTo(partial.Perk.FormKey);
+        return m;
+    }
+
     public static DialogueIndex Build(List<PluginInfo> plugins, Action<string>? progress, string? onlyDialogueOf = null)
     {
         var idCache = plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
@@ -259,7 +277,7 @@ internal sealed class DialogueIndex
         {
             var sw = Stopwatch.StartNew();
             Analyzer.Where = p.FileName;
-            int infos = 0;
+            int infos = 0, partials = 0;
             var dialogue = onlyDialogueOf == null || p.FileName.Equals(onlyDialogueOf, StringComparison.OrdinalIgnoreCase);
             progress?.Invoke(dialogue ? $"Reading the dialogue in {p.FileName}" : $"Reading the quests in {p.FileName}");
             try
@@ -273,8 +291,14 @@ internal sealed class DialogueIndex
                         foreach (var i in t.Responses)
                         {
                             Tick(); infos++;
-                            // a partial form with no lines of its own keeps the earlier copy, as `find` reads it
-                            if (Rules.IsPartial(i) && i.Responses.Count == 0 && i.SharedDialog.IsNull && x.Infos.ContainsKey(i.FormKey)) continue;
+                            // a partial form with no lines of its own keeps the earlier copy's lines, as `find` reads
+                            // it, and lays the fields it does hold over that copy (code-review round 3)
+                            if (Rules.IsPartial(i) && i.Responses.Count == 0 && i.SharedDialog.IsNull && x.Infos.TryGetValue(i.FormKey, out var earlier))
+                            {
+                                x.Infos[i.FormKey] = new(PartialOver(i, earlier.Info), t.FormKey, p.FileName);
+                                partials++;
+                                continue;
+                            }
                             x.Infos[i.FormKey] = new(i, t.FormKey, p.FileName);
                         }
                     }
@@ -288,7 +312,7 @@ internal sealed class DialogueIndex
                 x.Unread.Add($"{p.FileName} couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); its later dialogue wasn't read");
                 x.UnreadPlugins.Add(p.FileName);
             }
-            Log.Write($"lines: read {p.FileName}: {infos} dialogue lines, {sw.Elapsed.TotalSeconds:F1} s, managed memory {GC.GetTotalMemory(false) / 1e9:F2} GB");
+            Log.Write($"lines: read {p.FileName}: {infos} dialogue lines ({partials} partial forms laid over an earlier copy's lines), {sw.Elapsed.TotalSeconds:F1} s, managed memory {GC.GetTotalMemory(false) / 1e9:F2} GB");
         }
 
         // onlyDialogueOf: a topic the plugin overrides (to add lines to a master's topic) may be used by the master's

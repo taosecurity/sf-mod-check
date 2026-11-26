@@ -80,10 +80,10 @@ public static class Hints
             "quest's Quest Stages tab, or fix the number in the script (or in the script property the record sets) and " +
             "compile it again.",
         ["scene-phase-missing"] =
-            "A dialogue line starts a scene at a part (phase) name the scene doesn't have; the game matches the name " +
-            "exactly, so the jump goes to the wrong place. CK: open the topic info and pick the scene's real phase in " +
-            "its Start Scene phase field, or rename the scene's phase to match. xEdit: fix the INFO's TPLS (phase " +
-            "name) to the name of one of the scene's phases, letter for letter.",
+            "A dialogue line starts a scene at a part (phase) name the scene doesn't have (letter case " +
+            "aside), so the jump goes to the wrong place. CK: open the topic info and pick the scene's real phase in " +
+            "its Start Scene phase field, or rename the scene's phase to match. xEdit: set the INFO's TPLS (phase " +
+            "name) to the name of one of the scene's phases, spaces included.",
         ["scene-no-exit"] =
             "Every choice in this part of the scene leads back to the same choices, so the player can't leave the " +
             "conversation. CK: give at least one choice's response a way out: the End Running Scene flag, a jump to " +

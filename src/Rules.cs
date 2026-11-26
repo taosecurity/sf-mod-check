@@ -496,7 +496,7 @@ public static class Rules
     public const string ScenePhaseMissing = "scene-phase-missing";
 
     /// <summary>0.24.0 `scene-phase-missing` (ERROR), shared by `check` and `scenes`: a dialogue line starts a scene at
-    /// a part name (StartScenePhase) that the scene doesn't have; the game matches the name exactly, so the jump goes
+    /// a part name (StartScenePhase) that the scene doesn't have (letter case ignored, spaces not), so the jump goes
     /// wrong. sceneOf: the scene as the game builds it, or null (the link check reports a missing scene).</summary>
     public static void CheckScenePhase(IDialogResponsesGetter info, string name, Func<FormKey, ISceneGetter?> sceneOf, Action<string, string, string> add)
     {
