@@ -37,7 +37,8 @@ public static class VoiceLinesCommand
         "  <plugin>        the plugin file; its masters are found in its folder, then each --masters-dir, then --data\n" +
         "  --out           write the list to this file (default: the screen, stdout)\n" +
         "  --voice         a voice type (EditorID) for the lines that name none; may be given more than once\n" +
-        "  --utf8          write UTF-8 (default: Windows-1252, what the Creation Kit writes and Voice Cloner reads)\n" +
+        "  --utf8          write UTF-8 (default: Windows-1252, what the Creation Kit writes and Voice Cloner reads;\n" +
+        "                  a UTF-8 file needs SVC_EXPORT_ENCODING=utf-8 set on the Voice Cloner side)\n" +
         "Exit 0 = written (even with no rows), 2 = could not run. Messages and the RESULT line go to stderr.";
 
     public const string Header = "VOICE TYPE\tFILENAME\tRESPONSE TEXT\tFACE\tSCRIPT NOTES\tSEX\tFULL PATH\tINFO\tRESPONSE";

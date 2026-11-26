@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.22.0
+
+### What's new
+
+- `find --full` on a topic (DIAL) lists its dialogue lines after the tree: each INFO's FormKey, EditorID and winning plugin, and each response's number, text, emotion and face fields. An INFO's own tree already showed those fields. With `--json` the match gains `infos`. Without `--full` nothing changes.
+- `find --layout` lists the winning copy's subrecords as the file stores them: offset, signature, size and a short preview (never more than 48 characters or 16 bytes). A damaged record lists the subrecords before the bad spot and says what is wrong. It works in a load order and with `--plugin` (also the `--plugin` listing), and with `--json` the match gains `layout`.
+- `ba2 list <archive> [<pattern>]` and `ba2 extract <archive> <pattern> --out <folder>` list and extract files of a general (GNRL) BA2 archive (stored, zlib and LZ4 files). Texture (DX10) archives can be listed but not extracted. A name that would leave `--out` is refused, an existing file is kept unless `--force` is given, folder links are never followed, and `--max-size` (default 2 GB) caps what is written.
+- `diff` prints the field-by-field detail under each changed record, as `triage` does: the changed values, a reordered list, and dropped or added translations. It shows 10 lines per record (`--all` shows every line); `--json` adds `detail` and `detail_not_shown`. The summary lines and counts are the same as before.
+- `patch` adds a NOTE when one plugin removed entries from a quest stage's log entries or an objective's targets and the other plugin changed the same list. The merge and the patch plugin are the same as in 0.21.0; the NOTE asks you to check that quest in the game.
+
+### Fixes
+
+- `find --refs`: when the run already used `--plugin`, the memory-limit message no longer suggests `--plugin`. A record whose winning copy is a partial form with its own EditorID shows that EditorID.
+- The release workflow (`ci.yml`) on a tag rerun no longer overwrites the `.nupkg` on the GitHub release: it uploads the package only when the release doesn't have it, so the GitHub copy can't differ from nuget.org's.
+- The `voice-lines` help and README say that a `--utf8` file needs `SVC_EXPORT_ENCODING=utf-8` set on the Voice Cloner side.
+
+### Example
+
+A made-up mod, `Demo - Main.ba2` with two scripts:
+
+    sf-mod-check ba2 list "Demo - Main.ba2"
+             812  zlib     scripts\demo\questscript.pex
+             240  stored   scripts\demo\helper.pex
+    RESULT: 2 of 2 files listed (GNRL)
+
+    sf-mod-check ba2 extract "Demo - Main.ba2" "scripts\demo\q*" --out C:\Work\out
+    wrote scripts\demo\questscript.pex (812 bytes)
+    RESULT: OK (wrote 1 of 1 files, 812 bytes, to C:\Work\out)
+
 ## 0.21.0 (2026-11-26)
 
 ### What's new

@@ -4,7 +4,7 @@ sf-mod-check finds problems in a Starfield plugin before you play it or release 
 changes a plugin, and it checks a typical mod in about 4 seconds.
 
 Install it with `dotnet tool install --global sf-mod-check` (from nuget.org, since 0.18.0), or download the exe zip
-from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it ([Install](#install)). It has eight
+from [Releases](https://github.com/taosecurity/sf-mod-check/releases) and unzip it ([Install](#install)). It has eleven
 commands:
 
 - [`check`](#run-it) reads one plugin (`.esm`) and reports problems that would break it in the game: damaged files,
@@ -31,6 +31,12 @@ commands:
 - [`find`](#look-up-a-record-sf-mod-check-find) looks up one record in your load order by EditorID, FormKey or
   console FormID, and says which plugin defines it, which wins it, and what its main fields hold. With `--plugin`
   it reads one plugin and its masters from any folder, and with no record given it lists every record in that plugin.
+  `--full`, `--versions`, `--refs` and `--layout` show more.
+- [`lines`](#dialogue-lines-of-one-npc-sf-mod-check-lines) lists every dialogue line an NPC can speak, by type, and
+  [`voice-lines`](#a-plugins-voiced-lines-as-a-list-sf-mod-check-voice-lines) writes a plugin's voiced lines as a list
+  for voice tools.
+- [`ba2`](#list-or-extract-the-files-in-a-ba2-archive-sf-mod-check-ba2) lists a BA2 archive's files and extracts
+  files from a general archive.
 
 **First command:** drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
 
@@ -596,7 +602,9 @@ kept simple:
 - A quest's **stages and objectives** merge by their Index, and its **aliases** by alias ID. Each plugin's own new,
   changed and removed entries are kept. When two plugins both changed one stage or objective, its fields merge one
   level down (its log entries and targets merge entry by entry, but when both edited or removed the same log entry
-  or target, the winner's whole list is kept and listed under Choices); when both changed one alias, added the same key, or
+  or target, the winner's whole list is kept and listed under Choices; since 0.22.0, when one plugin removed entries
+  and the other changed the same list, the merge stays as it was and the report adds one NOTE line naming the list
+  and both plugins, because an edited entry and a removed entry look the same, so check that quest in the game); when both changed one alias, added the same key, or
   made an alias of another kind, the winner's entry is kept and the report lists it under Choices. Before 0.19.0 these
   lists were merged as plain lists, which could write two stages with one Index; that is fixed.
 - A quest's **condition lists**, a dialogue line's conditions, its responses and its script data are each one value:
@@ -871,9 +879,9 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
 
     sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
                       [--data <Data folder>] [--extra-data <folder>] [--full] [--versions] [--refs [--max <n>]]
-                      [--json] [--quiet] [--verbose] [--log <file>]
+                      [--layout] [--json] [--quiet] [--verbose] [--log <file>]
     sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]
-                      [--data <Data folder>] [--full] [--versions] [--refs] [--json] [--quiet] [--verbose] [--log <file>]
+                      [--data <Data folder>] [--full] [--versions] [--refs] [--layout] [--json] [--quiet] [--verbose] [--log <file>]
 
 - The record: an exact **EditorID** (letter case doesn't matter; there is no partial or fuzzy search), a **FormKey**
   (`01295A:Starfield.esm`, the form `conflict` and `patch` print), or a **FormID** of 8 hex digits as the console
@@ -919,13 +927,27 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   this reads every plugin and takes about two minutes for a popular location; `--plugin` reads only the plugin and
   its masters. It stops with exit 2 if memory passes 16 GB. It needs a record, as `--versions` does. `--max` works
   only with the `--plugin` listing or with `--refs`.
+  **On a topic (DIAL), `--full` also lists its dialogue lines (0.22.0):** after the tree, a `lines:` block with one
+  entry per INFO (a spoken line of the topic): the INFO's FormKey, EditorID and the plugin that wins it, then
+  each response's number (its place in the INFO, from 1), its text on one line and its emotion and face fields
+  (`Emotion`, `EmotionOut`, and `Animation.FaceArchetype`, `.BodyArchetype`, `.Flavor`, `.NpcAnimation` when set). The
+  text shows at most 200 INFOs (JSON 2,000) and says how many were left out. On an INFO itself the tree already shows
+  those fields under Mutagen's names. Without `--full` the output is the same as before.
+- `--layout` (0.22.0): list the winning copy's subrecords as the file stores them, in order: the record's heading
+  (type, stored FormID, form version, flags, size, number of subrecords), then each subrecord's offset, four-letter
+  signature, size and a short preview (zero-ended text of at most 48 characters, a 1 or 2 byte number, 4 bytes as
+  hex, or the first 16 bytes). Use it to survey how a record type is laid out without a throwaway reader. It reads the
+  raw bytes, so a damaged record lists the subrecords before the bad spot and a `problem:` line instead of failing.
+  It prints at most 500 subrecords per record (JSON 5,000). With the `--plugin` listing, `--type QUST --layout`
+  shows every quest's layout. It works in a load order and with `--plugin`.
 - `--json`: print one JSON object on stdout instead of the text: `tool`, `version`, `query`, `type`, `loadOrder`
   (`source`, `plugins`), `matches` (each with `formKey`, `editorId`, `type`, `name`, `definedIn`, `winner`,
   `plugins` in load order, `fields` and, 0.16.1, `entries`: each list field's entries as text), `result` (`found`,
   `not found` or `cannot run`), and `hint` or `error` when there is one. A whole-plugin listing adds `plugin`,
   `total` (the records that match `--type`), `listed` and `byType` (every record in the plugin, counted by type), and
   its `query` is null. Since 0.20.0 each match also has `tree` (with `--full`; `treeNotShown` when a cap cut it),
-  `versions` (with `--versions`) and `refs` (with `--refs`), and only with those flags.
+  `versions` (with `--versions`) and `refs` (with `--refs`), and only with those flags. Since 0.22.0, `infos` (a
+  topic with `--full`: `total`, `records`, `notShown`) and `layout` (with `--layout`).
 - `--quiet`: no byline or progress on stderr. `--verbose`, `--log <file>`: as for `check`.
 
 For each record it prints the heading `EditorID [FormKey] TYPE "Name"`, then `defined in:` (the plugin the record
@@ -1051,7 +1073,8 @@ changes nothing.
     (`Data\Sound\Voice\MyMod.esm\npcfmyvoice\0001A2B3.wem`); Voice Cloner takes the plugin from it.
     `INFO`: the line's FormKey. `RESPONSE`: the response number inside the line, from 1.
 - **Encoding:** Windows-1252 by default (what the Creation Kit writes and Voice Cloner reads); a character it can't
-  hold becomes `?` and a NOTE counts them. `--utf8` writes UTF-8 instead.
+  hold becomes `?` and a NOTE counts them. `--utf8` writes UTF-8 instead. Voice Cloner reads Windows-1252 by
+  default, so a `--utf8` file needs `SVC_EXPORT_ENCODING=utf-8` set on the Voice Cloner side.
 - **Rows:** one row per voice type and file number, ordered by voice type and then file number. A line that several
   voice types may speak gets one row per voice type. Two lines that share one file number with different texts give
   one row (the lower INFO) and a WARNING.
@@ -1075,6 +1098,47 @@ full, a master whose quests, form lists or placed actors can't be read in full, 
 read in full when the plugin adds lines to that master's topics, so the list never misses lines or rows without
 saying so). `--plugin`, `--plugins`, `--mo2`, `--profile` and
 `--extra-data` aren't options of this command (the plugin is the argument) and stop with exit 2.
+
+## List or extract the files in a BA2 archive: `sf-mod-check ba2`
+
+Use it to see what an archive holds, or to pull one file or a set of files out of it (0.22.0): for example one voice
+file to compare with your own, or a script from a mod's archive. It never changes the archive.
+
+    sf-mod-check ba2 list "C:\Mods\MyMod - Main.ba2" "scripts\*"
+    sf-mod-check ba2 extract "C:\Mods\MyMod - Main.ba2" "scripts\mymod\*.pex" --out C:\Work\out
+
+    sf-mod-check ba2 list <archive> [<pattern>] [--quiet] [--verbose] [--log <file>]
+    sf-mod-check ba2 extract <archive> <pattern> --out <folder> [--force] [--max-size <GB>] [--quiet] [--verbose] [--log <file>]
+
+- `<pattern>`: a file name as stored in the archive, or a glob: `*` matches any characters (folders too), `?` one
+  character. Letter case doesn't matter and `/` is the same as `\`. Quote it so your shell doesn't expand it. `list`
+  with no pattern lists every file.
+- **`list`** prints each file: its unpacked size, how it is stored (`stored`, `zlib`, `lz4` or `texture`) and its name,
+  then `RESULT: n of m files listed (GNRL)`. It reads general (GNRL) and texture (DX10) archives.
+- **`extract`** writes each matched file under `--out` (made if needed), keeping the archive's folders. It works on
+  **general (GNRL) archives only**: a texture (DX10) archive can be listed but not extracted, because its files would
+  need their DDS headers rebuilt (exit 2). Stored, zlib and LZ4 files are unpacked.
+- **Safety:** a name inside an archive is untrusted. A name that would leave `--out` (`..`, a root, drive or network
+  path, a stream, a reserved Windows name such as `CON` or `NUL`) is refused with an `ERROR:` line, and the other files
+  are still written (exit 1). A folder link (junction or symbolic link) inside `--out` is never followed. An existing
+  file is never overwritten unless you give `--force`. `--max-size <GB>` (default 2) caps the total: if the matched
+  files add up to more, nothing is written (exit 2). A damaged entry is not written.
+- `--quiet`, `--verbose`, `--log <file>`: as for `check`. `--verbose` also logs the archive header and each file.
+
+Exit codes: `list` 0 listed, 1 nothing matched, 2 couldn't run. `extract` 0 all written, 1 some refused or failed,
+2 couldn't run (no archive, a damaged archive, nothing matched, a texture archive, over `--max-size`, an unusable
+`--out`).
+
+Example, on a made-up archive `Demo - Main.ba2` with two scripts:
+
+    sf-mod-check ba2 list "Demo - Main.ba2"
+             812  zlib     scripts\demo\questscript.pex
+             240  stored   scripts\demo\helper.pex
+    RESULT: 2 of 2 files listed (GNRL)
+
+    sf-mod-check ba2 extract "Demo - Main.ba2" "scripts\demo\q*" --out C:\Work\out
+    wrote scripts\demo\questscript.pex (812 bytes)
+    RESULT: OK (wrote 1 of 1 files, 812 bytes, to C:\Work\out)
 
 ## Look over a downloaded mod: `sf-mod-check triage`
 
@@ -1186,6 +1250,14 @@ lists the renumbered records (same type and EditorID, new FormID) with their old
 A record whose bytes differ but whose fields are all equal (padding bytes, a condition's among them, field order, -0
 and +0, as a resave in the Creation Kit or xEdit leaves them) is counted as noise. Noise is no difference: it is shown, but it never makes the
 result DIFFERENCES.
+
+**Field detail (0.22.0).** Under each changed record the text report names what changed field by field, as `triage`
+does and in the format of `find --versions`: `Path: kind: before -> after` (values cut at 300 characters). A list that
+holds the same entries in another order is named once as a reordered list, and when one version stores the text in
+the translation files and the other doesn't, the translations that were dropped or added are named. Each record shows
+up to 10 detail lines and then `... and N more detail lines`; `--all` shows them all. In `--json` each `changed`
+entry gains `detail` and `detail_not_shown`. The summary lines, the counts and the field list are the same as before.
+A record whose only difference is dropped translations is still noise, since the field compare reads the English text.
 
 Scripts attached to a record, and each script's properties, are matched by name, because the game
 finds them by name: scripts or properties that only moved to another place in the list are noise, while a changed

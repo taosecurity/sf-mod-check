@@ -310,7 +310,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
         sf-mod-check check sf-mod-check-patch\ConflictPatch.esm
 
     Without `--only` it patches every conflict in the load order. Read `sf-mod-check-patch\patch-report.md` with the
-    user: "Choices" are fields both mods changed. A list there says "merged entry by entry" (both mods' entries are
+    user. Since 0.22.0, when one plugin removed entries from a quest stage's log entries or an objective's targets and
+    the other plugin changed the same list, the merge is the same as before (no Choice row) and the report adds one
+    NOTE line naming the list and both plugins; the user should check that quest in the game. "Choices" are fields both mods changed. A list there says "merged entry by entry" (both mods' entries are
     kept, so usually nothing to choose; if the user wants one mod's whole list instead, add
     `--pick <FormKey>:<Field>=<plugin>` for it). For any other field the winner's value is kept unless the user wants the other one,
     then run `patch` again with the `--pick` line the report prints for it, for example
@@ -410,6 +412,20 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `--refs` need a record (exit 2 with the `--plugin` listing). With `--json` each match gains `tree`, `versions`
     or `refs`, only with its flag.
 
+    Two more (0.22.0), also in a load order and with `--plugin`:
+
+        sf-mod-check find SomeTopic --full                    # on a DIAL: a `lines:` block, one entry per INFO
+        sf-mod-check find 001736:Starfield.esm --layout       # the winning copy's subrecords in file order
+
+    `--full` on a DIAL adds its INFOs after the tree: each INFO's FormKey, EditorID and winning plugin, and each
+    response's number (its place in the INFO, from 1), text and emotion and face fields (text cut to one line; at most
+    200 INFOs in text, 2,000 in JSON). On an INFO the tree already shows `Emotion`, `EmotionOut` and
+    `Animation.FaceArchetype`. With `--json` a DIAL match gains `infos` (`total`, `records`, `notShown`, `unreadable`).
+    `--layout` reads the record's raw bytes: a heading (type, stored FormID, form version, flags, size, subrecord
+    count), then one line per subrecord (offset, signature, size, a short preview: text of at most 48 characters or
+    the first 16 bytes). A damaged record lists the subrecords before the bad spot and a `problem:` line. With `--json` each
+    match gains `layout`. With the `--plugin` listing, `--type QUST --layout` surveys every quest's layout.
+
     Masters are looked for in the plugin's own folder, then each `--masters-dir` in order, then `--data` (Steam's
     Data by default); a master in none of them is exit 2. `--plugin` with `--plugins`, `--mo2` or `--extra-data`,
     and `--masters-dir` or `--max` without it, are exit 2. A list field prints its count and then one `      - ` line
@@ -436,10 +452,25 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 
     Columns, in this order: `VOICE TYPE`, `FILENAME` (8 upper-case hex digits, top byte `00`, no extension),
     `RESPONSE TEXT`, `FACE`, `SCRIPT NOTES`, `SEX`, `FULL PATH`, `INFO`, `RESPONSE`; tab-separated, CRLF,
-    Windows-1252 unless `--utf8`. One row per voice type and file number; player lines and lines that link a SharedDialog
+    Windows-1252 unless `--utf8` (Voice Cloner reads cp1252 by default, so a `--utf8` file needs `SVC_EXPORT_ENCODING=utf-8` set on the Voice Cloner side). One row per voice type and file number; player lines and lines that link a SharedDialog
     line are left out (a shared line gets the voice types of the lines that link it, before its dialogue group's and quest's lists); a line with no voice type gets a NOTE (give `--voice <EditorID>` to name one); a voice type name that isn't one folder name gives no rows and a WARNING (a `--voice` one is exit 2). Messages go to stderr, the list
     to `--out` or stdout. Exit 0 written, 2 couldn't run (also when the plugin's dialogue, a master's quests, form lists or placed actors, or the scenes of a master whose topics it adds lines to, can't be read in full, or `--out` is the plugin or a master).
     Voice types come from the line's own conditions, else its speaker or alias, else its dialogue group's, else its quest's.
+
+21. List or extract files from a BA2 archive (0.22.0), for example one voice file of a mod or of the game:
+
+        sf-mod-check ba2 list "C:\Mods\MyMod - Main.ba2" "scripts\*"
+        sf-mod-check ba2 extract "C:\Mods\MyMod - Main.ba2" "scripts\mymod\*.pex" --out C:\Work\out
+
+    `list` prints each file's unpacked size, how it is stored (`stored`, `zlib`, `lz4`, `texture`) and its name, then
+    `RESULT: n of m files listed (GNRL|DX10)`; exit 0, 1 (nothing matched) or 2. `extract` writes the files the pattern
+    matches under `--out`, keeping the archive's folders; the pattern is an exact name or a glob (`*` any characters,
+    folders included; `?` one; case and `/` versus `\` don't matter). **General (GNRL) archives only:** a texture (DX10)
+    archive can be listed, but `extract` refuses it (exit 2). It never leaves `--out` (names with `..`, rooted, drive or
+    network paths, reserved Windows names or links are refused), never overwrites a file without `--force`, and stops
+    with exit 2 before writing anything if the files add up to more than `--max-size` GB (default 2). Exit 0 all written,
+    1 some refused or failed, 2 could not run. Game archives are the game's: extract only what you need for a test and
+    never publish it.
 
 ## 6. Inputs and outputs
 
