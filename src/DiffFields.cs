@@ -200,6 +200,9 @@ public static class DiffFields
         {
             bool changed = differ.Contains(p.Name);
             if (!changed && translations is null) continue;
+            // Already reported in their own lines: the leveled-list entries added and removed, and a base-object swap.
+            if (p.Name == "Entries" && c.EntriesAdded != null && !c.OtherEntryChanges) continue;
+            if (p.Name == "Base" && c.BaseSwap != null) continue;
             try
             {
                 object? va = p.GetValue(a), vb = p.GetValue(b);

@@ -375,15 +375,22 @@ public static class FindCommand
     {
         if (matches.Count == 0) return;
         var (files, masterLists) = PatchSources.Styles(lo);
-        foreach (var m in matches)
+        // One pass over each winning plugin's record headers, however many of the matches it wins.
+        foreach (var group in matches.GroupBy(m => m.Winner.Plugin.Path, StringComparer.OrdinalIgnoreCase))
         {
             var sw = Stopwatch.StartNew();
-            var (plugin, _) = m.Winner;
-            Analyzer.Where = $"reading the raw layout of {m.Key} in {plugin.FileName}";
-            m.Layout = RecordLayouts.Read(plugin, m.Key, files, masterLists.GetValueOrDefault(plugin.FileName) ?? [], RecordLayouts.MaxJson);
-            Log.Write($"layout: {m.Key} in {plugin.FileName}: " +
-                      (m.Layout.FileOffset < 0 ? "not read" : $"record at 0x{m.Layout.FileOffset:X}, {m.Layout.Total} subrecords") +
-                      (m.Layout.Problem != null ? $", problem: {m.Layout.Problem}" : "") + $", {sw.Elapsed.TotalSeconds:F1} s");
+            var plugin = group.First().Winner.Plugin;
+            Analyzer.Where = $"reading the raw layout of {group.Count()} record(s) in {plugin.FileName}";
+            var lays = RecordLayouts.ReadMany(plugin, group.Select(m => m.Key).ToList(), files,
+                                              masterLists.GetValueOrDefault(plugin.FileName) ?? [], RecordLayouts.MaxJson);
+            Log.Write($"layout: {plugin.FileName}: {group.Count()} record(s) read in one pass, {sw.Elapsed.TotalSeconds:F1} s");
+            foreach (var m in group)
+            {
+                m.Layout = lays[m.Key];
+                Log.Write($"layout: {m.Key} in {plugin.FileName}: " +
+                          (m.Layout.FileOffset < 0 ? "not read" : $"record at 0x{m.Layout.FileOffset:X}, {m.Layout.Total} subrecords") +
+                          (m.Layout.Problem != null ? $", problem: {m.Layout.Problem}" : ""));
+            }
         }
     }
 

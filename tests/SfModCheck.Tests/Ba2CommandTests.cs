@@ -279,4 +279,24 @@ public class Ba2CommandTests
         Assert.Equal(2, b.Ba2("list", b.Archive, "--out", b.Out).Code);   // --out is for extract
         Assert.Contains("ba2 list", ExeTests.RunSplit(["--help"]).Stdout + ExeTests.RunSplit(["--help"]).Stderr);
     }
+
+    [Fact]
+    public void A_drive_root_out_folder_takes_the_archive_names()
+    {
+        // Code review round 1: a root keeps its separator, so "D:\" + "\" matched nothing and every name was refused.
+        var root = Path.GetPathRoot(Path.GetTempPath())!;
+        Assert.Null(Ba2Command.Escapes(Path.TrimEndingDirectorySeparator(root), @"scripts\made\quest.pex", out var dest));
+        Assert.Equal(Path.Combine(root, "scripts", "made", "quest.pex"), dest);
+        Assert.NotNull(Ba2Command.UnsafeReason(@"..\quest.pex"));   // ".." is still refused before the path is built
+    }
+
+    [Fact]
+    public void An_empty_archive_lists_zero_files_and_exit_0()
+    {
+        using var b = new Box(Gnrl());
+        var (code, stdout, _) = b.Ba2("list", b.Archive);
+        Assert.Equal(0, code);
+        Assert.Contains("RESULT: 0 of 0 files listed (GNRL;", stdout);
+        Assert.DoesNotContain("NOT FOUND", stdout);
+    }
 }

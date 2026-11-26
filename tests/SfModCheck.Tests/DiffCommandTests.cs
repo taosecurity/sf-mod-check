@@ -635,6 +635,12 @@ public class DiffCommandTests
         Assert.Equal(["Keywords"], real.Changed.Single(c => c.Old.Sig == "MISC").Fields);
         Assert.All(real.Changed, c => Assert.Null(c.NotCompared));
         Assert.Equal(0, real.Total(true).Noise);
+        // 0.22.0 code review round 1: the entries added and removed have their own lines, so the detail doesn't repeat them
+        var list = real.Changed.Single(c => c.Old.Sig == "LVLI");
+        Assert.Single(list.EntriesAdded!);
+        Assert.Single(list.EntriesRemoved!);
+        Assert.DoesNotContain(list.Detail, x => x.Field == "Entries");
+        Assert.Contains(real.Changed.Single(c => c.Old.Sig == "MISC").Detail, x => x.Field == "Keywords");
     }
 
     // ---- 0.13.0 step 4: condition (CTDA) padding is noise ----

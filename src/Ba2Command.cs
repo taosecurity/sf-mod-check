@@ -173,6 +173,11 @@ public static class Ba2Command
         if (mode == "list")
         {
             foreach (var it in picked) Console.WriteLine($"{it.Size,14:N0}  {index.HowStored(it),-7}  {SafeText.OneLine(it.RawName)}");
+            if (pattern == null && picked.Count == 0)
+            {
+                Console.WriteLine($"RESULT: 0 of 0 files listed ({index.Type}; {SafeText.OneLine(Path.GetFileName(archive))} holds no files)");
+                return 0;
+            }
             Console.WriteLine(picked.Count == 0
                 ? $"RESULT: NOT FOUND (no file in {SafeText.OneLine(Path.GetFileName(archive))} matches {SafeText.OneLine(pattern)}; run ba2 list without a pattern to see every name)"
                 : $"RESULT: {picked.Count:N0} of {index.Items.Count:N0} files listed ({index.Type})");
@@ -384,13 +389,15 @@ public static class Ba2Command
     }
 
     /// <summary>The file under outFull that name goes to; returns why not when the full path isn't inside outFull.</summary>
-    static string? Escapes(string outFull, string raw, out string? dest)
+    internal static string? Escapes(string outFull, string raw, out string? dest)
     {
         dest = null;
         try
         {
             var p = Path.GetFullPath(Path.Combine(outFull, raw.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar)));
-            if (!p.StartsWith(outFull + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            // A drive root keeps its separator (TrimEndingDirectorySeparator never trims "D:\" or "/").
+            var prefix = Path.EndsInDirectorySeparator(outFull) ? outFull : outFull + Path.DirectorySeparatorChar;
+            if (!p.StartsWith(prefix, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
                 return "its name leads outside the --out folder";
             dest = p;
             return null;

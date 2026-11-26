@@ -44,56 +44,77 @@ public static class RecordLayouts
     /// wanted record's data. Never throws for a bad file: the problem is in the result.</summary>
     public static RecordLayout Read(PluginInfo p, FormKey key, IReadOnlyDictionary<string, (ModKey Key, Style Style)> files,
                                     IReadOnlyCollection<string> masters, int cap)
+        => ReadMany(p, [key], files, masters, cap)[key];
+
+    /// <summary>The layouts of several records' copies in plugin p from one pass over its record headers (a --plugin
+    /// listing with --layout reads each file once, not once per record). Every key gets a result.</summary>
+    public static Dictionary<FormKey, RecordLayout> ReadMany(PluginInfo p, IReadOnlyCollection<FormKey> keys,
+                                    IReadOnlyDictionary<string, (ModKey Key, Style Style)> files,
+                                    IReadOnlyCollection<string> masters, int cap)
     {
-        var lay = new RecordLayout { Plugin = p.FileName };
-        if (!files.TryGetValue(p.FileName, out var self)) { lay.Problem = $"{SafeText.OneLine(p.FileName)}'s header can't be read"; return lay; }
+        var result = keys.Distinct().ToDictionary(k => k, _ => new RecordLayout { Plugin = p.FileName });
+        if (!files.TryGetValue(p.FileName, out var self))
+        {
+            foreach (var lay in result.Values) lay.Problem = $"{SafeText.OneLine(p.FileName)}'s header can't be read";
+            return result;
+        }
         try
         {
             using var f = new RawFile(p.Path);
             var map = new IdMap(p.FileName, self.Style, masters.Select(m => (m, files.TryGetValue(m, out var x) ? x.Style : Style.Full)));
-            RawRecord? hit = null;
+            var hits = new Dictionary<FormKey, RawRecord>();
             var w = new RawWalker(f, deep: false, (_, _, _) => { })
             {
                 OnRecord = rec =>
                 {
-                    if (hit != null) return;
+                    if (hits.Count == result.Count) return;
                     var (file, local, _) = map.Decode(rec.FormId);
                     if (file is null || !files.TryGetValue(file, out var mk)) return;
-                    if (mk.Key == key.ModKey && IdMap.Mask(local, mk.Style) == key.ID) hit = rec;
+                    var k = new FormKey(mk.Key, IdMap.Mask(local, mk.Style));
+                    if (result.ContainsKey(k)) hits.TryAdd(k, rec);
                 },
             };
             w.Walk();
-            if (hit is not { } r)
+            foreach (var (k, lay) in result)
             {
-                lay.Problem = w.StoppedEarly is { } why
-                    ? $"the record wasn't reached: the file can't be read past a bad spot ({SafeText.OneLine(why)})"
-                    : "the record wasn't found in the file's raw layout";
-                return lay;
+                if (!hits.TryGetValue(k, out var r))
+                {
+                    lay.Problem = w.StoppedEarly is { } why
+                        ? $"the record wasn't reached: the file can't be read past a bad spot ({SafeText.OneLine(why)})"
+                        : "the record wasn't found in the file's raw layout";
+                    continue;
+                }
+                Fill(lay, f, r, cap);
             }
-            lay.FileOffset = r.Offset;
-            lay.Sig = r.Sig;
-            lay.Flags = r.Flags;
-            lay.StoredId = r.FormId;
-            lay.DataSize = r.Size;
-            lay.FormVersion = r.FormVersion;
-            lay.Compressed = (r.Flags & SfModCheck.Flags.Compressed) != 0;
-            if (r.Size > int.MaxValue) { lay.Problem = $"the record is too big to read ({r.Size} bytes)"; return lay; }
-            var stored = f.Span(r.Offset + 24, (int)r.Size);   // the walker checked that it ends inside its group
-            ReadOnlySpan<byte> body = stored;
-            if (lay.Compressed)
-            {
-                var d = Subrecords.Decompress(stored, out var why);
-                if (d == null) { lay.Problem = $"the record is compressed but {why}"; return lay; }
-                body = d;
-            }
-            lay.BodySize = body.Length;
-            (lay.Fields, lay.Total, lay.Problem) = Parse(body, cap);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            lay.Problem = $"{SafeText.OneLine(p.FileName)} can't be read ({e.GetType().Name})";
+            foreach (var lay in result.Values)
+                if (lay.FileOffset < 0 && lay.Problem == null) lay.Problem = $"{SafeText.OneLine(p.FileName)} can't be read ({e.GetType().Name})";
         }
-        return lay;
+        return result;
+    }
+
+    static void Fill(RecordLayout lay, RawFile f, RawRecord r, int cap)
+    {
+        lay.FileOffset = r.Offset;
+        lay.Sig = r.Sig;
+        lay.Flags = r.Flags;
+        lay.StoredId = r.FormId;
+        lay.DataSize = r.Size;
+        lay.FormVersion = r.FormVersion;
+        lay.Compressed = (r.Flags & SfModCheck.Flags.Compressed) != 0;
+        if (r.Size > int.MaxValue) { lay.Problem = $"the record is too big to read ({r.Size} bytes)"; return; }
+        var stored = f.Span(r.Offset + 24, (int)r.Size);   // the walker checked that it ends inside its group
+        ReadOnlySpan<byte> body = stored;
+        if (lay.Compressed)
+        {
+            var d = Subrecords.Decompress(stored, out var why);
+            if (d == null) { lay.Problem = $"the record is compressed but {why}"; return; }
+            body = d;
+        }
+        lay.BodySize = body.Length;
+        (lay.Fields, lay.Total, lay.Problem) = Parse(body, cap);
     }
 
     /// <summary>A record's data split into subrecords in file order (XXXX gives the next one a 32-bit size). Keeps the
@@ -113,7 +134,8 @@ public static class RecordLayouts
             long size = BitConverter.ToUInt16(body.Slice(at + 4, 2));
             if (sig == "XXXX")
             {
-                if (size != 4 || body.Length - i < 10) { problem = $"XXXX at offset {i} has size {size}, not 4"; break; }
+                if (size != 4) { problem = $"XXXX at offset {i} has size {size}, not 4"; break; }
+                if (body.Length - i < 10) { problem = $"XXXX at offset {i} says 4 bytes, but only {body.Length - i - 6} are left in the record"; break; }
                 big = BitConverter.ToUInt32(body.Slice(at + 6, 4));
                 i += 10;
                 continue;

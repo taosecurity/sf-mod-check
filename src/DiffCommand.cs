@@ -871,10 +871,15 @@ public sealed class DiffReport
         var shown = all ? c.Detail : c.Detail.Take(DetailShown);
         foreach (var (field, l) in shown)
             sb.AppendLine("      " + RecordVersions.ChangeText(new VersionChange(field, l.Path, l.Kind, l.Before, l.After, ""), null));
-        int more = (all ? 0 : Math.Max(0, c.Detail.Count - DetailShown)) + c.DetailNotShown;
+        int hidden = all ? 0 : Math.Max(0, c.Detail.Count - DetailShown);
+        int more = hidden + c.DetailNotShown;
         if (more > 0)
-            sb.AppendLine($"      ... and {more:N0} more detail line{(more == 1 ? "" : "s")}" +
-                          (c.DetailNotShown > 0 ? $" ({c.DetailNotShown:N0} past the limit of {SfModCheck.Conflict.TriageDetail.MaxPerRecord:N0} per record)" : " (--all or --json lists them all)"));
+        {
+            var why = new List<string>();
+            if (hidden > 0) why.Add($"--all or --json lists {(c.DetailNotShown > 0 ? $"{hidden:N0} of them" : "them all")}");
+            if (c.DetailNotShown > 0) why.Add($"{c.DetailNotShown:N0} past the limit of {SfModCheck.Conflict.TriageDetail.MaxPerRecord:N0} per record");
+            sb.AppendLine($"      ... and {more:N0} more detail line{(more == 1 ? "" : "s")} ({string.Join("; ", why)})");
+        }
     }
 
     static string Kind(TriageInputKind k) => k switch

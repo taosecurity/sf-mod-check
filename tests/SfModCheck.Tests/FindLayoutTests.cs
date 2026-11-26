@@ -225,6 +225,41 @@ public class FindLayoutTests
         Assert.Equal("1b5b324a00", RecordLayouts.Preview([0x1B, 0x5B, 0x32, 0x4A, 0x00]));   // an escape byte is never text
     }
 
+    [Fact]
+    public void ReadMany_reads_several_records_of_a_plugin_in_one_pass_as_Read_does_each()
+    {
+        // Code review round 1: a --plugin listing with --layout walked the whole file once per listed record.
+        using var game = new Game();
+        var files = new Dictionary<string, (ModKey Key, Style Style)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["LayBase.esm"] = (ModKey.FromFileName("LayBase.esm"), Style.Full),
+            ["LayMod.esm"] = (ModKey.FromFileName("LayMod.esm"), Style.Light),
+        };
+        var p = new PluginInfo(1, "LayMod.esm", false, ["LayBase.esm"], null!) { Path = game.ModPath };
+        var missing = new FormKey(ModKey.FromFileName("LayMod.esm"), 0xFFE);
+        var many = RecordLayouts.ReadMany(p, [game.Misc, game.Key, missing], files, ["LayBase.esm"], RecordLayouts.MaxJson);
+        Assert.Equal(3, many.Count);
+        foreach (var k in new[] { game.Misc, game.Key })
+        {
+            var one = RecordLayouts.Read(p, k, files, ["LayBase.esm"], RecordLayouts.MaxJson);
+            Assert.True(one.FileOffset > 0);
+            Assert.Equal(one.FileOffset, many[k].FileOffset);
+            Assert.Equal(one.Fields, many[k].Fields);
+            Assert.Null(many[k].Problem);
+        }
+        Assert.Equal("MISC", many[game.Misc].Sig);
+        Assert.Equal("KYWD", many[game.Key].Sig);
+        Assert.Equal("the record wasn't found in the file's raw layout", many[missing].Problem);
+    }
+
+    [Fact]
+    public void A_cut_XXXX_says_the_data_ran_out_not_a_wrong_size()
+    {
+        var body = Encoding.ASCII.GetBytes("XXXX").Concat(BitConverter.GetBytes((ushort)4)).Concat(new byte[] { 1, 2 }).ToArray();
+        var (_, _, problem) = RecordLayouts.Parse(body, 10);
+        Assert.Equal("XXXX at offset 0 says 4 bytes, but only 2 are left in the record", problem);
+    }
+
     static int IndexOf(byte[] hay, byte[] needle)
     {
         for (int i = 0; i + needle.Length <= hay.Length; i++)

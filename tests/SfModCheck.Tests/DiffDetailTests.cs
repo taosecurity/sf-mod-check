@@ -148,6 +148,20 @@ public class DiffDetailTests
     }
 
     [Fact]
+    public void Exe_text_names_both_reasons_when_lines_are_cut_by_the_text_view_and_by_the_per_record_limit()
+    {
+        // Code review round 1: the overflow line gave only the per-record limit and dropped the --all hint.
+        using var s = new Sandbox();
+        var a = Build(s, "a", keywords: TriageDetail.MaxPerRecord + 20, value: 1);
+        var b = Build(s, "b", keywords: 2, value: 2);
+        var c = Assert.Single(Diff(a, b).Changed, x => x.New.EditorId == "MOD_Rock");
+        Assert.True(c.DetailNotShown > 0, $"{c.DetailNotShown} past the limit");
+        var text = Run("diff", a, b, "--quiet", "--data", s.Sub("nodata"));
+        Assert.Contains($"      ... and {c.Detail.Count - DiffReport.DetailShown + c.DetailNotShown:N0} more detail lines " +
+                        $"(--all or --json lists {c.Detail.Count - DiffReport.DetailShown:N0} of them; {c.DetailNotShown:N0} past the limit of {TriageDetail.MaxPerRecord:N0} per record)", text.Stdout);
+    }
+
+    [Fact]
     public void Noise_records_get_no_detail_and_stay_noise()
     {
         // the same record with only translations dropped: the English text is equal, so it stays noise as before

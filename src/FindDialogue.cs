@@ -19,7 +19,7 @@ public sealed record TopicResponse(int Number, string Text, List<(string Name, s
 
 /// <summary>One INFO of the topic as its winning copy has it. SharedFrom: the INFO whose lines it uses when it has none of
 /// its own (SharedDialog), or null.</summary>
-public sealed record TopicLine(FormKey FormKey, string? EditorId, string Winner, List<TopicResponse> Responses, string? SharedFrom);
+public sealed record TopicLine(FormKey FormKey, string? EditorId, string Winner, List<TopicResponse> Responses, string? SharedFrom, bool Deleted = false);
 
 /// <summary>What --full lists under one topic.</summary>
 public sealed class TopicLines
@@ -86,7 +86,8 @@ public static class TopicInfos
         {
             responses.Add(new TopicResponse(responses.Count + 1, $"(unreadable: {e.GetType().Name})", new()));
         }
-        return new TopicLine(info.FormKey, string.IsNullOrEmpty(info.EditorID) ? null : SafeText.OneLine(info.EditorID), plugin, responses, shared);
+        return new TopicLine(info.FormKey, string.IsNullOrEmpty(info.EditorID) ? null : SafeText.OneLine(info.EditorID), plugin, responses, shared,
+                             info.IsDeleted);
     }
 
     static TopicResponse Response(int number, IDialogResponseGetter r, Func<IFormLinkGetter, string> link)
@@ -113,7 +114,7 @@ public static class TopicInfos
         var lines = new List<string> { $"  lines: {t.Total} INFO{(t.Total == 1 ? "" : "s")} (winning copies{where})" };
         foreach (var l in t.Records.Take(MaxListed))
         {
-            lines.Add($"    {l.EditorId ?? "(no EditorID)"} [{l.FormKey}], winner {l.Winner}");
+            lines.Add($"    {l.EditorId ?? "(no EditorID)"} [{l.FormKey}], winner {l.Winner}{(l.Deleted ? " (DELETED by its winner: the game doesn't use this line)" : "")}");
             if (l.SharedFrom != null) lines.Add($"      (no responses of its own: it uses the lines of {l.SharedFrom})");
             else if (l.Responses.Count == 0) lines.Add("      (no responses)");
             foreach (var r in l.Responses)
@@ -147,6 +148,7 @@ public static class TopicInfos
             }
             var rec = new JsonObject { ["formKey"] = l.FormKey.ToString(), ["editorId"] = l.EditorId, ["winner"] = l.Winner, ["responses"] = rs };
             if (l.SharedFrom != null) rec["sharedFrom"] = l.SharedFrom;
+            if (l.Deleted) rec["deleted"] = true;
             recs.Add(rec);
         }
         var j = new JsonObject { ["total"] = t.Total, ["records"] = recs };

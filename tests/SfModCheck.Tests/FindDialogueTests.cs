@@ -226,4 +226,20 @@ public class FindDialogueTests
         }
         finally { TopicInfos.MaxListed = old; }
     }
+
+    [Fact]
+    public void A_line_its_winner_deletes_is_marked_deleted_in_text_and_json()
+    {
+        // Code review round 1: a deleted INFO was listed like a live line.
+        var mk = ModKey.FromFileName("FdBase.esm");
+        var t = new TopicLines();
+        t.Records.Add(new TopicLine(new FormKey(mk, 0x801), "FD_Live", "FdBase.esm", [new TopicResponse(1, "Made-up hello.", new())], null));
+        t.Records.Add(new TopicLine(new FormKey(mk, 0x802), null, "FdMod.esm", [], null, Deleted: true));
+        var text = string.Join("\n", TopicInfos.Lines(t));
+        Assert.Contains("FD_Live [000801:FdBase.esm], winner FdBase.esm\n", text + "\n");
+        Assert.Contains("(no EditorID) [000802:FdBase.esm], winner FdMod.esm (DELETED by its winner: the game doesn't use this line)", text);
+        var recs = JsonDocument.Parse(TopicInfos.Json(t).ToJsonString()).RootElement.GetProperty("records");
+        Assert.False(recs[0].TryGetProperty("deleted", out _));
+        Assert.True(recs[1].GetProperty("deleted").GetBoolean());
+    }
 }
