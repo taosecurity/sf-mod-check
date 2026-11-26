@@ -62,12 +62,12 @@ public sealed class AssetIndex
         var archiveDirs = dirs.Select(Path.GetFullPath).Distinct(cmp).ToList();
         var ownDirs = own is { } ow ? archiveDirs.Prepend(Path.GetFullPath(ow.Dir)).Distinct(cmp).ToList() : archiveDirs;
         var index = new AssetIndex(ownDirs);
-        var archives = new List<(string Path, string Why)>();
+        var archives = new List<(string Path, string Why, bool Ini)>();
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // by file name: the first folder that has it wins
-        bool Take(string path, string why)
+        bool Take(string path, string why, bool ini = false)
         {
             if (!taken.Add(Path.GetFileName(path))) return false;
-            archives.Add((path, why));
+            archives.Add((path, why, ini));
             return true;
         }
         foreach (var plugin in plugins)
@@ -100,9 +100,9 @@ public sealed class AssetIndex
             // must not win)
             var found = archiveDirs.Select(d => index.LooseFile(d, name)).FirstOrDefault(f => f != null);
             if (found == null) { index.Skipped.Add((name, $"listed in {ini} ({key}) but not found")); continue; }
-            Take(found, $"listed in {Path.GetFileName(ini)} ({key})");
+            Take(found, $"listed in {Path.GetFileName(ini)} ({key})", ini: true);
         }
-        foreach (var (path, why) in archives)
+        foreach (var (path, why, fromIni) in archives)
         {
             var name = Path.GetFileName(path);
             try
@@ -122,6 +122,7 @@ public sealed class AssetIndex
                     // every material database counts: the game's and the ones plugins ship (0.14.0, relay step 10)
                     if (type == "GNRL" && n.EndsWith(".cdb", StringComparison.Ordinal)) index.AddCdb(path, n);
                 }
+                if (type == "GNRL") index.general.Add((path, fromIni));
                 index.Loaded.Add($"{name} ({why})");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -307,6 +308,18 @@ public sealed class AssetIndex
         }
         return list;
     }
+
+    readonly List<(string Path, bool Ini)> general = new();
+
+    /// <summary>The general archives read, in the order the game loads them (0.23.0, the sound-bank index): the INIs'
+    /// archives first, in the order the INIs list them (so "Starfield - WwiseSoundsPatch.ba2" after 01 to 05), then the
+    /// plugins' own archives in plugin order. A file in a later archive replaces one of the same name in an earlier
+    /// one. Full paths.</summary>
+    public IEnumerable<string> GeneralArchivesInLoadOrder() =>
+        general.Where(g => g.Ini).Concat(general.Where(g => !g.Ini)).Select(g => g.Path);
+
+    /// <summary>The folders searched for loose files, first one first (a loose file in an earlier folder wins).</summary>
+    public IReadOnlyList<string> LooseDirs => looseDirs;
 
     /// <summary>The general archives named after this plugin (its own archives), in the order found.</summary>
     public IReadOnlyList<string> OwnArchives(string plugin) => ownArchives.TryGetValue(plugin, out var l) ? l : Array.Empty<string>();

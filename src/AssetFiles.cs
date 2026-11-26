@@ -140,6 +140,7 @@ public static class AssetFiles
         public long Pos;
         public void Need(long n) { if (n < 0 || Pos + n > d.Length) throw new InvalidDataException($"its header ends early (at byte {Pos} of {d.Length})"); }
         public uint U32() { Need(4); var v = BitConverter.ToUInt32(d, (int)Pos); Pos += 4; return v; }
+        public byte U8() { Need(1); return d[Pos++]; }
         public ushort U16() { Need(2); var v = BitConverter.ToUInt16(d, (int)Pos); Pos += 2; return v; }
         public void Skip(long n) { Need(n); Pos += n; }
         public void Short() { Need(1); var n = d[Pos]; Pos++; Skip(n); }
@@ -242,11 +243,38 @@ public static class AssetFiles
     /// the bank doesn't start with a BKHD chunk or a chunk runs past the end.</summary>
     public static (uint Version, List<uint> Streamed) BankSources(byte[] d)
     {
+        var ids = new List<uint>();
+        var seen = new HashSet<uint>();
+        var version = WalkBank(d, (type, r) =>
+        {
+            if (type != 2) return;
+            r.U32();                           // object ID
+            var plugin = r.U32();
+            var stream = r.U8();
+            var source = r.U32();
+            if ((plugin & 0xF) == 1 && stream != 0 && seen.Add(source)) ids.Add(source);
+        });
+        return (version, ids);
+    }
+
+    /// <summary>The event IDs a Wwise sound bank holds (0.23.0): the IDs of its HIRC Event objects (type 4), each of
+    /// which starts with its 32-bit ID. For a bank of a version not in ProvenBankVersions the set is empty and only the
+    /// version is read. Throws InvalidDataException as BankSources does.</summary>
+    public static (uint Version, HashSet<uint> Events) BankEvents(byte[] d)
+    {
+        var events = new HashSet<uint>();
+        var version = WalkBank(d, (type, r) => { if (type == 4) events.Add(r.U32()); });
+        return (version, events);
+    }
+
+    /// <summary>Walks a bank's chunks: the BKHD version, then for a proven version each HIRC object, given to onObject
+    /// with the reader at the object's body (after its type byte and length). The reader is put back at the next object
+    /// afterwards. Returns the version (0 when the bank has no BKHD chunk after the first).</summary>
+    static uint WalkBank(byte[] d, Action<byte, Reader> onObject)
+    {
         var r = new Reader(d);
         if (d.Length < 12 || d[0] != 'B' || d[1] != 'K' || d[2] != 'H' || d[3] != 'D') throw new InvalidDataException("it doesn't start with a BKHD chunk (not a Wwise sound bank)");
         uint version = 0;
-        var ids = new List<uint>();
-        var seen = new HashSet<uint>();
         while (r.Pos + 8 <= d.Length)
         {
             var tag = System.Text.Encoding.ASCII.GetString(d, (int)r.Pos, 4);
@@ -257,7 +285,7 @@ public static class AssetFiles
             if (tag == "BKHD")
             {
                 version = r.U32();
-                if (!ProvenBankVersions.Contains(version)) return (version, ids);
+                if (!ProvenBankVersions.Contains(version)) return version;
             }
             else if (tag == "HIRC")
             {
@@ -268,23 +296,99 @@ public static class AssetFiles
                     var type = d[r.Pos - 1];
                     var length = r.U32();
                     var next = r.Pos + length;
-                    if (type == 2)
-                    {
-                        r.U32();                           // object ID
-                        var plugin = r.U32();
-                        r.Skip(1);
-                        var stream = d[r.Pos - 1];
-                        var source = r.U32();
-                        if ((plugin & 0xF) == 1 && stream != 0 && seen.Add(source)) ids.Add(source);
-                    }
+                    if (next > start + size) throw new InvalidDataException($"its HIRC chunk ends early (object {i + 1} of {objects})");
+                    onObject(type, r);
                     r.Pos = next;
-                    if (r.Pos > start + size) throw new InvalidDataException($"its HIRC chunk ends early (object {i + 1} of {objects})");
                 }
             }
             r.Pos = start;
             r.Skip(size);
         }
-        return (version, ids);
+        return version;
+    }
+
+    /// <summary>A record's Wwise event GUID (a SoundReference's Start or Stop, a WWED's Start or End) as the bank
+    /// manifest writes it (0.23.0; SmcLookup\wwise-research NOTES, question 1). The record stores the GUID as two
+    /// little-endian 64-bit numbers: the GUID's first 16 hex digits, then its last 16. So the 128-bit value is the first
+    /// eight stored bytes read little-endian (high half), then the last eight (low half).</summary>
+    public static UInt128 SoundGuid(ReadOnlySpan<byte> stored)
+    {
+        if (stored.Length != 16) throw new ArgumentException($"a sound GUID is 16 bytes, not {stored.Length}", nameof(stored));
+        return new UInt128(System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(stored),
+            System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(stored[8..]));
+    }
+
+    /// <summary>SoundGuid of a GUID as Mutagen reads it (a .NET Guid made from the 16 stored bytes; ToByteArray gives
+    /// them back unchanged). Guid.ToString() prints those bytes in another order and never matches a manifest.</summary>
+    public static UInt128 SoundGuid(Guid g)
+    {
+        Span<byte> b = stackalloc byte[16];
+        g.TryWriteBytes(b);
+        return SoundGuid(b);
+    }
+
+    /// <summary>A sound GUID as the manifest writes it: "{024EA771-3422-448B-BEAB-BAA79FD8C998}".</summary>
+    public static string SoundGuidText(UInt128 g)
+    {
+        var h = $"{(ulong)(g >> 64):X16}{(ulong)g:X16}";
+        return $"{{{h[..8]}-{h[8..12]}-{h[12..16]}-{h[16..20]}-{h[20..]}}}";
+    }
+
+    /// <summary>A manifest's "GUID" string ("{024EA771-3422-448B-BEAB-BAA79FD8C998}", braces and dashes optional, any
+    /// case) as a sound GUID, or null when it isn't 32 hex digits.</summary>
+    public static UInt128? ParseSoundGuid(string? s)
+    {
+        if (s == null) return null;
+        var h = s.Trim().TrimStart('{').TrimEnd('}').Replace("-", "");
+        if (h.Length != 32 || !h.All(Uri.IsHexDigit)) return null;
+        return new UInt128(Convert.ToUInt64(h[..16], 16), Convert.ToUInt64(h[16..], 16));
+    }
+
+    /// <summary>The Wwise short ID of a name: FNV-1 32-bit (offset basis 0x811C9DC5, prime 0x01000193, multiply then
+    /// XOR) of the lower-case name's bytes. An event's ID is this of its name, and a bank's file name is this of the
+    /// bank's name (SmcLookup\wwise-research NOTES, question 2).</summary>
+    public static uint Fnv1(string name)
+    {
+        uint h = 0x811C9DC5;
+        foreach (var b in System.Text.Encoding.UTF8.GetBytes(name.ToLowerInvariant())) { h *= 0x01000193; h ^= b; }
+        return h;
+    }
+
+    /// <summary>The events a per-bank manifest ("sound\soundbanks\&lt;bank id&gt;.json", Wwise's SoundBanksInfo) lists:
+    /// for each bank in SoundBanksInfo.SoundBanks, each IncludedEvents entry's GUID, ID and name, with the bank's
+    /// ShortName. IDs may be strings or numbers. An entry without a readable GUID or ID is counted in Skipped, not
+    /// returned. Throws JsonException on damaged JSON and InvalidDataException when SoundBanksInfo.SoundBanks isn't
+    /// there.</summary>
+    public static (List<(UInt128 Guid, uint Id, string Name, string Bank)> Events, int Skipped) ManifestEvents(byte[] json)
+    {
+        using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+        if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("SoundBanksInfo", out var info) ||
+            info.ValueKind != JsonValueKind.Object || !info.TryGetProperty("SoundBanks", out var banks) || banks.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("it has no SoundBanksInfo.SoundBanks list (not a Wwise bank manifest)");
+        var list = new List<(UInt128, uint, string, string)>();
+        int skipped = 0;
+        foreach (var bank in banks.EnumerateArray())
+        {
+            if (bank.ValueKind != JsonValueKind.Object) continue;
+            var shortName = Text(bank, "ShortName") ?? "";
+            if (!bank.TryGetProperty("IncludedEvents", out var evs) || evs.ValueKind != JsonValueKind.Array) continue;
+            foreach (var e in evs.EnumerateArray())
+            {
+                var guid = e.ValueKind == JsonValueKind.Object ? ParseSoundGuid(Text(e, "GUID")) : null;
+                uint? id = null;
+                if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty("Id", out var idv))
+                {
+                    if (idv.ValueKind == JsonValueKind.Number && idv.TryGetUInt32(out var n)) id = n;
+                    else if (idv.ValueKind == JsonValueKind.String && uint.TryParse(idv.GetString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var s)) id = s;
+                }
+                if (guid is not { } g || id is not { } i) { skipped++; continue; }
+                list.Add((g, i, Text(e, "Name") ?? "", shortName));
+            }
+        }
+        return (list, skipped);
+
+        static string? Text(JsonElement o, string key) =>
+            o.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     }
 
     /// <summary>Whether a data-relative name is a sound bank the game loads ("sound\soundbanks\x.bnk").</summary>

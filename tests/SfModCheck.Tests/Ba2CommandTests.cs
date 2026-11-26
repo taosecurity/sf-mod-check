@@ -11,13 +11,13 @@ namespace SfModCheck.Tests;
 
 public class Ba2CommandTests
 {
-    enum Pack { Stored, Zlib, Lz4 }
+    internal enum Pack { Stored, Zlib, Lz4 }
 
     /// <summary>A general (GNRL) BA2: version 1 with stored and zlib entries, or version 3 naming LZ4 (compression 3)
     /// when any entry is LZ4. sizeFix changes the size an entry's record states (a damaged archive).</summary>
-    static byte[] Gnrl(params (string Name, byte[] Data, Pack How)[] files) => Gnrl(null, files);
+    internal static byte[] Gnrl(params (string Name, byte[] Data, Pack How)[] files) => Gnrl(null, files);
 
-    static byte[] Gnrl(Func<int, uint, uint>? sizeFix, params (string Name, byte[] Data, Pack How)[] files)
+    internal static byte[] Gnrl(Func<int, uint, uint>? sizeFix, params (string Name, byte[] Data, Pack How)[] files)
     {
         bool lz4 = files.Any(f => f.How == Pack.Lz4);
         var stored = files.Select(f =>

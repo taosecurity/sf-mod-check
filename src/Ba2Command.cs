@@ -502,4 +502,40 @@ public static class Ba2Command
         }
         return new Index(version, type, method, items);
     }
+
+    /// <summary>One general-archive entry's bytes, unpacked in memory (0.23.0, the sound-bank index), with the same
+    /// checks as extract: the data must lie inside the archive and unpack to exactly its recorded size. An entry
+    /// larger than max (packed or unpacked) is refused. Throws InvalidDataException with the reason; IOException
+    /// when the file can't be read.</summary>
+    public static byte[] EntryBytes(Stream f, Index index, Item it, long max)
+    {
+        if (index.Type != "GNRL") throw new InvalidDataException("it is in a texture (DX10) archive");
+        if (it.Size > max || it.Packed > max) throw new InvalidDataException($"it is larger than {max:N0} bytes");
+        var stored = it.Packed != 0 ? it.Packed : (ulong)it.Size;
+        if (it.Offset > (ulong)f.Length || it.Offset + stored > (ulong)f.Length) throw new InvalidDataException($"its data at byte {it.Offset} runs past the end of the archive");
+        f.Seek((long)it.Offset, SeekOrigin.Begin);
+        var data = new byte[it.Size];
+        if (it.Packed == 0) { f.ReadExactly(data); return data; }
+        var raw = new byte[it.Packed];
+        f.ReadExactly(raw);
+        if (index.Method == 3)
+        {
+            int got;
+            try { got = K4os.Compression.LZ4.LZ4Codec.Decode(raw, data); }
+            catch (Exception e) when (e is ArgumentException or InvalidOperationException or IndexOutOfRangeException) { got = -1; }
+            if (got < 0) throw new InvalidDataException("it won't unpack (LZ4: the data is damaged, or it unpacks to more than its record says)");
+            if (got != it.Size) throw new InvalidDataException($"it unpacks to {got:N0} bytes, not the {it.Size:N0} its record says");
+            return data;
+        }
+        using var z = new ZLibStream(new MemoryStream(raw), CompressionMode.Decompress);
+        int at = 0;
+        while (at < data.Length)
+        {
+            var n = z.Read(data, at, data.Length - at);
+            if (n == 0) throw new InvalidDataException($"it unpacks to {at:N0} bytes, not the {it.Size:N0} its record says");
+            at += n;
+        }
+        if (z.Read(new byte[1], 0, 1) != 0) throw new InvalidDataException($"it unpacks to more than the {it.Size:N0} bytes its record says");
+        return data;
+    }
 }
