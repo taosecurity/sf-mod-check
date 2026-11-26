@@ -2,6 +2,8 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
+namespace SfModCheck;
+
 /// <summary>The links a record's script properties hold inside struct values. Mutagen's EnumerateFormLinks skips them
 /// (found by the 0.20.0 real-data run: SFSearch's refs2 listed 11 quests whose only link to the location was a struct
 /// member), so `find --refs` adds them. Plain object properties and lists are not repeated here: Mutagen does them.</summary>

@@ -655,6 +655,45 @@ public class FindTests
         Assert.Contains("RESULT: FOUND 2 records; 3 records point at them (", stdout);
     }
 
+    // code review 0.20.0 round 3: a later partial-form copy of a referrer that doesn't carry the link keeps it (the game
+    // merges the partial copy with the one below), and it is the winner; a full copy without the link still drops it
+    [Fact]
+    public void Refs_keeps_a_link_through_a_later_partial_form_copy()
+    {
+        using var game = new Game();
+        using (var g = new GameData(game.Data))
+        {
+            var misc = g.Open("FindBase.esm").MiscItems.First();
+            var a = Plugin.New("FindRefPA.esm", PluginStyle.Full, "test", "made-up quests that point at the misc item");
+            QuestAdapter Vm() => new()
+            {
+                Scripts = { new ScriptEntry { Name = "SfmTest:Holder", Properties =
+                    { new ScriptObjectProperty { Name = "Target", Object = new FormLink<IStarfieldMajorRecordGetter>(misc.FormKey) } } } },
+            };
+            a.Quests.AddNew("RP_Partial").VirtualMachineAdapter = Vm();
+            a.Quests.AddNew("RP_Full").VirtualMachineAdapter = Vm();
+            PluginWriter.Write(a, game.Data, g, new WriteOptions { GapCheck = false, FixEffects = false, Masters = [ModKey.FromFileName("FindBase.esm")] });
+        }
+        using (var g = new GameData(game.Data))
+        {
+            var a = g.Open("FindRefPA.esm");
+            var b = Plugin.New("FindRefPB.esm", PluginStyle.Full, "test", "later copies without the link");
+            var pq = b.Quests.GetOrAddAsOverride(a.Quests.First(q => q.EditorID == "RP_Partial"));
+            pq.VirtualMachineAdapter = null;
+            pq.MajorRecordFlagsRaw |= SfModCheck.Conflict.FieldCompare.PartialFormFlag;
+            b.Quests.GetOrAddAsOverride(a.Quests.First(q => q.EditorID == "RP_Full")).VirtualMachineAdapter = null;
+            PluginWriter.Write(b, game.Data, g, new WriteOptions { GapCheck = false, FixEffects = false, Masters = [ModKey.FromFileName("FindBase.esm"), ModKey.FromFileName("FindRefPA.esm")] });
+        }
+        File.AppendAllLines(game.PluginsTxt, ["*FindRefPA.esm", "*FindRefPB.esm"]);
+        var (code, stdout, stderr) = game.Find("FB_Misc", "--refs");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("  referenced by: 1 record (winning copies)", stdout);
+        Assert.Contains("    RP_Partial [", stdout);
+        Assert.Contains("QUST, winner FindRefPB.esm", stdout);
+        Assert.DoesNotContain("    RP_Full [", stdout);
+        Assert.Contains("    note: 1 more record points at it only in a copy a later plugin overrides", stdout);
+    }
+
     [Fact]
     public void Refs_stops_past_its_memory_limit_and_restores_the_old_limit()
     {

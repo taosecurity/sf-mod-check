@@ -3,7 +3,8 @@
 // get their links read; the other plugins are read for FormKeys only, because a later copy there of a referring record
 // overrides it and drops the link. A container (cell, worldspace, quest, topic) lists its child records' links too, so
 // each link is counted on the innermost record: a container's own count is its count minus its direct children's
-// (the container rule of Checker.LinkPass, 0.4.1). Text and JSON both print from RefsInfo.
+// (the container rule of Checker.LinkPass, 0.4.1). A partial-form copy (flag 0x4000) adds to the earlier copy's links
+// instead of replacing them, since the game merges it with the copy below. Text and JSON both print from RefsInfo.
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Mutagen.Bethesda.Plugins;
@@ -91,6 +92,10 @@ public static class RecordRefs
                 // Counts: every link to a target; Plain: only those Mutagen's enumerator gives, which a container's own count holds too
                 var hits = new Dictionary<FormKey, (IMajorRecordGetter Rec, Dictionary<(FormKey, Type), int> Counts, Dictionary<(FormKey, Type), int> Plain)>();
                 var present = new List<FormKey>();
+                // copies that add to what earlier plugins said instead of replacing it: partial forms (the game merges them
+                // with the copy below) and copies whose links couldn't all be read
+                var adds = new HashSet<FormKey>();
+                var partial = new HashSet<FormKey>();
                 int records = 0;
                 try
                 {
@@ -100,6 +105,7 @@ public static class RecordRefs
                         if (records % LogEvery == 0) Log.Write($"refs: {p.FileName}: {records} records read, {sw.Elapsed.TotalSeconds:F0} s");
                         var fk = rec.FormKey;
                         if (referrers.ContainsKey(fk)) present.Add(fk);
+                        if (FieldCompare.IsPartial(rec)) { adds.Add(fk); partial.Add(fk); }
                         if (!walk) continue;   // a target's copies are read too: one match can point at another, but not at itself
                         Dictionary<(FormKey, Type), int>? counts = null, plain = null;
                         try
@@ -122,7 +128,7 @@ public static class RecordRefs
                         catch (Exception e) when (Fatal.Recoverable(e))
                         {
                             // a copy that can't be read keeps what earlier plugins said about the record
-                            if (referrers.ContainsKey(fk)) present.Remove(fk);
+                            adds.Add(fk);
                             if (counts != null && plain == null) plain = new(counts);
                             unreadable++;
                             Log.Write($"refs: {Name(rec)} in {p.FileName}: its links can't be read ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])})");
@@ -173,6 +179,17 @@ public static class RecordRefs
                     holding.Add(fk);
                     var rec = hits[fk].Rec;
                     var r = referrers.TryGetValue(fk, out var known) ? known : referrers[fk] = new Referrer { Plugin = p.FileName, Type = Sig(rec) };
+                    if (known != null && adds.Contains(fk))
+                    {
+                        // a partial form keeps the earlier copy's links (the game merges it); an unreadable copy keeps the earlier answer
+                        holding.Add(fk);
+                        points.UnionWith(r.Targets);
+                        if (partial.Contains(fk)) r.Plugin = p.FileName;
+                        r.Targets = points;
+                        foreach (var t in counts.Where(c => c.Value > 0).Select(c => c.Key.Item1)) r.HeldIn[t] = p.FileName;
+                        linksFound += counts.Values.Sum();
+                        continue;
+                    }
                     r.Plugin = p.FileName;
                     r.Type = Sig(rec);
                     r.EditorId = string.IsNullOrEmpty(rec.EditorID) ? null : SafeText.OneLine(rec.EditorID);
@@ -186,6 +203,13 @@ public static class RecordRefs
                 {
                     if (holding.Contains(fk)) continue;
                     var r = referrers[fk];
+                    if (adds.Contains(fk))
+                    {
+                        // a partial form without the link keeps the earlier copy's (the game merges the two); an unreadable copy changes nothing
+                        if (r.Targets.Count > 0) Log.Write($"refs: {fk}: {p.FileName}'s copy {(partial.Contains(fk) ? "is a partial form" : "can't be read")}, so {r.Plugin}'s links stay");
+                        if (partial.Contains(fk)) r.Plugin = p.FileName;   // the merged copy wins in game
+                        continue;
+                    }
                     if (r.Targets.Count > 0) Log.Write($"refs: {fk} pointed at it in {r.Plugin}; {p.FileName}'s copy overrides it without the link");
                     r.Plugin = p.FileName;
                     r.Targets = new();

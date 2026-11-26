@@ -242,7 +242,7 @@ public static class QuestStages
         if (unsetQuests.Count > 0 && st.Unreadable.Count > 0)
         {
             var (first, why) = st.Unreadable.First();
-            add("NOTE", "quest-stage-unset", $"{st.Unreadable.Count} attached script(s) couldn't be found or read (e.g. {SafeText.OneLine(first)}: {why}), so stages that nothing sets " +
+            add("NOTE", "quest-stage-unset", $"{st.Unreadable.Count} attached script(s) couldn't be found or read (e.g. {SafeText.OneLine(first)}: {SafeText.OneLine(why)}), so stages that nothing sets " +
                                $"weren't checked in {unsetQuests.Count} quest(s)");
         }
         else
