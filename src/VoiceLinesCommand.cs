@@ -165,6 +165,13 @@ public static class VoiceLinesCommand
                 return 2;
             }
             foreach (var u in index.Unread) Console.Error.WriteLine($"NOTE: {u}");
+            if (index.UnreadPlugins.Contains(target.FileName))
+            {
+                // a part list would make the voice tool skip lines without saying so (code-review round 1)
+                Console.Error.WriteLine($"can't read all of {target.FileName}'s dialogue, so the list would miss lines. Check the plugin in xEdit or the Creation Kit, save it again, and retry.");
+                cantWhy = $"{target.FileName}'s dialogue can't be read in full";
+                return 2;
+            }
             var cache = lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache();
             var (rows, voiced, noVoice, warnings) = Collect(index, cache, target, voices);
 
@@ -256,6 +263,60 @@ public static class VoiceLinesCommand
             extra.Add((name.ToLowerInvariant(), v == null ? "" : v.Flags.HasFlag(VoiceType.Flag.Female) ? "female" : "male"));
         }
 
+        // The voice types that may speak a line. Conditions are read in tiers (code-review round 1): the line's own,
+        // then its dialogue group's, then its quest's DialogConditions, and the first tier that names a voice type is
+        // used, so a quest-wide GetIsVoiceType list doesn't add rows to a line whose own GetIsID names one NPC.
+        void Resolve(IDialogResponsesGetter i, IDialogTopicGetter topic, SortedDictionary<string, string> found, List<string> why)
+        {
+            void AddVt(FormKey k, string how)
+            {
+                var (n, sex) = Vt(k);
+                if (n == null) { why.Add($"{how}: voice type {k} has no EditorID, no folder"); return; }
+                found[n] = sex;
+                why.Add($"{how}: {n}");
+            }
+            void AddNpc(FormKey npc, string how)
+            {
+                if (Npc(npc) is not { } n) return;
+                if (n.Voice.IsNull) { why.Add($"{how}: NPC {npc} has no voice type of its own"); return; }
+                AddVt(n.Voice.FormKey, $"{how} {npc}");
+            }
+            // voice-missing's condition rules
+            foreach (var tier in index.ConditionTiers(i, topic))
+            {
+                foreach (var c in tier)
+                {
+                    if (!DialogueLines.Positive(c)) continue;
+                    if (c.Data is IGetIsIDConditionDataGetter g) AddNpc(g.FirstParameter.Link.FormKey, "GetIsID");
+                    if (c.Data is IGetIsVoiceTypeConditionDataGetter gv)
+                    {
+                        var k = gv.VoiceTypeOrList.Link.FormKey;
+                        if (IsVoiceType(k)) AddVt(k, "GetIsVoiceType");
+                        else if (index.FormLists.TryGetValue(k, out var items))
+                            foreach (var x in items) if (IsVoiceType(x)) AddVt(x, $"GetIsVoiceType list {k}");
+                    }
+                }
+                if (found.Count > 0) return;
+            }
+            // the lines rules for a speaker
+            if (!i.Speaker.IsNull) AddNpc(i.Speaker.FormKey, "speaker");
+            foreach (var c in index.ConditionsOf(i, topic))
+                if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
+                    foreach (var npc in index.AliasNpcs(topic.Quest.FormKey, ar.FirstParameter)) AddNpc(npc, $"GetIsAliasRef {ar.FirstParameter}");
+            if (index.SceneTopics.TryGetValue(topic.FormKey, out var uses))
+                foreach (var u in uses)
+                    foreach (var npc in index.AliasNpcs(u.Quest, u.Alias)) AddNpc(npc, $"scene {u.Scene} alias {u.Alias}");
+        }
+
+        // the plugin's lines that link a SharedDialog line: that line is spoken by their voice types
+        var linkers = new Dictionary<FormKey, List<DialogueIndex.InfoCopy>>();
+        foreach (var (_, copy) in index.Infos)
+            if (copy.Info.Responses.Count == 0 && !copy.Info.SharedDialog.IsNull)
+            {
+                if (!linkers.TryGetValue(copy.Info.SharedDialog.FormKey, out var l)) linkers[copy.Info.SharedDialog.FormKey] = l = new();
+                l.Add(copy);
+            }
+
         var rows = new Dictionary<(string, uint), Row>();
         var warnings = new List<string>();
         var noVoice = new List<string>();
@@ -270,46 +331,17 @@ public static class VoiceLinesCommand
             if (!i.Responses.Any(r => r.WEMFile != 0)) { Log.Write($"voice-lines: {label}: no response has a file number, left out"); continue; }
             voiced++;
 
-            // voice-missing's condition rules
             var found = new SortedDictionary<string, string>(StringComparer.Ordinal);   // voice type -> SEX
             var why = new List<string>();
-            void AddVt(FormKey k, string how)
-            {
-                var (n, sex) = Vt(k);
-                if (n == null) { why.Add($"{how}: voice type {k} has no EditorID, no folder"); return; }
-                found[n] = sex;
-                why.Add($"{how}: {n}");
-            }
-            void AddNpc(FormKey npc, string how)
-            {
-                if (Npc(npc) is not { } n) return;
-                if (n.Voice.IsNull) { why.Add($"{how}: NPC {npc} has no voice type of its own"); return; }
-                AddVt(n.Voice.FormKey, $"{how} {npc}");
-            }
-            var conds = index.ConditionsOf(i, topic);
-            foreach (var c in conds)
-            {
-                if (!DialogueLines.Positive(c)) continue;
-                if (c.Data is IGetIsIDConditionDataGetter g) AddNpc(g.FirstParameter.Link.FormKey, "GetIsID");
-                if (c.Data is IGetIsVoiceTypeConditionDataGetter gv)
-                {
-                    var k = gv.VoiceTypeOrList.Link.FormKey;
-                    if (IsVoiceType(k)) AddVt(k, "GetIsVoiceType");
-                    else if (index.FormLists.TryGetValue(k, out var items))
-                        foreach (var x in items) if (IsVoiceType(x)) AddVt(x, $"GetIsVoiceType list {k}");
-                }
-            }
-            // the lines rules for a speaker
-            if (found.Count == 0)
-            {
-                if (!i.Speaker.IsNull) AddNpc(i.Speaker.FormKey, "speaker");
-                foreach (var c in conds)
-                    if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
-                        foreach (var npc in index.AliasNpcs(topic.Quest.FormKey, ar.FirstParameter)) AddNpc(npc, $"GetIsAliasRef {ar.FirstParameter}");
-                if (index.SceneTopics.TryGetValue(topic.FormKey, out var uses))
-                    foreach (var u in uses)
-                        foreach (var npc in index.AliasNpcs(u.Quest, u.Alias)) AddNpc(npc, $"scene {u.Scene} alias {u.Alias}");
-            }
+            Resolve(i, topic, found, why);
+            if (found.Count == 0 && linkers.TryGetValue(key, out var links))
+                foreach (var lk in links)
+                    if (index.Topics.TryGetValue(lk.Topic, out var lt) && !index.PlayerTopics.Contains(lt.FormKey))
+                    {
+                        var before = why.Count;
+                        Resolve(lk.Info, lt, found, why);
+                        for (int w = before; w < why.Count; w++) why[w] = $"shared by {lk.Info.FormKey}, {why[w]}";
+                    }
             if (found.Count == 0 && extra.Count > 0)
                 foreach (var (n, sex) in extra) { found[n] = sex; why.Add($"--voice: {n}"); }
             Log.Write($"voice-lines: {label}: {(found.Count == 0 ? "no voice type" : string.Join(", ", found.Keys))}" +

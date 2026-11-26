@@ -301,7 +301,7 @@ public static class LinesCommand
             else if (vtName == null) Log.Write("lines: the NPC has no voice type of its own (or it has no EditorID), so its voice and lip files can't be named");
             foreach (var l in lines)
                 files[l] = vf == null ? (null, null)
-                    : (vf.Has(l.Info.ModKey.FileName, vtName!, l.WemFile, ".wem"), vf.Has(l.Info.ModKey.FileName, vtName!, l.WemFile, ".ffxanim"));
+                    : (vf.Has(l.VoiceInfo.ModKey.FileName, vtName!, l.WemFile, ".wem"), vf.Has(l.VoiceInfo.ModKey.FileName, vtName!, l.WemFile, ".ffxanim"));
             if (vf != null)
                 Log.Write($"lines: voice files: {files.Values.Count(f => f.Wem == true)} of {lines.Count} lines have a .wem, {files.Values.Count(f => f.Lip == true)} a .ffxanim");
 
@@ -422,7 +422,9 @@ public static class LinesCommand
         var v = npc.Voice.FormKey;
         var name = index.EditorId(v, typeof(IVoiceTypeGetter));
         bool? female = null;
-        var copies = FindCommand.Copies(new HashSet<FormKey> { v }, new(), lo.Plugins, new());
+        var unread = new List<string>();
+        var copies = FindCommand.Copies(new HashSet<FormKey> { v }, new(), lo.Plugins, unread);
+        foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
         if (copies.Count > 0 && copies[0].Winner.Rec is IVoiceTypeGetter vtr) female = vtr.Flags.HasFlag(VoiceType.Flag.Female);
         return (v, name, female);
     }
@@ -434,7 +436,7 @@ public static class LinesCommand
     static string Row(LineRow l, (bool? Wem, bool? Lip) f)
     {
         var text = SafeText.OneLine(l.Text);
-        if (text.Length > MaxText) text = text[..MaxText] + "...";
+        if (text.Length > MaxText) text = text[..(char.IsHighSurrogate(text[MaxText - 1]) ? MaxText - 1 : MaxText)] + "...";
         var topic = string.IsNullOrEmpty(l.TopicEditorId) ? l.Topic.ToString() : SafeText.OneLine(l.TopicEditorId);
         return $"  {l.Info} {topic} r{l.Response} \"{text}\" wem {YesNo(f.Wem)}, lip {YesNo(f.Lip)}, {l.Emotion}, {l.FoundBy}";
     }

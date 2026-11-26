@@ -1018,7 +1018,7 @@ A real run on made-up plugins:
     RESULT: FOUND 4 lines of LnNpc (1 shared, 3 types) (1 s)
 
 Exit codes: 0 the NPC was found (even with no lines), 1 not found, 2 couldn't run (a bad option, no load order, a
-missing master or `--compare` NPC). A run on a vanilla companion in a whole load order of 158 plugins takes about
+missing master or `--compare` NPC, a name that is another kind of record, or one EditorID shared by several NPCs). A run on a vanilla companion in a whole load order of 158 plugins takes about
 45 seconds and under 1 GB of memory; one plugin with its masters takes a few seconds.
 
 ## A plugin's voiced lines as a list: `sf-mod-check voice-lines`
@@ -1053,14 +1053,18 @@ changes nothing.
 - **Rows:** one row per voice type and file number, ordered by voice type and then file number. A line that several
   voice types may speak gets one row per voice type. Two lines that share one file number with different texts give
   one row (the lower INFO) and a WARNING.
-- **Which voice types:** from the line's conditions (`GetIsID` and `GetIsVoiceType`, also those of its quest and
-  dialogue group), else from its speaker (the line's speaker, or the NPC that fills its quest alias or scene alias).
-  A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
+- **Which voice types:** from the line's conditions (`GetIsID` and `GetIsVoiceType`), else those of its dialogue
+  group, else those of its quest (the first of these that names one is used), else from its speaker (the line's
+  speaker, or the NPC that fills its quest alias or scene alias; scenes in the masters count for a master's topic the
+  plugin adds lines to). A line that other lines share (they link it as their SharedDialog) and that names no voice
+  type itself gets the voice types of the lines that share it. A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
   An unknown `--voice` name still names the folder, with `SEX` empty and a NOTE.
-- **Left out:** player lines (scene choices), SharedDialog lines, and responses with no voice file number.
+- **Left out:** player lines (scene choices), lines that link a SharedDialog line (the shared line has the row), and
+  responses with no voice file number.
 - `--out <file>`: write the list there (default: the screen, stdout). Messages and the RESULT line go to stderr.
 
-Exit codes: 0 written (even with no rows), 2 couldn't run. `--plugin`, `--plugins`, `--mo2`, `--profile` and
+Exit codes: 0 written (even with no rows), 2 couldn't run (this includes a plugin whose dialogue can't be read in
+full, so the list never misses lines without saying so). `--plugin`, `--plugins`, `--mo2`, `--profile` and
 `--extra-data` aren't options of this command (the plugin is the argument) and stop with exit 2.
 
 ## Look over a downloaded mod: `sf-mod-check triage`

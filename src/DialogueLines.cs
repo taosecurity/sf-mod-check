@@ -33,8 +33,10 @@ internal sealed record LineRow(
     FormKey Info, string? InfoEditorId, FormKey Topic, string? TopicEditorId,
     DialogTopic.CategoryEnum Category, DialogTopic.SubtypeEnum Subtype,
     int Response, string Text, string ScriptNotes, string Emotion, string FoundBy, bool Shared,
-    FormKey Quest, FormKey? Scene, uint WemFile)
+    FormKey Quest, FormKey? Scene, uint WemFile, FormKey VoiceInfo)
 {
+    // VoiceInfo: the INFO whose responses these are (the SharedDialog line for a line that links one); its plugin
+    // names the voice-file folder (code-review round 1).
     public string Type => DialogueLines.TypeName(Category, Subtype);
 }
 
@@ -168,6 +170,8 @@ internal sealed class DialogueIndex
     /// <summary>Placed actors that a quest alias forces, and their base NPC.</summary>
     public readonly Dictionary<FormKey, FormKey> ForcedBases = new();
     public readonly List<string> Unread = new();
+    /// <summary>The plugins whose dialogue (topics, lines, scenes, quests) couldn't be read in full.</summary>
+    public readonly HashSet<string> UnreadPlugins = new(StringComparer.OrdinalIgnoreCase);
     readonly ILinkCache ids;
     readonly Dictionary<FormKey, string?> edids = new();
 
@@ -213,8 +217,41 @@ internal sealed class DialogueIndex
             catch (Exception e) when (Fatal.Recoverable(e))
             {
                 x.Unread.Add($"{p.FileName} couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); its later dialogue wasn't read");
+                x.UnreadPlugins.Add(p.FileName);
             }
             Log.Write($"lines: read {p.FileName}: {infos} dialogue lines, {sw.Elapsed.TotalSeconds:F1} s, managed memory {GC.GetTotalMemory(false) / 1e9:F2} GB");
+        }
+
+        // onlyDialogueOf: a topic the plugin overrides (to add lines to a master's topic) may be used by the master's
+        // scenes, as a player choice or spoken by an alias, so read those plugins' scenes too and keep the ones that use
+        // the plugin's topics (code-review round 1). The plugin's own copy of a scene wins.
+        if (onlyDialogueOf != null)
+        {
+            var owners = x.Topics.Keys.Where(k => !k.ModKey.FileName.String.Equals(onlyDialogueOf, StringComparison.OrdinalIgnoreCase))
+                .Select(k => k.ModKey.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in plugins)
+            {
+                if (!owners.Contains(p.FileName)) continue;
+                var sw = Stopwatch.StartNew();
+                Analyzer.Where = $"the scenes in {p.FileName}";
+                progress?.Invoke($"Reading the scenes in {p.FileName}");
+                int kept = 0;
+                try
+                {
+                    foreach (var s in p.Mod.EnumerateMajorRecords<ISceneGetter>())
+                    {
+                        Tick();
+                        if (scenes.ContainsKey(s.FormKey) || !UsesTopic(s, x.Topics)) continue;
+                        scenes[s.FormKey] = s;
+                        kept++;
+                    }
+                }
+                catch (Exception e) when (Fatal.Recoverable(e))
+                {
+                    x.Unread.Add($"{p.FileName}'s scenes couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); its later scenes weren't read");
+                }
+                Log.Write($"lines: scenes in {p.FileName}: {kept} use the topics of {onlyDialogueOf}, {sw.Elapsed.TotalSeconds:F1} s");
+            }
         }
 
         // scene actions: who speaks which topic (winning scene copies only)
@@ -273,6 +310,18 @@ internal sealed class DialogueIndex
         Log.Write($"lines: index: {x.Topics.Count} topics, {x.Infos.Count} lines, {scenes.Count} scenes, {x.Quests.Count} quests, " +
                   $"{x.SceneTopics.Count} topics spoken in scenes, {x.PlayerTopics.Count} player topics");
         return x;
+    }
+
+    static bool UsesTopic(ISceneGetter s, Dictionary<FormKey, IDialogTopicGetter> topics)
+    {
+        foreach (var a in s.Actions ?? [])
+        {
+            if (a is IDialogueSceneActionGetter da && !da.Topic.IsNull && topics.ContainsKey(da.Topic.FormKey)) return true;
+            if (a is IPlayerDialogueSceneActionGetter pd)
+                foreach (var d in pd.DialogueList)
+                    if (topics.ContainsKey(d.PlayerChoice.FormKey) || topics.ContainsKey(d.NpcResponse.FormKey)) return true;
+        }
+        return false;
     }
 
     void AddUse(FormKey topic, SceneUse use)
@@ -343,7 +392,7 @@ internal sealed class DialogueIndex
             var i = copy.Info;
             if (PlayerTopics.Contains(topic.FormKey))
             {
-                playerRows[topic.FormKey] = playerRows.GetValueOrDefault(topic.FormKey) + Responses(i).Count;
+                playerRows[topic.FormKey] = playerRows.GetValueOrDefault(topic.FormKey) + Responses(i).List.Count;
                 continue;
             }
             string? foundBy = null;
@@ -389,7 +438,7 @@ internal sealed class DialogueIndex
             }
             if (foundBy == null && shared) foundBy = "voice type";
             else shared = false;
-            var responses = Responses(i);
+            var (responses, voiceInfo) = Responses(i);
             if (foundBy == null)
             {
                 if (!anyRule) res.GenericLines += responses.Count;
@@ -401,7 +450,7 @@ internal sealed class DialogueIndex
                 var emotion = resp.Emotion;
                 var emo = DialogueLines.EmotionName(emotion.IsNull ? null : EditorId(emotion.FormKey, typeof(IKeywordGetter)), emotion.FormKey, emotion.IsNull);
                 res.Lines.Add(new LineRow(info, i.EditorID, topic.FormKey, topic.EditorID, topic.Category, topic.Subtype, r + 1,
-                    resp.ResponseText?.String ?? "", resp.ScriptNotes ?? "", emo, foundBy, shared, topic.Quest.FormKey, scene, resp.WEMFile));
+                    resp.ResponseText?.String ?? "", resp.ScriptNotes ?? "", emo, foundBy, shared, topic.Quest.FormKey, scene, resp.WEMFile, voiceInfo));
             }
         }
 
@@ -424,6 +473,16 @@ internal sealed class DialogueIndex
         var o = new List<IConditionGetter>(i.Conditions);
         if (i.DialogGroup.FormKeyNullable is { } g && !g.IsNull && g != i.FormKey && Infos.TryGetValue(g, out var group)) o.AddRange(group.Info.Conditions);
         if (Quests.TryGetValue(topic.Quest.FormKey, out var q)) o.AddRange(q.DialogConditions);
+        return o;
+    }
+
+    /// <summary>ConditionsOf in its three parts, most specific first: the line's own conditions, its dialogue group's,
+    /// its quest's DialogConditions (voice-lines uses the first part that names a voice type).</summary>
+    public List<IReadOnlyList<IConditionGetter>> ConditionTiers(IDialogResponsesGetter i, IDialogTopicGetter topic)
+    {
+        var o = new List<IReadOnlyList<IConditionGetter>> { i.Conditions };
+        if (i.DialogGroup.FormKeyNullable is { } g && !g.IsNull && g != i.FormKey && Infos.TryGetValue(g, out var group)) o.Add(group.Info.Conditions);
+        if (Quests.TryGetValue(topic.Quest.FormKey, out var q)) o.Add(q.DialogConditions);
         return o;
     }
 
@@ -450,10 +509,11 @@ internal sealed class DialogueIndex
         return aliasNpcs.TryGetValue((quest, alias), out var o) ? o : [];
     }
 
-    /// <summary>A line's own responses, or, when it has none and links a SharedDialog line, that line's.</summary>
-    IReadOnlyList<IDialogResponseGetter> Responses(IDialogResponsesGetter i)
+    /// <summary>A line's own responses, or, when it has none and links a SharedDialog line, that line's; with the INFO
+    /// they come from.</summary>
+    (IReadOnlyList<IDialogResponseGetter> List, FormKey From) Responses(IDialogResponsesGetter i)
     {
-        if (i.Responses.Count > 0 || i.SharedDialog.IsNull) return i.Responses;
-        return Infos.TryGetValue(i.SharedDialog.FormKey, out var s) ? s.Info.Responses : i.Responses;
+        if (i.Responses.Count > 0 || i.SharedDialog.IsNull) return (i.Responses, i.FormKey);
+        return Infos.TryGetValue(i.SharedDialog.FormKey, out var s) ? (s.Info.Responses, s.Info.FormKey) : (i.Responses, i.FormKey);
     }
 }
