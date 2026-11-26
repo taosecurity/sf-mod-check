@@ -1058,15 +1058,17 @@ changes nothing.
   alias; the masters' scenes count for a master's topic the plugin adds lines to); its dialogue group's conditions;
   its quest's. A `GetIsVoiceType` form list is read through the lists it holds. An NPC named this way with no voice
   type of its own (one that takes its voice from a template) gives the line no row and a NOTE. A line that other lines share (they link it as their SharedDialog) and that names no voice
-  type itself gets the voice types of the lines that share it. A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
+  type in its own conditions or speaker gets the voice types of the lines that share it, before its dialogue group's
+  and quest's lists (those count only when no sharing line names a voice type). A line with none gets no row and a NOTE; `--voice <EditorID>` (may be repeated) gives those lines that voice type.
   An unknown `--voice` name still names the folder, with `SEX` empty and a NOTE.
 - **Left out:** player lines (scene choices), lines that link a SharedDialog line (the shared line has the row), and
   responses with no voice file number.
 - `--out <file>`: write the list there (default: the screen, stdout). Messages and the RESULT line go to stderr.
 
 Exit codes: 0 written (even with no rows), 2 couldn't run (this includes a plugin whose dialogue can't be read in
-full, or a master whose scenes can't be read in full when the plugin adds lines to that master's topics, so the list
-never misses lines without saying so). `--plugin`, `--plugins`, `--mo2`, `--profile` and
+full, a master whose quests, form lists or placed actors can't be read in full, or a master whose scenes can't be
+read in full when the plugin adds lines to that master's topics, so the list never misses lines or rows without
+saying so). `--plugin`, `--plugins`, `--mo2`, `--profile` and
 `--extra-data` aren't options of this command (the plugin is the argument) and stop with exit 2.
 
 ## Look over a downloaded mod: `sf-mod-check triage`

@@ -174,6 +174,8 @@ internal sealed class DialogueIndex
     public readonly HashSet<string> UnreadPlugins = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>voice-lines: the masters whose scenes couldn't be read in full (their player choices may be missed).</summary>
     public readonly HashSet<string> UnreadScenePlugins = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The plugins whose placed actors couldn't be read in full (forced aliases may lose their NPC).</summary>
+    public readonly HashSet<string> UnreadActorPlugins = new(StringComparer.OrdinalIgnoreCase);
     readonly ILinkCache ids;
 
     /// <summary>A form list's items, with the items of the lists it holds (code-review round 2: Starfield's voice-type
@@ -329,6 +331,7 @@ internal sealed class DialogueIndex
                 catch (Exception e) when (Fatal.Recoverable(e))
                 {
                     x.Unread.Add($"{p.FileName}'s placed actors couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); aliases forced to its later actors aren't followed");
+                    x.UnreadActorPlugins.Add(p.FileName);
                 }
                 Log.Write($"lines: placed actors in {p.FileName}: {found} of the {forced.Count} forced by quest aliases, {sw.Elapsed.TotalSeconds:F1} s");
             }

@@ -130,7 +130,7 @@ public static class VoiceLinesCommand
             return 2;
         }
         int zero = 0;
-        input.TryOption(["--plugin", plugin], ref zero, Usage);
+        if (input.TryOption(["--plugin", plugin], ref zero, Usage) != true) { cantWhy = "the plugin can't be taken as the input"; return 2; }
         if (!quiet) Console.Error.WriteLine(byline);
         if (verbose) Log.ToStderr();
         if (logFile != null && Log.ToFile(logFile) is { } logError) { Console.Error.WriteLine(logError); cantWhy = "the log file can't be written"; return 2; }
@@ -170,6 +170,15 @@ public static class VoiceLinesCommand
                 // a part list would make the voice tool skip lines without saying so (code-review round 1)
                 Console.Error.WriteLine($"can't read all of {target.FileName}'s dialogue, so the list would miss lines. Check the plugin in xEdit or the Creation Kit, save it again, and retry.");
                 cantWhy = $"{target.FileName}'s dialogue can't be read in full";
+                return 2;
+            }
+            if (index.UnreadPlugins.Count > 0 || index.UnreadActorPlugins.Count > 0)
+            {
+                // a master's quests, aliases, form lists or placed actors cut short take voice types from lines
+                // without saying so, so this is an error too (code-review round 3)
+                var which = string.Join(", ", index.UnreadPlugins.Concat(index.UnreadActorPlugins).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase));
+                Console.Error.WriteLine($"can't read all the quests, form lists or placed actors of {which}, which {target.FileName}'s lines may use for their voice types, so the list could miss rows. Check the plugin in xEdit and retry.");
+                cantWhy = $"{which} can't be read in full";
                 return 2;
             }
             if (index.UnreadScenePlugins.Count > 0)
@@ -274,14 +283,16 @@ public static class VoiceLinesCommand
         // The voice types that may speak a line. Conditions are read in tiers (code-review round 1): the line's own,
         // then its dialogue group's, then its quest's DialogConditions, and the first tier that names a voice type is
         // used, so a quest-wide GetIsVoiceType list doesn't add rows to a line whose own GetIsID names one NPC.
-        void Resolve(IDialogResponsesGetter i, IDialogTopicGetter topic, SortedDictionary<string, string> found, List<string> why)
+        // deep: false stops before the dialogue group's and quest's lists (a SharedDialog line's linkers come first there,
+        // code-review round 3).
+        void Resolve(IDialogResponsesGetter i, IDialogTopicGetter topic, SortedDictionary<string, string> found, List<string> why, bool deep = true)
         {
             void AddVt(FormKey k, string how)
             {
                 var (n, sex) = Vt(k);
                 if (n == null) { why.Add($"{how}: voice type {k} has no EditorID, no folder"); return; }
                 found[n] = sex;
-                why.Add($"{how}: {n}");
+                why.Add($"{how}: {SafeText.OneLine(n)}");
             }
             // named: an NPC was named, even one whose voice type can't be read (a templated NPC); that settles the line
             // too, so a quest-wide list doesn't fill in for it (code-review round 2)
@@ -322,7 +333,7 @@ public static class VoiceLinesCommand
             if (index.SceneTopics.TryGetValue(topic.FormKey, out var uses))
                 foreach (var u in uses)
                     foreach (var npc in index.AliasNpcs(u.Quest, u.Alias)) AddNpc(npc, $"scene {u.Scene} alias {u.Alias}");
-            if (Settled()) return;
+            if (Settled() || !deep) return;
             // 3. the dialogue group's conditions, then the quest's DialogConditions
             foreach (var tier in tiers.Skip(1))
             {
@@ -356,18 +367,24 @@ public static class VoiceLinesCommand
 
             var found = new SortedDictionary<string, string>(StringComparer.Ordinal);   // voice type -> SEX
             var why = new List<string>();
-            Resolve(i, topic, found, why);
-            if (found.Count == 0 && linkers.TryGetValue(key, out var links))
-                foreach (var lk in links)
+            // a line other lines link: its own conditions and speaker first, then the linkers, and only then its dialogue
+            // group's and quest's lists, so a quest-wide list on the shared topic doesn't beat the linkers' speakers
+            var linked = linkers.TryGetValue(key, out var links);
+            Resolve(i, topic, found, why, deep: !linked);
+            if (found.Count == 0 && linked)
+            {
+                foreach (var lk in links!)
                     if (index.Topics.TryGetValue(lk.Topic, out var lt) && !index.PlayerTopics.Contains(lt.FormKey))
                     {
                         var before = why.Count;
                         Resolve(lk.Info, lt, found, why);
                         for (int w = before; w < why.Count; w++) why[w] = $"shared by {lk.Info.FormKey}, {why[w]}";
                     }
+                if (found.Count == 0) Resolve(i, topic, found, why);
+            }
             if (found.Count == 0 && extra.Count > 0)
                 foreach (var (n, sex) in extra) { found[n] = sex; why.Add($"--voice: {n}"); }
-            Log.Write($"voice-lines: {label}: {(found.Count == 0 ? "no voice type" : string.Join(", ", found.Keys))}" +
+            Log.Write($"voice-lines: {label}: {(found.Count == 0 ? "no voice type" : SafeText.OneLine(string.Join(", ", found.Keys)))}" +
                       (why.Count > 0 ? $" ({string.Join("; ", why)})" : ""));
             if (found.Count == 0) { noVoice.Add(label); continue; }
 
@@ -385,7 +402,7 @@ public static class VoiceLinesCommand
                     if (rows.TryGetValue(k, out var first))
                     {
                         if (Clean(first.Text) != Clean(text))
-                            warnings.Add($"voice type {vt}, file {row.FileName}: {first.Info} r{first.Response} and {key} r{r + 1} have different texts, " +
+                            warnings.Add($"voice type {SafeText.OneLine(vt)}, file {row.FileName}: {first.Info} r{first.Response} and {key} r{r + 1} have different texts, " +
                                          $"but one file can say only one of them; the list has {first.Info}'s. Give one of the lines its own file number.");
                         continue;
                     }
