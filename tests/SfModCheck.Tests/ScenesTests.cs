@@ -143,7 +143,7 @@ public class ScenesTests
             Choices(hub, 0, bye, again, tell, Pair("Typo.", "Wrong part.", a, "QUESTIONPHASE"), (silentPlayer, null));
 
             var a1 = Topic();
-            Line(a1, "Part one line.", part: "LEFTOVER");
+            Line(a1, "Part one line.", part: "LEFTOVER").Perk.SetTo(b.Perks.AddNew("ScPerk"));   // round 4: the INFO perk reads "with the perk", not "only only"
             Says(a, 0, 0, a1);
             a.Phases[1].StartConditions.Add(StageDone(10));
             Choices(a, 1, Pair("Start over.", "From the top.", a, "START"), Pair("Finish.", "To the end.", a, "END"), Pair("Menu.", "Back we go.", hub));
@@ -620,6 +620,7 @@ public class ScenesTests
         Assert.Contains("[sets stage 10]", text);
         Assert.Contains("Part 2 \"QUESTION PHASE\" (runs only after ScQuest stage 10; otherwise skipped).", text);
         Assert.Contains("- \"Last line.\" (only after ScQuest stage 20)", text);
+        Assert.Contains("- \"Part one line.\" (only with the perk ScPerk)", text);
         Assert.Contains("- ERROR scene-phase-missing: ScHub: line ", text);
         Assert.Contains("- HINT (scene-phase-missing): ", text);
         Assert.Contains("## Stages of ScQuest", text);

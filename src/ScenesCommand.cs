@@ -372,7 +372,7 @@ public static class ScenesCommand
     {
         var parts = new List<string>();
         var words = SceneWords.Text(l.Conditions, tree.Link, skipNpc);
-        if (l.Perk is { } pk) words.Add($"only with the perk {tree.Name(pk, typeof(IPerkGetter))}");
+        if (l.Perk is { } pk) words.Add($"with the perk {tree.Name(pk, typeof(IPerkGetter))}");
         var o = words.Count > 0 ? $" (only {string.Join(", and ", words)})" : "";
         foreach (var n in SetsStage(l)) o += $" [sets stage {n}]";
         if (l.SharedFrom is { } sh) o += $" (shared line {sh})";

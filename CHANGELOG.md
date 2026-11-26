@@ -23,11 +23,12 @@ A made-up plugin `Demo.esm` whose talk scene starts the ship scene at the part "
     Scene 000810:Demo.esm (quest DemoQuest). It can start only after DemoQuest stage 10.
     Part 2 "ASKPHASE". Your choices:
     | You say | Hana answers | Then |
-    | "Tell me about the ship." | "Made-up answer." [sets stage 20] | Goes to DemoQuest_Ship (part "SHIPPART"). |
+    | "Tell me about the ship." | "Made-up answer." [sets stage 20] | Meant to jump to "SHIPPART", a part that doesn't exist. |
     | "Never mind." | "Made-up goodbye." | The conversation ends. |
     ## Problems
-    - ERROR scene-phase-missing: DemoQuest_Talk: line 000820:Demo.esm starts DemoQuest_Ship at the part "SHIPPART", which it doesn't have. Did you mean "SHIP PART"?
-    RESULT: 2 scenes, 1 error, 0 warnings, 0 notes (12 s)
+    - ERROR scene-phase-missing: DemoQuest_Talk: line 000820:Demo.esm starts DemoQuest_Ship [SCEN:000830:Demo.esm] at the part "SHIPPART", which it doesn't have, so the jump doesn't go where it should. Did you mean "SHIP PART"?
+    - NOTE stage-set-unchecked: ...
+    RESULT: 2 scenes, 1 error, 0 warnings, 1 note (12 s)
 
 ## 0.23.0 (2026-11-26)
 

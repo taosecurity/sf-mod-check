@@ -1085,7 +1085,8 @@ scene windows (0.24.0). It reads your load order and changes nothing.
   "only with the perk Charm", "30% of the time"); the stage's own note is in the stage table at the end.
 - **The "Then" column** says where the talk goes after that line: "The conversation ends." (the line's End Running Scene
   flag), "Back to these choices.", "Back to part N.", "On to part N.", "Goes to <scene> (part "<name>").",
-  "Back to the talk menu." or "The scene ends.". A choice with no spoken answer reads "(no spoken answer)" when
+  "Back to the talk menu." or "The scene ends.". A line that names a part its scene doesn't have reads "Meant to jump
+  to "<name>", a part that doesn't exist." (the `scene-phase-missing` error below). A choice with no spoken answer reads "(no spoken answer)" when
   the player line itself jumps, or "(the topic's own scene answers)" when the answer is a scene of its own.
 - **The talk menu** is the scene that conversations keep coming back to. It is found, not named: in each quest it is the
   scene that the most other scenes jump to (a jump to any of its parts counts, because real talks return to the menu's
@@ -1148,12 +1149,12 @@ A run on a made-up plugin (shortened):
 
     | You say | Hana answers | Then |
     | --- | --- | --- |
-    | "Tell me about the ship." | "Made-up answer." [sets stage 20] | Goes to MyQuest_Ship (part "SHIPPART"). |
+    | "Tell me about the ship." | "Made-up answer." [sets stage 20] | Meant to jump to "SHIPPART", a part that doesn't exist. |
     | "Never mind." | "Made-up goodbye." | The conversation ends. |
 
     ## Problems
 
-    - ERROR scene-phase-missing: MyQuest_Talk: line 000820:MyMod.esm starts MyQuest_Ship at the part "SHIPPART", which it doesn't have. Did you mean "SHIP PART"?
+    - ERROR scene-phase-missing: MyQuest_Talk: line 000820:MyMod.esm starts MyQuest_Ship [SCEN:000830:MyMod.esm] at the part "SHIPPART", which it doesn't have, so the jump doesn't go where it should. Did you mean "SHIP PART"?
     - HINT (scene-phase-missing): ...
 
     ## Stages of MyQuest
