@@ -13,6 +13,7 @@
 //   sf-mod-check find <record> [...]             (looks up one record in a load order: FindCommand.cs, 0.16.0; exit 0, 1 or 2)
 //   sf-mod-check lines <NPC> [...]               (the dialogue lines one NPC can speak: LinesCommand.cs, 0.21.0; exit 0, 1 or 2)
 //   sf-mod-check voice-lines <plugin> [...]      (a plugin's voiced lines as a voice-tool TSV: VoiceLinesCommand.cs, 0.21.0; exit 0 or 2)
+//   sf-mod-check ba2 list|extract <archive> ... (lists or extracts a BA2's files: Ba2Command.cs, 0.22.0; exit 0, 1 or 2)
 //   sf-mod-check <plugin> [...]                  (same as check: older callers, and a plugin dropped on the exe)
 //   sf-mod-check --version
 // Hidden maintenance modes (run on the official masters after a game update):
@@ -47,6 +48,7 @@ const string Usage =
     "       sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--json] [...]   (sf-mod-check find --help)\n" +
     "       sf-mod-check lines <NPC EditorID | FormKey | FormID> [--plugin <plugin file>] [--type <name>] [--json] [...]   (sf-mod-check lines --help)\n" +
     "       sf-mod-check voice-lines <plugin> [--out <file>] [--voice <voice type EditorID>]... [--utf8] [...]   (sf-mod-check voice-lines --help)\n" +
+    "       sf-mod-check ba2 list <archive> [<pattern>]   |   ba2 extract <archive> <pattern> --out <folder> [--force] [...]   (sf-mod-check ba2 --help)\n" +
     "       sf-mod-check --version";
 // A plugin past this many records (the header's count) gets the memory note on stderr. Mods stay far below it; the
 // official Starfield.esm has about 3.8 million and needs over 30 GB of memory to check.
@@ -145,6 +147,7 @@ int Dispatch(string[] args)
     if (args.Length > 0 && args[0] == "find") return FindCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.16.0
     if (args.Length > 0 && args[0] == "lines") return LinesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.21.0
     if (args.Length > 0 && args[0] == "voice-lines") return VoiceLinesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.21.0
+    if (args.Length > 0 && args[0] == "ba2") return Ba2Command.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.22.0
     var rest = args.Length > 0 && args[0] == "check" ? args.Skip(1).ToArray() : args;
     return Check(rest);
 }
