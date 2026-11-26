@@ -145,6 +145,94 @@ public class PatchQuestTests
         Ok(game.Patch());
         Assert.Equal(new[] { "A", "C" }, Notes(game.Quest().Stages[0]));
         Assert.DoesNotContain("LogEntries; ", game.Report);
+        // 0.22.0 (B): ModA's C may be its edit of B, so the report says to check it
+        Assert.Contains("stage 10's LogEntries: ModB.esm removed 1 entry and ModA.esm changed the list; the patch kept ModA.esm's entries. Check it in-game.", game.Report);
+    }
+
+    const string RemovalNote = "removed 1 entry and";
+
+    static Game TwoLogEntries() =>
+        new(q => { q.Stages[0].LogEntries.Clear(); q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "A" }); q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "B" }); });
+
+    [Fact]
+    public void One_removes_a_log_entry_the_other_edits_it_the_merge_is_kept_and_the_report_has_a_note()
+    {
+        // 0.22.0 (B): ModA (the loser) edits B, ModB (the winner) removes it. The merge is F1's, unchanged from 0.21.0
+        // ([A, B edit], no Choice row); the report adds one NOTE, and patch check is unchanged
+        using var game = TwoLogEntries();
+        game.Mod("ModA.esm", q => q.Stages[0].LogEntries[1].Note = "B edit");
+        game.Mod("ModB.esm", q => q.Stages[0].LogEntries.RemoveAt(1));
+        var run = game.Patch();
+        Ok(run);
+        Assert.Equal(new[] { "A", "B edit" }, Notes(game.Quest().Stages[0]));
+        Assert.Equal(new[] { 10, 20 }, game.Quest().Stages.Select(s => (int)s.Index));
+        var report = game.Report;
+        Assert.DoesNotContain("LogEntries; ", report);
+        Assert.Contains("- Quest B\\_Quest \\[000800:Base.esm\\] stage 10's LogEntries: ModB.esm removed 1 entry and ModA.esm changed the list; " +
+                        "the patch kept ModA.esm's entries. Check it in-game.", report);
+        Assert.Single(report.Split('\n'), l => l.Contains(RemovalNote));
+        game.CloseAll();
+        var now = Path.Combine(game.Dir, "Plugins-now.txt");
+        File.WriteAllLines(now, new[] { "*Base.esm", "*ModA.esm", "*ModB.esm", "*ConflictPatch.esm" });
+        var check = ExeTests.RunSplit("patch", "check", Path.Combine(game.Out, "ConflictPatch.esm"), "--data", game.Data, "--extra-data", game.Out,
+            "--plugins", now, "--quiet");
+        Assert.True(check.Code == 0, check.Stdout + check.Stderr);
+        Assert.Equal("RESULT: UP TO DATE", ExeTests.ResultLine(check.Stdout));
+    }
+
+    [Fact]
+    public void One_removes_an_objective_target_the_other_changes_it_the_report_has_a_note()
+    {
+        // 0.22.0 (B) for targets: ModA (the loser) removes objective 10's target and changes its text, ModB (the
+        // winner) points the target at alias 1. The merge keeps ModB's target and ModA's text
+        using var game = new Game();
+        game.Mod("ModA.esm", q => { q.Objectives[0].Targets!.Clear(); q.Objectives[0].DisplayText = "A text"; });
+        game.Mod("ModB.esm", q => q.Objectives[0].Targets![0].AliasID = 1);
+        Ok(game.Patch());
+        var o = Assert.Single(game.Quest().Objectives);
+        Assert.Equal(new int?[] { 1 }, o.Targets!.Select(t => (int?)t.AliasID));
+        Assert.Equal("A text", o.DisplayText?.String);
+        Assert.Contains("objective 10's Targets: ModA.esm removed 1 entry and ModB.esm changed the list; the patch kept ModB.esm's entries. Check it in-game.", game.Report);
+    }
+
+    [Fact]
+    public void Both_remove_the_same_log_entry_no_removal_note()
+    {
+        // 0.22.0 (B): a removal both plugins made is no NOTE (ModA also changes the stage's flags, so the stage merges)
+        using var game = TwoLogEntries();
+        game.Mod("ModA.esm", q => { q.Stages[0].LogEntries.RemoveAt(1); q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn; });
+        game.Mod("ModB.esm", q => { q.Stages[0].LogEntries.RemoveAt(1); q.Stages[1].LogEntries.Add(new QuestLogEntry { Note = "B 20" }); });
+        Ok(game.Patch());
+        var s10 = game.Quest().Stages[0];
+        Assert.Equal(new[] { "A" }, Notes(s10));
+        Assert.Equal(QuestStage.Flag.KeepInstanceDataFromHereOn, s10.Flags);
+        Assert.DoesNotContain(RemovalNote, game.Report);
+    }
+
+    [Fact]
+    public void Only_one_plugin_changes_the_log_entries_no_removal_note()
+    {
+        // 0.22.0 (B): ModA removes B, ModB changes only the stage's flags: the list is ModA's, with no NOTE
+        using var game = TwoLogEntries();
+        game.Mod("ModA.esm", q => q.Stages[0].LogEntries.RemoveAt(1));
+        game.Mod("ModB.esm", q => q.Stages[0].Flags = QuestStage.Flag.KeepInstanceDataFromHereOn);
+        Ok(game.Patch());
+        var s10 = game.Quest().Stages[0];
+        Assert.Equal(new[] { "A" }, Notes(s10));
+        Assert.Equal(QuestStage.Flag.KeepInstanceDataFromHereOn, s10.Flags);
+        Assert.DoesNotContain(RemovalNote, game.Report);
+    }
+
+    [Fact]
+    public void One_removes_a_log_entry_the_other_keeps_it_and_adds_one_no_removal_note()
+    {
+        // 0.22.0 (B): ModB still holds B, so its new entry can't be its edit of B: both changes merge with no NOTE
+        using var game = TwoLogEntries();
+        game.Mod("ModA.esm", q => q.Stages[0].LogEntries.RemoveAt(1));
+        game.Mod("ModB.esm", q => q.Stages[0].LogEntries.Add(new QuestLogEntry { Note = "C" }));
+        Ok(game.Patch());
+        Assert.Equal(new[] { "A", "C" }, Notes(game.Quest().Stages[0]));
+        Assert.DoesNotContain(RemovalNote, game.Report);
     }
 
     [Fact]

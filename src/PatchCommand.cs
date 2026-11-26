@@ -1410,6 +1410,10 @@ public static class PatchCommand
         // "0.19.0 (GapFix)", Step 4). False when a list can't be keyed (an entry with no key, or a key held twice in one
         // version), and the caller then replaces the list whole as before.
         var subMerged = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        // 0.22.0 (B): a stage's log entries or an objective's targets where one plugin only removed entries and the
+        // other changed the list: the merge keeps the changer's entries, and an edit can't be told from a remove plus
+        // an add, so the report gets a NOTE (the merge itself is F1's, unchanged)
+        var removalNotes = new List<string>();
         // who removed a keyed entry from the merged list (the list's own plugin when it never had it)
         var removedBy = new Dictionary<(string Field, string Key), int>();
         var stateOrigin = new Dictionary<string, int>();
@@ -1504,11 +1508,20 @@ public static class PatchCommand
                     continue;
                 }
                 // a stage or objective both changed: one level down
-                var (entry, clash) = SubMerge(S.Held!, S.Mut!, B!, L!, lMut[k]!, keepS);
+                var (entry, clash, removals) = SubMerge(S.Held!, S.Mut!, B!, L!, lMut[k]!, keepS);
                 state[at] = (entry, entry, keepS ? S.Origin : li);
                 subMerged.Add(entry);
                 did.Changed++;
                 Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {field}, {key}: merged one level down with {From(S.Origin)}'s version");
+                foreach (var (list, removerIsS, count) in removals)
+                {
+                    var (remover, changer) = removerIsS ? (From(S.Origin), loser) : (loser, From(S.Origin));
+                    var qn = string.IsNullOrEmpty(l.EditorID) ? "" : SafeText.OneLine(l.EditorID) + " ";
+                    var note = $"Quest {qn}[{fk}] {key}'s {list}: {remover} removed {count} entr{(count == 1 ? "y" : "ies")} and {changer} " +
+                               $"changed the list; the patch kept {changer}'s entries. Check it in-game.";
+                    if (!removalNotes.Contains(note)) removalNotes.Add(note);
+                    Log.Write($"patch: {LogName(l.RecordType, l.EditorID, fk)} {field}, {key}'s {list}: {remover} removed {count} entr{(count == 1 ? "y" : "ies")} and {changer} changed the list; {changer}'s entries are kept (a NOTE)");
+                }
                 if (clash.Count > 0)
                     Row(key, kept, dropped, $"both changed {key}'s {string.Join(" and ", clash)}; {kept}'s value is kept");
             }
@@ -1548,10 +1561,11 @@ public static class PatchCommand
         // One stage or objective both sides changed: a new entry from the kept side's copy, with each field the other
         // side changed alone taken from it, and each list (log entries, targets) merged entry by entry (an entry is
         // compared whole). When both sides removed or edited one base entry, that list is one value.
-        (object Entry, List<string> Clash) SubMerge(object sHeld, object sMut, object bHeld, object lHeld, object lMut, bool keepS)
+        (object Entry, List<string> Clash, List<(string List, bool RemoverIsS, int Count)> Removals) SubMerge(object sHeld, object sMut, object bHeld, object lHeld, object lMut, bool keepS)
         {
             var result = QuestMerge.CopyEntry(sMut);
             var clash = new List<string>();
+            var removals = new List<(string, bool, int)>();
             foreach (var p in FieldCompare.NestedProperties(lHeld.GetType()))
             {
                 if (p.Name == "Index") continue;
@@ -1586,6 +1600,13 @@ public static class PatchCommand
                         {
                             target.Clear();
                             foreach (var x in keep) target.Add(x);
+                            // 0.22.0 (B): one side only removed entries, the other added some, and an entry the remover
+                            // dropped is gone from the changer's list too (it may be the one the changer edited)
+                            bool sAdds = si.Any(x => !bBag.Contains(x)), lAdds = li2.Any(x => !bBag.Contains(x));
+                            var sGone = bi.Where(x => !sBag.Contains(x)).ToList();
+                            var lGone = bi.Where(x => !lBag.Contains(x)).ToList();
+                            if (sGone.Count > 0 && !sAdds && lAdds && sGone.Any(x => !lBag.Contains(x))) removals.Add((p.Name, true, sGone.Count));
+                            else if (lGone.Count > 0 && !lAdds && sAdds && lGone.Any(x => !sBag.Contains(x))) removals.Add((p.Name, false, lGone.Count));
                             continue;
                         }
                     }
@@ -1600,7 +1621,7 @@ public static class PatchCommand
                 }
                 else clash.Add(p.Name);
             }
-            return (result, clash);
+            return (result, clash, removals);
         }
         bool MergeAny(string field, int li, LostChange l, bool forward) => Keyed(field) ? KeyedMerge(field, li, l, forward) : Merge(field, li);
         // 0.19.0 (step 5b): a quest's script data (VMAD) merges by key: attached scripts and their properties by name,
@@ -1966,6 +1987,9 @@ public static class PatchCommand
             // (stages and objectives as in-memory copies on both sides: one merged one level down was built in memory)
             ? !ListSame(st.Select(x => QuestMerge.Plain(x.Held)).ToList(), Items(Held(p.Name, today[p.Name])).Select(QuestMerge.Plain).ToList())
             : source[p.Name] != today[p.Name] && !FieldCompare.DeepEq(Held(p.Name, source[p.Name]), Held(p.Name, today[p.Name]), 0));
+        // the B notes go in only for a record that got this far (a refused record has its own row); a record left out
+        // because it equals today's says the game keeps those entries
+        foreach (var n in removalNotes) plan.Notes.Add(changed ? n : n.Replace("; the patch kept ", "; the game keeps "));
         if (!changed)
         {
             plan.Notes.Add($"{first.RecordType} {first.EditorID} [{fk}]: the patched record would equal today's, so it is left out");
