@@ -67,6 +67,85 @@ internal static class DialogueLines
         c.Data.RunOnType == Condition.RunOnType.Subject;
 }
 
+/// <summary>The voice and lip files of the plugins a load order holds (0.21.0, `lines`): for a plugin, every name under
+/// sound\voice\&lt;plugin&gt;\ in its "&lt;plugin base&gt; - *.ba2" archives (which covers "Voices_en" and Starfield's
+/// "Voices01") and loose under each folder, read once per plugin, names only. Any language counts.</summary>
+internal sealed class VoiceFileIndex
+{
+    readonly IReadOnlyList<string> dirs;
+    readonly Dictionary<string, HashSet<string>> byPlugin = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <param name="dirs">the folders searched for archives and loose files (LoadOrderInput.AssetDirs)</param>
+    public VoiceFileIndex(IReadOnlyList<string> dirs) => this.dirs = dirs;
+
+    /// <summary>The file a voiced response plays from: sound\voice\&lt;plugin&gt;\&lt;voice type&gt;\&lt;low 24 bits, 8 lower hex&gt;&lt;ext&gt;.</summary>
+    public static string PathOf(string plugin, string voiceType, uint wemFile, string ext) =>
+        $"sound\\voice\\{plugin.ToLowerInvariant()}\\{voiceType.ToLowerInvariant()}\\{(wemFile & 0xFFFFFF):x8}{ext}";
+
+    public bool Has(string plugin, string voiceType, uint wemFile, string ext) =>
+        Files(plugin).Contains(PathOf(plugin, voiceType, wemFile, ext));
+
+    HashSet<string> Files(string plugin)
+    {
+        if (byPlugin.TryGetValue(plugin, out var set)) return set;
+        set = new HashSet<string>(StringComparer.Ordinal);
+        var lower = plugin.ToLowerInvariant();
+        var prefix = $"sound\\voice\\{lower}\\";
+        var stem = Path.GetFileNameWithoutExtension(plugin) + " - ";
+        var sw = Stopwatch.StartNew();
+        int archives = 0, loose = 0;
+        foreach (var d in dirs)
+        {
+            if (!Directory.Exists(d)) continue;
+            IEnumerable<string> ba2s;
+            try { ba2s = Directory.EnumerateFiles(d, "*.ba2").Where(f => Path.GetFileName(f).StartsWith(stem, StringComparison.OrdinalIgnoreCase)).ToList(); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write($"lines: voice files: {d} not listed ({e.Message})"); ba2s = []; }
+            foreach (var a in ba2s)
+            {
+                try
+                {
+                    foreach (var n in Ba2Names.Read(a)) if (n.StartsWith(prefix, StringComparison.Ordinal)) set.Add(n);
+                    archives++;
+                }
+                catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
+                {
+                    Log.Write($"lines: voice files: {a} not read ({e.Message})");
+                }
+            }
+            if (CiDir(d, "sound", "voice", plugin) is not { } folder) continue;
+            try
+            {
+                foreach (var f in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+                {
+                    set.Add(Ba2Names.Normalize(Path.GetRelativePath(d, f)));
+                    loose++;
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write($"lines: voice files: {folder} not listed in full ({e.Message})"); }
+        }
+        Log.Write($"lines: voice files of {plugin}: {set.Count} names from {archives} archives and {loose} loose files, {sw.Elapsed.TotalSeconds:F1} s");
+        return byPlugin[plugin] = set;
+    }
+
+    /// <summary>A folder under root whose names match these parts in any letter case (Linux and macOS folders are
+    /// case-sensitive, the game's aren't); null when there is none.</summary>
+    static string? CiDir(string root, params string[] parts)
+    {
+        var cur = root;
+        foreach (var part in parts)
+        {
+            var exact = Path.Combine(cur, part);
+            if (Directory.Exists(exact)) { cur = exact; continue; }
+            string? hit = null;
+            try { hit = Directory.EnumerateDirectories(cur).FirstOrDefault(x => Path.GetFileName(x).Equals(part, StringComparison.OrdinalIgnoreCase)); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            if (hit == null) return null;
+            cur = hit;
+        }
+        return cur;
+    }
+}
+
 /// <summary>The winning dialogue records of a load order (or one plugin and its masters), read once.</summary>
 internal sealed class DialogueIndex
 {

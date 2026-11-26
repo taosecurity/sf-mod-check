@@ -1,8 +1,10 @@
 // sf-mod-check lines (0.21.0) on made-up plugins: each way a line is found for an NPC (speaker, GetIsID, GetIsAliasRef
 // on a UniqueActor alias, a scene Dialogue action whose alias is forced to a placed actor of the NPC, a Player Dialogue
 // action's NPC response), the shared GetIsVoiceType block, a negated GetIsID, generic and player lines, the winning copy
-// of an overridden line, --type, --max, --plugin, and the not-an-NPC and not-found exits. Each fails on 0.20.0, which has
-// no lines command.
+// of an overridden line, --type, --max, --plugin, and the not-an-NPC and not-found exits; from step 3 --compare (counts
+// per type, missing types, a reference that can't be used), the voice and lip files (loose, in the plugin's archive, in
+// the INFO's own plugin's folder, another voice type's folder not counting), --no-files and a template-voice NPC. Each
+// fails on 0.20.0, which has no lines command.
 using System.Text.Json;
 using BuildKit;
 using Mutagen.Bethesda;
@@ -41,6 +43,9 @@ public class LinesTests
     ///   LN_Generic   Misc / Idle       no condition                                            generic
     ///   LN_Other     Combat / Hit      GetIsID(LnOther) == 1                                   not counted
     ///   LN_OtherSc   Scene / Custom    scene LnOtherScene on alias 2 (LnOther)                 not counted
+    ///   LN_OtherDeath Combat / Death   GetIsID(LnOther) == 1 (a type only LnOther has)         not counted
+    ///   LN_Templated Misc / Hello      Speaker LnTemplated (an NPC with no voice type)         not counted
+    /// The voice files the step 3 test reads are described at the end of the constructor.
     /// Data\LnAddon.esm (light, master LnBase.esm) overrides LN_IsId with a new text and adds LN_AddonHit (Combat / Hit,
     /// GetIsID(LnNpc)). Plugins.txt lists both.</summary>
     sealed class Game : Sandbox
@@ -84,11 +89,11 @@ public class LinesTests
                 quest.DialogTopics.Add(t);
                 return t;
             }
+            uint wem = 0x100;   // each response its own file number: LN_Speaker 0x101, LN_IsId 0x102, ...
             DialogResponses Info(DialogTopic t, string edid, params string[] texts)
             {
                 var i = new DialogResponses(b) { EditorID = edid };
-                uint n = 0x100;
-                foreach (var x in texts) i.Responses.Add(new DialogResponse { ResponseText = x, WEMFile = ++n });
+                foreach (var x in texts) i.Responses.Add(new DialogResponse { ResponseText = x, WEMFile = ++wem });
                 t.Responses.Add(i);
                 return i;
             }
@@ -116,6 +121,11 @@ public class LinesTests
             Info(choiceTopic, "LN_Choice", "Made-up question.");
             var otherSceneTopic = Topic("LnOtherSceneTopic", DialogTopic.CategoryEnum.Scene, DialogTopic.SubtypeEnum.Custom);
             Info(otherSceneTopic, "LN_OtherSc", "Made-up other scene.");
+            // step 3: a type only LnOther speaks (Combat / Death), and an NPC with no voice type of its own
+            var death = Topic("LnDeath", DialogTopic.CategoryEnum.Combat, DialogTopic.SubtypeEnum.Death);
+            Info(death, "LN_OtherDeath", "Made-up other death.").Conditions.Add(IsId(other.FormKey));
+            var templated = b.Npcs.AddNew("LnTemplated");
+            Info(hello, "LN_Templated", "Made-up templated hello.").Speaker.SetTo(templated);
 
             var scene = new Scene(b) { EditorID = "LnScene", Quest = quest.ToNullableLink<IQuestGetter>() };
             var pd = new PlayerDialogueSceneAction { AliasID = 0 };
@@ -152,6 +162,20 @@ public class LinesTests
             Addon = Path.Combine(Data, "LnAddon.esm");
             PluginsTxt = Path.Combine(Dir, "Plugins.txt");
             File.WriteAllLines(PluginsTxt, ["*LnBase.esm", "*LnAddon.esm"]);
+
+            // step 3: voice files. LN_Speaker (0x101) has its .wem and .ffxanim loose, LN_IsId (0x102; overridden by the
+            // add-on, still LnBase.esm's line, so in its folder) only the .wem, the add-on's LN_AddonHit (0x200) both in
+            // the add-on's archive. A .wem of LN_Alias (0x105) in the wrong voice-type folder doesn't count.
+            var vdir = Path.Combine(Data, "Sound", "Voice", "LnBase.esm", "LnVoice");
+            Directory.CreateDirectory(vdir);
+            File.WriteAllBytes(Path.Combine(vdir, "00000101.wem"), [0]);
+            File.WriteAllBytes(Path.Combine(vdir, "00000101.ffxanim"), [0]);
+            File.WriteAllBytes(Path.Combine(vdir, "00000102.wem"), [0]);
+            var odir = Path.Combine(Data, "Sound", "Voice", "LnBase.esm", "LnOtherVoice");
+            Directory.CreateDirectory(odir);
+            File.WriteAllBytes(Path.Combine(odir, "00000105.wem"), [0]);
+            File.WriteAllBytes(Path.Combine(Data, "LnAddon - Main.ba2"),
+                AssetsTests.Ba2("GNRL", @"sound\voice\lnaddon.esm\lnvoice\00000200.wem", @"sound\voice\lnaddon.esm\lnvoice\00000200.ffxanim"));
         }
 
         public (int Code, string Stdout, string Stderr) Lines(params string[] args) =>
@@ -187,7 +211,8 @@ public class LinesTests
         Assert.Equal("(none)", lines.Single(l => l.GetProperty("text").GetString() == "Made-up answer.").GetProperty("emotion").GetString());
         Assert.Equal(1, j.GetProperty("playerLines").GetInt32());
         Assert.Equal(2, j.GetProperty("genericLines").GetInt32());   // LN_Generic and the negated LN_NotId
-        Assert.Equal(JsonValueKind.Null, lines[0].GetProperty("wem").ValueKind);
+        Assert.False(j.TryGetProperty("reference", out _));   // no --compare
+        Assert.DoesNotContain("reference", j.GetProperty("counts")[0].EnumerateObject().Select(p => p.Name));
 
         var counts = j.GetProperty("counts").EnumerateArray()
             .ToDictionary(c => $"{c.GetProperty("category").GetString()} / {c.GetProperty("subtype").GetString()}", c => (c.GetProperty("count").GetInt32(), c.GetProperty("shared").GetInt32()));
@@ -212,7 +237,7 @@ public class LinesTests
         Assert.Contains("  voice type: LnVoice [", stdout);
         Assert.Contains("(female)", stdout);
         Assert.Contains(" Combat / Hit (2 lines)", stdout);
-        Assert.Contains($"  {s.IsIdInfo} LnHit r1 \"Made-up ouch, overridden.\" wem ?, lip ?, (none), condition", stdout);
+        Assert.Contains($"  {s.IsIdInfo} LnHit r1 \"Made-up ouch, overridden.\" wem yes, lip no, (none), condition", stdout);
         Assert.Contains("shared lines (voice type LnVoice: any NPC with this voice type may say them):", stdout);
         Assert.Contains("types (this NPC | shared):", stdout);
         Assert.Matches(@"\n  Misc / Idle +1 +1\r?\n", stdout);
@@ -220,6 +245,94 @@ public class LinesTests
         Assert.Contains("2 generic lines with no speaker, speaker condition or scene alias", stdout);
         Assert.Contains("RESULT: FOUND 8 lines of LnNpc (1 shared, 4 types) (", stdout);
         Assert.True(stdout.IndexOf(" Combat / Hit", StringComparison.Ordinal) < stdout.IndexOf(" Misc / Hello", StringComparison.Ordinal));   // Category enum order
+    }
+
+    [Fact]
+    public void Compare_counts_the_reference_per_type_and_marks_the_missing_types()
+    {
+        using var s = new Game();
+        var (code, stdout, stderr) = s.InOrder("LnNpc", "--compare", "LnOther");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("types (this NPC | shared | LnOther [", stdout);
+        Assert.Matches(@"\n  Combat / Hit +2 +0 +1\r?\n", stdout);
+        Assert.Matches(@"\n  Combat / Death +0 +0 +1   missing\r?\n", stdout);
+        Assert.Matches(@"\n  Misc / Idle +1 +1 +0\r?\n", stdout);
+        Assert.Matches(@"\n  Scene / Custom +3 +0 +1\r?\n", stdout);
+        Assert.DoesNotContain("HINT: to see which types", stdout);
+        Assert.Contains("RESULT: FOUND 8 lines of LnNpc (1 shared, 4 types; 1 missing next to LnOther) (", stdout);
+
+        (code, stdout, stderr) = s.InOrder("LnNpc", "--compare", "LnOther", "--json");
+        Assert.True(code == 0, stdout + stderr);
+        var j = JsonDocument.Parse(stdout).RootElement;
+        Assert.Equal("LnOther", j.GetProperty("reference").GetProperty("editorId").GetString());
+        Assert.Equal(3, j.GetProperty("reference").GetProperty("lines").GetInt32());
+        var counts = j.GetProperty("counts").EnumerateArray().ToDictionary(
+            c => $"{c.GetProperty("category").GetString()} / {c.GetProperty("subtype").GetString()}",
+            c => (c.GetProperty("count").GetInt32(), c.GetProperty("reference").GetInt32(), c.GetProperty("missing").GetBoolean()));
+        Assert.Equal((0, 1, true), counts["Combat / Death"]);
+        Assert.Equal((2, 1, false), counts["Combat / Hit"]);
+        Assert.Equal((1, 0, false), counts["Misc / Hello"]);
+        Assert.Equal(5, counts.Count);
+
+        // --type narrows the reference too
+        (code, stdout, _) = s.InOrder("LnNpc", "--compare", "LnOther", "--type", "Scene");
+        Assert.Equal(0, code);
+        Assert.Contains("(0 shared, 1 type; 0 missing next to LnOther) of type Scene (", stdout);
+        Assert.DoesNotContain("Combat / Death", stdout);
+
+        // a reference that isn't there, or isn't an NPC, can't run
+        (code, stdout, stderr) = s.InOrder("LnNpc", "--compare", "LnNobody");
+        Assert.Equal(2, code);
+        Assert.Contains("--compare LnNobody: no record with EditorID LnNobody in 2 plugins", stderr);
+        Assert.Contains("RESULT: CANNOT CHECK (the --compare NPC LnNobody isn't found)", stdout);
+        (code, stdout, stderr) = s.InOrder("LnNpc", "--compare", "LnQuest");
+        Assert.Equal(2, code);
+        Assert.Contains("--compare LnQuest is a QUST", stderr);
+        Assert.Contains("RESULT: CANNOT CHECK (--compare LnQuest is a QUST, not an NPC)", stdout);
+        (code, _, stderr) = s.Lines("LnNpc", "--plugin", s.Addon, "--compare", "0000080A");
+        Assert.Equal(2, code);
+        Assert.Contains("--compare 0000080A is a console FormID", stderr);
+    }
+
+    [Fact]
+    public void Voice_and_lip_files_are_found_loose_and_in_the_plugins_archives()
+    {
+        using var s = new Game();
+        var (code, stdout, stderr) = s.InOrder("LnNpc", "--json");
+        Assert.True(code == 0, stdout + stderr);
+        var lines = JsonDocument.Parse(stdout).RootElement.GetProperty("lines").EnumerateArray().ToList();
+        (bool?, bool?) Files(string text)
+        {
+            var l = lines.Single(x => x.GetProperty("text").GetString() == text);
+            static bool? B(JsonElement e) => e.ValueKind == JsonValueKind.Null ? null : e.GetBoolean();
+            return (B(l.GetProperty("wem")), B(l.GetProperty("lip")));
+        }
+        Assert.Equal((true, true), Files("Made-up hello."));              // loose, both
+        Assert.Equal((true, false), Files("Made-up ouch, overridden."));  // loose .wem, in LnBase.esm's folder
+        Assert.Equal((true, true), Files("Made-up addon ouch."));         // the add-on's archive
+        Assert.Equal((false, false), Files("Made-up alias line."));       // only in another voice type's folder
+        Assert.Equal((false, false), Files("Made-up scene two."));
+
+        (code, stdout, _) = s.InOrder("LnNpc", "--no-files");
+        Assert.Equal(0, code);
+        Assert.Contains("\"Made-up hello.\" wem ?, lip ?, Happy, speaker", stdout);
+        Assert.DoesNotContain("wem yes", stdout);
+        Assert.Contains("HINT: to see which types of line it lacks next to another NPC", stdout);
+
+        (code, stdout, _) = s.InOrder("LnNpc");
+        Assert.Contains("\"Made-up hello.\" wem yes, lip yes, Happy, speaker", stdout);
+        Assert.Contains("\"Made-up alias line.\" wem no, lip no, (none), quest alias", stdout);
+    }
+
+    [Fact]
+    public void An_NPC_with_no_voice_type_of_its_own_gets_question_marks()
+    {
+        using var s = new Game();
+        var (code, stdout, stderr) = s.InOrder("LnTemplated");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("voice type: none of its own", stdout);
+        Assert.Contains("\"Made-up templated hello.\" wem ?, lip ?, (none), speaker", stdout);
+        Assert.Contains("RESULT: FOUND 1 line of LnTemplated (0 shared, 1 type) (", stdout);
     }
 
     [Fact]
