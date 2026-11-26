@@ -368,7 +368,7 @@ public static class FindCommand
     /// <summary>With --plugin, why the plugin itself didn't load (its load-order problems go to stderr), or null when it
     /// loaded. Both the listing and a record lookup stop with exit 2 then, so a lookup never answers from a master's copy
     /// or says "not found" for a plugin that wasn't read (code review round 2, 0.16.1).</summary>
-    static string? Unloaded(LoadOrderSetup lo, string pluginPath)
+    internal static string? Unloaded(LoadOrderSetup lo, string pluginPath)
     {
         var name = Path.GetFileName(pluginPath);
         if (lo.Plugins.Any(p => p.FileName.Equals(name, StringComparison.OrdinalIgnoreCase))) return null;
@@ -458,7 +458,7 @@ public static class FindCommand
     }
 
     /// <summary>One record and every copy of it in the load order (in load order; the last one wins).</summary>
-    sealed class Match
+    internal sealed class Match
     {
         public required FormKey Key;
         public required List<(PluginInfo Plugin, IMajorRecordGetter Rec)> Copies;
@@ -479,7 +479,7 @@ public static class FindCommand
 
     /// <summary>The plugin a console FormID points at, by the load order's runtime index: full plugins 00 to FC, medium
     /// plugins FD and one more byte, light plugins FE and three more hex digits (from each plugin's header flags).</summary>
-    static FormKey? FromConsoleId(uint fid, List<PluginInfo> plugins, out string? why)
+    internal static FormKey? FromConsoleId(uint fid, List<PluginInfo> plugins, out string? why)
     {
         why = null;
         var full = new List<PluginInfo>(); var medium = new List<PluginInfo>(); var light = new List<PluginInfo>();
@@ -512,7 +512,7 @@ public static class FindCommand
 
     /// <summary>EditorID lookup: every plugin's records are read once for the EditorID; then the plugins that may hold
     /// other copies of the records found (their own plugin and the plugins with it as a master) are read for them.</summary>
-    static List<Match> ByEditorId(string q, string? type, List<PluginInfo> plugins, List<string> unread)
+    internal static List<Match> ByEditorId(string q, string? type, List<PluginInfo> plugins, List<string> unread)
     {
         var hits = new Dictionary<FormKey, List<(PluginInfo, IMajorRecordGetter)>>();
         foreach (var p in plugins)
@@ -537,7 +537,7 @@ public static class FindCommand
 
     /// <summary>Every copy of the wanted records: read from each record's own plugin and the plugins that have it as a
     /// master (an override always lists the record's plugin as a master), skipping copies already known.</summary>
-    static List<Match> Copies(HashSet<FormKey> wanted, Dictionary<FormKey, List<(PluginInfo, IMajorRecordGetter)>> known,
+    internal static List<Match> Copies(HashSet<FormKey> wanted, Dictionary<FormKey, List<(PluginInfo, IMajorRecordGetter)>> known,
                               List<PluginInfo> plugins, List<string> unread)
     {
         bool MayHold(PluginInfo p, FormKey k) =>
@@ -572,7 +572,7 @@ public static class FindCommand
     static string Quote(string s) => "\"" + SafeText.OneLine(s) + "\"";
 
     /// <summary>A link as "EditorID [FormKey]" (the EditorID from the load order, when the link names a record type).</summary>
-    static string LinkText(IFormLinkGetter link, ILinkCache ids)
+    internal static string LinkText(IFormLinkGetter link, ILinkCache ids)
     {
         // A link to any record type would make Mutagen index every record of every type: the FormKey alone then.
         if (!typeof(IStarfieldMajorRecordGetter).IsAssignableTo(link.Type))
