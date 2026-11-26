@@ -132,6 +132,15 @@ public class SoundBanksTests
         Assert.False(SoundBankIndex.IsBankFile(@"sound\voice\1.bnk"));
     }
 
+    [Fact]
+    public void A_banks_stem_drops_the_backslash_folder_on_every_system()
+    {
+        // Path.GetFileNameWithoutExtension keeps the whole name on Linux, where a backslash isn't a separator
+        Assert.Equal("3371767461", SoundBankIndex.Stem(@"sound\soundbanks\3371767461.bnk"));
+        Assert.Equal("3371767461", SoundBankIndex.Stem(@"sound\soundbanks\3371767461.json"));
+        Assert.Equal("77", SoundBankIndex.Stem("77"));
+    }
+
     static void Put(string path, byte[] bytes)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

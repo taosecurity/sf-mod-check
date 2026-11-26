@@ -70,6 +70,15 @@ public sealed class SoundBankIndex
         return name.EndsWith(".bnk", StringComparison.Ordinal) || name.EndsWith(".json", StringComparison.Ordinal);
     }
 
+    /// <summary>A bank file's name without its folder or extension ("sound\soundbanks\123.bnk" gives "123"). It
+    /// splits on the backslash itself, because Path's methods don't treat a backslash as a separator on Linux.</summary>
+    public static string Stem(string rel)
+    {
+        var name = rel[(rel.LastIndexOf('\\') + 1)..];
+        var dot = name.LastIndexOf('.');
+        return dot < 0 ? name : name[..dot];
+    }
+
     /// <summary>Offers one bank or manifest (rel already normalized). A later offer of the same name replaces an
     /// earlier one, as a later archive's or a loose file does in the game.</summary>
     public void Offer(string rel, string where, long size, Func<byte[]> get)
@@ -157,7 +166,7 @@ public sealed class SoundBankIndex
         foreach (var (rel, src) in files.OrderBy(kv => kv.Value.Seq))
         {
             var isBank = rel.EndsWith(".bnk", StringComparison.Ordinal);
-            var stem = Path.GetFileNameWithoutExtension(rel);
+            var stem = Stem(rel);
             var label = $"{rel} (from {src.Where})";
             byte[] bytes;
             try
@@ -214,6 +223,6 @@ public sealed class SoundBankIndex
     {
         if (!guids.TryGetValue(guid, out ev)) return SoundEventState.NotInManifest;
         if (events.Contains(ev.Id)) return SoundEventState.Resolved;
-        return unreadBanks.Contains(Path.GetFileNameWithoutExtension(ev.Manifest)) ? SoundEventState.Unchecked : SoundEventState.NotInBank;
+        return unreadBanks.Contains(Stem(ev.Manifest)) ? SoundEventState.Unchecked : SoundEventState.NotInBank;
     }
 }

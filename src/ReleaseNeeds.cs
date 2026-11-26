@@ -260,7 +260,7 @@ public static class ReleaseNeeds
         var expected = AssetFiles.Fnv1(Path.GetFileNameWithoutExtension(name).ToLowerInvariant());
         foreach (var (rel, where) in own.DistinctBy(o => o.Rel))
         {
-            var stem = Path.GetFileNameWithoutExtension(rel);
+            var stem = SoundBankIndex.Stem(rel);
             var json = rel[..^4] + ".json";
             // a bank that replaces one of the game's or a master's (same name, its manifest loads from there) is a
             // sound replacer: that manifest still ties the GUIDs to the events, and the name is the replaced bank's
