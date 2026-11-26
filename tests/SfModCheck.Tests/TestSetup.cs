@@ -42,7 +42,7 @@ public class Sandbox : IDisposable
 
     public Sandbox() => TestSetup.PointCaches(Dir);
 
-    public string Sub(string name) { var p = Path.Combine(Dir, name); Directory.CreateDirectory(p); return p; }
+    public string Sub(string name) { var p = Path.Combine(Dir, name.Replace('\\',Path.DirectorySeparatorChar)); Directory.CreateDirectory(p); return p; }
 
     public virtual void Dispose()
     {
