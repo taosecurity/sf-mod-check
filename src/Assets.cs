@@ -632,13 +632,28 @@ public static class Assets
             }
             return null;
         }
+        // the master-GUID rule looks at every master, its masters' masters too, as check and release do (0.23.0)
+        List<IModGetter> AllMasters(Conflict.PluginInfo p)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var todo = new Stack<string>(p.Masters);
+            var list = new List<IModGetter>();
+            while (todo.Count > 0)
+            {
+                var n = todo.Pop();
+                if (!seen.Add(n) || byName.GetValueOrDefault(n) is not { } x) continue;
+                list.Add(x.Mod);
+                foreach (var mm in x.Masters) todo.Push(mm);
+            }
+            return list;
+        }
         foreach (var p in plugins)
         {
             if (p.Official) { Log.Write($"assets: {p.FileName} not checked (official plugin)"); continue; }
             checkedPlugins++;
             var uses = new AssetUses();
             var (s, m, missing, inherited) = Find(p.Mod, index, Checker.Name, rec => Original(p, rec), uses,
-                masters: () => p.Masters.Select(n => byName.GetValueOrDefault(n)).OfType<Conflict.PluginInfo>().Select(x => (IModGetter)x.Mod));
+                masters: () => AllMasters(p));
             scripts += s; models += m; inheritedAll += inherited;
             analysis.AssetTextureUses += uses.Textures; analysis.AssetMaterialUses += uses.Materials; analysis.AssetSoundUses += uses.Sounds;
             analysis.AssetMeshUses += uses.Meshes; analysis.AssetSoundEventUses += uses.SoundEvents;
@@ -952,7 +967,6 @@ public static class Assets
         var list = new List<MissingAsset>();
         if (refs.Count == 0) return list;
         var banks = index.SoundBanks();
-        if (index.TakeSoundNotes()) uses.SoundNotes.AddRange(banks.Notes);
         HashSet<UInt128>? masterGuids = null;
         var misses = new Dictionary<UInt128, (SoundEventState State, SoundBankIndex.Event? Event, List<string> Users)>();
         int resolved = 0, unchecked_ = 0, kept = 0, fromMaster = 0;
@@ -995,6 +1009,15 @@ public static class Assets
         }
         Log.Write($"assets: {mod.ModKey.FileName}: {refs.Count} sound event use(s): {resolved} resolved, {unchecked_} in banks that couldn't be read, " +
                   $"{kept} kept from the overridden record, {fromMaster} named by a master too, {misses.Count} missing event(s)");
+        // The index's notes (a damaged or unknown-version bank anywhere in the load order) go with the first plugin whose
+        // events they could explain: one with a miss or an unchecked event. Otherwise they are another mod's, and logged only.
+        if (banks.Notes.Count > 0)
+        {
+            if ((misses.Count > 0 || unchecked_ > 0) && index.TakeSoundNotes()) uses.SoundNotes.AddRange(banks.Notes);
+            else
+                foreach (var n in banks.Notes)
+                    Log.Write($"assets: {mod.ModKey.FileName}: sound bank note not reported with this plugin (its events resolved, or already reported): {n}");
+        }
         var where = SoundWhere(banks);
         foreach (var (guid, (state, ev, users)) in misses.OrderBy(x => x.Key))
             list.Add(new MissingAsset("WARNING", "sound-event", AssetFiles.SoundGuidText(guid), null, users.Distinct().ToList())

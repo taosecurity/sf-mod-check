@@ -343,7 +343,7 @@ public static class Report
           $"model use{(a.AssetModelUses == 1 ? "" : "s")}, and {a.AssetMaterialUses} material and {a.AssetTextureUses} texture path{(a.AssetTextureUses == 1 ? "" : "s")} " +
           "(named by records, by the mods' own .nif files and by their .mat files), " +
           (a.AssetMeshUses > 0 ? $"{a.AssetMeshUses} geometry (.mesh) file{(a.AssetMeshUses == 1 ? "" : "s")} named by the mods' own .nif files, " : "") +
-          (a.AssetSoundUses > 0 ? $"and {a.AssetSoundUses} streamed sound{(a.AssetSoundUses == 1 ? "" : "s")} of the mods' own sound banks, " : "") +
+          (a.AssetSoundUses > 0 ? $"{(a.AssetSoundEventUses > 0 ? "" : "and ")}{a.AssetSoundUses} streamed sound{(a.AssetSoundUses == 1 ? "" : "s")} of the mods' own sound banks, " : "") +
           (a.AssetSoundEventUses > 0 ? $"and {a.AssetSoundEventUses} Wwise sound event{(a.AssetSoundEventUses == 1 ? "" : "s")} named by records (each must be in a loaded bank's manifest and bank), " : "") +
           $"in the mod plugins against {a.ArchivesRead} archive{(a.ArchivesRead == 1 ? "" : "s")} " +
           "and the loose files; a material also counts when a loaded material database (the game's or a plugin's own .cdb) holds it. A missing script is an ERROR (that record's script never runs); a missing model, mesh, material, texture or sound is a WARNING " +

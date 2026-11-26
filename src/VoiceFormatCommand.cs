@@ -90,7 +90,8 @@ public static class VoiceFormatCommand
         public int ArchivesRead, LooseFiles;
     }
 
-    internal sealed record Source(string Label, List<string> Archives, List<string> LipArchives, string? LooseRoot, string? LooseVoice);
+    /// <summary>LipsOnly: the loose folder is read for lip files only (an archive input: its loose .wem files aren't its own).</summary>
+    internal sealed record Source(string Label, List<string> Archives, List<string> LipArchives, string? LooseRoot, string? LooseVoice, bool LipsOnly = false);
 
     public static int Run(string[] a, string version, string byline)
     {
@@ -163,7 +164,7 @@ public static class VoiceFormatCommand
             var r = Build(s);
             Log.Write($"voice-format: {s.Label}: {r.Wems} .wem in {r.ArchivesRead} archives and {r.LooseFiles} loose files, {sw.Elapsed.TotalSeconds:F1} s");
             Print(r);
-            if (r.ArchivesRead > 0 || s.LooseVoice != null || r.NotRead.Count == 0) read++;
+            if (r.ArchivesRead > 0 || s.LooseVoice != null && !s.LipsOnly || r.NotRead.Count == 0) read++;
             total += r.Wems; noLip += r.NoLip.Count; unreadable += r.Unreadable.Count;
             formats.UnionWith(r.Formats.Keys);
         }
@@ -199,7 +200,7 @@ public static class VoiceFormatCommand
             var cut = name.IndexOf(" - ", StringComparison.Ordinal);
             var siblings = cut > 0 ? ArchivesStarting(dir, name[..(cut + 3)]) : [full];
             if (!siblings.Contains(full, StringComparer.OrdinalIgnoreCase)) siblings.Add(full);
-            return new Source($"{name} (archive)", [full], siblings, dir, null);
+            return new Source($"{name} (archive)", [full], siblings, dir, CiDir(dir, "sound", "voice"), LipsOnly: true);
         }
         if (PluginExts.Contains(ext))
         {
@@ -272,7 +273,7 @@ public static class VoiceFormatCommand
                     {
                         var rel = Ba2Names.Normalize(Path.GetRelativePath(s.LooseRoot, file));
                         if (rel.EndsWith(".ffxanim", StringComparison.Ordinal)) looseLips.Add(rel);
-                        else if (rel.EndsWith(".wem", StringComparison.Ordinal)) { r.LooseFiles++; var p = file; wems.Add((rel, () => LooseHead(p))); }
+                        else if (!s.LipsOnly && rel.EndsWith(".wem", StringComparison.Ordinal)) { r.LooseFiles++; var p = file; wems.Add((rel, () => LooseHead(p))); }
                     }
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { r.NotRead.Add($"{s.LooseVoice}: not listed in full ({e.Message})"); }

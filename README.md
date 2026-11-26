@@ -353,7 +353,8 @@ Then open `sf-mod-check-conflict\report.html` in a browser.
     materials, textures and sounds, each a WARNING), with the number of archives read and any archive that can't be
     read. Each plugin with missing files gets a recommended action. conflicts.json has the scripts and models as
     `missingAssets` (`kind` is `script` or `model`, as before 0.14.0), the materials, textures and sounds as
-    `missingFiles` (since 0.14.0, the same keys, `kind` is `material`, `texture` or `sound`), and the archives that
+    `missingFiles` (since 0.14.0, the same keys, `kind` is `material`, `texture`, `sound`, `mesh` or, since 0.23.0,
+    `sound-event`), and the archives that
     can't be read as `unreadableArchives`. A mod's `.nif`, `.mat`
     or `.bnk` that can't be read, a sound bank of a version the tool doesn't know, or materials that couldn't be
     checked against the game's database, are listed in "Tool limits hit" and counted as assets-check notes. With `--no-assets` the section says the check was off.

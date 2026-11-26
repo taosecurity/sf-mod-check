@@ -93,6 +93,19 @@ public class VoiceFormatTests
     }
 
     [Fact]
+    public void An_archive_finds_a_loose_lip_file_beside_it_but_does_not_count_loose_voice_files()
+    {
+        // code-review round 1 (0.23.0): an archive input never looked for loose lip files, though the README says it does
+        using var b = new Box();
+        File.WriteAllBytes(Path.Combine(b.Sub(@"Sound\Voice\Made.esm\MadeVoiceA"), "0000a003.ffxanim"), Lip);
+        var (code, stdout, stderr) = b.Run(b.Voices);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("Made - Voices_en.ba2 (archive): 4 voice files (.wem)", stdout);   // the loose .wem isn't the archive's
+        Assert.Contains("lip files (.ffxanim): 3 in an archive, 1 loose, 0 with none", stdout);
+        Assert.DoesNotContain("44,100", stdout);
+    }
+
+    [Fact]
     public void A_plugin_reads_its_own_archives_and_its_loose_voice_folder_only()
     {
         using var b = new Box();

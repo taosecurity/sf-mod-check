@@ -10,6 +10,22 @@ public class ReleaseAcceptTests
     static ReleaseFinding Missing(string plugin, string script) =>
         new(Level.Problem, "script-missing", $"{plugin} attaches script {script}, but ... is in none of ...") { Plugin = plugin, Subject = script };
 
+    [Fact]
+    public void A_sound_event_past_the_line_cap_can_still_be_accepted()
+    {
+        // code-review round 1 (0.23.0): release dropped the 26th and later events before the accepts ran
+        static string Guid(int i) => $"{{{i:X8}-0000-0000-0000-000000000000}}";
+        var findings = Enumerable.Range(1, 30).Select(i => new ReleaseFinding(Level.Warning, "sound-event-missing", $"Made.esm: event {i}")
+            { Plugin = "Made.esm", Subject = Guid(i) }).ToList();
+        var accept = ReleaseAccept.Parse($"sound-event-missing:Made.esm:{Guid(27)}", "--accept", out var error);
+        Assert.True(accept != null, error);
+        var shown = ReleaseCommand.CapSoundEvents(ReleaseAccept.Apply(findings, [accept!]));
+        Assert.DoesNotContain(shown, f => f.Rule == "accept");                          // the entry matched
+        Assert.Single(shown, f => f.Accepted != null && f.Subject == Guid(27));
+        Assert.Equal(25, shown.Count(f => f.Accepted == null && f.Subject != null));   // 25 lines, then the count of the other 4
+        Assert.Single(shown, f => f.Subject == null && f.Text.StartsWith("Made.esm: 4 more sound event(s)"));
+    }
+
     [Theory]
     [InlineData("script-missing:Other.esm", "three parts")]
     [InlineData("script-missing::Toggle", "empty part")]

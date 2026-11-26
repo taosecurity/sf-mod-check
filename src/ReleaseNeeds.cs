@@ -114,7 +114,6 @@ public static class ReleaseNeeds
                 var masterMods = game.LoadOrder.Where(m => m.ModKey != mod.ModKey).Cast<IModGetter>().ToList();
                 var (scriptUses, modelUses, missing, inherited) = Assets.Find(mod, index, Checker.Name, Original, uses, faces: true, masters: () => masterMods);
                 SoundBankRules(c, name, index, findings);
-                int soundEvents = 0;
                 if (c.Options.DmmDeps == null)
                     foreach (var n in uses.Notes)
                         findings.Add(new(Level.Note, "material-missing", $"{name}: {n}."));
@@ -145,9 +144,9 @@ public static class ReleaseNeeds
                     }
                     else if (m.Kind == "sound-event")
                     {
-                        // 0.23.0: DMMDeps doesn't read sound events, so this runs with --dmmdeps too; capped per plugin
-                        if (++soundEvents > Assets.SoundEventLines) continue;
-                        Add(m, new(Level.Warning, "sound-event-missing", $"{name}: {m.SoundEventText}."));
+                        // 0.23.0: DMMDeps doesn't read sound events, so this runs with --dmmdeps too. Every one is added, so
+                        // an --accept entry can name any of them; the report caps the unaccepted ones per plugin (CapSoundEvents).
+                        Add(m,new(Level.Warning, "sound-event-missing", $"{name}: {m.SoundEventText}."));
                     }
                     else if (m.Kind == "mesh")
                     {
@@ -189,8 +188,6 @@ public static class ReleaseNeeds
                             $"or the game's archives (used by {Assets.Users(m.Users)}). Put the file in the zip or its archive, or fix the path."));
                     }
                 }
-                if (soundEvents > Assets.SoundEventLines)
-                    findings.Add(new(Level.Warning, "sound-event-missing", $"{name}: {soundEvents - Assets.SoundEventLines} more sound event(s) are in no loaded sound bank, so those sounds won't play (--verbose lists them all)."));
                 foreach (var t in uses.SilentTracks)
                     findings.Add(new(Level.Note, "music-track-silent", $"{name}: the music track {t} is a single track with no start event and no event mapping, so it plays nothing. " +
                                                                         "Give it its Wwise event (the MTSH sound), or make it a silent track if silence is meant.") { Plugin = name, Subject = t });
@@ -324,9 +321,8 @@ public static class ReleaseNeeds
         public ExternalArchives(IEnumerable<string> mastersDirs, string data)
         {
             this.data = data;
-            foreach (var dir in mastersDirs)
-                foreach (var plugin in Directory.EnumerateFiles(dir, "*.es?").Where(IsPlugin))
-                    Archives(dir, Path.GetFileNameWithoutExtension(plugin));
+            // the game's archives first, then the --masters-dir mods': the sound-bank index takes the order read, and a
+            // master's bank that replaces a game bank must win over it (0.23.0)
             if (Directory.Exists(data))
             {
                 foreach (var m in Checker.OfficialMasters(data)) AddDataPlugin(m);
@@ -337,6 +333,9 @@ public static class ReleaseNeeds
                     if (n.IndexOf(':') < 0 && !n.Contains("..") && File.Exists(p)) { iniPaths.Add(Path.GetFullPath(p)); Read(p); }
                 }
             }
+            foreach (var dir in mastersDirs)
+                foreach (var plugin in Directory.EnumerateFiles(dir, "*.es?").Where(IsPlugin))
+                    Archives(dir, Path.GetFileNameWithoutExtension(plugin));
         }
 
         static bool IsPlugin(string p) => Path.GetExtension(p).ToLowerInvariant() is ".esm" or ".esp" or ".esl";
@@ -358,7 +357,7 @@ public static class ReleaseNeeds
         readonly List<string> iniPaths = new(), order = new();
 
         /// <summary>The general archives read, for the sound-bank index (0.23.0): the INI's archives in INI order,
-        /// then the others in the order read (--masters-dir mods', the official masters', Data masters').</summary>
+        /// then the others in the order read (the official masters', --masters-dir mods', Data masters').</summary>
         public List<string> SoundArchives() =>
             iniPaths.Where(p => order.Contains(p, StringComparer.OrdinalIgnoreCase))
                 .Concat(order.Where(o => !iniPaths.Contains(o, StringComparer.OrdinalIgnoreCase))).ToList();

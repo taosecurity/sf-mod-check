@@ -414,7 +414,7 @@ public static class ReleaseCommand
             findings = DedupeUnreadable(findings);
 
             // ---- report ----
-            var shown = ReleaseAccept.Apply(findings.Select(f => Apply(f, o.Profile)).ToList(), o.Accept);
+            var shown = CapSoundEvents(ReleaseAccept.Apply(findings.Select(f => Apply(f, o.Profile)).ToList(), o.Accept));
             var counted = shown.Where(f => f.Accepted == null).ToList();
             int problems = counted.Count(f => f.Level == Level.Problem), review = counted.Count(f => f.Level == Level.Review),
                 warnings = counted.Count(f => f.Level == Level.Warning), accepted = shown.Count - counted.Count;
@@ -463,6 +463,27 @@ public static class ReleaseCommand
             var file = LastName(m.Groups[1].Value.Trim());
             return !rules.Any(r => r.Equals(file, StringComparison.OrdinalIgnoreCase));
         }).ToList();
+    }
+
+    /// <summary>0.23.0: at most Assets.SoundEventLines unaccepted sound-event-missing lines per plugin, then one WARNING
+    /// with the count of the rest. Runs after the --accept entries, so an entry can accept any of them.</summary>
+    internal static List<ReleaseFinding> CapSoundEvents(List<ReleaseFinding> shown)
+    {
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<ReleaseFinding>(shown.Count);
+        foreach (var f in shown)
+        {
+            if (f.Rule == "sound-event-missing" && f.Accepted == null && f.Plugin != null)
+            {
+                var n = seen[f.Plugin] = seen.GetValueOrDefault(f.Plugin) + 1;
+                if (n > Assets.SoundEventLines) continue;
+            }
+            result.Add(f);
+        }
+        foreach (var (plugin, n) in seen.Where(x => x.Value > Assets.SoundEventLines))
+            result.Add(new(Level.Warning, "sound-event-missing", $"{plugin}: {n - Assets.SoundEventLines} more sound event(s) are in no loaded sound bank, " +
+                                                                  "so those sounds won't play (--verbose lists them all)."));
+        return result;
     }
 
     /// <summary>In the basic and creations profiles a house rule's problem is shown as a WARNING, marked so.</summary>
