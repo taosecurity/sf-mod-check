@@ -398,6 +398,18 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
         sf-mod-check find --plugin "C:\Downloads\SomePatch\SomePatch.esm" --masters-dir "C:\Downloads\SomeMod"
         sf-mod-check find 1E3F4D:Starfield.esm --plugin "C:\Downloads\SomePatch\SomePatch.esm" --masters-dir "C:\Downloads\SomeMod"
 
+    Three views (0.20.0) replace a throwaway program or SFSearch for most lookups; each works in a load order and
+    with `--plugin`, and they combine:
+
+        sf-mod-check find CityNewAtlantisLocation --full      # every nested value, as an indented tree
+        sf-mod-check find 2B3DA2:Starfield.esm --versions     # every copy and what each changes against its base
+        sf-mod-check find CityNewAtlantisLocation --refs      # records whose winning copy points at it
+
+    `--refs` counts winning copies only (SFSearch's `refs2` also lists copies a later plugin overrides), lists at most
+    `--max` records (default 100, 0 = all) and takes about two minutes in a whole load order. `--versions` and
+    `--refs` need a record (exit 2 with the `--plugin` listing). With `--json` each match gains `tree`, `versions`
+    or `refs`, only with its flag.
+
     Masters are looked for in the plugin's own folder, then each `--masters-dir` in order, then `--data` (Steam's
     Data by default); a master in none of them is exit 2. `--plugin` with `--plugins`, `--mo2` or `--extra-data`,
     and `--masters-dir` or `--max` without it, are exit 2. A list field prints its count and then one `      - ` line

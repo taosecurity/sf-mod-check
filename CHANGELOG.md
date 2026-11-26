@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.20.0
+
+### What's new
+
+- `find --full` prints every nested value of a record's winning copy as an indented tree (`tree:`, in place of `fields:`). Zeros, `False` and an enum's first value print, since they are real values; empty text, empty lists, null links and padding are left out. The tree stops at 12 levels, 20,000 values and 2,000 lines, and a last line counts what was cut. With `--json` each match gains `tree`.
+- `find --versions` lists every copy of the record in load order and what each copy changes, field by field, against the copy it was built on. A copy that doesn't have an earlier copy's plugin as a master gets a note that it may undo that plugin's changes. The RESULT line adds the number of copies, and with `--json` each match gains `versions`.
+- `find --refs` lists the records whose winning copy points at the record, with the field that holds the link; a reference placed in a cell is listed on its own, `in` its cell, and the cell isn't listed for it. It counts winning copies only, because that is what the game uses: SFSearch's `refs2` also lists copies that a later plugin overrides without the link, so it can show a few more. Links held in a script's struct members count (Mutagen's own link walk skips them; a real run on `CityNewAtlantisLocation` found 14 more quests that way). `--max <n>` limits the list (default 100; 0 lists all). With `--json` each match gains `refs`.
+- All three work in a load order and with `--plugin`, combine with each other and with `--type`, and change nothing when left out. `--versions` and `--refs` need a record: with the `--plugin` listing they stop with exit 2. `--refs` in a whole load order reads every plugin and takes about two minutes; it stops with exit 2 if memory passes 16 GB.
+
+### Fixes
+
+- `patch`: a removal that both plugins agree on is no longer a clash. 0.19.0 kept one mod's whole stage or objective list when both mods dropped the same entry and one of them also added another, so the added entry was lost (base [A, B], one mod gives [A, C], the other gives [A]: 0.19.0 gave [A], now [A, C] with no Choice row). It is a clash only when both sides also add an entry.
+- `patch`: every "Not built" row in the report now lists the changed fields. The rows for dialogue lines and topics left out because their parent can't go in had an empty field list.
+- The release workflow (`ci.yml`) can be run again for the same tag: it makes the GitHub release if it is missing and otherwise uploads the files over the existing ones before it publishes the package.
+- `check`: script names in the quest-stage findings pass through the same one-line cleaning as the rest of the report, so a name with a line break stays on one line.
+- `check`: the hint for "the check stopped" says that any error inside the check can cause the warning (for example an unreadable script), not only an unreadable script. The advice (run with `--verbose` and report it) is unchanged.
+
+### Example
+
+A made-up record, `FB_Misc`, is defined in `FindBase.esm`, changed by `FindMedium.esm`, and changed again by `FindLight.esm`, which doesn't have `FindMedium.esm` as a master:
+
+    sf-mod-check find FB_Misc --full --versions --refs
+
+This is a real run on those made-up plugins (the byline left out):
+
+    FB_Misc [000800:FindBase.esm] MISC "Made-up Widget"
+      defined in: FindBase.esm
+      winner: FindLight.esm
+      also in: FindMedium.esm
+      tree:
+        ObjectBounds:
+          First: 0, 0, 0
+          Second: 0, 0, 0
+        DirtinessScale: 0%
+        Value: 9
+        Weight: 0
+        IsDeleted: False
+        MajorRecordFlagsRaw: 0
+      versions: 3 copies, the last one wins
+        1. FindBase.esm: defines it
+        2. FindMedium.esm: built on FindBase.esm, 1 change
+             Value: changed: 5 -> 7
+        3. FindLight.esm (winner): built on FindBase.esm, 1 change
+             Value: changed: 5 -> 9
+             note: FindLight.esm doesn't have FindMedium.esm as a master, so it may undo FindMedium.esm's changes (sf-mod-check conflict says which)
+      referenced by: no records (winning copies)
+    RESULT: FOUND 1 record, 3 copies; 0 records point at it (1 s)
+
+sf-mod-check 0.19.0 printed only the main fields (`Value: 9`) and had no way to list the copies or the records that point at a record.
+
 ## 0.19.0 (2026-11-25)
 
 ### What's new

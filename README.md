@@ -867,11 +867,13 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
     sf-mod-check find 01295A:Starfield.esm --type LCTN
     sf-mod-check find 0001295A --plugins "%LOCALAPPDATA%\Starfield\Plugins.txt" --json
     sf-mod-check find --plugin "C:\Downloads\SomePatch\SomePatch.esm" --masters-dir "C:\Downloads\SomeMod"
+    sf-mod-check find CityNewAtlantisLocation --full --versions --refs
 
     sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
-                      [--data <Data folder>] [--extra-data <folder>] [--json] [--quiet] [--verbose] [--log <file>]
+                      [--data <Data folder>] [--extra-data <folder>] [--full] [--versions] [--refs [--max <n>]]
+                      [--json] [--quiet] [--verbose] [--log <file>]
     sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]
-                      [--data <Data folder>] [--json] [--quiet] [--verbose] [--log <file>]
+                      [--data <Data folder>] [--full] [--versions] [--refs] [--json] [--quiet] [--verbose] [--log <file>]
 
 - The record: an exact **EditorID** (letter case doesn't matter; there is no partial or fuzzy search), a **FormKey**
   (`01295A:Starfield.esm`, the form `conflict` and `patch` print), or a **FormID** of 8 hex digits as the console
@@ -898,12 +900,32 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   `--type` narrows the list. With a record given, it is looked up in that small load order. `--plugin` doesn't go
   with `--plugins`, `--mo2` or `--extra-data` (exit 2: use `--masters-dir`), and `--masters-dir` and `--max` need
   `--plugin`.
+- `--full` (0.20.0): print every nested value of the winning copy as an indented `tree:` in place of `fields:`.
+  Zeros, `False` and an enum's first value print (they are real values); empty text, empty lists, null links and
+  padding the game doesn't read are left out. A list entry that is empty prints `(empty)` so the numbers stay true.
+  The tree stops at 12 levels, 20,000 values and 2,000 lines; a last line counts what was cut. It works in a load
+  order and with `--plugin`, also in the `--plugin` listing.
+- `--versions` (0.20.0): after the fields, list every copy of the record in load order and what each copy changes,
+  field by field, against the copy it was built on (the latest earlier copy among the plugin's masters that has the
+  field; a change against another plugin says `(against <plugin>)`). A copy that doesn't have an earlier copy's
+  plugin as a master gets a note that it may undo that plugin's changes. The RESULT line adds `, n copies`. It needs
+  a record: with the `--plugin` listing it stops with exit 2.
+- `--refs` (0.20.0): list the records whose **winning copy** points at this record, each with the field that holds
+  the link (a reference placed in a cell shows `in <the cell>`; the cell itself isn't listed for it). **Only winning
+  copies count**, because that is what the game uses: a copy that a later plugin overrides without the link isn't
+  listed, so SFSearch's `refs2`, which also lists those copies, can show a few more. Links held in a script's struct
+  members count. At most `--max <n>` records are listed (default 100; `--max 0` lists them all) and the RESULT line
+  says how many there are. Records whose links can't be read are counted on one note line. In a whole load order
+  this reads every plugin and takes about two minutes for a popular location; `--plugin` reads only the plugin and
+  its masters. It stops with exit 2 if memory passes 16 GB. It needs a record, as `--versions` does. `--max` works
+  only with the `--plugin` listing or with `--refs`.
 - `--json`: print one JSON object on stdout instead of the text: `tool`, `version`, `query`, `type`, `loadOrder`
   (`source`, `plugins`), `matches` (each with `formKey`, `editorId`, `type`, `name`, `definedIn`, `winner`,
   `plugins` in load order, `fields` and, 0.16.1, `entries`: each list field's entries as text), `result` (`found`,
   `not found` or `cannot run`), and `hint` or `error` when there is one. A whole-plugin listing adds `plugin`,
   `total` (the records that match `--type`), `listed` and `byType` (every record in the plugin, counted by type), and
-  its `query` is null.
+  its `query` is null. Since 0.20.0 each match also has `tree` (with `--full`; `treeNotShown` when a cap cut it),
+  `versions` (with `--versions`) and `refs` (with `--refs`), and only with those flags.
 - `--quiet`: no byline or progress on stderr. `--verbose`, `--log <file>`: as for `check`.
 
 For each record it prints the heading `EditorID [FormKey] TYPE "Name"`, then `defined in:` (the plugin the record
