@@ -138,9 +138,8 @@ internal static class FindTree
                 return Quote(s);
             case IConditionGetter c: return link == null ? "" : FindCommand.ConditionText(c, link);
             case Guid g:
-                // 0.23.0: a sound GUID (a SoundReference's Start or Stop, a WWED's Start or End) also in the form a
-                // Wwise bank manifest (.json) writes it, so it can be looked up there. .NET's own form never matches.
-                return g == Guid.Empty ? g.ToString() : $"{g} (manifest form {AssetFiles.SoundGuidText(AssetFiles.SoundGuid(g))})";
+                // the plain GUID, as before 0.23.0 (the JSON view keeps it); the text view adds the manifest form (Lines)
+                return g.ToString();
             case IEnumerable<byte> bytes:
             {
                 var arr = bytes.ToArray();
@@ -164,13 +163,20 @@ internal static class FindTree
         return "\"" + (one.Length > TriageDetail.MaxValue ? one[..TriageDetail.MaxValue] + "..." : one) + "\"";
     }
 
+    /// <summary>0.23.0, text view only: a sound GUID (a SoundReference's Start or Stop, a WWED's Start or End) also in
+    /// the form a Wwise bank manifest (.json) writes it, so it can be looked up there (.NET's own form never matches).
+    /// The JSON view keeps the plain GUID, as before (code review 0.23.0 round 2). Quoted strings never parse.</summary>
+    static string ManifestForm(TreeNode n) =>
+        n.Children == null && Guid.TryParseExact(n.Text, "D", out var g) && g != Guid.Empty
+            ? $" (manifest form {AssetFiles.SoundGuidText(AssetFiles.SoundGuid(g))})" : "";
+
     /// <summary>The text view: two spaces per level from indent, at most MaxLines lines, then one line with how many more.</summary>
     public static List<string> Lines(List<TreeNode> nodes, int notShown, string indent)
     {
         var all = new List<string>();
         void Put(TreeNode n, string ind)
         {
-            all.Add(n.Children == null || n.IsList ? $"{ind}{n.Name}: {n.Text}" : $"{ind}{n.Name}:");
+            all.Add(n.Children == null || n.IsList ? $"{ind}{n.Name}: {n.Text}{ManifestForm(n)}" : $"{ind}{n.Name}:");
             if (n.Children != null) foreach (var c in n.Children) Put(c, ind + "  ");
         }
         foreach (var n in nodes) Put(n, indent);

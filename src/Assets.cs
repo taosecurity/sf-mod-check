@@ -94,15 +94,19 @@ public sealed class AssetIndex
                 }
             }
         }
+        // each INI-listed archive's place in the INIs' order, also for one the plugin loop took first ("Starfield -
+        // *.ba2" is named after Starfield.esm), so the sound-bank order follows the INIs (code review 0.23.0 round 2)
+        var iniPos = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, name, ini) in IniArchives(inis))
         {
             // the masters' order, not the plugin's folder first (code review round 2: a stale copy beside the plugin
             // must not win)
             var found = archiveDirs.Select(d => index.LooseFile(d, name)).FirstOrDefault(f => f != null);
             if (found == null) { index.Skipped.Add((name, $"listed in {ini} ({key}) but not found")); continue; }
+            iniPos.TryAdd(Path.GetFileName(found), iniPos.Count);
             Take(found, $"listed in {Path.GetFileName(ini)} ({key})", ini: true);
         }
-        foreach (var (path, why, fromIni) in archives)
+        foreach (var (path, why, _) in archives)
         {
             var name = Path.GetFileName(path);
             try
@@ -122,7 +126,7 @@ public sealed class AssetIndex
                     // every material database counts: the game's and the ones plugins ship (0.14.0, relay step 10)
                     if (type == "GNRL" && n.EndsWith(".cdb", StringComparison.Ordinal)) index.AddCdb(path, n);
                 }
-                if (type == "GNRL") index.general.Add((path, fromIni));
+                if (type == "GNRL") index.general.Add((path, iniPos.TryGetValue(name, out var pos) ? pos : -1));
                 index.Loaded.Add($"{name} ({why})");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -309,14 +313,14 @@ public sealed class AssetIndex
         return list;
     }
 
-    readonly List<(string Path, bool Ini)> general = new();
+    readonly List<(string Path, int IniPos)> general = new();   // IniPos -1: not listed in an INI
 
     /// <summary>The general archives read, in the order the game loads them (0.23.0, the sound-bank index): the INIs'
     /// archives first, in the order the INIs list them (so "Starfield - WwiseSoundsPatch.ba2" after 01 to 05), then the
     /// plugins' own archives in plugin order. A file in a later archive replaces one of the same name in an earlier
     /// one. Full paths.</summary>
     public IEnumerable<string> GeneralArchivesInLoadOrder() =>
-        general.Where(g => g.Ini).Concat(general.Where(g => !g.Ini)).Select(g => g.Path);
+        general.Where(g => g.IniPos >= 0).OrderBy(g => g.IniPos).Concat(general.Where(g => g.IniPos < 0)).Select(g => g.Path);
 
     /// <summary>The folders searched for loose files, first one first (a loose file in an earlier folder wins).</summary>
     public IReadOnlyList<string> LooseDirs => looseDirs;

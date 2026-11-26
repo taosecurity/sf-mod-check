@@ -129,6 +129,20 @@ public class VoiceFormatTests
     }
 
     [Fact]
+    public void A_folder_with_no_voice_folder_does_not_count_its_sound_banks_streamed_files()
+    {
+        // code review 0.23.0 round 2: a mod folder with music in sound\soundbanks\ but no sound\voice\ counted the music
+        using var s = new Sandbox();
+        var mod = s.Sub("MadeMusic");
+        File.WriteAllBytes(Path.Combine(s.Sub(@"MadeMusic\Sound\SoundBanks"), "12345.wem"), Wem(48000, 2));
+        File.WriteAllBytes(Path.Combine(s.Sub(@"MadeMusic\Extra"), "0000d001.wem"), Wem(32000));
+        var (code, stdout, stderr) = ExeTests.RunSplit(["voice-format", mod]);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("(folder): 1 voice file (.wem)", stdout);
+        Assert.DoesNotContain("48,000", stdout);
+    }
+
+    [Fact]
     public void No_input_a_missing_input_or_only_a_damaged_archive_is_exit_2()
     {
         using var b = new Box();

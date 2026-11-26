@@ -936,6 +936,7 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
   only with the `--plugin` listing or with `--refs`.
   **A sound GUID (0.23.0):** a SoundReference's or WWED's GUID prints as the .NET form followed by the form a Wwise bank
   manifest uses, `(manifest form {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX})`, so you can search a bank's `.json` for it.
+  The `--json` tree keeps the plain .NET form.
   **On a topic (DIAL), `--full` also lists its dialogue lines (0.22.0):** after the tree, a `lines:` block with one
   entry per INFO (a spoken line of the topic): the INFO's FormKey, EditorID and the plugin that wins it, then
   each response's number (its place in the INFO, from 1), its text on one line and its emotion and face fields

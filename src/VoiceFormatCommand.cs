@@ -272,6 +272,9 @@ public static class VoiceFormatCommand
                     foreach (var file in Directory.EnumerateFiles(s.LooseVoice, "*", Walk))
                     {
                         var rel = Ba2Names.Normalize(Path.GetRelativePath(s.LooseRoot, file));
+                        // a folder with no sound\voice\ is walked whole: its sound banks' streamed .wem files are music
+                        // and effects, not voice (code review 0.23.0 round 2)
+                        if (rel.StartsWith(@"sound\soundbanks\", StringComparison.Ordinal) || rel.Contains(@"\sound\soundbanks\", StringComparison.Ordinal)) continue;
                         if (rel.EndsWith(".ffxanim", StringComparison.Ordinal)) looseLips.Add(rel);
                         else if (!s.LipsOnly && rel.EndsWith(".wem", StringComparison.Ordinal)) { r.LooseFiles++; var p = file; wems.Add((rel, () => LooseHead(p))); }
                     }

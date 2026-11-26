@@ -226,4 +226,20 @@ public class SoundBanksTests
             assets.GeneralArchivesInLoadOrder().Select(Path.GetFileName));
         Assert.Equal(new[] { Path.GetFullPath(data) }, assets.LooseDirs);
     }
+
+    [Fact]
+    public void An_ini_archive_named_after_a_plugin_keeps_its_ini_place()
+    {
+        // code review 0.23.0 round 2: "Starfield - *.ba2" is named after Starfield.esm, so the plugin loop took the game's
+        // archives first; they lost their INI order, and an archive only an INI lists went ahead of them
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        foreach (var a in new[] { "Made - Sounds01.ba2", "Made - Sounds02.ba2", "Extra - Sounds.ba2", "MadeMod - Main.ba2" })
+            File.WriteAllBytes(Path.Combine(data, a), AssetFilesTests.Gnrl((@"sound\soundbanks\1.json", Manifest("X"))));
+        var ini = Path.Combine(s.Dir, "Made.ini");
+        File.WriteAllText(ini, "[Archive]\nsResourceStartUpArchiveList=Made - Sounds02.ba2, Made - Sounds01.ba2\nsResourceArchiveList2=Extra - Sounds.ba2\n");
+        var assets = AssetIndex.Build(["Made.esm", "MadeMod.esm"], [data], [ini], "en");
+        Assert.Equal(new[] { "Made - Sounds02.ba2", "Made - Sounds01.ba2", "Extra - Sounds.ba2", "MadeMod - Main.ba2" },
+            assets.GeneralArchivesInLoadOrder().Select(Path.GetFileName));
+    }
 }

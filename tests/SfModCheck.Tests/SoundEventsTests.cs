@@ -239,7 +239,9 @@ public class SoundEventsTests
         var lines = FindTree.Lines(nodes, 0, "");
         var start = Assert.Single(lines, l => l.TrimStart().StartsWith("Start"));
         Assert.Contains($"{Rec(G3)} (manifest form {G3})", start);
-        Assert.Contains("(manifest form", FindTree.Json(nodes).ToJsonString());   // the JSON view prints the same text
+        var json = FindTree.Json(nodes).ToJsonString();
+        Assert.DoesNotContain("(manifest form", json);   // the JSON view keeps the plain GUID (code review round 2)
+        Assert.Contains($"\"{Rec(G3)}\"", json);
         Assert.DoesNotContain(lines, l => l.TrimStart().StartsWith("Stop") && l.Contains("manifest"));   // an empty GUID gets no form
     }
 }
