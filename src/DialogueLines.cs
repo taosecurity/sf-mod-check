@@ -13,9 +13,11 @@
 // An alias is filled by the NPC when its UniqueActor is the NPC, its ForcedReference is a placed actor of the NPC, or its
 // CreateReferenceToObject object is the NPC. Other fill types aren't followed (logged under --verbose).
 // Conditions that are negated, compared with anything but 1 or not run on the Subject are ignored (as voice-missing does).
-// Player topics (Category Player, a scene's Dialogue action for the player, alias -2, and a Player Dialogue action's
-// player choices) are never the NPC's lines; those in the NPC's scenes are counted. Lines with no speaker rule at all
-// (generic lines) are counted, not listed.
+// Player topics (a scene's Dialogue action for the player, alias -2, and a Player Dialogue action's player choices) are
+// never the NPC's lines; those in the NPC's scenes are counted. A topic's Category Player alone doesn't make it one:
+// Starfield's crew comment topics (a branch with an affinity event) are Category Player and spoken by the companion.
+// Besides a line's own conditions, its dialogue group's (DialogGroup) and its quest's DialogConditions count.
+// Lines with no speaker rule at all (generic lines) are counted, not listed.
 using System.Diagnostics;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -172,8 +174,10 @@ internal sealed class DialogueIndex
     DialogueIndex(ILinkCache ids) => this.ids = ids;
 
     /// <summary>Reads the plugins in load order (the last copy wins). Throws MemoryLimitException past the limit the
-    /// caller set in Analyzer.MaxManagedBytes.</summary>
-    public static DialogueIndex Build(List<PluginInfo> plugins, Action<string>? progress)
+    /// caller set in Analyzer.MaxManagedBytes. onlyDialogueOf (voice-lines, 0.21.0 step 3a): read topics, lines and
+    /// scenes from that plugin only (its masters can't use its topics) and follow forced aliases only in the quests its
+    /// topics and scenes name; quests and form lists are still read from every plugin.</summary>
+    public static DialogueIndex Build(List<PluginInfo> plugins, Action<string>? progress, string? onlyDialogueOf = null)
     {
         var idCache = plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
         var x = new DialogueIndex(idCache);
@@ -188,17 +192,21 @@ internal sealed class DialogueIndex
         {
             var sw = Stopwatch.StartNew();
             Analyzer.Where = p.FileName;
-            progress?.Invoke($"Reading the dialogue in {p.FileName}");
             int infos = 0;
+            var dialogue = onlyDialogueOf == null || p.FileName.Equals(onlyDialogueOf, StringComparison.OrdinalIgnoreCase);
+            progress?.Invoke(dialogue ? $"Reading the dialogue in {p.FileName}" : $"Reading the quests in {p.FileName}");
             try
             {
-                foreach (var t in p.Mod.EnumerateMajorRecords<IDialogTopicGetter>())
+                if (dialogue)
                 {
-                    Tick();
-                    x.Topics[t.FormKey] = t;
-                    foreach (var i in t.Responses) { Tick(); x.Infos[i.FormKey] = new(i, t.FormKey, p.FileName); infos++; }
+                    foreach (var t in p.Mod.EnumerateMajorRecords<IDialogTopicGetter>())
+                    {
+                        Tick();
+                        x.Topics[t.FormKey] = t;
+                        foreach (var i in t.Responses) { Tick(); x.Infos[i.FormKey] = new(i, t.FormKey, p.FileName); infos++; }
+                    }
+                    foreach (var s in p.Mod.EnumerateMajorRecords<ISceneGetter>()) { Tick(); scenes[s.FormKey] = s; }
                 }
-                foreach (var s in p.Mod.EnumerateMajorRecords<ISceneGetter>()) { Tick(); scenes[s.FormKey] = s; }
                 foreach (var q in p.Mod.EnumerateMajorRecords<IQuestGetter>()) { Tick(); x.Quests[q.FormKey] = q; }
                 foreach (var l in p.Mod.EnumerateMajorRecords<IFormListGetter>()) { Tick(); x.FormLists[l.FormKey] = l.Items.Select(i => i.FormKey).ToHashSet(); }
             }
@@ -231,7 +239,10 @@ internal sealed class DialogueIndex
 
         // the placed actors that quest aliases force: their base NPCs, read from the plugins that may hold them
         var forced = new HashSet<FormKey>();
+        var wanted = onlyDialogueOf == null ? null
+            : x.Topics.Values.Select(t => t.Quest.FormKey).Concat(scenes.Values.Select(s => s.Quest.FormKeyNullable ?? FormKey.Null)).ToHashSet();
         foreach (var q in x.Quests.Values)
+            if (wanted == null || wanted.Contains(q.FormKey))
             foreach (var a in q.Aliases ?? [])
                 if (a is IQuestReferenceAliasGetter r && r.ForcedReference.FormKeyNullable is { } fk && !fk.IsNull) forced.Add(fk);
         if (forced.Count > 0)
@@ -330,7 +341,7 @@ internal sealed class DialogueIndex
         {
             if (!Topics.TryGetValue(copy.Topic, out var topic)) continue;
             var i = copy.Info;
-            if (topic.Category == DialogTopic.CategoryEnum.Player || PlayerTopics.Contains(topic.FormKey))
+            if (PlayerTopics.Contains(topic.FormKey))
             {
                 playerRows[topic.FormKey] = playerRows.GetValueOrDefault(topic.FormKey) + Responses(i).Count;
                 continue;
@@ -339,7 +350,8 @@ internal sealed class DialogueIndex
             FormKey? scene = null;
             bool anyRule = !i.Speaker.IsNull, shared = false;
             if (i.Speaker.FormKeyNullable == npc) foundBy = "speaker";
-            foreach (var c in i.Conditions)
+            var conds = ConditionsOf(i, topic);
+            foreach (var c in conds)
             {
                 if (!DialogueLines.Positive(c)) continue;
                 switch (c.Data)
@@ -359,7 +371,7 @@ internal sealed class DialogueIndex
                 }
             }
             if (foundBy == null)
-                foreach (var c in i.Conditions)
+                foreach (var c in conds)
                     if (DialogueLines.Positive(c) && c.Data is IGetIsAliasRefConditionDataGetter ar)
                     {
                         if (Fills(topic.Quest.FormKey, ar.FirstParameter)) { foundBy = "quest alias"; break; }
@@ -402,6 +414,40 @@ internal sealed class DialogueIndex
         Log.Write($"lines: {npc}: {res.Lines.Count} response rows ({res.Lines.Count(l => l.Shared)} shared), {res.PlayerLines} player rows in {myScenes.Count} scenes, " +
                   $"{res.GenericLines} generic rows, {skipped.Count} aliases filled another way");
         return res;
+    }
+
+    /// <summary>The conditions that say who may speak a line (0.21.0 step 3a): its own, its dialogue group's (the
+    /// DialogGroup INFO, which holds the conditions for the lines in it) and the topic's quest's DialogConditions (which
+    /// apply to every line of the quest; Starfield's crew quests name their companion there).</summary>
+    public List<IConditionGetter> ConditionsOf(IDialogResponsesGetter i, IDialogTopicGetter topic)
+    {
+        var o = new List<IConditionGetter>(i.Conditions);
+        if (i.DialogGroup.FormKeyNullable is { } g && !g.IsNull && g != i.FormKey && Infos.TryGetValue(g, out var group)) o.AddRange(group.Info.Conditions);
+        if (Quests.TryGetValue(topic.Quest.FormKey, out var q)) o.AddRange(q.DialogConditions);
+        return o;
+    }
+
+    Dictionary<(FormKey, int), List<FormKey>>? aliasNpcs;
+
+    /// <summary>The NPCs that fill an alias of a quest (UniqueActor, a forced placed actor's base, CreateReferenceToObject's
+    /// object; the same fill rules as LinesOf), for voice-lines (0.21.0 step 3a). Empty when none can be told.</summary>
+    public IReadOnlyList<FormKey> AliasNpcs(FormKey quest, int alias)
+    {
+        if (aliasNpcs == null)
+        {
+            aliasNpcs = new();
+            foreach (var q in Quests.Values)
+                foreach (var a in q.Aliases ?? [])
+                {
+                    if (a is not IQuestReferenceAliasGetter r) continue;
+                    var l = new List<FormKey>();
+                    if (r.UniqueActor.FormKeyNullable is { } u && !u.IsNull) l.Add(u);
+                    if (r.ForcedReference.FormKeyNullable is { } fr && ForcedBases.TryGetValue(fr, out var b) && !b.IsNull) l.Add(b);
+                    if (r.CreateReferenceToObject?.Object.FormKey is { } c && !c.IsNull) l.Add(c);
+                    if (l.Count > 0) aliasNpcs[(q.FormKey, (int)r.ID)] = l;
+                }
+        }
+        return aliasNpcs.TryGetValue((quest, alias), out var o) ? o : [];
     }
 
     /// <summary>A line's own responses, or, when it has none and links a SharedDialog line, that line's.</summary>
