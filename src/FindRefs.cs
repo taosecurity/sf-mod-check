@@ -88,7 +88,8 @@ public static class RecordRefs
                     continue;
                 }
                 Analyzer.Where = $"reading the {(walk ? "links" : "FormKeys")} in {p.FileName} for --refs";
-                var hits = new Dictionary<FormKey, (IMajorRecordGetter Rec, Dictionary<(FormKey, Type), int> Counts)>();
+                // Counts: every link to a target; Plain: only those Mutagen's enumerator gives, which a container's own count holds too
+                var hits = new Dictionary<FormKey, (IMajorRecordGetter Rec, Dictionary<(FormKey, Type), int> Counts, Dictionary<(FormKey, Type), int> Plain)>();
                 var present = new List<FormKey>();
                 int records = 0;
                 try
@@ -99,20 +100,21 @@ public static class RecordRefs
                         if (records % LogEvery == 0) Log.Write($"refs: {p.FileName}: {records} records read, {sw.Elapsed.TotalSeconds:F0} s");
                         var fk = rec.FormKey;
                         if (referrers.ContainsKey(fk)) present.Add(fk);
-                        if (!walk || wanted.Contains(fk)) continue;   // the target's own copies don't count
-                        Dictionary<(FormKey, Type), int>? counts = null;
+                        if (!walk) continue;   // a target's copies are read too: one match can point at another, but not at itself
+                        Dictionary<(FormKey, Type), int>? counts = null, plain = null;
                         try
                         {
                             foreach (var l in rec.EnumerateFormLinks())
                             {
-                                if (l.IsNull || !wanted.Contains(l.FormKey)) continue;
+                                if (l.IsNull || l.FormKey == fk || !wanted.Contains(l.FormKey)) continue;
                                 counts ??= new();
                                 counts[(l.FormKey, l.Type)] = counts.GetValueOrDefault((l.FormKey, l.Type)) + 1;
                             }
+                            if (counts != null) plain = new(counts);
                             // Mutagen's enumerator skips links held in struct members of script properties
                             foreach (var l in ScriptStructLinks.Of(rec))
                             {
-                                if (!wanted.Contains(l.FormKey)) continue;
+                                if (l.FormKey == fk || !wanted.Contains(l.FormKey)) continue;
                                 counts ??= new();
                                 counts[(l.FormKey, l.Type)] = counts.GetValueOrDefault((l.FormKey, l.Type)) + 1;
                             }
@@ -122,7 +124,7 @@ public static class RecordRefs
                             unreadable++;
                             Log.Write($"refs: {Name(rec)} in {p.FileName}: its links can't be read ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])})");
                         }
-                        if (counts != null) hits.TryAdd(fk, (rec, counts));
+                        if (counts != null) hits.TryAdd(fk, (rec, counts, plain ?? new()));
                     }
                 }
                 catch (Exception e) when (Fatal.Recoverable(e))
@@ -132,9 +134,11 @@ public static class RecordRefs
                 }
 
                 // the container rule: each hit's innermost hit container is its parent (a record that holds a link has
-                // every container above it holding it too), and a container keeps only what its direct children don't hold
+                // every container above it holding it too), and a container keeps only what its direct children don't hold.
+                // Struct-member links are the record's own: Mutagen's enumerator skips them, so a container's count never
+                // held its children's, and only the children's Plain counts are taken away
                 var parent = new Dictionary<FormKey, (FormKey Key, int Size)>();
-                foreach (var (fk, (rec, _)) in hits)
+                foreach (var (fk, (rec, _, _)) in hits)
                 {
                     if (rec is not IMajorRecordGetterEnumerable container) continue;
                     var inside = new List<FormKey>();
@@ -154,7 +158,7 @@ public static class RecordRefs
                 }
                 var own = hits.ToDictionary(h => h.Key, h => new Dictionary<(FormKey, Type), int>(h.Value.Counts));
                 foreach (var (child, (container, _)) in parent)
-                    foreach (var (k, n) in hits[child].Counts)
+                    foreach (var (k, n) in hits[child].Plain)
                         if (own[container].TryGetValue(k, out var have)) own[container][k] = Math.Max(0, have - n);
 
                 // winners: this plugin's copy replaces what earlier plugins said about each record it holds

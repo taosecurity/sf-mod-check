@@ -319,7 +319,7 @@ public static class FindCommand
                 if (!quiet) Console.WriteLine($"sf-mod-check {version} find: {SafeText.OneLine(q)} in {lo.Plugins.Count} plugins ({source})");
                 foreach (var m in matches) Print(m, view);
                 var copies = matches.Sum(m => m.Copies.Count);
-                var pointing = matches.Sum(m => m.Refs?.Records.Count ?? 0);
+                var pointing = matches.SelectMany(m => m.Refs?.Records ?? []).Select(r => r.FormKey).Distinct().Count();   // a record pointing at two matches is one record
                 Console.WriteLine($"RESULT: FOUND {matches.Count} record{(matches.Count == 1 ? "" : "s")}" +
                                   (versions ? $", {copies} cop{(copies == 1 ? "y" : "ies")}" : "") +
                                   (refs ? $"; {pointing} record{(pointing == 1 ? "" : "s")} point{(pointing == 1 ? "s" : "")} at {(matches.Count == 1 ? "it" : "them")}" : "") +

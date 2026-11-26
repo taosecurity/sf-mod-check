@@ -596,6 +596,62 @@ public class FindTests
         Assert.Contains("RS_Plain [", stdout);
     }
 
+    // code review 0.20.0 round 1: struct-member links on dialogue lines, scenes and packages (their own adapter types)
+    // count; a child's struct-only link doesn't cancel its cell's own link; a match that points at another match counts,
+    // and the RESULT clause counts a record pointing at two matches once
+    [Fact]
+    public void Refs_counts_struct_links_on_every_script_holder_keeps_a_cells_own_link_and_links_between_matches()
+    {
+        using var game = new Game();
+        FormKey cellKey, refKey;
+        using (var g = new GameData(game.Data))
+        {
+            var misc = g.Open("FindBase.esm").MiscItems.First();
+            var x = Plugin.New("FindRefX.esm", PluginStyle.Full, "test", "made-up struct holders");
+            var loc = x.Locations.AddNew("RX_Loc");
+            ScriptEntry Holder() => new()
+            {
+                Name = "SfmTest:Holder", Properties = { new ScriptStructProperty { Name = "One", Members = { new ScriptEntry { Properties =
+                    { new ScriptObjectProperty { Name = "Where", Object = new FormLink<IStarfieldMajorRecordGetter>(loc.FormKey) } } } } } },
+            };
+            x.Packages.AddNew("RX_Package").VirtualMachineAdapter = new PackageAdapter { Scripts = { Holder() } };
+            var quest = x.Quests.AddNew("RX_Quest");
+            quest.Scenes.Add(new Scene(x) { EditorID = "RX_Scene", Quest = quest.ToNullableLink(), VirtualMachineAdapter = new SceneAdapter { Scripts = { Holder() } } });
+            var topic = new DialogTopic(x) { EditorID = "RX_Topic", Quest = quest.ToLink<IQuestGetter>() };
+            quest.DialogTopics.Add(topic);
+            topic.Responses.Add(new DialogResponses(x) { EditorID = "RX_Info", VirtualMachineAdapter = new DialogResponsesAdapter { Scripts = { Holder() } } });
+            var cell = new Cell(x) { EditorID = "RX_Cell", Location = loc.ToNullableLink() };
+            var placed = new PlacedObject(x) { Base = misc.ToLink<IPlaceableObjectGetter>(), VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = { Holder() } } };
+            cell.Temporary.Add(placed);
+            x.Cells.Add(new CellBlock { SubBlocks = new Noggog.ExtendedList<CellSubBlock> { new CellSubBlock { Cells = new Noggog.ExtendedList<Cell> { cell } } } });
+            (cellKey, refKey) = (cell.FormKey, placed.FormKey);
+            // two matches for RX_Same: a keyword and a form list that holds it; RX_Both1 and RX_Both2 hold both
+            var kw = x.Keywords.AddNew("RX_Same");
+            var same = x.FormLists.AddNew("RX_Same");
+            same.Items.Add(kw.ToLink<IStarfieldMajorRecordGetter>());
+            foreach (var n in new[] { "RX_Both1", "RX_Both2" })
+            {
+                var l = x.FormLists.AddNew(n);
+                l.Items.Add(kw.ToLink<IStarfieldMajorRecordGetter>());
+                l.Items.Add(same.ToLink<IStarfieldMajorRecordGetter>());
+            }
+            PluginWriter.Write(x, game.Data, g, new WriteOptions { GapCheck = false, FixEffects = false, Masters = [ModKey.FromFileName("FindBase.esm")] });
+        }
+        File.AppendAllLines(game.PluginsTxt, ["*FindRefX.esm"]);
+
+        var (code, stdout, stderr) = game.Find("RX_Loc", "--refs", "--max", "0");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("  referenced by: 5 records (winning copies)", stdout);
+        foreach (var n in new[] { "RX_Scene [", "RX_Package [", "RX_Info [", "RX_Cell [" }) Assert.Contains(n, stdout);
+        Assert.Contains($"[{refKey}] REFR in RX_Cell [{cellKey}]", stdout);
+
+        (code, stdout, stderr) = game.Find("RX_Same", "--refs", "--max", "0");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("  referenced by: 3 records (winning copies)", stdout);   // the keyword: the RX_Same list and both RX_Both lists
+        Assert.Contains("  referenced by: 2 records (winning copies)", stdout);   // the list: the two RX_Both lists
+        Assert.Contains("RESULT: FOUND 2 records; 3 records point at them (", stdout);
+    }
+
     [Fact]
     public void Refs_stops_past_its_memory_limit_and_restores_the_old_limit()
     {
