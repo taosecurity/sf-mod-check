@@ -643,7 +643,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     refused (exit 2) with that type's field list: use it to learn the names. **Flags with no name** (bits the library doesn't name) print in hex in the fields, for example
     `Female, Unique, 0x2000010`. `--editorid-match <regex>` keeps records whose EditorID matches a .NET regular
     expression (letter case ignored); without `--type` it searches every type. There is no query language. `--max`
-    (default 100; 0 = all). Exit 0 = found, 1 = none, 2 = couldn't run. `--json` has `query` (with `where`), `loadOrder`, `total`, `listed`, `matches` (each with `formKey`, `editorId`, `name`, `winner` and `fields`) and `result`.
+    (default 100; 0 = all). Exit 0 = found, 1 = none, 2 = couldn't run. `--json` has `tool`, `version`, `query` (null here), `type`, `where` (each filter's `field`, `op` and `value`), `editorIdMatch`, `loadOrder`, `matches` (each with `formKey`, `editorId`, `name`, `type`, `winner` and `fields`), `listed`, `total`, `unread` and `result`.
 
 30. Find which archive or loose file holds a game file (0.27.0). Read only:
 

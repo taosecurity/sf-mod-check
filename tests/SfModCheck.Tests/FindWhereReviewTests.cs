@@ -1,7 +1,8 @@
 // sf-mod-check 0.27.0 code review round 1: find --where and --editorid-match on a partial form without an EditorID, a
 // deleted winner, and a form list (whose entries link to any record type). All plugins are made up: Base.esm holds a
 // keyword, an NPC, two misc items and a form list; A.esm overrides the NPC as a partial form without an EditorID or a
-// name, and deletes one misc item. No game files are needed.
+// name, and deletes one misc item. Round 2 adds an NPC that A.esm renames with a partial form and a keyword that A.esm
+// overrides as a partial form without an EditorID, linked from a misc item. No game files are needed.
 using BuildKit;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -15,7 +16,7 @@ public sealed class WhereReviewGame : Sandbox
 {
     static readonly WriteOptions NoGap = new() { GapCheck = false, FixEffects = false };
     public readonly string Data;
-    public readonly FormKey Key, Part, Kept, Gone, List;
+    public readonly FormKey Key, Part, Kept, Gone, List, Ren, PKey;
 
     public WhereReviewGame()
     {
@@ -32,6 +33,14 @@ public sealed class WhereReviewGame : Sandbox
         var list = b.FormLists.AddNew("R_List");
         list.Items.Add(key.ToLink<IStarfieldMajorRecordGetter>());
         (Key, Part, Kept, Gone, List) = (key.FormKey, part.FormKey, kept.FormKey, gone.FormKey, list.FormKey);
+        // round 2: an NPC that A.esm renames with a partial form, and a keyword that A.esm overrides as a partial form
+        // without an EditorID, which a misc item's (typed) Keywords list links to
+        var ren = b.Npcs.AddNew("R_Ren");
+        ren.Name = "Ren Guy";
+        var pkey = b.Keywords.AddNew("R_PKey");
+        var tagged = b.MiscItems.AddNew("R_Tagged");
+        tagged.Keywords = [pkey.ToLink<IKeywordGetter>()];
+        (Ren, PKey) = (ren.FormKey, pkey.FormKey);
         using (var g = new GameData(Data)) PluginWriter.Write(b, Data, g, NoGap);
 
         using (var g = new GameData(Data))
@@ -44,6 +53,13 @@ public sealed class WhereReviewGame : Sandbox
             p.MajorRecordFlagsRaw |= 0x4000;
             var d = (MiscItem)cache.ResolveAllContexts<IMiscItem, IMiscItemGetter>(Gone).First().GetOrAddAsOverride(a);
             d.IsDeleted = true;
+            var r = (Npc)cache.ResolveAllContexts<INpc, INpcGetter>(Ren).First().GetOrAddAsOverride(a);
+            r.EditorID = "R_Renamed";
+            r.Name = null;
+            r.MajorRecordFlagsRaw |= 0x4000;
+            var k = (Keyword)cache.ResolveAllContexts<IKeyword, IKeywordGetter>(PKey).First().GetOrAddAsOverride(a);
+            k.EditorID = null;
+            k.MajorRecordFlagsRaw |= 0x4000;
             PluginWriter.Write(a, Data, g, NoGap);
         }
     }
@@ -98,6 +114,31 @@ public class FindWhereReviewTests(WhereReviewGame game) : IClassFixture<WhereRev
         Assert.Equal(1, code);
         (code, o, e) = game.Run("--type", "FLST", "--where", "Items != R_Key");
         Assert.Equal(1, code);
+    }
+
+    [Fact]
+    public void A_partial_winner_with_a_new_EditorID_keeps_the_earlier_name_with_and_without_a_type()
+    {
+        foreach (var args in new[] { new[] { "--editorid-match", "^R_Renamed$" }, new[] { "--type", "NPC_", "--editorid-match", "^R_Renamed$" } })
+        {
+            var (code, o, e) = game.Run(args);
+            Assert.True(code == 0, o + e);
+            Assert.Contains($"R_Renamed [{game.Ren}] \"Ren Guy\" (NPC_, winner A.esm)", o);
+        }
+        var (c2, o2, _) = game.Run("--editorid-match", "^R_Ren$");
+        Assert.True(c2 == 1, o2);   // the winning copy's EditorID is the new one
+    }
+
+    [Fact]
+    public void A_typed_link_to_a_partial_form_without_an_EditorID_matches_and_shows_the_earlier_EditorID()
+    {
+        var (code, o, e) = game.Run("--type", "MISC", "--where", "Keywords has R_PKey");
+        Assert.True(code == 0, o + e);
+        Assert.Contains("R_Tagged [", o);
+        Assert.Contains($"Keywords: R_PKey [{game.PKey}]", o);
+        (code, o, e) = game.Run("--type", "FLST", "--where", "Items has R_Key");
+        Assert.True(code == 0, o + e);
+        Assert.Contains($"Items: R_Key [{game.Key}]", o);   // a form list's entry shows the EditorID it matched by
     }
 
     [Fact]

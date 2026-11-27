@@ -218,27 +218,48 @@ internal static class FindWhere
             }
 
         var idCache = lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>(LinkCachePreferences.OnlyIdentifiers());
-        var eids = new Dictionary<FormKey, string?>();
+        ILinkCache? fullCache = null;
+        var unread = new List<string>();
+        var eids = new Dictionary<(FormKey, bool), string?>();
         Dictionary<FormKey, string>? anyEids = null;
+        static bool AnyType(IFormLinkGetter l) => typeof(IStarfieldMajorRecordGetter).IsAssignableTo(l.Type);
         string? LinkEid(IFormLinkGetter l)
         {
-            if (eids.TryGetValue(l.FormKey, out var e)) return e;
+            bool any = AnyType(l);
+            if (eids.TryGetValue((l.FormKey, any), out var e)) return e;
             e = null;
-            if (!typeof(IStarfieldMajorRecordGetter).IsAssignableTo(l.Type))
-                try { if (idCache.TryResolveIdentifier(l.FormKey, l.Type, out var id) && !string.IsNullOrEmpty(id)) e = id; }
+            if (!any)
+                try
+                {
+                    if (idCache.TryResolveIdentifier(l.FormKey, l.Type, out var id))
+                    {
+                        if (!string.IsNullOrEmpty(id)) e = id;
+                        else
+                        {
+                            // the winning copy has no EditorID: a partial form keeps the earlier copy's, as below
+                            fullCache ??= lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>();
+                            foreach (var c in fullCache.ResolveAllSimpleContexts(l.FormKey, l.Type))
+                            {
+                                if (!string.IsNullOrEmpty(c.Record.EditorID)) { e = c.Record.EditorID; break; }
+                                if (!FieldCompare.IsPartial(c.Record)) break;
+                            }
+                        }
+                    }
+                }
                 catch (Exception x) when (Fatal.Recoverable(x)) { }
             else
             {
                 // a link to any record type (a form list's entries): the link cache would index every type, so one
                 // pass over the load order reads each record's winning EditorID instead, once, on the first such link
-                anyEids ??= AllEditorIds(lo.Plugins);
+                anyEids ??= AllEditorIds(lo.Plugins, unread);
                 anyEids.TryGetValue(l.FormKey, out e);
             }
-            return eids[l.FormKey] = e;
+            return eids[(l.FormKey, any)] = e;
         }
-        string Link(IFormLinkGetter l) => FindCommand.LinkText(l, idCache);
+        // as find prints a link; a link to any record type gets its EditorID only once a filter has read them all
+        string Link(IFormLinkGetter l) =>
+            (AnyType(l) && anyEids == null ? null : LinkEid(l)) is { } e ? $"{SafeText.OneLine(e)} [{l.FormKey}]" : $"[{l.FormKey}]";
 
-        var unread = new List<string>();
         var hits = new List<Hit>();
         int tested = 0;
         try
@@ -306,6 +327,31 @@ internal static class FindWhere
                     catch (Exception e) when (e is not RegexMatchTimeoutException && Fatal.Recoverable(e)) { unread.Add($"{p.FileName} couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); its later records weren't searched"); }
                     tested += n;
                     Log.Write($"{p.FileName}: {n} record(s) read");
+                }
+                // a partial copy that brought its own matching EditorID over earlier copies that didn't match is held
+                // alone; a second pass, for those records only, puts the earlier copies (its name) back in front of it
+                var before = winners.Where(w => FieldCompare.IsPartial(w.Value[0].Item2)).ToDictionary(w => w.Key, w => w.Value[0].Item1.Index);
+                if (before.Count > 0)
+                {
+                    var earlier = new Dictionary<FormKey, List<(PluginInfo, IMajorRecordGetter)>>();
+                    int last = before.Values.Max();
+                    foreach (var p in lo.Plugins.Where(p => p.Index < last))
+                    {
+                        Analyzer.Where = $"reading the earlier copies of partial forms in {p.FileName}";
+                        try
+                        {
+                            foreach (var r in p.Mod.EnumerateMajorRecords())
+                            {
+                                if (!before.TryGetValue(r.FormKey, out var at) || p.Index >= at) continue;
+                                if (r.IsDeleted) earlier.Remove(r.FormKey);
+                                else if (FieldCompare.IsPartial(r) && earlier.TryGetValue(r.FormKey, out var l)) l.Add((p, r));
+                                else earlier[r.FormKey] = [(p, r)];
+                            }
+                        }
+                        catch (Exception e) when (Fatal.Recoverable(e)) { unread.Add($"{p.FileName} couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); a partial form's earlier copies may be missing"); }
+                    }
+                    foreach (var (k, l) in earlier) winners[k].InsertRange(0, l);
+                    Log.Write($"editorid-match: {before.Count} partial winner(s) without a matching earlier copy, {earlier.Count} of them with earlier copies");
                 }
                 hits.AddRange(winners.Select(w => new Hit { Key = w.Key, Copies = w.Value }));
             }
@@ -391,7 +437,7 @@ internal static class FindWhere
 
     /// <summary>Every record's winning EditorID in the load order (a partial form without one keeps the earlier copy's;
     /// a deleted or nameless full copy has none), for links typed to any record type.</summary>
-    static Dictionary<FormKey, string> AllEditorIds(List<PluginInfo> plugins)
+    static Dictionary<FormKey, string> AllEditorIds(List<PluginInfo> plugins, List<string> unread)
     {
         var sw = Stopwatch.StartNew();
         var map = new Dictionary<FormKey, string>();
@@ -407,7 +453,11 @@ internal static class FindWhere
                     else if (!FieldCompare.IsPartial(r)) map.Remove(r.FormKey);
                 }
             }
-            catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"where: the EditorIDs in {p.FileName} couldn't be read in full ({e.GetType().Name})"); }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                Log.Write($"where: the EditorIDs in {p.FileName} couldn't be read in full ({e.GetType().Name})");
+                unread.Add($"{p.FileName} couldn't be read in full ({e.GetType().Name}: {SafeText.OneLine(e.Message.Split('\n')[0])}); its later EditorIDs weren't matched against form-list entries");
+            }
         }
         Log.Write($"where: a link to any record type: read {map.Count} EditorIDs from {plugins.Count} plugins ({sw.Elapsed.TotalSeconds:F1} s)");
         return map;
@@ -572,8 +622,8 @@ internal static class FindWhere
             case null: return false;
             case IFormLinkGetter fl:
                 if (fl.IsNull) return false;
-                return (eid(fl)?.Contains(want, StringComparison.OrdinalIgnoreCase) ?? false)
-                       || fl.FormKey.ToString().Contains(want, StringComparison.OrdinalIgnoreCase);
+                return fl.FormKey.ToString().Contains(want, StringComparison.OrdinalIgnoreCase)
+                       || (eid(fl)?.Contains(want, StringComparison.OrdinalIgnoreCase) ?? false);
         }
         return PlainText(v).Contains(want, StringComparison.OrdinalIgnoreCase);
     }
