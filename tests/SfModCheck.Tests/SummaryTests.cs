@@ -1,5 +1,5 @@
-// sf-mod-check 0.26.0: the summary command (SummaryCommand.cs), parts C.1 to C.4 (header and masters, records per type,
-// ITMs, changed fields). All plugins are made up: a made-up Starfield.esm stands in for the official file.
+// sf-mod-check 0.26.0: the summary command (SummaryCommand.cs), parts C.1 to C.6 (header and masters, records per type,
+// ITMs, changed fields, cells touched and placed references per worldspace). All plugins are made up: a made-up Starfield.esm stands in for the official file.
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
@@ -225,6 +225,168 @@ public class SummaryTests
         Assert.Equal(2, cp);
         Assert.Contains("summary doesn't take --plugins", ep);
         Assert.Contains("RESULT: CANNOT CHECK", op);
+    }
+
+    /// <summary>C.5 and C.6. Data\Starfield.esm: a static S_Stat and a misc item S_Misc; worldspace S_World with the
+    /// exterior cell S_Ext holding R1 (base S_Stat) and R2 (base S_Misc); the interior cell S_Int holding R3. mods\Places.esm:
+    /// moves R1, deletes R2, adds a reference in S_Ext whose base is its own misc item M_Misc, and drops the cell's EditorID
+    /// (so it comes from the master); adds a reference in S_Int whose base is missing; adds its own interior cell M_Int
+    /// with a reference to S_Stat.</summary>
+    sealed class PlaceSet : Sandbox
+    {
+        public readonly string Data, ModDir, Tmp;
+        public readonly FormKey World, Ext, Int, MInt;
+
+        public PlaceSet()
+        {
+            Data = Sub("Data");
+            ModDir = Sub("mods");
+            Tmp = Sub("tmp");
+            var s = Plugin.New("Starfield.esm", PluginStyle.Full, "test", "made-up base game");
+            var stat = s.Statics.AddNew("S_Stat");
+            var misc = s.MiscItems.AddNew("S_Misc");
+            var world = s.Worldspaces.AddNew("S_World");
+            var ext = new Mutagen.Bethesda.Starfield.Cell(s) { EditorID = "S_Ext", Grid = new Mutagen.Bethesda.Starfield.CellGrid { Point = new Noggog.P2Int(1, 2) } };
+            var r1 = new Mutagen.Bethesda.Starfield.PlacedObject(s) { Base = stat.ToLink<Mutagen.Bethesda.Starfield.IPlaceableObjectGetter>() };
+            var r2 = new Mutagen.Bethesda.Starfield.PlacedObject(s) { Base = misc.ToLink<Mutagen.Bethesda.Starfield.IPlaceableObjectGetter>() };
+            ext.Temporary.Add(r1);
+            ext.Temporary.Add(r2);
+            world.SubCells.Add(new Mutagen.Bethesda.Starfield.WorldspaceBlock
+            {
+                BlockNumberX = 0, BlockNumberY = 0, GroupType = Mutagen.Bethesda.Starfield.GroupTypeEnum.ExteriorCellBlock,
+                Items = new Noggog.ExtendedList<Mutagen.Bethesda.Starfield.WorldspaceSubBlock> { new() { BlockNumberX = 0, BlockNumberY = 0,
+                    GroupType = Mutagen.Bethesda.Starfield.GroupTypeEnum.ExteriorCellSubBlock, Items = new Noggog.ExtendedList<Mutagen.Bethesda.Starfield.Cell> { ext } } },
+            });
+            var inner = new Mutagen.Bethesda.Starfield.Cell(s) { EditorID = "S_Int", Flags = Mutagen.Bethesda.Starfield.Cell.Flag.IsInteriorCell };
+            inner.Temporary.Add(new Mutagen.Bethesda.Starfield.PlacedObject(s) { Base = misc.ToLink<Mutagen.Bethesda.Starfield.IPlaceableObjectGetter>() });
+            s.Cells.Add(InteriorBlock(inner));
+            (World, Ext, Int) = (world.FormKey, ext.FormKey, inner.FormKey);
+            using (var g = new GameData(Data)) PluginWriter.Write(s, Data, g, NoGap);
+            using (var g = new GameData(Data, [ModDir]))
+            {
+                var sf = g.Open("Starfield.esm");
+                var cache = sf.ToImmutableLinkCache<Mutagen.Bethesda.Starfield.IStarfieldMod, Mutagen.Bethesda.Starfield.IStarfieldModGetter>();
+                var m = Plugin.New("Places.esm", PluginStyle.Full, "test", "made-up mod");
+                var mMisc = m.MiscItems.AddNew("M_Misc");
+                T Over<T, TGetter>(FormKey fk) where T : class, Mutagen.Bethesda.Starfield.IStarfieldMajorRecord, TGetter
+                                                where TGetter : class, Mutagen.Bethesda.Starfield.IStarfieldMajorRecordGetter =>
+                    (T)cache.ResolveAllContexts<T, TGetter>(fk).First().GetOrAddAsOverride(m);
+                var o1 = Over<Mutagen.Bethesda.Starfield.IPlacedObject, Mutagen.Bethesda.Starfield.IPlacedObjectGetter>(r1.FormKey);
+                o1.Position = new Noggog.P3Float(1, 2, 3);
+                Over<Mutagen.Bethesda.Starfield.IPlacedObject, Mutagen.Bethesda.Starfield.IPlacedObjectGetter>(r2.FormKey).IsDeleted = true;
+                var cExt = Over<Mutagen.Bethesda.Starfield.ICell, Mutagen.Bethesda.Starfield.ICellGetter>(ext.FormKey);
+                cExt.EditorID = null;
+                cExt.Temporary.Add(new Mutagen.Bethesda.Starfield.PlacedObject(m) { Base = mMisc.ToLink<Mutagen.Bethesda.Starfield.IPlaceableObjectGetter>() });
+                var cInt = Over<Mutagen.Bethesda.Starfield.ICell, Mutagen.Bethesda.Starfield.ICellGetter>(inner.FormKey);
+                cInt.Temporary.Add(new Mutagen.Bethesda.Starfield.PlacedObject(m)
+                    { Base = new FormLink<Mutagen.Bethesda.Starfield.IPlaceableObjectGetter>(new FormKey(ModKey.FromFileName("Starfield.esm"), 0xABCDE)) });
+                var own = new Mutagen.Bethesda.Starfield.Cell(m) { EditorID = "M_Int", Flags = Mutagen.Bethesda.Starfield.Cell.Flag.IsInteriorCell };
+                own.Temporary.Add(new Mutagen.Bethesda.Starfield.PlacedObject(m) { Base = stat.ToLink<Mutagen.Bethesda.Starfield.IPlaceableObjectGetter>() });
+                m.Cells.First().SubBlocks.First().Cells.Add(own);
+                MInt = own.FormKey;
+                PluginWriter.Write(m, ModDir, g, NoGap);
+            }
+        }
+
+        static Mutagen.Bethesda.Starfield.CellBlock InteriorBlock(Mutagen.Bethesda.Starfield.Cell c) => new()
+        {
+            BlockNumber = 0, GroupType = Mutagen.Bethesda.Starfield.GroupTypeEnum.InteriorCellBlock,
+            SubBlocks = new Noggog.ExtendedList<Mutagen.Bethesda.Starfield.CellSubBlock> { new() { BlockNumber = 0,
+                GroupType = Mutagen.Bethesda.Starfield.GroupTypeEnum.InteriorCellSubBlock, Cells = new Noggog.ExtendedList<Mutagen.Bethesda.Starfield.Cell> { c } } },
+        };
+
+        public (int Code, string Stdout, string Stderr) Summary(params string[] extra)
+        {
+            var dir = AppContext.BaseDirectory;
+            var exe = Path.Combine(dir, OperatingSystem.IsWindows() ? "sf-mod-check.exe" : "sf-mod-check");
+            var psi = File.Exists(exe) ? new ProcessStartInfo(exe) : new ProcessStartInfo("dotnet") { ArgumentList = { Path.Combine(dir, "sf-mod-check.dll") } };
+            foreach (var a in new[] { "summary", Path.Combine(ModDir, "Places.esm"), "--data", Data }.Concat(extra)) psi.ArgumentList.Add(a);
+            psi.Environment["SFMODCHECK_CACHE_DIR"] = Path.Combine(TestSetup.RunDir, "exe-cache");
+            psi.Environment["TMP"] = psi.Environment["TEMP"] = psi.Environment["TMPDIR"] = Tmp;
+            psi.RedirectStandardOutput = psi.RedirectStandardError = true;
+            psi.UseShellExecute = false;
+            using var p = Process.Start(psi)!;
+            var stdout = p.StandardOutput.ReadToEndAsync();
+            var stderr = p.StandardError.ReadToEndAsync();
+            Assert.True(p.WaitForExit(120_000), "sf-mod-check didn't finish in 2 minutes");
+            return (p.ExitCode, stdout.Result, stderr.Result);
+        }
+    }
+
+    [Fact]
+    public void Cells_touched_per_worldspace_and_in_the_interiors_with_their_record_counts()
+    {
+        using var s = new PlaceSet();
+        var (code, stdout, stderr) = s.Summary();
+        Assert.True(code == 0, stdout + stderr);
+        var lines = Lines(stdout);
+        Assert.Contains("  Cells touched: 3 cells (1 worldspace, 2 interior)", lines);
+        // the worldspace and the exterior cell are overrides; the cell's EditorID comes from the master (the mod's has none)
+        Assert.Contains($"    Worldspace {s.World} S_World (override): 1 cell, 4 records", lines);
+        Assert.Contains($"      {s.Ext} S_Ext (override): 4 records", lines);
+        Assert.Contains("    Interiors: 2 cells, 4 records", lines);
+        Assert.Contains($"      {s.Int} S_Int (override): 2 records", lines);
+        Assert.Contains($"      {s.MInt} M_Int (new): 2 records", lines);
+        Assert.EndsWith(", 3 cells touched", lines.Single(l => l.StartsWith("RESULT: ")));
+
+        // --max 1 caps the cells listed per worldspace; JSON lists them all
+        var (c1, o1, e1) = s.Summary("--max", "1");
+        Assert.True(c1 == 0, o1 + e1);
+        Assert.Contains("      ... and 1 more cells (raise --max to see them; --max 0 lists them all)", Lines(o1));
+        var (cj, oj, ej) = s.Summary("--json", "--max", "1");
+        Assert.True(cj == 0, oj + ej);
+        var p = JsonDocument.Parse(oj).RootElement.GetProperty("plugins").EnumerateArray().Single();
+        var w = p.GetProperty("worldspaces").EnumerateArray().Single();
+        Assert.Equal(s.World.ToString(), w.GetProperty("formKey").GetString());
+        Assert.Equal("S_World", w.GetProperty("editorId").GetString());
+        Assert.False(w.GetProperty("own").GetBoolean());
+        var ext = w.GetProperty("cells").EnumerateArray().Single();
+        Assert.Equal(s.Ext.ToString(), ext.GetProperty("formKey").GetString());
+        Assert.Equal("S_Ext", ext.GetProperty("editorId").GetString());
+        Assert.False(ext.GetProperty("own").GetBoolean());
+        Assert.Equal(4, ext.GetProperty("records").GetInt32());
+        var interiors = p.GetProperty("interiors").GetProperty("cells").EnumerateArray().ToList();
+        Assert.Equal(2, interiors.Count);
+        Assert.Contains(interiors, c => c.GetProperty("formKey").GetString() == s.MInt.ToString() && c.GetProperty("own").GetBoolean());
+    }
+
+    [Fact]
+    public void Placed_references_per_worldspace_by_base_type_with_a_missing_base()
+    {
+        using var s = new PlaceSet();
+        var (code, stdout, stderr) = s.Summary();
+        Assert.True(code == 0, stdout + stderr);
+        var lines = Lines(stdout);
+        // S_World: R1 moved (STAT), R2 deleted (MISC), a new one with the mod's own misc item as its base
+        Assert.True(lines.Contains("      Placed references: 1 new, 2 overrides (1 deleted); by base type: MISC 2, STAT 1"), stdout);
+        // interiors: a new one with a base found nowhere, and the new cell's one with S_Stat
+        Assert.True(lines.Contains("      Placed references: 2 new, 0 overrides; by base type: (base not found) 1, STAT 1"), stdout);
+
+        var (cj, oj, ej) = s.Summary("--json");
+        Assert.True(cj == 0, oj + ej);
+        var p = JsonDocument.Parse(oj).RootElement.GetProperty("plugins").EnumerateArray().Single();
+        var placed = p.GetProperty("worldspaces").EnumerateArray().Single().GetProperty("placed");
+        Assert.Equal(1, placed.GetProperty("new").GetInt32());
+        Assert.Equal(2, placed.GetProperty("override").GetInt32());
+        Assert.Equal(1, placed.GetProperty("deleted").GetInt32());
+        Assert.Equal(2, placed.GetProperty("byBase").GetProperty("MISC").GetInt32());
+        Assert.Equal(1, placed.GetProperty("byBase").GetProperty("STAT").GetInt32());
+        var inPlaced = p.GetProperty("interiors").GetProperty("placed");
+        Assert.Equal(2, inPlaced.GetProperty("new").GetInt32());
+        Assert.Equal(0, inPlaced.GetProperty("override").GetInt32());
+        Assert.Equal(1, inPlaced.GetProperty("byBase").GetProperty("(base not found)").GetInt32());
+
+        // a plugin with no cells: the line says none, and the JSON has empty lists
+        using var plain = new Set();
+        var (c0, o0, e0) = plain.Summary(Path.Combine(plain.ModDir, "Mod.esm"));
+        Assert.True(c0 == 0, o0 + e0);
+        Assert.Contains("  Cells touched: none", Lines(o0));
+        var (cn, on, en) = plain.Summary(Path.Combine(plain.ModDir, "Mod.esm"), "--json");
+        Assert.True(cn == 0, on + en);
+        var pn = JsonDocument.Parse(on).RootElement.GetProperty("plugins").EnumerateArray().Single();
+        Assert.Empty(pn.GetProperty("worldspaces").EnumerateArray());
+        Assert.Empty(pn.GetProperty("interiors").GetProperty("cells").EnumerateArray());
+        Assert.Equal(0, pn.GetProperty("interiors").GetProperty("placed").GetProperty("new").GetInt32());
     }
 
     [Fact]

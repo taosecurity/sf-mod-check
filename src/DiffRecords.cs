@@ -96,6 +96,64 @@ public sealed class RecordIndex
         return ix;
     }
 
+    /// <summary>What FindOwn reads of a wanted record besides its type.</summary>
+    [System.Flags]
+    public enum Want { Type = 0, EditorId = 1, Base = 2 }
+
+    /// <summary>(0.26.0, summary) A header-only walk of one plugin that finds only its own records with the wanted local
+    /// IDs (masked as Mutagen's FormKey has them): each one's type, its EditorID when Want.EditorId is asked for, and with
+    /// Want.Base the FormID in its NAME field (a placed record's base) as a key whose File is always a file name (lower
+    /// case, this file's own name for its own records). Only those bodies are read and unpacked, so a big master costs one
+    /// pass over its record headers. masterHeader as in Build. Returns null and the reason when the file isn't a plugin; a
+    /// walk that stops early keeps what it found, with the reason in error.</summary>
+    public static Dictionary<uint, (string Sig, string? EditorId, RecKey? Base)>? FindOwn(string path, Func<string, RawHeader?> masterHeader,
+                                                                                         IReadOnlyDictionary<uint, Want> wanted, out string? error)
+    {
+        error = null;
+        var h = RawHeader.Read(path);
+        if (h == null) { error = $"{path} is not a plugin: it doesn't start with a TES4 header"; return null; }
+        var styles = new Dictionary<string, Style>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in h.Masters)
+            if (!styles.ContainsKey(m)) styles[m] = (BuildKit.GameData.IsPlainPluginName(m) ? masterHeader(m) : null)?.Style ?? Style.Full;
+        var ids = new IdMap("", h.Style, h.Masters.Select(m => (m, styles[m])));
+        var self = System.IO.Path.GetFileName(path).ToLowerInvariant();
+        var found = new Dictionary<uint, (string, string?, RecKey?)>();
+        if (wanted.Count == 0) return found;
+        using var f = new RawFile(path);
+        var w = new RawWalker(f, deep: false, (_, _, _) => { });
+        w.OnRecord = rec =>
+        {
+            var (file, local, _) = ids.Decode(rec.FormId);
+            if (file is not { Length: 0 }) return;
+            var l = IdMap.Mask(local, h.Style);
+            if (!wanted.TryGetValue(l, out var what) || found.ContainsKey(l)) return;
+            string? e = null;
+            RecKey? b = null;
+            if (what != Want.Type && rec.Size <= int.MaxValue)
+            {
+                ReadOnlySpan<byte> body = f.Span(rec.Offset + 24, (int)rec.Size);
+                byte[]? unpacked = (rec.Flags & Flags.Compressed) != 0 ? Subrecords.Decompress(body, out _) : null;
+                if (unpacked != null) body = unpacked;
+                if (unpacked != null || (rec.Flags & Flags.Compressed) == 0)
+                {
+                    if ((what & Want.EditorId) != 0) e = EditorId(body);
+                    if ((what & Want.Base) != 0)
+                        foreach (var (type, data) in Subrecords.Parse(body, out _))
+                        {
+                            if (type != "NAME" || data.Length < 4) continue;
+                            var (bf, bl, _) = ids.Decode(BitConverter.ToUInt32(data, 0));
+                            if (bf != null) b = bf.Length == 0 ? new RecKey(self, IdMap.Mask(bl, h.Style)) : new RecKey(bf.ToLowerInvariant(), IdMap.Mask(bl, styles[bf]));
+                            break;
+                        }
+                }
+            }
+            found[l] = (string.Intern(rec.Sig), e, b);
+        };
+        w.Walk();
+        if (w.StoppedEarly != null) error = $"{System.IO.Path.GetFileName(path)} can't be read to the end ({w.StoppedEarly})";
+        return found;
+    }
+
     static RecInfo Read(RawFile f, RawRecord rec, ref int unpackable)
     {
         var stored = f.Span(rec.Offset + 24, (int)rec.Size);

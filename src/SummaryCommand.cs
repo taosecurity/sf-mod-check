@@ -5,7 +5,8 @@
 // several plugins gets one summary per plugin, in the archive's load order. Per plugin: its header and masters, the
 // records per type from one raw walk (new, override, deleted overrides), the ITMs (Overrides.FindItms with the masters'
 // link cache, as check builds it), and the top-level fields the overrides change, from the same master lookup
-// (FindItms' compared callback). NOTES.md "0.26.0 (SmcLookups)", part C, has the design.
+// (FindItms' compared callback), and the cells touched and placed references per worldspace and in the interiors (from
+// the same raw walk, with each base's type from a header-only walk of the master it comes from). NOTES.md "0.26.0 (SmcLookups)", part C, has the design.
 // Exit 0 = summary made, 2 = could not run. Text ends with one RESULT line; --json prints one object.
 using System.Diagnostics;
 using System.Globalization;
@@ -25,11 +26,13 @@ public static class SummaryCommand
         "                            [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  Says what one plugin adds and changes: its masters, its records by type (new, override, deleted), the overrides\n" +
         "  identical to their master version (ITM), and the fields its overrides change, with the master's value and the\n" +
-        "  plugin's.\n" +
+        "  plugin's; then the cells it touches in each worldspace and in the interiors, and its placed references there\n" +
+        "  (new, override, deleted) by the record type of their base.\n" +
         "  <plugin or archive>  a plugin (.esm, .esp or .esl) or a mod archive (.zip, .7z or .rar). An archive with several\n" +
         "               plugins gets one summary per plugin, in load order. The masters are looked up in the plugin's own\n" +
         "               folder, then each --masters-dir, then the game's Data folder.\n" +
-        "  --max        examples listed per type and per field (default 5; 0 lists them all)\n" +
+        "  --max        examples listed per type and per field (default 5), and cells listed per worldspace (default 20);\n" +
+        "               0 lists them all. --json always lists every cell.\n" +
         "Exit 0 = summary made, 2 = could not run.";
 
     public const int DefaultMax = 5;
@@ -64,7 +67,47 @@ public static class SummaryCommand
         public int Override => Types.Values.Sum(t => t.Override);
         public int Deleted => Types.Values.Sum(t => t.Deleted);
         public int ChangedOverrides;
+        /// <summary>C.5 and C.6: the worldspaces whose cells the plugin touches, and the interior cells.</summary>
+        public List<Place> Worlds = new();
+        public Place Interiors = new() { FormKey = null };
+        public int CellCount => Worlds.Sum(w => w.Cells.Count) + Interiors.Cells.Count;
     }
+
+    /// <summary>One touched cell: the plugin has its CELL record or a record under it. Records counts both.</summary>
+    internal sealed class CellTouch
+    {
+        public required string FormKey;
+        public string? EditorId;
+        public bool Own;
+        public int Records;
+    }
+
+    /// <summary>The placed references in a worldspace or in the interiors, counted by their base's record type.</summary>
+    internal sealed class PlacedCounts
+    {
+        public int New, Override, Deleted;
+        public Dictionary<string, int> ByBase = new(StringComparer.Ordinal);
+    }
+
+    /// <summary>A worldspace (FormKey set) or the interiors (FormKey null): its touched cells and placed references.</summary>
+    internal sealed class Place
+    {
+        public required string? FormKey;
+        public string? EditorId;
+        public bool Own;
+        public List<CellTouch> Cells = new();
+        public PlacedCounts Placed = new();
+        public int Records => Cells.Sum(c => c.Records);
+    }
+
+    /// <summary>The placed record types (the ones RawWalker allows in a cell's refs groups, less navmeshes); the base
+    /// is each one's NAME field.</summary>
+    internal static readonly HashSet<string> PlacedSigs = new(StringComparer.Ordinal)
+        { "REFR", "ACHR", "PGRE", "PHZD", "PMIS", "PARW", "PBAR", "PBEA", "PCON", "PFLA" };
+    public const string BaseNotFound = "(base not found)";
+    public const string NoBase = "(no base in the record)";
+    /// <summary>The cells listed per worldspace in text when --max isn't given (JSON lists them all).</summary>
+    public const int DefaultCellMax = 20;
 
     public static int Run(string[] a, string version, string byline)
     {
@@ -107,6 +150,7 @@ public static class SummaryCommand
         string? target = null, logFile = null;
         bool quiet = false, verbose = false, json = false;
         int max = DefaultMax;
+        bool maxGiven = false;
         using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "summary");
         for (int i = 0; i < a.Length; i++)
         {
@@ -128,6 +172,7 @@ public static class SummaryCommand
                         cantWhy = "--max needs a whole number";
                         return 2;
                     }
+                    maxGiven = true;
                     break;
                 case "--log":
                     if (Cli.Value(a, ref i, "a file name", Usage) is not { } lf) return 2;
@@ -219,7 +264,7 @@ public static class SummaryCommand
             else
             {
                 if (!quiet) Console.WriteLine($"sf-mod-check {version} summary of {SafeText.OneLine(lo.OrderSource)}");
-                foreach (var s in summaries) PrintText(s, max);
+                foreach (var s in summaries) PrintText(s, max, maxGiven ? max : DefaultCellMax);
                 Console.WriteLine("RESULT: " + string.Join("; ", summaries.Select(ResultPart)));
             }
             Log.Write($"result: {summaries.Count} plugin(s) summarized, exit code 0, {sw.Elapsed.TotalSeconds:F1} s");
@@ -232,7 +277,8 @@ public static class SummaryCommand
 
     static string ResultPart(PluginSummary s) =>
         $"{SafeText.OneLine(s.Name)}: {Plural(s.Records, "record", "records")} ({s.New} new, {Plural(s.Override, "override", "overrides")}, {s.Deleted} deleted), " +
-        $"{s.Itms.Count} ITM, {Plural(s.Fields.Count, "field", "fields")} changed in {Plural(s.ChangedOverrides, "override", "overrides")}";
+        $"{s.Itms.Count} ITM, {Plural(s.Fields.Count, "field", "fields")} changed in {Plural(s.ChangedOverrides, "override", "overrides")}" +
+        (s.CellCount > 0 ? $", {Plural(s.CellCount, "cell", "cells")} touched" : "");
 
     static string StyleName(Style s) => s switch { Style.Light => "light", Style.Medium => "medium", _ => "full" };
 
@@ -308,6 +354,7 @@ public static class SummaryCommand
             }
         }
         Log.Write($"summary: {t.FileName}: raw walk: {ix.Walked} records, {ix.Duplicates} duplicates, {ix.PastEnd} past the master list");
+        Places(t, ix, byName, HeaderOf, s);
 
         // C.3 and C.4: the overrides as Mutagen reads them, compared with their master versions
         var self = t.Mod.ModKey;
@@ -376,13 +423,155 @@ public static class SummaryCommand
         return true;
     }
 
+    /// <summary>The stored FormID in a placed record's NAME field (its base), keyed as the plugin stores it, or null when
+    /// the record has no NAME (a deleted reference often keeps none) or its body doesn't unpack.</summary>
+    static RecKey? BaseOf(RawFile f, RecInfo rec, RecordIndex ix)
+    {
+        var size = f.U32(rec.Offset + 4);
+        if (size > int.MaxValue || rec.Offset + 24 + size > f.Length) return null;
+        ReadOnlySpan<byte> body = f.Span(rec.Offset + 24, (int)size);
+        if ((rec.Flags & Flags.Compressed) != 0)
+        {
+            if (Subrecords.Decompress(body, out _) is not { } d) return null;
+            body = d;
+        }
+        foreach (var (type, data) in Subrecords.Parse(body, out _))
+            if (type == "NAME" && data.Length >= 4) return ix.KeyOf(BitConverter.ToUInt32(data, 0), out _);
+        return null;
+    }
+
+    /// <summary>C.5 and C.6: the cells the plugin touches (its CELL record, or any record under the cell), per worldspace
+    /// and in the interiors, with the record count in each; and the placed references in each, new, override and
+    /// deleted, counted by their base's record type. Everything comes from the plugin's raw walk (ix), the NAME field of
+    /// each placed record, and one header-only walk of each master that is the origin of a base, cell or worldspace the
+    /// plugin doesn't hold itself (RecordIndex.FindOwn, which reads only the wanted records). A deleted override with no
+    /// NAME is counted by its master version's base, from one walk of its origin master before the others.</summary>
+    static void Places(PluginInfo t, RecordIndex ix, Dictionary<string, PluginInfo> byName, Func<string, RawHeader?> headerOf, PluginSummary s)
+    {
+        var sw = Stopwatch.StartNew();
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in ix.Header.Masters) names.TryAdd(m, m);
+        string Show(RecKey k) => $"{k.Local:X6}:{(k.Own ? t.FileName : names.TryGetValue(k.File, out var n) ? n : k.File)}";
+
+        var cells = new Dictionary<RecKey, (RecKey? World, int Records)>();
+        var placed = new List<(RecKey Key, RecInfo Info)>();
+        foreach (var (key, rec) in ix.Records)
+        {
+            if (rec.Sig == "CELL") { cells.TryGetValue(key, out var c); cells[key] = (rec.World ?? c.World, c.Records + 1); }
+            else if (rec.Cell is { } ck) { cells.TryGetValue(ck, out var c); cells[ck] = (c.World ?? rec.World, c.Records + 1); }
+            if (PlacedSigs.Contains(rec.Sig)) placed.Add((key, rec));
+        }
+        if (cells.Count == 0 && placed.Count == 0) return;
+
+        var bases = new List<(RecKey Ref, RecInfo Info, RecKey? Base)>(placed.Count);
+        using (var f = new RawFile(t.Path))
+            foreach (var (key, rec) in placed) bases.Add((key, rec, BaseOf(f, rec, ix)));
+
+        // what to look up in the masters: origin file -> local ID -> what to read of it
+        var found = new Dictionary<string, Dictionary<uint, (string Sig, string? EditorId, RecKey? Base)>>(StringComparer.OrdinalIgnoreCase);
+        var wanted = new Dictionary<string, Dictionary<uint, RecordIndex.Want>>(StringComparer.OrdinalIgnoreCase);
+        void Want(RecKey k, RecordIndex.Want what)
+        {
+            if (k.Own) return;
+            if (!wanted.TryGetValue(k.File, out var d)) wanted[k.File] = d = new();
+            d[k.Local] = d.GetValueOrDefault(k.Local) | what;
+        }
+        void LookUp()
+        {
+            foreach (var (file, d) in wanted)
+            {
+                if (!byName.TryGetValue(file, out var mp))
+                {
+                    Log.Write($"summary: {t.FileName}: {d.Count} records come from {file}, which isn't in the load order");
+                    continue;
+                }
+                var fsw = Stopwatch.StartNew();
+                var r = RecordIndex.FindOwn(mp.Path, headerOf, d, out var err);
+                if (r != null)
+                {
+                    if (!found.TryGetValue(file, out var into)) found[file] = into = new();
+                    foreach (var (l, x) in r) into[l] = x;
+                }
+                if (err != null) s.Unread.Add($"{mp.FileName} was not read to the end, so some bases, cells or worldspaces from it may show as not found ({SafeText.OneLine(err)})");
+                Log.Write($"summary: {t.FileName}: looked up {d.Count} records in {mp.FileName}: {r?.Count ?? 0} found, {fsw.Elapsed.TotalSeconds:F1} s");
+            }
+            wanted.Clear();
+        }
+        // first, a deleted override usually keeps no NAME (Mutagen writes none): its base is the master version's
+        foreach (var b in bases) if (b.Base == null && !b.Ref.Own) Want(b.Ref, RecordIndex.Want.Base);
+        if (wanted.Count > 0)
+        {
+            LookUp();
+            var selfName = t.FileName.ToLowerInvariant();
+            for (int i = 0; i < bases.Count; i++)
+                if (bases[i].Base == null && !bases[i].Ref.Own && found.TryGetValue(bases[i].Ref.File, out var d) && d.TryGetValue(bases[i].Ref.Local, out var x)
+                    && x.Base is { } mb)
+                    bases[i] = bases[i] with { Base = mb.File == selfName ? new RecKey("", mb.Local) : mb };
+        }
+        bool HasEdid(RecKey k) => ix.Records.TryGetValue(k, out var i) && i.EditorId != null;
+        foreach (var b in bases) if (b.Base is { } bk) Want(bk, RecordIndex.Want.Type);
+        foreach (var (ck, c) in cells)
+        {
+            if (!HasEdid(ck)) Want(ck, RecordIndex.Want.EditorId);
+            if (c.World is { } wk && !HasEdid(wk)) Want(wk, RecordIndex.Want.EditorId);
+        }
+        LookUp();
+        (string Sig, string? EditorId)? Lookup(RecKey k) =>
+            k.Own ? (ix.Records.TryGetValue(k, out var i) ? (i.Sig, i.EditorId) : null)
+            : found.TryGetValue(k.File, out var d) && d.TryGetValue(k.Local, out var x) ? (x.Sig, x.EditorId) : null;
+        string? EdidOf(RecKey k) => ix.Records.TryGetValue(k, out var i) && i.EditorId != null ? i.EditorId : Lookup(k)?.EditorId;
+
+        var worlds = new Dictionary<RecKey, Place>();
+        Place PlaceOf(RecKey? w)
+        {
+            if (w is not { } wk) return s.Interiors;
+            if (!worlds.TryGetValue(wk, out var p)) worlds[wk] = p = new Place { FormKey = Show(wk), EditorId = EdidOf(wk), Own = wk.Own };
+            return p;
+        }
+        foreach (var (ck, c) in cells)
+            PlaceOf(c.World).Cells.Add(new CellTouch { FormKey = Show(ck), EditorId = EdidOf(ck), Own = ck.Own, Records = c.Records });
+        foreach (var (rk, info, bk) in bases)
+        {
+            var pc = PlaceOf(info.Cell is { } ck && cells.TryGetValue(ck, out var c) ? c.World : info.World).Placed;
+            if (rk.Own) pc.New++;
+            else
+            {
+                pc.Override++;
+                if ((info.Flags & Flags.Deleted) != 0) pc.Deleted++;
+            }
+            var type = bk is not { } b ? NoBase : Lookup(b)?.Sig ?? BaseNotFound;
+            pc.ByBase[type] = pc.ByBase.GetValueOrDefault(type) + 1;
+        }
+        s.Worlds = worlds.Values.OrderByDescending(w => w.Records).ThenBy(w => w.FormKey, StringComparer.Ordinal).ToList();
+        foreach (var p in s.Worlds.Append(s.Interiors))
+            p.Cells.Sort((a, b) => a.Records != b.Records ? b.Records.CompareTo(a.Records) : string.CompareOrdinal(a.FormKey, b.FormKey));
+        Log.Write($"summary: {t.FileName}: {cells.Count} cells touched in {worlds.Count} worldspaces and the interiors, {placed.Count} placed references, " +
+                  $"bases looked up in {found.Count} masters, {sw.Elapsed.TotalSeconds:F1} s");
+    }
+
+    static string ByBaseText(PlacedCounts p) =>
+        string.Join(", ", p.ByBase.OrderByDescending(b => b.Value).ThenBy(b => b.Key, StringComparer.Ordinal).Select(b => $"{b.Key} {b.Value}"));
+
+    static void PrintPlace(Place p, int cellMax)
+    {
+        var name = p.FormKey == null ? "Interiors" : $"Worldspace {p.FormKey}{(p.EditorId is { Length: > 0 } e ? " " + SafeText.OneLine(e) : "")} ({(p.Own ? "new" : "override")})";
+        Console.WriteLine($"    {name}: {Plural(p.Cells.Count, "cell", "cells")}, {Plural(p.Records, "record", "records")}");
+        foreach (var c in Cap(p.Cells, cellMax))
+            Console.WriteLine($"      {c.FormKey}{(c.EditorId is { Length: > 0 } ce ? " " + SafeText.OneLine(ce) : "")} ({(c.Own ? "new" : "override")}): {Plural(c.Records, "record", "records")}");
+        if (cellMax > 0 && p.Cells.Count > cellMax) Console.WriteLine($"      ... and {p.Cells.Count - cellMax} more cells (raise --max to see them; --max 0 lists them all)");
+        var pc = p.Placed;
+        if (pc.New + pc.Override > 0)
+            Console.WriteLine($"      Placed references: {pc.New} new, {Plural(pc.Override, "override", "overrides")}" +
+                              (pc.Deleted > 0 ? $" ({pc.Deleted} deleted)" : "") + $"; by base type: {ByBaseText(pc)}");
+    }
+
     /// <summary>The changed fields, most overrides first, then by type and field name.</summary>
     static IEnumerable<KeyValuePair<(string Type, string Field), List<FieldExample>>> FieldsOrdered(PluginSummary s) =>
         s.Fields.OrderByDescending(f => f.Value.Count).ThenBy(f => f.Key.Type, StringComparer.Ordinal).ThenBy(f => f.Key.Field, StringComparer.Ordinal);
 
     static IEnumerable<T> Cap<T>(IEnumerable<T> items, int max) => max == 0 ? items : items.Take(max);
 
-    static void PrintText(PluginSummary s, int max)
+    static void PrintText(PluginSummary s, int max, int cellMax)
     {
         Console.WriteLine();
         Console.WriteLine($"{SafeText.OneLine(s.Name)} ({StyleName(s.Style)} plugin{(s.FromArchive != null ? $", from {SafeText.OneLine(s.FromArchive)}" : "")})");
@@ -411,6 +600,11 @@ public static class SummaryCommand
                 Console.WriteLine($"      {x.FormKey}{(x.EditorId is { Length: > 0 } e ? " " + SafeText.OneLine(e) : "")}: {x.From} -> {x.To}");
             if (max > 0 && list.Count > max) Console.WriteLine($"      ... and {list.Count - max} more (raise --max to see them; --max 0 lists them all)");
         }
+        var interior = s.Interiors.Cells.Count > 0 || s.Interiors.Placed.New + s.Interiors.Placed.Override > 0;
+        Console.WriteLine(s.CellCount == 0 && !interior && s.Worlds.Count == 0 ? "  Cells touched: none"
+            : $"  Cells touched: {Plural(s.CellCount, "cell", "cells")} ({Plural(s.Worlds.Count, "worldspace", "worldspaces")}, {s.Interiors.Cells.Count} interior)");
+        foreach (var w in s.Worlds) PrintPlace(w, cellMax);
+        if (interior) PrintPlace(s.Interiors, cellMax);
         foreach (var u in s.Unread) Console.WriteLine($"  not read: {SafeText.OneLine(u)}");
     }
 
@@ -447,8 +641,23 @@ public static class SummaryCommand
                     ["formKey"] = x.FormKey, ["editorId"] = x.EditorId, ["from"] = x.From, ["to"] = x.To,
                 }).ToArray()),
             }).ToArray()),
+            ["worldspaces"] = new JsonArray(s.Worlds.Select(w => (JsonNode)new JsonObject
+            {
+                ["formKey"] = w.FormKey, ["editorId"] = w.EditorId, ["own"] = w.Own, ["cells"] = Cells(w), ["placed"] = Placed(w.Placed),
+            }).ToArray()),
+            ["interiors"] = new JsonObject { ["cells"] = Cells(s.Interiors), ["placed"] = Placed(s.Interiors.Placed) },
             ["unread"] = new JsonArray(s.Unread.Select(u => (JsonNode)u).ToArray()),
         };
+        static JsonArray Cells(Place p) => new(p.Cells.Select(c => (JsonNode)new JsonObject
+        {
+            ["formKey"] = c.FormKey, ["editorId"] = c.EditorId, ["own"] = c.Own, ["records"] = c.Records,
+        }).ToArray());
+        static JsonObject Placed(PlacedCounts p)
+        {
+            var byBase = new JsonObject();
+            foreach (var (k, v) in p.ByBase.OrderByDescending(b => b.Value).ThenBy(b => b.Key, StringComparer.Ordinal)) byBase[k] = v;
+            return new JsonObject { ["new"] = p.New, ["override"] = p.Override, ["deleted"] = p.Deleted, ["byBase"] = byBase };
+        }
         var root = new JsonObject
         {
             ["tool"] = "sf-mod-check summary",
