@@ -91,6 +91,36 @@ public class Ba2FindTests(Ba2FindPlugins plugins) : IClassFixture<Ba2FindPlugins
     }
 
     [Fact]
+    public void A_loose_file_over_an_archive_gets_a_note_unless_the_ini_lets_loose_files_replace_archived_ones()
+    {
+        using var g = new Game(plugins);
+        g.Archive("ModA - Main.ba2", "GNRL", @"meshes\shared.nif");
+        g.Loose(g.Data, @"meshes\shared.nif");
+        g.Loose(g.Data, @"meshes\only.nif");
+        // a later --ini replaces the keys of the account's own StarfieldCustom.ini, so the test doesn't depend on it
+        var off = Path.Combine(g.Dir, "Off.ini");
+        File.WriteAllText(off, "[Archive]\nbInvalidateOlderFiles=0\nsResourceDataDirsFinal=STRINGS\\\n");
+        var on = Path.Combine(g.Dir, "On.ini");
+        File.WriteAllText(on, "[Archive]\nbInvalidateOlderFiles=1\nsResourceDataDirsFinal=\n");
+        var (code, o, e) = g.Run(@"meshes\*.nif", "--ini", off);
+        Assert.True(code == 0, o + e);
+        Assert.Contains("note: 1 name is both loose and in a loaded archive. A loose file replaces the archived copy only when an INI sets [Archive] bInvalidateOlderFiles=1 and sResourceDataDirsFinal=", o);
+        (code, o, e) = g.Run(@"meshes\*.nif", "--ini", off, "--json");
+        Assert.True(code == 0, o + e);
+        Assert.False(JsonDocument.Parse(o).RootElement.GetProperty("looseFilesReplaceArchives").GetBoolean());
+        (code, o, e) = g.Run(@"meshes\*.nif", "--ini", off, "--ini", on);
+        Assert.True(code == 0, o + e);
+        Assert.DoesNotContain("note:", o);
+        (code, o, e) = g.Run(@"meshes\*.nif", "--ini", on, "--json");
+        Assert.True(code == 0, o + e);
+        Assert.True(JsonDocument.Parse(o).RootElement.GetProperty("looseFilesReplaceArchives").GetBoolean());
+        // a name that is only loose needs no note
+        (code, o, e) = g.Run(@"meshes\only.nif", "--ini", off);
+        Assert.True(code == 0, o + e);
+        Assert.DoesNotContain("note:", o);
+    }
+
+    [Fact]
     public void An_ini_archive_comes_before_the_plugins_archives()
     {
         using var g = new Game(plugins);
@@ -304,7 +334,7 @@ public class Ba2FindTests(Ba2FindPlugins plugins) : IClassFixture<Ba2FindPlugins
         Assert.True(code == 0, o + e);
         using var doc = JsonDocument.Parse(o);
         var root = JsonShape.Exactly(doc.RootElement, "ba2 find", "tool:string", "version:string", "pattern:string", "loadOrder:string",
-            "files:array", "listed:number", "total:number", "archivesRead:number", "skipped:array", "unreadable:array");
+            "files:array", "listed:number", "total:number", "archivesRead:number", "looseFilesReplaceArchives:bool", "skipped:array", "unreadable:array");
         JsonShape.Exactly(root.GetProperty("skipped")[0], "skipped[0]", "archive:string", "why:string");
         JsonShape.Exactly(root.GetProperty("unreadable")[0], "unreadable[0]", "archive:string", "why:string");
         var file = JsonShape.Exactly(root.GetProperty("files")[0], "files[0]", "name:string", "holders:array");

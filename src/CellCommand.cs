@@ -716,15 +716,29 @@ public static class CellCommand
                                 string AddedBy, bool AddedByLoaded, List<string> ChangedBy, FormKey Key, string? EditorId,
                                 bool Interior, string? World, int[]? Grid);
 
-    /// <summary>The cell's own lines, from its winning copy (the last plugin with a copy).</summary>
+    /// <summary>The cell's own lines, from its winning copy (the last plugin with a copy). A partial winning copy
+    /// (official plugins ship some: CityNeonCore in SFBGS050.esm) leaves out the fields it doesn't change, so each of
+    /// those comes from the last copy that has it, back to the last full copy.</summary>
     static Info CellInfo(Walk walk, ILinkCache ids, List<PluginInfo> plugins)
     {
         var (_, cell, world, top) = walk.CellCopies[^1];
+        ICellGetter From(Func<ICellGetter, bool> has)
+        {
+            for (int i = walk.CellCopies.Count - 1; i >= 0; i--)
+            {
+                var c = walk.CellCopies[i].Cell;
+                try { if (has(c)) return c; }
+                catch (Exception e) when (Fatal.Recoverable(e)) { }
+                if (!FieldCompare.IsPartial(c)) return c;
+            }
+            return cell;
+        }
         var key = cell.FormKey;
-        var eid = EditorIdOf(cell);
+        var eid = EditorIdOf(From(c => EditorIdOf(c) is { Length: > 0 }));
         string? name = null;
-        try { name = cell.Name?.String is { Length: > 0 } n ? SafeText.OneLine(n) : null; }
+        try { name = From(c => c.Name?.String is { Length: > 0 }).Name?.String is { Length: > 0 } n ? SafeText.OneLine(n) : null; }
         catch (Exception e) when (Fatal.Recoverable(e)) { }
+        var locCell = From(c => !c.Location.IsNull);
         string? worldText = null, location = null;
         bool fromWorld = false;
         int[]? grid = null;
@@ -732,10 +746,10 @@ public static class CellCommand
         {
             var w = LastWorld(world.FormKey, plugins) ?? world;
             worldText = EditorIdOf(w) is { Length: > 0 } we ? $"{SafeText.OneLine(we)} [{w.FormKey}]" : $"[{w.FormKey}]";
-            if (!top && cell.Grid is { } g) grid = new[] { g.Point.X, g.Point.Y };
-            if (cell.Location.IsNull && !w.Location.IsNull) { location = FindCommand.LinkText(w.Location, ids); fromWorld = true; }
+            if (!top && From(c => c.Grid != null).Grid is { } g) grid = new[] { g.Point.X, g.Point.Y };
+            if (locCell.Location.IsNull && !w.Location.IsNull) { location = FindCommand.LinkText(w.Location, ids); fromWorld = true; }
         }
-        if (!cell.Location.IsNull) location = FindCommand.LinkText(cell.Location, ids);
+        if (!locCell.Location.IsNull) location = FindCommand.LinkText(locCell.Location, ids);
         var where = world == null ? "interior"
             : top ? $"persistent cell of worldspace {worldText}"
             : grid != null ? $"worldspace {worldText}, grid {grid[0]},{grid[1]}" : $"worldspace {worldText}";

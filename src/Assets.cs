@@ -198,6 +198,35 @@ public sealed class AssetIndex
         return list;
     }
 
+    /// <summary>Whether the INIs let a loose file replace an archive's copy: [Archive] bInvalidateOlderFiles=1 and an
+    /// empty sResourceDataDirsFinal, the usual setup for loose-file mods (a later INI's key replaces an earlier one's).
+    /// Without them the game keeps the archived copy of a name an archive holds.</summary>
+    public static bool LooseFilesReplaceArchives(IEnumerable<string> inis)
+    {
+        string? invalidate = null, final = null;
+        foreach (var ini in inis)
+        {
+            string[] lines;
+            try { if (!File.Exists(ini)) continue; lines = File.ReadAllLines(ini); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { continue; }
+            string section = "";
+            foreach (var raw in lines)
+            {
+                var line = raw.Trim();
+                if (line.StartsWith('[') && line.EndsWith(']')) { section = line[1..^1].Trim(); continue; }
+                if (!section.Equals("Archive", StringComparison.OrdinalIgnoreCase)) continue;
+                var eq = line.IndexOf('=');
+                if (eq <= 0) continue;
+                var key = line[..eq].Trim();
+                if (key.Equals("bInvalidateOlderFiles", StringComparison.OrdinalIgnoreCase)) invalidate = line[(eq + 1)..].Trim();
+                else if (key.Equals("sResourceDataDirsFinal", StringComparison.OrdinalIgnoreCase)) final = line[(eq + 1)..].Trim();
+            }
+        }
+        var on = invalidate == "1" && final is { Length: 0 };
+        Log.Write($"assets: loose files replace archived ones: {(on ? "yes" : "no")} (bInvalidateOlderFiles={invalidate ?? "unset"}, sResourceDataDirsFinal={(final == null ? "unset" : $"\"{final}\"")})");
+        return on;
+    }
+
     /// <summary>The default INIs: Starfield.ini in the game folder (the Data folder's parent), then StarfieldCustom.ini
     /// in Documents\My Games\Starfield, then any --ini files.</summary>
     public static List<string> DefaultInis(string dataDir, IEnumerable<string> extra)

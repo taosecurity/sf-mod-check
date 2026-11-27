@@ -1455,6 +1455,10 @@ the load order and the INI archive lists and changes nothing.
 - It lists, per file name, every archive that holds it (every active plugin's `<plugin> - *.ba2` and the archives the
   INIs list) and every loose folder, in game order, and marks the copy the game uses with `<- wins`: **a loose file
   beats every archive, and a later archive beats an earlier one.** A texture (DX10) archive serves only `.dds` files.
+- A loose file replaces an archived copy only when an INI sets `bInvalidateOlderFiles=1` and `sResourceDataDirsFinal=`
+  under `[Archive]` (the usual StarfieldCustom.ini setup for loose-file mods). When a name is both loose and in a
+  loaded archive and the INIs read don't set both, a `note:` line says the game may use the archived copy instead.
+  Point `--ini` at your mod manager's INI if it keeps its own.
 - `--archives <folder>`: also search the `.ba2` files in a folder that the load order doesn't load (shown as not
   loaded; they never win), for example a downloaded mod's archives before you install it.
 - `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`, `--ini` and `--language` choose the load order and the

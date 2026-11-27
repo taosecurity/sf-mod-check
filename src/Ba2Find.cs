@@ -24,13 +24,15 @@ public static class Ba2Find
         "                             [--extra-data <folder>] [--ini <file>]... [--language <xx>] [--archives <folder>] [--max <n>]\n" +
         "                             [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  Lists which archives (.ba2) the game loads and which loose folders hold a file, in load order, and marks the\n" +
-        "  copy the game uses: a loose file beats every archive, and a later archive beats an earlier one.\n" +
+        "  copy the game uses: a loose file beats every archive, and a later archive beats an earlier one. A loose file\n" +
+        "  replaces an archived copy only when an INI sets [Archive] bInvalidateOlderFiles=1 and sResourceDataDirsFinal=;\n" +
+        "  without both, a note says the game may use the archived copy.\n" +
         "  <pattern>     a file name as the game sees it (\"sound\\voice\\mymod.esm\\npcmguard\\0001a2b3_1.wem\"), or a glob:\n" +
         "                * matches any characters (folders included) and ? one character. Case doesn't matter, and / is\n" +
         "                the same as \\. Quote it so the shell doesn't expand it.\n" +
         "  --plugins     the load order (default: the game's own Plugins.txt); --mo2 reads an MO2 profile instead\n" +
         "  --extra-data  a folder searched before Data for archives and loose files\n" +
-        "  --ini         another INI whose [Archive] lists count (after Starfield.ini and StarfieldCustom.ini)\n" +
+        "  --ini         another INI whose [Archive] lists and loose-file keys count (after Starfield.ini and StarfieldCustom.ini)\n" +
         "  --language    the voice language whose archives load (default en); other languages' voice archives are skipped\n" +
         "  --archives    also search every .ba2 in this folder that the load order doesn't load (shown as not loaded;\n" +
         "                they never win). Use it to search a mod's archives before it is installed.\n" +
@@ -198,7 +200,9 @@ public static class Ba2Find
         foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
 
         // the archives, as check and conflict find them (types only: the names are read once below)
-        var index = AssetIndex.Build(plugins, input.AssetDirs, AssetIndex.DefaultInis(input.DataDir, inis), language, names: false);
+        var iniFiles = AssetIndex.DefaultInis(input.DataDir, inis);
+        var index = AssetIndex.Build(plugins, input.AssetDirs, iniFiles, language, names: false);
+        var looseReplaces = AssetIndex.LooseFilesReplaceArchives(iniFiles);
         var cmp = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         var sources = index.ArchivesInLoadOrder().Select(x => new Source(x.Path, x.Type, x.Why, true)).ToList();
         var unreadable = index.Unreadable.Select(u => (Archive: u.Archive, Why: u.Why)).ToList();
@@ -279,13 +283,17 @@ public static class Ba2Find
             var win = holders.LastOrDefault(h => h.Kind == "loose") ?? holders.LastOrDefault(h => h.Kind == "archive" && h.Loaded && h.Served);
             if (win != null) win.Winner = true;
         }
+        // a loose copy wins over a loaded archive's copy only with the loose-file INI setting (see the note below)
+        int looseOverArchive = found.Values.Count(hs => hs.Any(h => h.Kind == "loose") && hs.Any(h => h.Kind == "archive" && h.Loaded && h.Served));
+        var looseNote = looseReplaces || looseOverArchive == 0 ? null
+            : $"note: {looseOverArchive:N0} name{(looseOverArchive == 1 ? " is" : "s are")} both loose and in a loaded archive. A loose file replaces the archived copy only when an INI sets [Archive] bInvalidateOlderFiles=1 and sResourceDataDirsFinal= (the usual setup for loose-file mods), and the INIs read don't, so the game may use the archived copy instead (add yours with --ini)";
 
         var shown = max == 0 ? found.ToList() : found.Take(max).ToList();
         var total = found.Count;
         resultPrinted = true;
         var summary = $"{total:N0} file{(total == 1 ? "" : "s")} matched in {archivesWithMatch.Count:N0} of {archivesRead:N0} archive{(archivesRead == 1 ? "" : "s")} and {loosewith.Count:N0} loose folder{(loosewith.Count == 1 ? "" : "s")}";
         if (json)
-            Console.WriteLine(Json(version, pattern, lo.OrderSource, shown, total, archivesRead, index.Skipped, unreadable));
+            Console.WriteLine(Json(version, pattern, lo.OrderSource, shown, total, archivesRead, index.Skipped, unreadable, looseReplaces));
         else
         {
             if (!quiet)
@@ -297,6 +305,7 @@ public static class Ba2Find
             }
             if (total > shown.Count) Console.WriteLine($"... and {total - shown.Count:N0} more (raise --max to see them; --max 0 lists them all)");
             foreach (var (u, w) in unreadable) Console.WriteLine($"unreadable: {SafeText.OneLine(u)}: {SafeText.OneLine(w)}");
+            if (looseNote != null) Console.WriteLine(looseNote);
             Console.WriteLine(total == 0
                 ? $"RESULT: NOT FOUND (no file matches {SafeText.OneLine(pattern)} in {archivesRead:N0} archive{(archivesRead == 1 ? "" : "s")} and {index.LooseDirs.Count:N0} loose folder{(index.LooseDirs.Count == 1 ? "" : "s")})"
                 : $"RESULT: {summary}");
@@ -376,7 +385,7 @@ public static class Ba2Find
     }
 
     static string Json(string version, string pattern, string source, List<KeyValuePair<string, List<Holder>>> shown, int total, int archivesRead,
-                       List<(string Archive, string Why)> skipped, List<(string Archive, string Why)> unreadable)
+                       List<(string Archive, string Why)> skipped, List<(string Archive, string Why)> unreadable, bool looseReplaces)
     {
         var files = new JsonArray();
         foreach (var (n, holders) in shown)
@@ -400,6 +409,7 @@ public static class Ba2Find
         {
             ["tool"] = "sf-mod-check ba2 find", ["version"] = version, ["pattern"] = pattern, ["loadOrder"] = source,
             ["files"] = files, ["listed"] = shown.Count, ["total"] = total, ["archivesRead"] = archivesRead,
+            ["looseFilesReplaceArchives"] = looseReplaces,
             ["skipped"] = new JsonArray(skipped.Select(s => (JsonNode)new JsonObject { ["archive"] = s.Archive, ["why"] = s.Why }).ToArray()),
             ["unreadable"] = new JsonArray(unreadable.Select(s => (JsonNode)new JsonObject { ["archive"] = s.Archive, ["why"] = s.Why }).ToArray()),
         }.ToJsonString(Indented);

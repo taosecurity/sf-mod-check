@@ -657,8 +657,11 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `<plugin> - *.ba2`, the INIs' lists) and the loose folders, in game order, and marks the copy the game uses with `<-
     wins`: a loose file beats every archive and a later archive beats an earlier one. `--archives <folder>` also
     searches `.ba2` files the load order doesn't load (shown as not loaded; they never win), for a mod you haven't
-    installed. A texture (DX10) archive serves only `.dds`. A pattern that would leave the Data folder is refused. Exit
-    0 = a file matched, 1 = none, 2 = couldn't run.  `--json` has `tool`, `version`, `pattern`, `loadOrder`, `files` (each with `name` and `holders`: `kind`, `archive` or `path`, `why`, `type`, `loaded`, `served`, `winner`), `listed`, `total`, `archivesRead`, `skipped` (archives left out, such as another language's voices, each with `archive` and `why`) and `unreadable` (each with `archive` and `why`).
+    installed. A texture (DX10) archive serves only `.dds`. A pattern that would leave the Data folder is refused. A
+    loose file replaces an archived copy only when the INIs set `[Archive] bInvalidateOlderFiles=1` and
+    `sResourceDataDirsFinal=`; without both, a name that is loose and in a loaded archive gets a `note:` line that the
+    game may use the archived copy (`--ini` adds a mod manager's INI). Exit
+    0 = a file matched, 1 = none, 2 = couldn't run.  `--json` has `tool`, `version`, `pattern`, `loadOrder`, `files` (each with `name` and `holders`: `kind`, `archive` or `path`, `why`, `type`, `loaded`, `served`, `winner`), `listed`, `total`, `archivesRead`, `looseFilesReplaceArchives` (whether the INIs read set both keys), `skipped` (archives left out, such as another language's voices, each with `archive` and `why`) and `unreadable` (each with `archive` and `why`).
 
 ## 6. Inputs and outputs
 
