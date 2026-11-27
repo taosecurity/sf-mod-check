@@ -32,11 +32,15 @@ public static class Overrides
     };
 
     /// <summary>The overrides identical to their master version, and how many couldn't be compared.</summary>
+    /// <param name="compared">0.26.0 (summary): called with (override, master version) for each override whose master
+    /// version was found and is of the same type, including the parents the ITM test keeps without comparing (a cell
+    /// with placed references), so a caller can name the fields that changed with the same master lookup. An exception
+    /// it throws counts the override as not compared. check and triage pass nothing, so nothing changes for them.</param>
     public static (List<IMajorRecordGetter> Itms, int NotCompared) FindItms(IMajorRecordGetterEnumerable plugin,
-        IEnumerable<IMajorRecordGetter> overrides, ILinkCache masters)
+        IEnumerable<IMajorRecordGetter> overrides, ILinkCache masters, Action<IMajorRecordGetter, IMajorRecordGetter>? compared = null)
     {
         var itms = new List<IMajorRecordGetter>();
-        int failed = 0, noMaster = 0, otherType = 0, flagsDiffer = 0, compared = 0, parents = 0;
+        int failed = 0, noMaster = 0, otherType = 0, flagsDiffer = 0, comparedCount = 0, parents = 0;
         ModKey? modKey = (plugin as IModGetter)?.ModKey;   // a cell of the plugin's own is new: no master version expected
         bool timing = Environment.GetEnvironmentVariable("SFMODCHECK_TIMING") == "1";
         var tResolve = new System.Diagnostics.Stopwatch();
@@ -80,7 +84,8 @@ public static class Overrides
                 // cells, a quest or topic with dialogue) has to be there for its children, even when it changed nothing
                 // itself; xEdit's "Remove ITM" keeps those too. (Sweep 2026-11-09 over three real
                 // plugins, a conflict patch among them.)
-                if (rec is IMajorRecordGetterEnumerable holder && holder.EnumerateMajorRecords().Any(c => c.FormKey != rec.FormKey)) { parents++; continue; }
+                bool parent = rec is IMajorRecordGetterEnumerable holder && holder.EnumerateMajorRecords().Any(c => c.FormKey != rec.FormKey);
+                if (parent && compared == null) { parents++; continue; }
                 var started = tResolve.Elapsed;
                 tResolve.Start();
                 IMajorRecordGetter? orig;
@@ -95,20 +100,29 @@ public static class Overrides
                     // every placed reference in Starfield.esm (see above), and under that cap it came back empty too.
                     // A child missing from a cell that was found (moved or injected) stays "not identical", as before.
                     if (orig == null && cellChildren.TryGetValue(ck, out var vs) && vs.Count == 0 && ck.ModKey != modKey)
-                    { tResolve.Stop(); failed++; continue; }
+                    { tResolve.Stop(); if (parent) parents++; else failed++; continue; }
                 }
                 else if (rec is ICellGetter) orig = CellVersions(rec.FormKey).FirstOrDefault();   // the winning version, as TryResolve gives
                 else orig = masters.TryResolve(rec.FormKey, rec.Registration.GetterType, out var o) ? o : null;
                 tResolve.Stop();
+                // only with a callback: a parent is handed over for its fields, then kept as before (never an ITM)
+                if (parent)
+                {
+                    parents++;
+                    if (orig != null && orig.GetType() == rec.GetType()) compared!(rec, orig);
+                    continue;
+                }
                 var resolveSecs = (tResolve.Elapsed - started).TotalSeconds;
                 bool same = false;
+                IMajorRecordGetter? pair = null;
                 var cmp = System.Diagnostics.Stopwatch.StartNew();
                 // not found, or another type: the links rule reports injected and type-changing overrides
                 if (orig == null) noMaster++;
                 else if (orig.GetType() != rec.GetType()) otherType++;
-                else if ((rec.MajorRecordFlagsRaw & ~CompressedFlag) != (orig.MajorRecordFlagsRaw & ~CompressedFlag)) flagsDiffer++;
-                else { compared++; same = SameFields(rec, orig, 0); }
+                else if ((rec.MajorRecordFlagsRaw & ~CompressedFlag) != (orig.MajorRecordFlagsRaw & ~CompressedFlag)) { flagsDiffer++; pair = orig; }
+                else { comparedCount++; same = SameFields(rec, orig, 0); pair = orig; }
                 if (same) itms.Add(rec);
+                if (pair != null) compared?.Invoke(rec, pair);
                 if (timing)
                 {
                     var tn = rec.Registration.ClassType.Name;
@@ -119,7 +133,7 @@ public static class Overrides
             catch (Exception e) when (Fatal.Recoverable(e)) { tResolve.Stop(); failed++; }
         }
         Log.Write($"itm: {parents} parents kept, {noMaster} with no master version found, {otherType} of another type, " +
-                  $"{flagsDiffer} with other flags, {compared} compared field by field, {itms.Count} identical, {failed} couldn't be compared");
+                  $"{flagsDiffer} with other flags, {comparedCount} compared field by field, {itms.Count} identical, {failed} couldn't be compared");
         if (timing)
             Console.Error.WriteLine("itm: " + string.Join(", ", perType.OrderByDescending(k => k.Value.Resolve + k.Value.Compare)
                 .Select(k => $"{k.Key} {k.Value.Resolve:F2}+{k.Value.Compare:F2} s")));

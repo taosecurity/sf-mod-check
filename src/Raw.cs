@@ -236,6 +236,17 @@ public sealed class RawWalker
         return null;
     }
 
+    /// <summary>While OnRecord runs: the stored FormID of the worldspace the record sits under (the nearest type 1
+    /// world-children group's label), or null for a record outside any worldspace, such as an interior cell's (0.26.0, summary).</summary>
+    public uint? CurrentWorld { get; private set; }
+
+    static uint? WorldOf(Ctx? c)
+    {
+        for (; c != null; c = c.Parent)
+            if (c.Type == 1) return c.Label;
+        return null;
+    }
+
     public void Walk()
     {
         if (f.Length < 24 || f.Sig(0) != "TES4") { Stop(0, "the file does not start with a TES4 header"); return; }
@@ -287,6 +298,7 @@ public sealed class RawWalker
             if (OnRecord != null)
             {
                 CurrentCell = CellOf(ctx);
+                CurrentWorld = WorldOf(ctx);
                 OnRecord(rec);
             }
             if (deep) Fields(rec);

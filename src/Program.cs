@@ -12,6 +12,7 @@
 //   sf-mod-check diff <old> <new> [...]          (two versions of a plugin or mod: DiffCommand.cs, 0.11.0; exit 0, 1 or 2)
 //   sf-mod-check find <record> [...]             (looks up one record in a load order: FindCommand.cs, 0.16.0; exit 0, 1 or 2)
 //   sf-mod-check overrides [...]                 (records two or more mods hold, by type: OverridesCommand.cs, 0.26.0; exit 0, 1 or 2)
+//   sf-mod-check summary <plugin | archive>    (what one plugin adds and changes: SummaryCommand.cs, 0.26.0; exit 0 or 2)
 //   sf-mod-check lines <NPC> [...]               (the dialogue lines one NPC can speak: LinesCommand.cs, 0.21.0; exit 0, 1 or 2)
 //   sf-mod-check scenes <NPC | quest> [...]      (an NPC's or a quest's conversations as a tree, checked: ScenesCommand.cs, 0.24.0; exit 0, 1 or 2)
 //   sf-mod-check voice-lines <plugin> [...]      (a plugin's voiced lines as a voice-tool TSV: VoiceLinesCommand.cs, 0.21.0; exit 0 or 2)
@@ -51,6 +52,7 @@ const string Usage =
     "       sf-mod-check gap <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [...]   (sf-mod-check gap --help)\n" +
     "       sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--json] [...]   (sf-mod-check find --help)\n" +
     "       sf-mod-check overrides [--plugins <Plugins.txt> | --mo2 <MO2 folder> | --plugin <plugin or archive>...] [--type <SIG>,...] [--min <n>] [--records <file>] [--json] [...]   (sf-mod-check overrides --help)\n" +
+    "       sf-mod-check summary <plugin or archive> [--data <Data folder>] [--masters-dir <folder>]... [--max <n>] [--json] [...]   (sf-mod-check summary --help)\n" +
     "       sf-mod-check lines <NPC EditorID | FormKey | FormID> [--plugin <plugin file>] [--type <name>] [--json] [...]   (sf-mod-check lines --help)\n" +
     "       sf-mod-check scenes <NPC | quest> [--plugin <plugin file>] [--out <file.md>] [--json] [--max <n>] [...]   (sf-mod-check scenes --help)\n" +
     "       sf-mod-check voice-lines <plugin> [--out <file>] [--voice <voice type EditorID>]... [--utf8] [...]   (sf-mod-check voice-lines --help)\n" +
@@ -154,6 +156,7 @@ int Dispatch(string[] args)
     if (args.Length > 0 && args[0] == "gap") return GapCheck.Command(args.Skip(1).ToArray(), Version, Byline);   // 0.15.0
     if (args.Length > 0 && args[0] == "find") return FindCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.16.0
     if (args.Length > 0 && args[0] == "overrides") return OverridesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.26.0
+    if (args.Length > 0 && args[0] == "summary") return SummaryCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.26.0
     if (args.Length > 0 && args[0] == "lines") return LinesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.21.0
     if (args.Length > 0 && args[0] == "scenes") return ScenesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.24.0
     if (args.Length > 0 && args[0] == "voice-lines") return VoiceLinesCommand.Run(args.Skip(1).ToArray(), Version, Byline);   // 0.21.0

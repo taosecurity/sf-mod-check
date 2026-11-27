@@ -19,8 +19,10 @@ public readonly record struct RecKey(string File, uint Local)
 
 /// <summary>One record as the index keeps it: type, the FormID as stored, EditorID (null = none), a hash of what counts
 /// for "changed by bytes" (the record flags without the compressed bit, and the unpacked body), and where it is. Cell is
-/// the key of the cell the record sits under (placed objects, navmeshes and the other cell children), or null.</summary>
-public readonly record struct RecInfo(string Sig, uint FormId, string? EditorId, UInt128 Hash, long Offset, RecKey? Cell = null);
+/// the key of the cell the record sits under (placed objects, navmeshes and the other cell children), or null. World
+/// (0.26.0, summary) is the key of the worldspace it sits under, or null; Flags is the record header's flags as stored.</summary>
+public readonly record struct RecInfo(string Sig, uint FormId, string? EditorId, UInt128 Hash, long Offset, RecKey? Cell = null,
+                                      RecKey? World = null, uint Flags = 0);
 
 /// <summary>Added, removed, changed, noise, renumbered and same counts for one record type, own records or overrides.
 /// Changed = changed by bytes until the field compare (DiffFields.Apply) moves the records whose fields are all equal
@@ -86,6 +88,7 @@ public sealed class RecordIndex
             if (pastEnd) ix.PastEnd++;
             var info = Read(f, rec, ref ix.Unpackable);
             if (w.CurrentCell is { } cell) info = info with { Cell = ix.KeyOf(cell, out _) };
+            if (w.CurrentWorld is { } world) info = info with { World = ix.KeyOf(world, out _) };
             if (!ix.Records.TryAdd(key, info)) ix.Duplicates++;
         };
         w.Walk();
@@ -110,7 +113,7 @@ public sealed class RecordIndex
         sha.AppendData(body);
         Span<byte> hash = stackalloc byte[32];
         sha.GetHashAndReset(hash);
-        return new(string.Intern(rec.Sig), rec.FormId, packed ? null : EditorId(body), BitConverter.ToUInt128(hash), rec.Offset);
+        return new(string.Intern(rec.Sig), rec.FormId, packed ? null : EditorId(body), BitConverter.ToUInt128(hash), rec.Offset, Flags: rec.Flags);
     }
 
     /// <summary>The EDID field's text in a record body, or null.</summary>

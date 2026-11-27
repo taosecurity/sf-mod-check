@@ -62,7 +62,7 @@ public static class DiffFields
         })));
 
     /// <summary>The key the record index gives a record Mutagen read: "" for the plugin's own records.</summary>
-    static RecKey KeyOf(FormKey fk, ModKey self) =>
+    internal static RecKey KeyOf(FormKey fk, ModKey self) =>
         fk.ModKey == self ? new RecKey("", fk.ID) : new RecKey(fk.ModKey.FileName.String.ToLowerInvariant(), fk.ID);
 
     /// <summary>Reads the wanted records of one plugin with Mutagen. Returns null and the reason when it can't be opened.</summary>
