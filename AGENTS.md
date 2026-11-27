@@ -639,8 +639,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     (equals; a link by EditorID, FormKey or console FormID), `!=` (an empty field counts as not equal), `~` (contains the
     text), `has` (a flag is set, or a list has the entry) and `exists` (not empty; no value). The field is a name from
     `find`'s fields block; a dotted path goes one level down per part, and a list on the way matches when any entry does.
-    Several `--where` must all match. An unknown field is refused (exit 2) with that type's field list: use it to learn
-    the names. **Flags with no name** (bits the library doesn't name) print in hex in the fields, for example
+    Several `--where` must all match. A record whose winning copy is deleted is never listed. An unknown field is
+    refused (exit 2) with that type's field list: use it to learn the names. **Flags with no name** (bits the library doesn't name) print in hex in the fields, for example
     `Female, Unique, 0x2000010`. `--editorid-match <regex>` keeps records whose EditorID matches a .NET regular
     expression (letter case ignored); without `--type` it searches every type. There is no query language. `--max`
     (default 100; 0 = all). Exit 0 = found, 1 = none, 2 = couldn't run. `--json` has `query` (with `where`), `loadOrder`, `total`, `listed`, `matches` (each with `formKey`, `editorId`, `name`, `winner` and `fields`) and `result`.

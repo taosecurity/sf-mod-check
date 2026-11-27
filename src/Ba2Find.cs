@@ -346,7 +346,7 @@ public static class Ba2Find
                 foreach (var f in Directory.EnumerateFiles(start, "*", opts))
                 {
                     var rel = Ba2Names.Normalize(Path.GetRelativePath(dir, f));
-                    if (match.IsMatch(rel)) results.Add((rel, f));
+                    if (!AssetIndex.OddPart(rel) && match.IsMatch(rel)) results.Add((rel, f));   // as the exact-name path
                 }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write($"ba2 find: {start} could not be listed ({e.Message})"); }

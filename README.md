@@ -1413,7 +1413,7 @@ every misc item whose EditorID starts with your mod's prefix (0.27.0). It is a s
 - `--where "<field> <op> [<value>]"` (needs `--type`): keep the records whose **winning copy** matches. The field is a
   name from `find`'s fields block (letter case ignored); a dotted path such as `Factions.Faction` goes one level down
   per part, and a list on the way matches when any entry does. Give no record to look up. Several `--where` must all
-  match.
+  match. A record whose winning copy is deleted is never listed, here or with `--editorid-match`.
 - Operators: `=` (equal; a link by EditorID, FormKey or console FormID; a number as a number), `!=` (not equal; an empty
   field counts as not equal), `~` (contains the text), `has` (a flag is set, or a list has the entry) and `exists`
   (the field isn't empty; no value after it).
