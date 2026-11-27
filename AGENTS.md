@@ -559,7 +559,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `--plugins`, `--mo2` (with `--profile`), `--data` and `--extra-data`, as for `conflict`, or from `--plugin`, given
     **more than once** to compare mods that aren't installed (each a plugin or a `.zip`, `.7z` or `.rar`; no Plugins.txt;
     the later input wins when two hold a plugin of the same name, and an input whose master isn't found or that can't be
-    unpacked is left out with a `left out:` line while the rest run; a path that doesn't exist stops the run).
+    unpacked is left out with a `left out:` line while the rest run; of an archive with several plugins, only the plugin
+    whose master isn't found is left out, as `left out: Patch.esp (from Mod-1.0.zip): ...`, also with one `--plugin`;
+    a path that doesn't exist stops the run).
     `--type DIAL,INFO` keeps those record types (an unknown one: exit 2 with the list), `--min <n>` changes the
     threshold (default 2), `--max <n>` caps the list (default 200; 0 = all) and `--records <file>` answers "who edits
     these": one FormKey or console FormID per line (`#` lines skipped, a bad line refused with its number), with the

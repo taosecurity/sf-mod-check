@@ -489,6 +489,43 @@ public class SummaryTests
         var (c2, o2, e2) = s.Run("summary", s.Zip("Patches-1.0.zip", "Patch.esm", "Patch2.esm"), "--data", s.Data);
         Assert.True(c2 == 2, o2 + e2);
         Assert.Contains("master Missing.esm not found", o2);
+        // code review round 4: the stop names the archive, not the run's temp folder (deleted when it ends), and
+        // doesn't say to put the master in "the plugin's folder"
+        Assert.Contains($"can't find Patch.esm's master Missing.esm in Patches-1.0.zip, {s.Data}. Give the folder that holds Missing.esm with --masters-dir", e2);
+        Assert.DoesNotContain("plugin's folder", e2);
+        Assert.DoesNotContain(s.Tmp, e2);
+        // summary's note on an archive with several plugins doesn't say "the one --plugin names"
+        Assert.DoesNotContain("--plugin", e2);
+        Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
+    }
+
+    /// <summary>Code review round 4: of an archive with Mod.esm and Broken.esm (2 bytes, too short for a header),
+    /// Broken.esm is left out with a note and Mod.esm summarized; an archive of broken plugins only stops with the header
+    /// message, naming the archive. A plugin that doesn't exist is named as "the plugin", since summary takes no --plugin.
+    /// (A longer file that isn't a plugin passes the header read and is skipped later as "cannot be opened".)</summary>
+    [Fact]
+    public void An_archive_plugin_whose_header_cant_be_read_is_left_out_and_messages_name_no_plugin_option()
+    {
+        using var s = new Set();
+        File.WriteAllBytes(Path.Combine(s.ModDir, "Broken.esm"), "TE"u8.ToArray());
+        File.WriteAllBytes(Path.Combine(s.ModDir, "Broken2.esm"), "TE"u8.ToArray());
+        var (code, stdout, stderr) = s.Run("summary", s.Zip("WithBroken-1.0.zip", "Broken.esm", "Mod.esm"), "--data", s.Data);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.True(stderr.Contains("note: Broken.esm from WithBroken-1.0.zip left out: the plugin header of Broken.esm can't be read"), stdout + stderr);
+        Assert.Contains("RESULT: Mod.esm: 5 records", stdout);
+        Assert.DoesNotContain("--plugin", stderr);
+
+        var (c2, o2, e2) = s.Run("summary", s.Zip("Broken-1.0.zip", "Broken.esm", "Broken2.esm"), "--data", s.Data);
+        Assert.True(c2 == 2, o2 + e2);
+        Assert.Contains("RESULT: CANNOT CHECK (a plugin header can't be read)", o2);
+        Assert.Contains("can't read the plugin header of Broken.esm from Broken-1.0.zip (", e2);
+        Assert.Contains("Unpack the archive and run sf-mod-check check on that plugin", e2);
+        Assert.DoesNotContain(s.Tmp, e2);
+
+        var (c3, o3, e3) = s.Run("summary", Path.Combine(s.ModDir, "Nope.esm"), "--data", s.Data);
+        Assert.True(c3 == 2, o3 + e3);
+        Assert.Contains("can't read the plugin ", e3);
+        Assert.DoesNotContain("--plugin", e3);
         Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
     }
 

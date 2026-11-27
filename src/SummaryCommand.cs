@@ -151,7 +151,7 @@ public static class SummaryCommand
         bool quiet = false, verbose = false, json = false;
         int max = DefaultMax;
         bool maxGiven = false;
-        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "summary");
+        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "summary", positionalPlugin: true);
         for (int i = 0; i < a.Length; i++)
         {
             switch (a[i])

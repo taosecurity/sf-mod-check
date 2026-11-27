@@ -1196,7 +1196,7 @@ installed or unpacked by hand:
   only the plugins (`.esm`, `.esp`, `.esl`) and their strings (loose `.strings` files and the `.ba2` files other
   than texture archives, so a localized plugin's names and texts are read); `conflict`, `lines` and `scenes` also write the other files, because they
   look up textures, sounds, voice and lip files and scripts in the archive's `.ba2` files and loose files. `patch` and `voice-lines` don't take an archive (exit 2, with what to give
-  instead: the folder).
+  instead: the folder; for `voice-lines`, the unpacked plugin file).
 - **The same guards as `triage`, `release` and `diff`:** every entry is checked, even one that isn't written. An
   entry that would land outside the temporary folder (`..`, a rooted path, a drive letter), a name given twice, a name
   Windows would change, an archive with more than 200,000 entries or more than 12 GB unpacked, an entry that unpacks
@@ -1246,9 +1246,12 @@ hold is not a collision. It reads your load order (or the plugins and archives y
   given. Masters are looked for in the input's own folder, then in the other inputs' folders, then each `--masters-dir`,
   then `--data`. When two inputs hold a plugin of the same name (two versions of one mod), **the later one is used** and
   the earlier is left out. An input that can't be used (a master not found, a header that can't be read, an archive that
-  is refused or holds no plugin) is left out too; each left-out input is named, with the reason, on stderr, on stdout
+  is refused or holds no plugin) is left out too. Of an archive with several plugins, one whose master isn't found (an
+  optional patch for a mod you don't have) is left out alone, named as `Patch.esp (from Mod-1.0.zip)`, and the
+  archive's other plugins are used. Each left-out input or plugin is named, with the reason, on stderr, on stdout
   (`left out:`) and in `--json` (`leftOut`), and the rest run. A path that doesn't exist, or is a folder, still stops the
-  run (exit 2), so a typo is loud. With one `--plugin`, a missing master stops the run, as in `find`.
+  run (exit 2), so a typo is loud. With one `--plugin`, a missing master stops the run, as in `find`, unless it is one
+  plugin of an archive with several: that plugin is left out and named the same way.
 - `--type <SIG>[,<SIG>...]`: keep only these record types, four-letter signatures such as `DIAL,INFO`. An unknown one
   stops with exit 2 and the list of known ones.
 - `--min <n>`: list a record when at least this many non-official plugins hold it (default 2).

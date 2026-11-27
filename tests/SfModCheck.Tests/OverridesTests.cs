@@ -249,10 +249,10 @@ public class OverridesTests
         Assert.Contains("every --plugin input was left out", o2);
     }
 
-    /// <summary>Review round 1: a kept input's master found in a left-out input's folder is still loaded from there.
-    /// AD.zip holds A.esm and D.esm (D's master is missing, so AD.zip is left out); B.esm, given alone, needs A.esm.</summary>
+    /// <summary>Review round 1: a kept input's master from an archive input is found. Code review round 4: AD.zip holds
+    /// A.esm and D.esm (D's master is missing): only D.esm is left out, and A.esm (B's master) is used from the zip.</summary>
     [Fact]
-    public void A_master_from_a_left_out_input_is_still_found()
+    public void An_archive_plugin_with_a_missing_master_is_left_out_alone_and_the_archives_other_plugin_is_used()
     {
         using var s = new Set();
         var ad = s.Zip("AD-1.0.zip", "A.esm", "D.esm");
@@ -262,10 +262,25 @@ public class OverridesTests
         var (code, stdout, stderr) = s.Run("overrides", "--data", s.Data, "--plugin", ad,
             "--plugin", Path.Combine(alone, "B.esm"), "--plugin", Path.Combine(alone, "C.esm"));
         Assert.True(code == 0, stdout + stderr);
-        Assert.Contains("note: --plugin AD-1.0.zip left out: D.esm's master Missing.esm wasn't found", stderr);
+        Assert.Contains("note: D.esm (from AD-1.0.zip) left out: D.esm's master Missing.esm wasn't found", stderr);
+        Assert.DoesNotContain("--plugin AD-1.0.zip left out", stderr);
         Assert.DoesNotContain("--plugin B.esm left out", stderr);
+        Assert.Contains("left out: D.esm (from AD-1.0.zip): D.esm's master Missing.esm wasn't found", stdout);
+        Assert.Contains("3 --plugin inputs (AD-1.0.zip, B.esm, C.esm) and their 1 master", stdout);
         Assert.Equal($"  {s.SA} S_A: A.esm, B.esm, C.esm (wins)", LineOf(stdout, s.SA));
         Assert.Equal($"  {s.ANew} A_New: A.esm (adds), B.esm (wins)", LineOf(stdout, s.ANew));
+        Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
+
+        // one --plugin archive (code review round 4): the left-out plugin is in the left out: lines and in leftOut too
+        var (c1, o1, e1) = s.Run("overrides", "--data", s.Data, "--plugin", ad, "--min", "1", "--json");
+        Assert.True(c1 == 0, o1 + e1);
+        var left = JsonDocument.Parse(o1).RootElement.GetProperty("leftOut").EnumerateArray().ToList();
+        Assert.Single(left);
+        Assert.Equal("D.esm (from AD-1.0.zip)", left[0].GetProperty("input").GetString());
+        Assert.Equal("D.esm's master Missing.esm wasn't found", left[0].GetProperty("why").GetString());
+        var (c2, o2, e2) = s.Run("overrides", "--data", s.Data, "--plugin", ad, "--min", "1");
+        Assert.True(c2 == 0, o2 + e2);
+        Assert.Contains("left out: D.esm (from AD-1.0.zip): D.esm's master Missing.esm wasn't found", o2);
         Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
     }
 

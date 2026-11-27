@@ -72,14 +72,20 @@ public sealed class LoadOrderInput : IDisposable
     /// <param name="command">the command's name, for the refusal of an archive</param>
     /// <param name="manyPlugins">0.26.0 (overrides): --plugin may be given more than once; each input is a plugin or an
     /// archive, a later input wins a plugin-name clash, and an input that can't be used is left out (LeftOut)</param>
+    /// <param name="positionalPlugin">0.26.0 (summary, voice-lines): the plugin is the command's first argument, not a
+    /// --plugin option, so the messages name "the plugin" or "the archive" instead (code review round 4)</param>
     public LoadOrderInput(bool allowPlugin = false, ArchiveInput.Use archives = ArchiveInput.Use.Refuse, string command = "this command",
-                          bool manyPlugins = false)
+                          bool manyPlugins = false, bool positionalPlugin = false)
     {
         this.allowPlugin = allowPlugin;
         this.archives = archives;
         this.command = command;
         this.manyPlugins = manyPlugins;
+        this.positionalPlugin = positionalPlugin;
     }
+    readonly bool positionalPlugin;
+    /// <summary>How the messages name the plugin input: "--plugin", or with positionalPlugin "the plugin" (archive: "the archive").</summary>
+    string PluginWord(bool archive = false) => positionalPlugin ? (archive ? "the archive" : "the plugin") : "--plugin";
 
     /// <summary>True when more than one --plugin was given (overrides only).</summary>
     bool Many => manyPlugins && pluginInputs.Count > 1;
@@ -236,7 +242,8 @@ public sealed class LoadOrderInput : IDisposable
         foreach (var (option, value) in new[] { ("--plugin", Plugin), ("--extra-data", ExtraDir) })
             if (value != null && archives == ArchiveInput.Use.Refuse && ArchiveInput.IsArchive(value))
                 return Stop(out cantWhy, $"{command} needs the mod installed or unpacked",
-                    $"{command} needs the mod installed or unpacked: give the {(option == "--plugin" ? "unpacked plugin file" : "folder")}, not the archive ({option} {SafeText.OneLine(Path.GetFileName(value))}).",
+                    $"{command} needs the mod installed or unpacked: give the {(option == "--plugin" ? "unpacked plugin file" : "folder")}, not the archive " +
+                    (option == "--plugin" && positionalPlugin ? $"{SafeText.OneLine(Path.GetFileName(value))}." : $"({option} {SafeText.OneLine(Path.GetFileName(value))})."),
                     $"{option} {value}: an archive, which {command} doesn't take");
         if (Many)
         {
@@ -244,7 +251,7 @@ public sealed class LoadOrderInput : IDisposable
         }
         else if (Plugin != null && ArchiveInput.IsArchive(Plugin))
         {
-            if (OpenArchive("--plugin", Plugin, out cantWhy) is not { } u) return false;
+            if (OpenArchive(PluginWord(archive: true), Plugin, out cantWhy) is not { } u) return false;
             pluginArchive = u;
             Plugin = Path.Combine(u.Folder, u.Plugins[^1]);   // ResolvePlugin picks the archive's last plugin in load order
         }
@@ -365,12 +372,12 @@ public sealed class LoadOrderInput : IDisposable
         cantWhy = "";
         var full = Path.GetFullPath(Plugin!);
         if (Directory.Exists(full))
-            return Stop(out cantWhy, $"--plugin {full} is a folder",
-                $"can't read --plugin {full}: that is a folder. Give the plugin file itself (.esm, .esp or .esl), for example \"{Path.Combine(full, "MyMod.esm")}\".",
+            return Stop(out cantWhy, $"{PluginWord()} {full} is a folder",
+                $"can't read {PluginWord()} {full}: that is a folder. Give the plugin file itself (.esm, .esp or .esl), for example \"{Path.Combine(full, "MyMod.esm")}\".",
                 $"--plugin {full} is a folder");
         if (!File.Exists(full))
             return Stop(out cantWhy, $"the plugin {full} doesn't exist",
-                $"can't read --plugin {full}: that file doesn't exist. Check the path (a path with spaces needs quotes).", $"--plugin {full} doesn't exist");
+                $"can't read {PluginWord()} {full}: that file doesn't exist. Check the path (a path with spaces needs quotes).", $"--plugin {full} doesn't exist");
         Plugin = full;
         if (!CheckMastersDirs(out cantWhy)) return false;
         var dirs = new List<string> { Path.GetDirectoryName(full)! };
@@ -382,13 +389,13 @@ public sealed class LoadOrderInput : IDisposable
 
         var order = new List<string>();
         var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        string? missing = null, missingFor = null, unreadable = null;
+        string? missing = null, missingFor = null, unreadable = null, unreadableType = null;
         void Visit(string name, string path)
         {
             if (missing != null || unreadable != null || order.Contains(name, StringComparer.OrdinalIgnoreCase) || !visiting.Add(name)) return;
             List<string> masters;
             try { masters = LoadOrderSetup.ModHeaderMasters(path); }
-            catch (Exception e) when (Fatal.Recoverable(e)) { unreadable = $"{path} ({e.GetType().Name})"; return; }
+            catch (Exception e) when (Fatal.Recoverable(e)) { unreadable = path; unreadableType = e.GetType().Name; return; }
             foreach (var m in masters)
             {
                 // a master name is a file name; one with a folder part is never looked up outside the folders above
@@ -400,7 +407,7 @@ public sealed class LoadOrderInput : IDisposable
         // code review round 3: of an archive with several plugins, one whose master isn't found or whose header can't be
         // read (an optional patch for a mod not installed) is left out with a note; the run stops only if none is left
         var leftOut = new List<string>();
-        string? firstMissing = null, firstMissingFor = null, firstUnreadable = null;
+        string? firstMissing = null, firstMissingFor = null, firstUnreadable = null, firstUnreadableType = null;
         foreach (var r in roots)
         {
             var before = order.Count;
@@ -409,24 +416,40 @@ public sealed class LoadOrderInput : IDisposable
             if (roots.Count == 1 || (missing == null && unreadable == null)) continue;
             var name = Path.GetFileName(r);
             var why = unreadable != null ? $"the plugin header of {Path.GetFileName(unreadable)} can't be read" : $"{missingFor}'s master {missing} wasn't found";
-            var note = $"note: {SafeText.OneLine(name)} from {SafeText.OneLine(Path.GetFileName(pluginArchive!.Archive))} left out: {SafeText.OneLine(why)}";
+            var fromArchive = SafeText.OneLine(Path.GetFileName(pluginArchive!.Archive));
+            var note = $"note: {SafeText.OneLine(name)} from {fromArchive} left out: {SafeText.OneLine(why)}";
             Console.Error.WriteLine(note);
             Log.Write(note);
+            // code review round 4: also on stdout and in --json (overrides' `left out:` lines and leftOut)
+            LeftOut.Add(new($"{SafeText.OneLine(name)} (from {fromArchive})", SafeText.OneLine(why)));
             leftOut.Add(name);
             order.RemoveRange(before, order.Count - before);
             visiting = seen;
-            if (firstMissing == null && firstUnreadable == null) { firstMissing = missing; firstMissingFor = missingFor; firstUnreadable = unreadable; }
-            missing = missingFor = unreadable = null;
+            if (firstMissing == null && firstUnreadable == null) { firstMissing = missing; firstMissingFor = missingFor; firstUnreadable = unreadable; firstUnreadableType = unreadableType; }
+            missing = missingFor = unreadable = unreadableType = null;
         }
-        if (roots.Count > 1 && leftOut.Count == roots.Count) { missing = firstMissing; missingFor = firstMissingFor; unreadable = firstUnreadable; }
+        if (roots.Count > 1 && leftOut.Count == roots.Count) { missing = firstMissing; missingFor = firstMissingFor; unreadable = firstUnreadable; unreadableType = firstUnreadableType; }
+        // code review round 4: an archive's plugins sit in the run's temp folder, deleted when it ends, so the messages
+        // name the archive instead of that folder and don't say to put a master there
+        bool InArchive(string path) => pluginArchive != null &&
+            string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)), Path.GetFullPath(pluginArchive.Folder), StringComparison.OrdinalIgnoreCase);
+        var archiveName = pluginArchive != null ? SafeText.OneLine(Path.GetFileName(pluginArchive.Archive)) : "";
         if (unreadable != null)
             return Stop(out cantWhy, "a plugin header can't be read",
-                $"can't read the plugin header of {unreadable}. Run sf-mod-check check on it for details.", $"header of {unreadable} unreadable");
+                InArchive(unreadable)
+                    ? $"can't read the plugin header of {SafeText.OneLine(Path.GetFileName(unreadable))} from {archiveName} ({unreadableType}). Unpack the archive and run sf-mod-check check on that plugin for details."
+                    : $"can't read the plugin header of {unreadable} ({unreadableType}). Run sf-mod-check check on it for details.",
+                $"header of {unreadable} unreadable ({unreadableType})");
         if (missing != null)
+        {
+            var shownDirs = pluginArchive != null ? dirs.Skip(1).Prepend(archiveName).ToList() : dirs;
             return Stop(out cantWhy, $"master {SafeText.OneLine(missing)} not found",
-                $"can't find {SafeText.OneLine(missingFor!)}'s master {SafeText.OneLine(missing)} in {string.Join(", ", dirs)}. " +
-                $"Put {SafeText.OneLine(missing)} in the plugin's folder, or give its folder with --masters-dir, or the game's Data folder with --data.",
+                $"can't find {SafeText.OneLine(missingFor!)}'s master {SafeText.OneLine(missing)} in {string.Join(", ", shownDirs)}. " +
+                (pluginArchive != null
+                    ? $"Give the folder that holds {SafeText.OneLine(missing)} with --masters-dir, or the game's Data folder with --data."
+                    : $"Put {SafeText.OneLine(missing)} in the plugin's folder, or give its folder with --masters-dir, or the game's Data folder with --data."),
                 $"master {missing} of {missingFor} not found in {string.Join(", ", dirs)}");
+        }
         var loaded = roots.Count - leftOut.Count;
         var n = order.Count - loaded;
         string source;
@@ -443,8 +466,8 @@ public sealed class LoadOrderInput : IDisposable
                 : $"the {loaded} plugins of {shownArchive}{(leftOut.Count > 0 ? $" ({leftOut.Count} left out)" : "")} and their {n} master{(n == 1 ? "" : "s")}";
             if (roots.Count > 1)
                 Console.Error.WriteLine($"note: {shownArchive} holds {roots.Count} plugins ({string.Join(", ", pluginArchive.Plugins.Select(SafeText.OneLine))}); " +
-                                        $"{(leftOut.Count == 0 ? "all of them are" : $"{loaded} of them {(loaded == 1 ? "is" : "are")}")} loaded, " +
-                                        $"and {SafeText.OneLine(last)}, the last in load order, is the one --plugin names");
+                                        $"{(leftOut.Count == 0 ? "all of them are" : $"{loaded} of them {(loaded == 1 ? "is" : "are")}")} loaded" +
+                                        (positionalPlugin ? "" : $", and {SafeText.OneLine(last)}, the last in load order, is the one --plugin names"));
         }
         single = new(new(order, new(StringComparer.OrdinalIgnoreCase), source, Exact: true),
                      dirs.Take(dirs.Count - (dirs[^1].Equals(DataDir, StringComparison.OrdinalIgnoreCase) ? 1 : 0)).ToList());
@@ -458,6 +481,17 @@ public sealed class LoadOrderInput : IDisposable
         var shown = SafeText.OneLine(Path.GetFileName(input));
         LeftOut.Add(new(shown, SafeText.OneLine(why)));
         var note = $"note: --plugin {shown} left out: {SafeText.OneLine(why)}";
+        Console.Error.WriteLine(note);
+        Log.Write(note);
+    }
+
+    /// <summary>One plugin of an input with several (an archive) left out while its other plugins are used (code review
+    /// round 4): noted on stderr and in the log, and listed in LeftOut as "plugin (from input)".</summary>
+    void LeaveOutPlugin(string input, string plugin, string why)
+    {
+        var shown = $"{SafeText.OneLine(plugin)} (from {SafeText.OneLine(Path.GetFileName(input))})";
+        LeftOut.Add(new(shown, SafeText.OneLine(why)));
+        var note = $"note: {shown} left out: {SafeText.OneLine(why)}";
         Console.Error.WriteLine(note);
         Log.Write(note);
     }
@@ -527,8 +561,9 @@ public sealed class LoadOrderInput : IDisposable
 
     /// <summary>--plugin given more than once (0.26.0, overrides), second part: the load order is each input's masters
     /// (each master's own masters first), then the input's plugins, in the order the inputs were given. A master is
-    /// looked up in the input's own folder, then the other inputs' folders, then each --masters-dir, then Data. An input
-    /// whose master isn't found, or whose header can't be read, is left out and the rest run.</summary>
+    /// looked up in the input's own folder, then the other inputs' folders, then each --masters-dir, then Data. A plugin
+    /// whose master isn't found, or whose header can't be read, is left out (the whole input when it was its only one,
+    /// or all of its plugins are) and the rest run.</summary>
     bool ResolveMany(out string cantWhy)
     {
         if (!CheckMastersDirs(out cantWhy)) return false;
@@ -568,11 +603,27 @@ public sealed class LoadOrderInput : IDisposable
                 mine.Add(Path.GetFileName(path));
                 minePaths[Path.GetFileName(path)] = path;
             }
-            foreach (var p in plugins) Visit(p, Path.Combine(folder, p));
-            if (problem != null) { LeaveOut(input, problem); continue; }
+            // code review round 4: of an input with several plugins (an archive), one whose master isn't found or whose
+            // header can't be read is left out alone, as with one --plugin <archive>; the input goes only if all of them do
+            var keptPlugins = new List<string>();
+            var dropped = new List<(string Plugin, string Why)>();
+            foreach (var p in plugins)
+            {
+                var before = mine.Count;
+                var seen = new HashSet<string>(visiting, StringComparer.OrdinalIgnoreCase);
+                Visit(p, Path.Combine(folder, p));
+                if (problem == null) { keptPlugins.Add(p); continue; }
+                dropped.Add((p, problem));
+                foreach (var added in mine.Skip(before)) minePaths.Remove(added);
+                mine.RemoveRange(before, mine.Count - before);
+                visiting = seen;
+                problem = null;
+            }
+            if (keptPlugins.Count == 0 && dropped.Count > 0) { LeaveOut(input, dropped[0].Why); continue; }
+            foreach (var (p, why) in dropped) LeaveOutPlugin(input, p, why);
             order.AddRange(mine);
             foreach (var (name, path) in minePaths) manyPaths[name] = path;
-            kept.Add((input, folder, plugins));
+            kept.Add((input, folder, keptPlugins));
         }
         if (kept.Count == 0)
             return Stop(out cantWhy, "every --plugin input was left out",

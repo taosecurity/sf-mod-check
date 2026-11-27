@@ -433,7 +433,9 @@ public class ArchiveInputTests
         (code, stdout, stderr) = s.Run("voice-lines", zip, "--data", s.Data);
         Assert.True(code == 2, stdout + stderr);
         // code review round 3: the plugin's own option asks for the unpacked plugin file, not a folder (a folder is refused there)
-        Assert.Contains("voice-lines needs the mod installed or unpacked: give the unpacked plugin file, not the archive", stderr);
+        // code review round 4: voice-lines takes the plugin as its first argument, so the message names no --plugin
+        Assert.Contains("voice-lines needs the mod installed or unpacked: give the unpacked plugin file, not the archive Mod.zip.", stderr);
+        Assert.DoesNotContain("--plugin", stderr);
         s.TmpIsEmpty();
     }
 }
