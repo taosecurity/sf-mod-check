@@ -108,7 +108,15 @@ public static class ScenesCommand
                     outFile = of; break;
                 case "--hub":
                     if (Cli.Value(a, ref i, "the talk menu scene: an EditorID or a FormKey", Usage) is not { } hq) return 2;
-                    hubQ = hq.Trim(); break;
+                    hubQ = hq.Trim();
+                    // 0.28.0: "Name", eid:Name and editorid:Name are an EditorID, as in find and lines
+                    if (FindCommand.EmptyForcedEditorId(hubQ))
+                    {
+                        Console.Error.WriteLine($"--hub {SafeText.OneLine(hubQ)} {FindCommand.EmptyEditorIdText}");
+                        cantWhy = "--hub: an empty EditorID";
+                        return 2;
+                    }
+                    break;
                 case "--json": json = true; break;
                 case "--verbose": verbose = true; break;
                 case "--quiet": quiet = true; break;
@@ -317,7 +325,9 @@ public static class ScenesCommand
     /// <summary>A scene by EditorID (letter case ignored) or FormKey, or null.</summary>
     static FormKey? FindScene(DialogueIndex index, string q)
     {
-        if (q.Contains(':') && FormKey.TryFactory(q, out var k)) return index.Scenes.ContainsKey(k) ? k : null;
+        // 0.28.0: a forced EditorID ("Name", eid:Name, editorid:Name) is looked up as an EditorID only
+        if (FindCommand.ForcedEditorId(q) is { } forced) q = forced;
+        else if (q.Contains(':') && FormKey.TryFactory(q, out var k)) return index.Scenes.ContainsKey(k) ? k : null;
         var hits = index.Scenes.Where(s => string.Equals(s.Value.EditorID, q, StringComparison.OrdinalIgnoreCase)).Select(s => s.Key).ToList();
         return hits.Count == 1 ? hits[0] : null;
     }

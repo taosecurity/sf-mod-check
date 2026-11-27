@@ -135,6 +135,8 @@ public static class EditProof
         var inFull = CheckInput(input);
         var outFull = CheckOut(outPath, inFull);
         var name = Path.GetFileName(inFull);
+        var outName = Path.GetFileName(outFull);
+        CheckOutName(inFull, outName, plan);
         var dirs = MasterDirs(inFull, mastersDirs, dataDir);
         var find = MasterFinder(dirs);
         var bytes = File.ReadAllBytes(inFull);
@@ -153,12 +155,21 @@ public static class EditProof
 
         var written = CorruptForTest?.Invoke((byte[])result.Output.Clone()) ?? result.Output;
         var outcome = new EditOutcome { Input = inFull, Out = outFull, Edit = result };
-        var tmp = PluginEdit.WriteTemp(outFull, name, written);
+        // 0.28.0: the temporary file has --out's name, so gap and check prove the file under the name it is kept as
+        var tmp = PluginEdit.WriteTemp(outFull, outName, written);
         try
         {
-            outcome.Proof.Add(Guard("diff", () => DiffProof(inFull, tmp, plan, result, find)));
-            outcome.Proof.Add(Guard("gap", () => GapProof(gapIn, tmp, dirs, name, result.Remap)));
-            outcome.Proof.Add(Guard("check", () => CheckProof(checkIn, tmp, dataDir, masterOnly, name, result.Remap)));
+            // the diff compares fields through Mutagen, which names own records by the file name, so it reads a second
+            // temporary copy under the input's name (its own new folder), deleted as soon as the diff is done
+            outcome.Proof.Add(Guard("diff", () =>
+            {
+                if (outName.Equals(name, PathCase)) return DiffProof(inFull, tmp, plan, result, find);
+                var asInput = PluginEdit.WriteTemp(outFull, name, written);
+                try { return DiffProof(inFull, asInput, plan, result, find); }
+                finally { PluginEdit.DeleteTemp(asInput); }
+            }));
+            outcome.Proof.Add(Guard("gap", () => GapProof(gapIn, tmp, dirs, name, outName, result.Remap)));
+            outcome.Proof.Add(Guard("check", () => CheckProof(checkIn, tmp, dataDir, masterOnly, name, outName, result.Remap)));
             foreach (var p in outcome.Proof) Log.Write($"edit: proof {p.Name}: {(p.Passed ? "passed" : "FAILED")}: {p.Reason}");
             if (outcome.Failed == null)
             {
@@ -347,14 +358,28 @@ public static class EditProof
         return s.ToUpperInvariant();
     }
 
-    static ProofResult GapProof(GapCheck.Result before, string tmp, IReadOnlyList<string> dirs, string name, Func<uint, uint>? remap)
+    /// <summary>The 0.28.0 refusals of --out's file name, before anything is written: a name that is one of the
+    /// output's own masters, and an .esl name for an output that isn't light (the game loads every .esl as light).</summary>
+    static void CheckOutName(string inFull, string outName, EditPlan plan)
+    {
+        if (RawHeader.Read(inFull) is not { } head) return;   // not a plugin: Apply refuses it with its own message
+        var masters = head.Masters.Where(m => plan.DropMaster == null || !m.Equals(plan.DropMaster, PathCase));
+        if (masters.Any(m => m.Equals(outName, PathCase)))
+            throw new EditRefusedException($"--out {SafeText.OneLine(outName)} is the name of one of the new file's masters, and a plugin can't be its own master.",
+                "Give --out another file name, for example MyMod-fixed.esm.");
+        if (Path.GetExtension(outName).Equals(".esl", PathCase) && head.Style != Style.Light && !plan.SetLight)
+            throw new EditRefusedException($"--out {SafeText.OneLine(outName)} ends in .esl, which the game always loads as a light plugin, but the new file is a {head.Style.ToString().ToLowerInvariant()} plugin, so its own FormIDs would point at the wrong records.",
+                "Add --set-light (if its own records fit in 000800 to 000FFF), or keep the input's extension (.esm or .esp).");
+    }
+
+    static ProofResult GapProof(GapCheck.Result before, string tmp, IReadOnlyList<string> dirs, string name, string outName, Func<uint, uint>? remap)
     {
         var after = GapCheck.Check(tmp, dirs);
         var was = before.Errors.Select(e => ("E", e)).Concat(before.Warnings.Select(w => ("W", w))).ToList();
         var known = was.Select(x => x.Item1 + " " + Normal(x.Item2, name, null))
             .Concat(was.Select(x => x.Item1 + " " + Normal(x.Item2, name, remap))).ToHashSet(StringComparer.Ordinal);
         foreach (var (sev, m) in after.Errors.Select(e => ("E", e)).Concat(after.Warnings.Select(w => ("W", w))))
-            if (!known.Contains(sev + " " + Normal(m, name, null)))
+            if (!known.Contains(sev + " " + Normal(m, outName, null)))
                 return new("gap", false, $"a new gap {(sev == "E" ? "error" : "warning")}: {SafeText.OneLine(m)}");
         return new("gap", true, $"no new loss ({after.Errors.Count} error(s) and {after.Warnings.Count} warning(s), all in the input too)");
     }
@@ -363,12 +388,12 @@ public static class EditProof
         Checker.Run(new Options { Plugin = plugin, DataDir = dataDir, MastersDirs = mastersDirs, NoAssets = true, MaxPerCheck = int.MaxValue })
             .Findings.Where(f => f.Severity == "ERROR").Select(f => f.Check + ": " + f.Text).ToList();
 
-    static ProofResult CheckProof(List<string> before, string tmp, string dataDir, List<string> mastersDirs, string name, Func<uint, uint>? remap)
+    static ProofResult CheckProof(List<string> before, string tmp, string dataDir, List<string> mastersDirs, string name, string outName, Func<uint, uint>? remap)
     {
         var after = CheckErrors(tmp, dataDir, mastersDirs);
         var known = before.Select(e => Normal(e, name, null)).Concat(before.Select(e => Normal(e, name, remap))).ToHashSet(StringComparer.Ordinal);
         foreach (var e in after)
-            if (!known.Contains(Normal(e, name, null)))
+            if (!known.Contains(Normal(e, outName, null)))
                 return new("check", false, $"a new check ERROR: {SafeText.OneLine(e)}");
         return new("check", true, $"no new ERROR ({after.Count} in all, each in the input too)");
     }

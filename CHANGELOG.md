@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.28.0 (unreleased)
+
+### What's new
+
+- **`text <plugin | archive>`** lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest names and objectives, dialogue, and every other text the game translates, each with its field path. A new record lists all its strings; an override lists only the strings it changes, each with the master's text as "was". A localized plugin's text is read from its string files, with a warning when they can't be found. `--type`, `--json` and `--out`.
+
+### Changes
+
+- **`edit --drop-master` renumbers only real links.** Before 0.28.0 it renumbered every 4-byte value that equaled one of the plugin's link values, in any field, so a number that only looked like a FormID (a value, a weight, a byte list) was changed too: the proof then refused the edit, or, in a field nothing reads, the number was changed silently. Now `edit` asks Mutagen which values it reads as links (a probe read of a copy in memory) and renumbers only those. A look-alike number that names no record is left as it is, and the report says "left N look-alike values alone"; one that names a real record is refused, as a FormID in a text field already was.
+- **`edit --out` is proved under its own name.** The gap and check proofs now run on the new file under the name it is kept as. `edit` refuses an `--out` named like one of the new file's masters, and an `.esl` `--out` for a plugin that isn't light (the game loads every `.esl` as light, so its own FormIDs would point at the wrong records; add `--set-light` or keep the extension).
+
+### Fixes
+
+- **`lines`**: the `find` hint keeps `eid:` for an EditorID that `find` would read as a console FormID, so `lines eid:0000ABCD` now hints `sf-mod-check find eid:0000ABCD`, not a FormID lookup.
+- **`scenes --hub`** takes `eid:`, `editorid:` and a quoted name as an EditorID, as `find` and `lines` do, and refuses an empty one.
+
+### Example
+
+A made-up mod `Camp.esm` with a message that tells the player the hall is closed:
+
+    sf-mod-check text Camp.esm --type MESG
+    sf-mod-check 0.28.0 text of Camp.esm and its 1 master
+
+    Camp.esm (2 strings in 1 record)
+      MESG (1 record, 2 strings)
+        MESG CampNotice [000801:Camp.esm] new
+          Name: Camp Notice
+          Description: The hall is closed until spring.
+    RESULT: text: 2 strings in 1 record (1 new, 0 changed) in Camp.esm
+
+A made-up plugin `Rations.esm` whose `edit --drop-master` leaves a number that only looks like a FormID alone:
+
+    sf-mod-check edit Rations.esm --out Rations-fixed.esm --drop-master OldMaster.esm
+    edit drop-master: master OldMaster.esm removed; renumbered 2 record IDs, 0 group labels, 0 ONAM entries and 3 FormIDs in fields; left 1 look-alike value alone
+    RESULT: KEPT (3 proofs passed; Rations-fixed.esm; 8.4 s)
+
 ## 0.27.0 (2026-11-27)
 
 ### What's new

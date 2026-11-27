@@ -33,8 +33,11 @@ public static class EditCommand
         "  Makes a few safe changes to a finished plugin and writes them to a NEW file. The plugin itself is never changed.\n" +
         "  The new file is kept only when three proofs pass on it: diff (only the intended changes), gap (no new loss) and\n" +
         "  check (no new ERROR). Otherwise it is deleted, and the proof that failed says why.\n" +
-        "  --out          the new plugin file; it must not exist yet, and it can't be the input\n" +
-        "  --drop-master  remove a master the plugin doesn't use (the FormIDs after it are renumbered); refused if anything uses it\n" +
+        "  --out          the new plugin file; it must not exist yet, and it can't be the input or named like one of its\n" +
+        "                 masters. An .esl name needs a light plugin (the game loads every .esl as light).\n" +
+        "  --drop-master  remove a master the plugin doesn't use (the FormIDs after it are renumbered); refused if anything uses it.\n" +
+        "                 Only values Mutagen reads as links are renumbered; a number that only looks like one is left alone\n" +
+        "                 (and the report counts it), and one that names a real record is refused.\n" +
         "  --set-light    set the light flag; refused unless the plugin is full and its own records are 000800 to 000FFF\n" +
         "  --set-text     replace one line's text: an INFO's response text (NAM1) or a MESG's description (DESC), named by\n" +
         "                 EditorID, FormKey (000801:MyMod.esm) or console FormID. Give the new text with --text after it,\n" +

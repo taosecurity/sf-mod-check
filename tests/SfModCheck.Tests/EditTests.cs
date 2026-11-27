@@ -535,11 +535,16 @@ public class EditTests
         var hidden = WithDescription(w, input, "overlap-hidden", [0x58, 0x02, 0x42, 0x41, 0x02, 0x42, 0x41, 0x02]);
         var why = Assert.Throws<EditRefusedException>(() => Apply(w, hidden, new EditPlan { DropMaster = "UnusedFull.esm" })).Reason;
         Assert.Contains("DESC field holds two overlapping values that both look like FormIDs (at bytes 1 and 4)", why);
-        // apart (bytes 0..3 and 4..7), both are renumbered
+        // apart (bytes 0..3 and 4..7) in a text: since 0.28.0 Mutagen's probe read says neither is a link, and each
+        // names a real record, so the drop is refused (0.25.0 renumbered both)
         var apart = WithDescription(w, input, "overlap-apart", [0x02, 0x42, 0x41, 0x02, 0x02, 0x42, 0x41, 0x02]);
-        var r = Apply(w, apart, new EditPlan { DropMaster = "UnusedFull.esm" });
-        var desc = Subrecords.Parse(Body(r.Output, "MESG"), out _).Single(f => f.Type == "DESC").Data;
-        Assert.Equal(new byte[] { 0x02, 0x42, 0x41, 0x01, 0x02, 0x42, 0x41, 0x01, 0 }, desc);
+        Assert.Contains("stores 02414202 in its DESC field at byte 0, which names a record of Other.esm (414202), but Mutagen doesn't read that field as a link",
+            Assert.Throws<EditRefusedException>(() => Apply(w, apart, new EditPlan { DropMaster = "UnusedFull.esm" })).Reason);
+        // the same two values apart as two real links (a keyword list) are both renumbered
+        var links = BuildWith(w, "overlap-links", PluginStyle.Full, [World.Full, "UnusedFull.esm", "Other.esm"], mod =>
+            mod.MiscItems.AddNew("SFM_Misc").Keywords = [kw.FormKey.ToLink<IKeywordGetter>(), kw.FormKey.ToLink<IKeywordGetter>()]);
+        var r = Apply(w, links, new EditPlan { DropMaster = "UnusedFull.esm" });
+        Assert.Equal(new byte[] { 0x02, 0x42, 0x41, 0x01, 0x02, 0x42, 0x41, 0x01 }, Subrecords.Parse(Body(r.Output, "MISC"), out _).Single(f => f.Type == "KWDA").Data);
     }
 
     // code review 0.25.0 round 2: a window inside a link window (here byte 1 of a link at byte 0) that happens to name
@@ -554,16 +559,129 @@ public class EditTests
         other.Keywords.Add(kw);
         other.Keywords.Add(new Keyword(new FormKey(other.ModKey, 0x024142), StarfieldRelease.Starfield) { EditorID = "Other_Unlinked" });
         using (var g = new GameData(w.Dir)) PluginWriter.Write(other, w.Dir, g, NoGap);
-        var input = BuildWith(w, "inside", PluginStyle.Full, [World.Full, "UnusedFull.esm", "Other.esm"], mod =>
-        {
-            mod.MiscItems.AddNew("SFM_Misc").Keywords = [kw.FormKey.ToLink<IKeywordGetter>()];
-            mod.Messages.Add(new Message(mod) { EditorID = "SFM_Message", Description = "ABCDEFGH" });
-        });
+        // 0.28.0: the two links sit in a keyword list (KWDA), a field Mutagen reads as links (in a text the probe read
+        // now refuses them; DropMaster_RefusesOverlappingLookalikes)
+        var b = BuildWith(w, "inside", PluginStyle.Full, [World.Full, "UnusedFull.esm", "Other.esm"], mod =>
+            mod.MiscItems.AddNew("SFM_Misc").Keywords = [kw.FormKey.ToLink<IKeywordGetter>(), kw.FormKey.ToLink<IKeywordGetter>()]);
         // links at bytes 0 and 4 (02414202); byte 1 reads 02024142, Other's unlinked keyword
-        var b = WithDescription(w, input, "inside-b", [0x02, 0x42, 0x41, 0x02, 0x02, 0x42, 0x41, 0x02]);
+        Assert.Equal(new byte[] { 0x02, 0x42, 0x41, 0x02, 0x02, 0x42, 0x41, 0x02 }, Subrecords.Parse(Body(File.ReadAllBytes(b), "MISC"), out _).Single(f => f.Type == "KWDA").Data);
         var r = Apply(w, b, new EditPlan { DropMaster = "UnusedFull.esm" });
-        var desc = Subrecords.Parse(Body(r.Output, "MESG"), out _).Single(f => f.Type == "DESC").Data;
-        Assert.Equal(new byte[] { 0x02, 0x42, 0x41, 0x01, 0x02, 0x42, 0x41, 0x01, 0 }, desc);
+        Assert.Equal(new byte[] { 0x02, 0x42, 0x41, 0x01, 0x02, 0x42, 0x41, 0x01 }, Subrecords.Parse(Body(r.Output, "MISC"), out _).Single(f => f.Type == "KWDA").Data);
+    }
+
+    // ---- 0.28.0 (NOTES.md "## 0.28.0 (Followups)", "(b)"): the probe read renumbers only what Mutagen reads as links
+
+    /// <summary>A plugin with masters TestFull, UnusedFull and Other whose MISC links a keyword Other.esm doesn't hold
+    /// (stored 02414299, which moves to 01414299 when UnusedFull goes); fill adds the look-alike.</summary>
+    static string LookAlike(World w, string file, Action<MiscItem> fill)
+    {
+        if (!File.Exists(Path.Combine(w.Dir, "UnusedFull.esm"))) ExtraMaster(w, "UnusedFull.esm", PluginStyle.Full);
+        if (!File.Exists(Path.Combine(w.Dir, "Other.esm"))) OtherMaster(w, 0x414243);
+        var missing = new FormKey(ModKey.FromFileName("Other.esm"), 0x414299);
+        return BuildWith(w, file, PluginStyle.Full, [World.Full, "UnusedFull.esm", "Other.esm"], mod =>
+        {
+            var misc = mod.MiscItems.AddNew("SFM_Misc");
+            misc.Keywords = [missing.ToLink<IKeywordGetter>()];
+            fill(misc);
+        });
+    }
+
+    const uint LookAlikeStored = 0x02414299;
+
+    static byte[] FieldOf(byte[] plugin, string sig, string type) => Subrecords.Parse(Body(plugin, sig), out _).Single(f => f.Type == type).Data;
+
+    // (b) tests 1 and 2: the moving link value in the MISC's Value (Mutagen reads it as a number) and in its FLAG byte
+    // array, naming no record. 0.25.0 renumbered it there too, so the diff proof failed and nothing was kept; now the
+    // file is kept, that field is byte for byte the same, and the real link is renumbered.
+    [Theory]
+    [InlineData("DATA")]
+    [InlineData("FLAG")]
+    public void DropMaster_LeavesALookAlikeNumberAlone(string field)
+    {
+        using var w = new World();
+        var input = LookAlike(w, "lookalike-" + field, m =>
+        {
+            if (field == "DATA") m.Value = (int)LookAlikeStored;
+            else m.FLAG = BitConverter.GetBytes(LookAlikeStored);
+        });
+        var inBytes = File.ReadAllBytes(input);
+        Assert.True(Contains(FieldOf(inBytes, "MISC", field), LookAlikeStored));
+        var o = Prove(w, input, $"lookalike-{field}-out.esm", new EditPlan { DropMaster = "UnusedFull.esm" });
+        AllPassed(o);
+        var outBytes = File.ReadAllBytes(Path.Combine(w.Dir, $"lookalike-{field}-out.esm"));
+        Assert.Equal(FieldOf(inBytes, "MISC", field), FieldOf(outBytes, "MISC", field));
+        Assert.Equal(BitConverter.GetBytes(0x01414299u), FieldOf(outBytes, "MISC", "KWDA"));
+        var what = o.Edit.Changes[0].What;
+        Assert.Contains("1 FormIDs in fields", what);
+        Assert.Contains("left 1 look-alike value alone", what);
+    }
+
+    // (b) test 3: a field Mutagen doesn't read at all (a made-up ZZZZ field added to the MISC by the raw writer):
+    // 0.25.0 renumbered the value there silently; now it is left alone
+    [Fact]
+    public void DropMaster_LeavesAValueInAnUnreadFieldAlone()
+    {
+        using var w = new World();
+        var built = File.ReadAllBytes(LookAlike(w, "unreadfield-plain", _ => { }));
+        var zzzz = "ZZZZ"u8.ToArray().Concat(BitConverter.GetBytes((ushort)4)).Concat(BitConverter.GetBytes(LookAlikeStored)).ToArray();
+        var input = Save(w, "unreadfield", PluginEdit.Rewrite(built, built.AsSpan(0, 24 + (int)Bytes.U32(built, 4)).ToArray(),
+            (rec, _) => rec.Sig == "MISC" ? new PluginEdit.RecordChange(rec.FormId, b => b.Concat(zzzz).ToArray()) : null));
+        Walks(input);
+        var r = Apply(w, input, new EditPlan { DropMaster = "UnusedFull.esm" });
+        Assert.Equal(BitConverter.GetBytes(LookAlikeStored), FieldOf(r.Output, "MISC", "ZZZZ"));
+        Assert.Equal(BitConverter.GetBytes(0x01414299u), FieldOf(r.Output, "MISC", "KWDA"));
+        Assert.Contains("left 1 look-alike value alone", r.Changes[0].What);
+        Walks(Save(w, "unreadfield-out", r.Output));
+    }
+
+    // (b) test 5: three candidates probed two at a time (two passes) give the same output as one pass
+    [Fact]
+    public void DropMaster_ProbePassesGiveTheSameOutput()
+    {
+        using var w = new World();
+        ExtraMaster(w, "UnusedFull.esm", PluginStyle.Full);
+        var later = ExtraMaster(w, "LaterFull.esm", PluginStyle.Full);
+        var input = BuildWith(w, "passes", PluginStyle.Full, [World.Full, "UnusedFull.esm", "LaterFull.esm"], mod =>
+            mod.MiscItems.AddNew("SFM_Misc").Keywords = [mod.Keywords.AddNew("SFM_KeywordA").ToLink<IKeywordGetter>(),
+                mod.Keywords.AddNew("SFM_KeywordB").ToLink<IKeywordGetter>(), later.ToLink<IKeywordGetter>()]);
+        var one = Apply(w, input, new EditPlan { DropMaster = "UnusedFull.esm" });
+        Assert.Equal(1, PluginEdit.ProbePasses);
+        EditResult two;
+        PluginEdit.ProbeRangeForTest = 2;
+        try { two = Apply(w, input, new EditPlan { DropMaster = "UnusedFull.esm" }); }
+        finally { PluginEdit.ProbeRangeForTest = null; }
+        Assert.Equal(2, PluginEdit.ProbePasses);
+        Assert.Equal(one.Output, two.Output);
+        Assert.Contains("3 FormIDs in fields", two.Changes[0].What);
+        SameMeaning(w, input, Save(w, "passes-out", two.Output));
+    }
+
+    // ride-along 3: --out named like one of the new file's masters, and an .esl --out for a plugin that isn't light,
+    // are refused before anything is written; a --set-light edit kept under an .esl name is proved under that name
+    [Fact]
+    public void Proof_OutNameRefusalsAndAnEslName()
+    {
+        using var w = new World();
+        var full = FullCopy(w);
+        var sub = w.Sub("outname");
+        var asMaster = Path.Combine(sub, World.Full);
+        Assert.Contains("is the name of one of the new file's masters, and a plugin can't be its own master",
+            Assert.Throws<EditRefusedException>(() => EditProof.Run(full, asMaster, new EditPlan { SetLight = true }, w.Dir, [])).Reason);
+        Assert.False(File.Exists(asMaster));
+
+        var lines = File.ReadAllBytes(w.Build("lines-esl", Lines));
+        var fullLines = Save(w, "lines-full", lines.Also(b => Bytes.SetU32(b, 8, Bytes.U32(b, 8) & ~Flags.Light)));
+        var esl = Path.Combine(w.Dir, "lines-out.esl");
+        var refusal = Assert.Throws<EditRefusedException>(() => EditProof.Run(fullLines, esl, Text("SFM_Message", "x"), w.Dir, []));
+        Assert.Contains("ends in .esl, which the game always loads as a light plugin, but the new file is a full plugin", refusal.Reason);
+        Assert.Contains("--set-light", refusal.Fix);
+        Assert.False(File.Exists(esl));
+        NoTemp(w, "lines-out.esl");
+
+        var o = EditProof.Run(full, Path.Combine(w.Dir, "light.esl"), new EditPlan { SetLight = true }, w.Dir, []);
+        AllPassed(o);
+        Assert.Equal(w.CleanBytes, File.ReadAllBytes(Path.Combine(w.Dir, "light.esl")));
+        NoTemp(w, "light.esl");
     }
 
     // code review 0.25.0 round 1: --set-text takes "Name", eid:Name and editorid:Name as an EditorID, as find does
@@ -677,8 +795,9 @@ public class EditTests
         NoTemp(w, "dropproof-out.esm");
     }
 
-    // 10. a number in a text field that equals a linked ID by accident is renumbered; the proof's diff sees the text
-    // change, deletes the file and names the record
+    // 10. a number in a text field that equals a linked ID by accident. 0.25.0 renumbered it and the proof's diff
+    // caught the text change; since 0.28.0 (design (b) test 4) the probe read says Mutagen doesn't read it as a link and
+    // it names a real record, so the drop is refused before anything is written
     [Fact]
     public void Proof_CatchesAnAccidentalRenumbering()
     {
@@ -699,12 +818,9 @@ public class EditTests
         Bytes.SetU32(b, at, 0x02000000u | 0x414243);
         File.WriteAllBytes(input, b);
 
-        var o = Prove(w, input, "accident-out.esm", new EditPlan { DropMaster = "UnusedFull.esm" });
-        Assert.False(o.Kept);
-        var failed = Assert.IsType<ProofResult>(o.Failed);
-        Assert.Equal("diff", failed.Name);
-        Assert.Contains("MESG SFM_Message", failed.Reason);
-        Assert.Contains("Description", failed.Reason);
+        var why = Assert.Throws<EditRefusedException>(() => Prove(w, input, "accident-out.esm", new EditPlan { DropMaster = "UnusedFull.esm" })).Reason;
+        Assert.Contains("MESG ", why);
+        Assert.Contains("stores 02414243 in its DESC field at byte 0, which names a record of Other.esm (414243), but Mutagen doesn't read that field as a link", why);
         Assert.False(File.Exists(Path.Combine(w.Dir, "accident-out.esm")));
         NoTemp(w, "accident-out.esm");
         Assert.Equal(b, File.ReadAllBytes(input));

@@ -535,7 +535,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     counts from 1, as `find --full` shows. The edits can be combined; one `--drop-master` per run. Refused (exit 2,
     with the reason and the fix): `--out` missing, equal to the input or already existing; input inside a zip (unpack
     it first); a master still used (Mutagen's links and a raw FormID scan must both find no use), or a value to
-    renumber that Mutagen doesn't read as a link but that names a real record; `--set-light` on a
+    renumber that Mutagen doesn't read as a link but that names a real record (since 0.28.0 only values Mutagen reads
+    as links are renumbered; look-alike numbers are left alone and counted in the report), an `--out` named like one
+    of the new file's masters, an `.esl` `--out` for a plugin that isn't light; `--set-light` on a
     light or medium plugin or one with own records outside `000800` to `000FFF`; `--set-text` on a localized plugin,
     on a record not found, with a response number out of range, or twice on one record in a run. Proofs, always run before the file is kept: `diff`
     (only the intended changes), `gap` (no new loss) and `check` (no new ERROR); a failed proof deletes the new file
@@ -662,6 +664,26 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `sResourceDataDirsFinal=`; without both, a name that is loose and in a loaded archive gets a `note:` line that the
     game may use the archived copy (`--ini` adds a mod manager's INI). Exit
     0 = a file matched, 1 = none, 2 = couldn't run.  `--json` has `tool`, `version`, `pattern`, `loadOrder`, `files` (each with `name` and `holders`: `kind`, `archive` or `path`, `why`, `type`, `loaded`, `served`, `winner`), `listed`, `total`, `archivesRead`, `looseFilesReplaceArchives` (whether the INIs read set both keys), `skipped` (archives left out, such as another language's voices, each with `archive` and `why`), `unreadable` (each with `archive` and `why`) and `loadOrderProblems` (one text per problem; a plugin that didn't load has its archives left out, and the text output prints each as a `load-order problem:` line). Linked loose files and folders (symlinks, junctions) count; a link whose target is gone doesn't.
+
+31. Read the text a player will see in a mod (0.28.0), for example in an audit or evaluation, without the mod's download
+    page. Read only:
+
+        sf-mod-check text MyMod.esm
+        sf-mod-check text "C:\Downloads\SomeMod-1.0.zip" --type BOOK,MESG
+        sf-mod-check text MyMod.esm --json --out MyMod-text.json
+
+    The input and masters are as for `summary` (one plugin or archive; `--masters-dir`, then `--data`; refuses
+    `--plugin`, `--plugins`, `--mo2`, `--profile` and `--extra-data`). It lists every translated string of the plugin's
+    records at any depth, named by field path (`Name`, `Responses[0].ResponseText`): all strings of a new record, and
+    for an override only the strings it changes, each with `was:` (the master's text). An override that changes no
+    string or is deleted is left out; one with no master version is listed in full as `no master`. A localized plugin
+    is read from its string files (English only); if they all read empty, a `WARNING` says its string files weren't
+    found. `--type <SIG>,...` keeps those record types (unknown ones are refused). `--json` has `tool`, `version`,
+    `result`, `plugins` (`name`, `localized`, `fromArchive`, `warning`, `records` with `type`, `formKey`, `editorId`,
+    `kind` and `strings` with `field`, `text`, `was`), `unread` and `loadOrderProblems`. `--out <file>` writes the
+    output to a file (replacing it; a plugin, BA2 or archive name or a folder is refused). Exit 0 = listed (also when
+    nothing is found), 2 = couldn't run; last line `RESULT: text: 2 strings in 1 record (1 new, 0 changed) in
+    Mod.esm`. It lists text, it doesn't judge it. Quote text for the user as the plugin holds it; `triage` doesn't list text.
 
 ## 6. Inputs and outputs
 

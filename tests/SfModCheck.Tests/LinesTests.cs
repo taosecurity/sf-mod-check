@@ -66,6 +66,7 @@ public class LinesTests
             var other = b.Npcs.AddNew("LnOther");
             other.Voice.SetTo(otherVoice);
             var happy = b.Keywords.AddNew("AnimFaceArchetypeHappy");
+            b.Keywords.AddNew("0000ABCD");   // 0.28.0: an EditorID that reads like a console FormID
             var list = b.FormLists.AddNew("LnVoices");
             list.Items.Add(voice.ToLink<IStarfieldMajorRecordGetter>());
 
@@ -395,5 +396,26 @@ public class LinesTests
         (code, stdout, _) = s.InOrder("--help");
         Assert.Equal(0, code);
         Assert.Contains("usage: sf-mod-check lines", stdout);
+    }
+
+    // 0.28.0 ride-along 1: the find hint keeps eid: for an EditorID that find would read as a console FormID
+    // (0.27.0 hinted `find 0000ABCD`, a FormID lookup)
+    [Fact]
+    public void The_find_hint_keeps_eid_for_an_EditorID_that_looks_like_a_FormID()
+    {
+        using var s = new Game();
+        var (code, stdout, stderr) = s.InOrder("eid:0000ABCD");
+        Assert.True(code == 2, stdout + stderr);
+        Assert.Contains("0000ABCD is a KYWD", stderr);
+        Assert.Contains("find shows what the record is: sf-mod-check find eid:0000ABCD", stderr);
+
+        (code, stdout, stderr) = s.InOrder("LnNpc", "--compare", "eid:DEADBEEF");
+        Assert.True(code == 2, stdout + stderr);
+        Assert.Contains("find looks it up: sf-mod-check find eid:DEADBEEF", stderr);
+
+        // an ordinary EditorID is hinted as it is
+        (code, _, stderr) = s.InOrder("LnQuest");
+        Assert.Equal(2, code);
+        Assert.Contains("sf-mod-check find LnQuest", stderr);
     }
 }

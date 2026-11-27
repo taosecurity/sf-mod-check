@@ -43,6 +43,8 @@ commands:
   and the winner marked. It also answers "who edits these records" for a list you give it.
 - [`summary`](#what-one-plugin-adds-and-changes-sf-mod-check-summary) (0.26.0) says what one plugin adds and changes:
   records by type, ITMs, the fields its overrides change, and the cells and placed references it touches.
+- [`text`](#the-text-a-plugin-adds-or-changes-sf-mod-check-text) (0.28.0) lists every string a player can see that a
+  plugin adds or changes (item, book, message and terminal text, quest names, dialogue), each with its field path.
 - [`cell`](#whats-in-a-cell-or-near-a-point-sf-mod-check-cell) (0.27.0) lists what is in a cell or near a point: each
   placed reference with its base, position, enable parent and who added and changed it, and the persistent anchors a
   quest alias or a MoveTo can use.
@@ -1349,6 +1351,52 @@ A made-up run on a small plugin:
 Exit codes: 0 the summary was made, 2 couldn't run (a missing file or master, an unreadable plugin, a refused archive).
 The `summary` is what a plugin holds, not a verdict: a deleted record or a changed value can be intended.
 
+## The text a plugin adds or changes: `sf-mod-check text`
+
+Use it to read what a player will see in a mod (book pages, message and terminal text, item and quest names,
+dialogue) without the mod's download page. It reads one plugin (or the plugins of an archive) and its masters and
+changes nothing (0.28.0).
+
+    sf-mod-check text MyMod.esm
+    sf-mod-check text "C:\Downloads\SomeMod-1.0.zip" --type BOOK,MESG
+    sf-mod-check text MyMod.esm --json --out MyMod-text.json
+
+    sf-mod-check text <plugin | archive> [--data <Data folder>] [--masters-dir <folder>]... [--type <SIG>,...]
+                      [--json] [--out <file>] [--quiet] [--verbose] [--log <file>]
+
+- **The input, masters and refusals** are the same as for `summary` above: one plugin or archive, masters found in the
+  plugin's folder, each `--masters-dir`, then `--data`; `--plugin`, `--plugins`, `--mo2`, `--profile` and `--extra-data`
+  are refused. An archive with several plugins gets one section per plugin, in load order.
+- **Which strings:** every value the game translates, at any depth of a record, each named by its field path
+  (`Name`, `Responses[0].ResponseText`). A **new** record lists all its strings. An **override** lists only the strings
+  it changes, each with the master's text as `was:`; an override that changes no string is left out, and so is a
+  deleted one. An override whose master has no record of that type is listed in full and marked `no master`.
+- **Localized plugins** are read from their string files (`Strings\<plugin>_en.STRINGS`, `.DLSTRINGS`, `.ILSTRINGS`,
+  loose or in the plugin's own BA2), English only. If a localized plugin's strings all read empty, a `WARNING` says its
+  string files weren't found.
+- `--type <SIG>,<SIG>`: only these record types (an unknown signature is refused). `--json`: one object with `tool`,
+  `version`, `result`, `plugins` (each: `name`, `localized`, `fromArchive`, `warning`, `records` with `type`, `formKey`,
+  `editorId`, `kind` (`new`, `changed` or `no master`) and `strings` with `field`, `text` and, for a changed
+  record, `was`), `unread` and `loadOrderProblems`. `--out <file>` writes the text (or the JSON) to a file, replacing it,
+  and prints only the counts; it refuses a plugin, BA2 or archive extension and an existing folder, so a typo can't
+  overwrite a mod. Control characters in a string are shown as visible escapes.
+- `triage` doesn't list text: it reads plugins without their masters, so it can't tell new text from unchanged text.
+  Run `text` for that.
+
+A made-up run:
+
+    sf-mod-check text Camp.esm --type MESG
+    sf-mod-check 0.28.0 text of Camp.esm and its 1 master
+
+    Camp.esm (2 strings in 1 record)
+      MESG (1 record, 2 strings)
+        MESG CampNotice [000801:Camp.esm] new
+          Name: Camp Notice
+          Description: The hall is closed until spring.
+    RESULT: text: 2 strings in 1 record (1 new, 0 changed) in Camp.esm
+
+Exit codes: 0 listed (also when nothing is found), 2 couldn't run.
+
 ## What's in a cell, or near a point: `sf-mod-check cell`
 
 Use it to see what a cell holds and who put it there: for example, to find a persistent reference a quest alias can
@@ -1619,9 +1667,13 @@ The three edits (give at least one; they can be combined):
 
 - `--drop-master <name>` removes a master the plugin doesn't use, and renumbers the FormIDs after it. Refused when
   anything still uses the master: Mutagen's list of links and a raw scan of every FormID must both find no use, and if
-  they disagree the edit is refused. It is also refused, rather than guessed, when a field Mutagen doesn't read as a
-  link holds a value that names a record of the plugin or of a later master, or when two overlapping values in one
-  field both look like FormIDs. One `--drop-master` per run; run `edit` again on the new file for another.
+  they disagree the edit is refused. Since 0.28.0 only values Mutagen really reads as links are renumbered: `edit`
+  puts a test value in each candidate spot, reads the copy back in memory, and renumbers only the spots that come back
+  as links. A number that only looks like a FormID (a value, a weight, a byte list) is left alone, and the report says
+  "left N look-alike values alone" (`--verbose` logs each one). It is refused, rather than guessed, when a field
+  Mutagen doesn't read as a link holds a value that names a real record of the plugin or of a later master, when two
+  overlapping values in one field both look like FormIDs, or when the test read can't tell the links apart. One
+  `--drop-master` per run; run `edit` again on the new file for another.
 - `--set-light` sets the light flag. Refused when the plugin is already light or medium, or when one of its own records
   is outside `000800` to `000FFF`. Starfield stores a link to a light master differently from a link to a full one, so
   a plugin that has this one as a master must be re-saved against the light copy (or rebuilt) before you use the two
@@ -1637,8 +1689,10 @@ The three edits (give at least one; they can be combined):
   response isn't found.
 
 **Always refused** (exit 2, with the reason and what to do): no `--out`, `--out` equal to the plugin or already
-existing (it never overwrites), a plugin inside a zip (unpack it first), a folder or wildcard as input, and bad
-arguments.
+existing (it never overwrites), an `--out` named like one of the new file's masters (a plugin can't be its own
+master), an `.esl` `--out` for a plugin that isn't light (the game loads every `.esl` as light, so add `--set-light`
+or keep the extension), a plugin inside a zip (unpack it first), a folder or wildcard as input, and bad arguments.
+Since 0.28.0 the gap and check proofs run on the new file under its `--out` name.
 
 **The three proofs.** The new file is read back and must pass all three before it is kept; otherwise it is deleted and
 the proof that failed says why:
@@ -1684,7 +1738,7 @@ holds and what is worth a person's look, offline, without running anything from 
 **It is triage, not a verdict.** Every finding is a NOTE (information) or a LOOK (worth a person's look), and each
 names the file and says why. A LOOK is where to start reading, not a fault: a mod that replaces a game script on
 purpose gets one, and so does a DLL that talks to the network. The report never says a mod is safe, unsafe or
-harmful; you decide that after reading.
+harmful; you decide that after reading. `triage` doesn't list the mod's player-facing text; [`text`](#the-text-a-plugin-adds-or-changes-sf-mod-check-text) does.
 
 - `<mod>`: a `.zip`, `.7z` or `.rar` download (unpacked into a temp folder that is always removed; password-protected
   archives are refused), a mod folder (for example `MO2\mods\SomeMod`, read where it is; never the game's own folders, and never a folder whose path can't be checked against them), or one plugin (with the

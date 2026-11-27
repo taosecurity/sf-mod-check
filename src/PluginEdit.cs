@@ -185,19 +185,30 @@ public static class PluginEdit
         if (drop != null)
         {
             changes.Insert(0, new("drop-master", null,
-                $"master {drop.Name} removed; renumbered {drop.RecordIds} record IDs, {drop.Labels} group labels, {drop.Onam} ONAM entries and {drop.Values} FormIDs in fields"));
+                $"master {drop.Name} removed; renumbered {drop.RecordIds} record IDs, {drop.Labels} group labels, {drop.Onam} ONAM entries and {drop.Values} FormIDs in fields" +
+                (drop.LookAlikes > 0 ? $"; left {drop.LookAlikes} look-alike value{(drop.LookAlikes == 1 ? "" : "s")} alone" : "")));
             Log.Write($"edit: drop-master {drop.Name}: {changes[0].What}");
         }
         return new(output, changes) { Texts = texts, Remap = drop == null ? null : drop.Remap };
     }
 
+    /// <summary>A test hook (0.28.0): the number of probes one probe pass may use, in place of the dropped master's
+    /// local range (4,095, 65,535 or 16,777,215), so a test can force more than one pass. Never set outside the tests.</summary>
+    [ThreadStatic] internal static int? ProbeRangeForTest;
+    /// <summary>The number of probe passes the last --drop-master on this thread made (for the tests and the log).</summary>
+    [ThreadStatic] internal static int ProbePasses;
+
     /// <summary>A --drop-master in progress: the old and new ID maps, the plugin's link set (file, local ID as stored)
-    /// and the counts for the report.</summary>
-    sealed class Drop(string name, int mastIndex, IdMap oldIds, IdMap newIds, HashSet<(string, uint)> links, Func<string, uint, bool> namesRecord)
+    /// and the counts for the report. 0.28.0: Probe finds which candidate windows Mutagen reads as links, and Payload
+    /// renumbers only those.</summary>
+    sealed class Drop(string name, int mastIndex, Style droppedStyle, IdMap oldIds, IdMap newIds, HashSet<(string, uint)> links, Func<string, uint, bool> namesRecord)
     {
         public readonly string Name = name;
         public readonly int MastIndex = mastIndex;
-        public int RecordIds, Labels, Onam, Values;
+        public int RecordIds, Labels, Onam, Values, LookAlikes;
+        /// <summary>The candidate windows (record offset in the input, field number, byte) whose probe Mutagen read as a link.</summary>
+        readonly HashSet<(long Rec, int Field, int At)> confirmed = [];
+        const string Keep = "Keep the master. If you are sure it is unused, remove it in xEdit and check the plugin there.";
 
         /// <summary>A stored FormID re-encoded for the new master list, in the style it is written in. A value that
         /// names no file, or the dropped master, is left alone (the use check refused the second already).</summary>
@@ -211,20 +222,19 @@ public static class PluginEdit
         /// <summary>Whether a 4-byte value is one of the plugin's links as stored (decodes to a linked (file, ID)).</summary>
         public bool IsLink(uint v) => oldIds.Decode(v) is var d && d.File != null && links.Contains((d.File.ToLowerInvariant(), d.Local));
 
-        /// <summary>The body with every field's link windows renumbered; the same array when nothing changes. Every
-        /// byte offset is looked at. Refused (nothing guessed): a value that would be renumbered and names a real record
-        /// but isn't one of Mutagen's links (a FormID in a field Mutagen doesn't read), and two overlapping link windows
-        /// where either would be renumbered (it can't be told which one is the FormID).</summary>
-        public byte[] Payload(RawRecord rec, byte[] body)
+        /// <summary>The record's fields and its candidate windows: each 4-byte window (field number, byte) whose value
+        /// is one of the plugin's link values and moves with the drop. Every byte offset is looked at. Refused (nothing
+        /// guessed): a value that would be renumbered and names a real record but isn't one of Mutagen's link values (a
+        /// FormID in a field Mutagen doesn't read), and two overlapping link windows where either would be renumbered
+        /// (it can't be told which one is the FormID).</summary>
+        public (List<(string Type, byte[] Data)> Fields, List<(int Field, int At)> Candidates) Scan(RawRecord rec, byte[] body)
         {
             var fields = Subrecords.Parse(body, out var why);
             if (why != null) throw new EditRefusedException($"{rec.Sig} {rec.FormId:X8}'s fields don't add up ({why}).", "Run `sf-mod-check check` on the plugin; the record is damaged.");
-            const string keep = "Keep the master. If you are sure it is unused, remove it in xEdit and check the plugin there.";
-            bool changed = false;
+            var found = new List<(int Field, int At)>();
             for (int f = 0; f < fields.Count; f++)
             {
                 var d = fields[f].Data;
-                byte[]? copy = null;
                 int lastEnd = -1, lastAt = -1;   // the last link window seen in this field
                 bool lastMoves = false;
                 // where the link windows start: a window that overlaps one can't be a FormID of its own
@@ -247,12 +257,7 @@ public static class PluginEdit
                         if (!OverlapsLink(j) && oldIds.Decode(v) is var u && u.File != null
                             && !(u.File == oldIds.Self && u.Written != Style.Full && u.Written != oldIds.SelfStyle)
                             && Remap(v) != v && namesRecord(u.File, u.Local))
-                        {
-                            var shownStyle = u.File == oldIds.Self ? oldIds.SelfStyle : StyleOf(oldIds, u.File);
-                            throw new EditRefusedException(
-                                $"{rec.Sig} {rec.FormId:X8} stores {v:X8} in its {fields[f].Type} field at byte {j}, which names a record of {u.File} ({IdMap.Mask(u.Local, shownStyle):X6}), but Mutagen doesn't read that field as a link, so it can't be told whether it is a FormID to renumber.",
-                                keep);
-                        }
+                            throw Unread(rec, fields[f].Type, j, v);
                         continue;
                     }
                     var n = Remap(v);
@@ -260,18 +265,130 @@ public static class PluginEdit
                     if (j < lastEnd && (n != v || lastMoves))
                         throw new EditRefusedException(
                             $"{rec.Sig} {rec.FormId:X8}'s {fields[f].Type} field holds two overlapping values that both look like FormIDs (at bytes {lastAt} and {j}), so it can't be told which one to renumber.",
-                            keep);
+                            Keep);
                     lastEnd = j + 4; lastAt = j; lastMoves = n != v;
-                    if (n != v)
+                    if (n != v) found.Add((f, j));
+                }
+            }
+            return (fields, found);
+        }
+
+        /// <summary>The refusal for a value that names a real record in a place Mutagen doesn't read as a link.</summary>
+        EditRefusedException Unread(RawRecord rec, string field, int at, uint v)
+        {
+            var u = oldIds.Decode(v);
+            var shownStyle = u.File == oldIds.Self ? oldIds.SelfStyle : StyleOf(oldIds, u.File!);
+            return new EditRefusedException(
+                $"{rec.Sig} {rec.FormId:X8} stores {v:X8} in its {field} field at byte {at}, which names a record of {u.File} ({IdMap.Mask(u.Local, shownStyle):X6}), but Mutagen doesn't read that field as a link, so it can't be told whether it is a FormID to renumber.",
+                Keep);
+        }
+
+        /// <summary>The body with the link windows renumbered; the same array when nothing changes. Only the candidate
+        /// windows whose probe Mutagen read as a link are renumbered (0.28.0). Any other candidate is a number that
+        /// only looks like a link value: refused when it names a real record of the plugin or a master, else left as it
+        /// is and counted.</summary>
+        public byte[] Payload(RawRecord rec, byte[] body)
+        {
+            var (fields, candidates) = Scan(rec, body);
+            bool changed = false;
+            var copies = new Dictionary<int, byte[]>();
+            foreach (var (f, j) in candidates)
+            {
+                var v = BinaryPrimitives.ReadUInt32LittleEndian(fields[f].Data.AsSpan(j));
+                if (!confirmed.Contains((rec.Offset, f, j)))
+                {
+                    var u = oldIds.Decode(v);
+                    if (namesRecord(u.File!, u.Local)) throw Unread(rec, fields[f].Type, j, v);
+                    LookAlikes++;
+                    Log.Write($"edit: drop-master: left {v:X8} alone in {rec.Sig} {rec.FormId:X8}'s {fields[f].Type} field at byte {j}: Mutagen doesn't read it as a link, and it names no record");
+                    continue;
+                }
+                if (!copies.TryGetValue(f, out var copy)) copies[f] = copy = (byte[])fields[f].Data.Clone();
+                BinaryPrimitives.WriteUInt32LittleEndian(copy.AsSpan(j), Remap(v));
+                Values++;
+            }
+            foreach (var (f, copy) in copies) { fields[f] = (fields[f].Type, copy); changed = true; }
+            return changed ? PackFields(fields) : body;
+        }
+
+        /// <summary>The probe read (0.28.0; NOTES.md "## 0.28.0 (Followups)", "(b)"). Every candidate window of every
+        /// record gets a probe value, a FormID of the dropped master with a local ID of its own (nothing links to the
+        /// dropped master, as the use check proved), in a copy of the plugin made in memory; Mutagen reads that copy, and
+        /// each probe it reports as a link of the record it was put in marks its window as a real link. More candidates
+        /// than the master's local range holds are probed in passes. Refused: a probe read that throws, and a probe
+        /// Mutagen reports only in another record (the links can't be told apart from other values then).</summary>
+        public void Probe(byte[] input, byte[] header, List<RawRecord> records, string selfName, LoadOrder<IModMasterStyledGetter> styles)
+        {
+            var all = new List<(RawRecord Rec, int Field, int At)>();
+            foreach (var r in records)
+                foreach (var (f, j) in Scan(r, Body(input, r)).Candidates) all.Add((r, f, j));
+            ProbePasses = 0;
+            if (all.Count == 0) { Log.Write($"edit: drop-master {Name}: no candidate link windows, no probe read"); return; }
+            int range = ProbeRangeForTest ?? droppedStyle switch { Style.Light => 0xFFF, Style.Medium => 0xFFFF, _ => 0xFFFFFF };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (int start = 0; start < all.Count; start += range)
+            {
+                ProbePasses++;
+                var pass = all.Skip(start).Take(range).Select((c, i) => (c.Rec, c.Field, c.At, Local: (uint)(i + 1))).ToList();
+                var byRec = pass.GroupBy(c => c.Rec.Offset).ToDictionary(g => g.Key, g => g.ToList());
+                var probe = Rewrite(input, header, (rec, stored) => byRec.TryGetValue(rec.Offset, out var list)
+                    ? new RecordChange(rec.FormId, b =>
                     {
-                        copy ??= (byte[])d.Clone();
-                        BinaryPrimitives.WriteUInt32LittleEndian(copy.AsSpan(j), n);
-                        Values++;
+                        var fields = Subrecords.Parse(b, out _);
+                        foreach (var g in list.GroupBy(c => c.Field))
+                        {
+                            var d = (byte[])fields[g.Key].Data.Clone();
+                            foreach (var c in g) BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(c.At), Encode(oldIds, Name, c.Local, droppedStyle)!.Value);
+                            fields[g.Key] = (fields[g.Key].Type, d);
+                        }
+                        return PackFields(fields);
+                    })
+                    : null);
+
+                // which probes Mutagen reads as links, by the record they are reported in
+                var seen = new Dictionary<(string, uint), HashSet<uint>>();
+                string? at = null;
+                try
+                {
+                    using var ms = new MemoryStream(probe, writable: false);
+                    using var mod = StarfieldMod.CreateFromBinaryOverlay(ms, StarfieldRelease.Starfield, ModKey.FromFileName(selfName), new BinaryReadParameters { MasterFlagsLookup = styles });
+                    foreach (var rec in mod.EnumerateMajorRecords())
+                    {
+                        at = rec.EditorID is { Length: > 0 } eid ? $"{eid} [{rec.FormKey}]" : rec.FormKey.ToString();
+                        var key = ((rec.FormKey.ModKey == mod.ModKey ? selfName : rec.FormKey.ModKey.FileName.String).ToLowerInvariant(), rec.FormKey.ID);
+                        foreach (var l in rec.EnumerateFormLinks())
+                        {
+                            if (l.IsNull || !l.FormKey.ModKey.FileName.String.Equals(Name, StringComparison.OrdinalIgnoreCase)) continue;
+                            if (!seen.TryGetValue(key, out var set)) seen[key] = set = [];
+                            set.Add(l.FormKey.ID);
+                        }
+                        at = null;
                     }
                 }
-                if (copy != null) { fields[f] = (fields[f].Type, copy); changed = true; }
+                catch (Exception e) when (Fatal.Recoverable(e) && e is not EditRefusedException)
+                {
+                    throw new EditRefusedException(
+                        $"The links of {(at != null ? SafeText.OneLine(at) : "a record")} can't be told apart from other values: Mutagen can't read the probe copy ({e.GetType().Name}: {SafeText.OneLine(e.Message)}).",
+                        Keep);
+                }
+                var anywhere = seen.Values.SelectMany(s => s).ToHashSet();
+                int hits = 0;
+                foreach (var c in pass)
+                {
+                    var d = oldIds.Decode(c.Rec.FormId);
+                    if (d.File != null && seen.TryGetValue((d.File.ToLowerInvariant(), d.Local), out var own) && own.Contains(c.Local))
+                    {
+                        confirmed.Add((c.Rec.Offset, c.Field, c.At));
+                        hits++;
+                    }
+                    else if (anywhere.Contains(c.Local))
+                        throw new EditRefusedException(
+                            $"The links of {c.Rec.Sig} {c.Rec.FormId:X8} can't be told apart from other values: Mutagen reads the value at byte {c.At} of its field {c.Field + 1} as a link of another record.",
+                            Keep);
+                }
+                Log.Write($"edit: drop-master {Name}: probe pass {ProbePasses}: {pass.Count} candidate windows, {hits} read by Mutagen as links");
             }
-            return changed ? PackFields(fields) : body;
+            Log.Write($"edit: drop-master {Name}: {all.Count} candidate windows in {ProbePasses} probe pass{(ProbePasses == 1 ? "" : "es")}, {confirmed.Count} are links, {sw.Elapsed.TotalSeconds:F1} s");
         }
     }
 
@@ -336,10 +453,10 @@ public static class PluginEdit
         // 1. Mutagen: links and record keys of the plugin, and those that point at the master
         var links = new HashSet<(string, uint)>();
         int mutagenUses = 0;
+        var styles = new LoadOrder<IModMasterStyledGetter>(h.Masters.Select(m =>
+            (IModMasterStyledGetter)new KeyedMasterStyle(ModKey.FromFileName(m), MutagenStyle(masterStyle(m) ?? Style.Full))));
         try
         {
-            var styles = new LoadOrder<IModMasterStyledGetter>(h.Masters.Select(m =>
-                (IModMasterStyledGetter)new KeyedMasterStyle(ModKey.FromFileName(m), MutagenStyle(masterStyle(m) ?? Style.Full))));
             using var mod = StarfieldMod.CreateFromBinaryOverlay(inputPath, StarfieldRelease.Starfield, new BinaryReadParameters { MasterFlagsLookup = styles });
             void Add(FormKey fk)
             {
@@ -388,7 +505,10 @@ public static class PluginEdit
                 "Keep the master: a use one reader can't see is still a use. If you are sure, remove the master in xEdit and check the plugin there.");
 
         var newIds = new IdMap(selfName, h.Style, h.Masters.Where((_, i) => i != k).Select(m => (m, masterStyle(m) ?? Style.Full)));
-        return new Drop(master, k, ids, newIds, links, NamesRecord);
+        var drop = new Drop(master, k, ds, ids, newIds, links, NamesRecord);
+        // 3. the probe read (0.28.0): which candidate windows Mutagen reads as links
+        drop.Probe(input, input.AsSpan(0, 24 + (int)h.Size).ToArray(), records, selfName, styles);
+        return drop;
     }
 
     /// <summary>A master's own record IDs (raw header index), masked to its style, and the style.</summary>
@@ -648,8 +768,9 @@ public static class PluginEdit
     }
 
     /// <summary>Writes the edited bytes to a new temporary file next to `out`: a new folder &lt;out&gt;.tmp-&lt;random&gt;
-    /// holding the file under the input's name (fileName), so the proof's diff, gap and check all see the plugin by the
-    /// name it has (Mutagen keys own records by the file name). The file is created with CreateNew, so nothing is
+    /// holding the file under fileName: --out's file name since 0.28.0, so the proof's gap and check see the plugin by
+    /// the name it is kept under, and the input's name for the diff proof's own copy (Mutagen keys own records by the
+    /// file name, so the field compare needs the input's name on both sides). The file is created with CreateNew, so nothing is
     /// overwritten. Returns the file's path; the caller proves it, then moves it to out and calls DeleteTemp.</summary>
     public static string WriteTemp(string outPath, string fileName, byte[] data)
     {

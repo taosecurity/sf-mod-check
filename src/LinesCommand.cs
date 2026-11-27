@@ -250,7 +250,7 @@ public static class LinesCommand
                 if (refMatches.Count == 0)
                 {
                     Console.Error.WriteLine($"--compare {SafeText.OneLine(refQuery.Text)}: {NotFoundWhat(refQuery, lo, refWhy)}. Give the NPC to compare with as it is in this load order " +
-                                            "(an EditorID, a FormKey or a console FormID); find looks it up: sf-mod-check find " + Quoted(refQuery.Text));
+                                            "(an EditorID, a FormKey or a console FormID); find looks it up: sf-mod-check find " + FindArg(refQuery));
                     cantWhy = $"the --compare NPC {SafeText.OneLine(refQuery.Text)} isn't found";
                     return 2;
                 }
@@ -406,6 +406,11 @@ public static class LinesCommand
 
     internal static string Quoted(string q) => q.Contains(' ') ? $"\"{SafeText.OneLine(q)}\"" : SafeText.OneLine(q);
 
+    /// <summary>The query as `find` must be given it (0.28.0): an EditorID that find would read as a console FormID or a
+    /// FormKey (eight hex digits, or a colon in it) gets eid: in front, so `lines eid:00005788` hints `find eid:00005788`.</summary>
+    internal static string FindArg(Query query) =>
+        Quoted(!query.IsFormId && !query.IsFormKey && (ConsoleId.IsMatch(query.Text) || query.Text.Contains(':')) ? "eid:" + query.Text : query.Text);
+
     /// <summary>The one NPC among the matches, or null (with the message printed) when it is another record type or
     /// several NPCs share the EditorID.</summary>
     static (INpcGetter Npc, FormKey Key)? OneNpc(Query query, List<FindCommand.Match> matches, string label, out string cantWhy)
@@ -417,7 +422,7 @@ public static class LinesCommand
         {
             var m = matches[0];
             Console.Error.WriteLine($"{label}{q} is a {m.Type} ({m.Key}), not an NPC: lines looks at an NPC_ record. " +
-                                    "find shows what the record is: sf-mod-check find " + Quoted(query.Text));
+                                    "find shows what the record is: sf-mod-check find " + FindArg(query));
             cantWhy = $"{label}{q} is a {m.Type}, not an NPC";
             return null;
         }

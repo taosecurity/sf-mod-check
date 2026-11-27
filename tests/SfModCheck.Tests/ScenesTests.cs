@@ -708,4 +708,22 @@ public class ScenesTests
         Assert.Contains("picked ScJumpOnly: jumped to from ScTopicA", err);
         Assert.Contains("talk menu of ScQuest: ScHub", err);
     }
+
+    // 0.28.0 ride-along 2: --hub takes eid:, editorid: and quotes as an EditorID (0.27.0 compared "eid:ScTopicB" with
+    // the EditorIDs as typed and found nothing); an empty one is refused
+    [Fact]
+    public void Scenes_hub_takes_a_forced_EditorID()
+    {
+        using var g = new Game();
+        foreach (var hub in new[] { "eid:ScTopicB", "editorid:ScTopicB", "\"ScTopicB\"", "ScTopicB" })
+        {
+            var (code, js, err) = Scenes(g, "ScNpc", "--hub", hub, "--json");
+            Assert.True(code == 0, hub + "\n" + js + err);
+            Assert.Equal(g.TopicB.ToString(), JsonDocument.Parse(js).RootElement.GetProperty("hub")[0].GetString());
+        }
+        var (c, stdout, stderr) = Scenes(g, "ScNpc", "--hub", "eid:");
+        Assert.Equal(2, c);
+        Assert.Contains("--hub eid: names no EditorID", stderr);
+        Assert.Contains("RESULT: ", stdout);
+    }
 }
