@@ -278,6 +278,48 @@ public class TextCommandTests
         Assert.NotNull(JsonNode.Parse(j3)!["plugins"]![0]!["masterWarning"]);
     }
 
+    // 0.28.0 code review round 3: when the winning master version is a partial form (as ShatteredSpace.esm's EDID-only
+    // quests), the game reads the fields it leaves out from the full version under it, so "was" does too (an unchanged
+    // name was listed as changed, "was: (no text in the master)"); a field the partial form holds is its own
+    [Fact]
+    public void Test15_a_partial_form_master_version_reads_its_left_out_strings_from_the_full_version()
+    {
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        var dir = s.Sub("mods");
+        var b = Plugin.New("Starfield.esm", PluginStyle.Full, "test", "made-up base game");
+        var q1 = b.Quests.AddNew("S_QuestKept");
+        q1.Name = "Old Friends";
+        var q2 = b.Quests.AddNew("S_QuestRenamed");
+        q2.Name = "Lost Ship";
+        using (var g = new GameData(data)) PluginWriter.Write(b, data, g, NoGap);
+        var e = Plugin.New("Expansion.esm", PluginStyle.Full, "test", "made-up expansion");
+        e.Quests.Add(new Quest(q1.FormKey, StarfieldRelease.Starfield) { EditorID = "S_QuestKept", MajorRecordFlagsRaw = 0x4000 });
+        e.Quests.Add(new Quest(q2.FormKey, StarfieldRelease.Starfield) { EditorID = "S_QuestRenamed", MajorRecordFlagsRaw = 0x4000, Name = "Found Ship" });
+        var rock = e.MiscItems.AddNew("X_Rock");
+        rock.Name = "Rock";
+        using (var g = new GameData(data)) { g.Open("Starfield.esm"); PluginWriter.Write(e, data, g, NoGap); }
+        using (var g = new GameData(data, [dir]))
+        {
+            g.Open("Starfield.esm");
+            g.Open("Expansion.esm");
+            var m = Plugin.New("Mod.esm", PluginStyle.Full, "test", "made-up mod");
+            m.Quests.Add(new Quest(q1.FormKey, StarfieldRelease.Starfield) { EditorID = "S_QuestKept", Name = "Old Friends" });
+            m.Quests.Add(new Quest(q2.FormKey, StarfieldRelease.Starfield) { EditorID = "S_QuestRenamed", Name = "Lost Ship" });
+            m.MiscItems.Add(new MiscItem(rock.FormKey, StarfieldRelease.Starfield) { EditorID = "X_Rock", Name = "Rock" });   // makes Expansion.esm a master
+            PluginWriter.Write(m, dir, g, NoGap);
+        }
+        var (code, stdout, stderr) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data, "--type", "QUST");
+        Assert.True(code == 0, stdout + stderr);
+        var l = Listing(stdout);
+        Assert.DoesNotContain(l, x => x.Contains("S_QuestKept"));
+        var at = l.FindIndex(x => x == $"    QUST S_QuestRenamed [{q2.FormKey}] changed");
+        Assert.True(at >= 0, stdout + stderr);
+        Assert.Equal("      Name: Lost Ship", l[at + 1]);
+        Assert.Equal("        was: Found Ship", l[at + 2]);
+        Assert.Contains("RESULT: text: 1 string in 1 record (0 new, 1 changed) in Mod.esm", stdout);
+    }
+
     // 0.28.0 code review round 2: a string at its master entry's place keeps it, so a later exact match isn't taken by
     // an earlier text-only one (["Accept", "Decline"] to ["Decline", "Decline"] listed [1] as changed from Accept)
     [Fact]

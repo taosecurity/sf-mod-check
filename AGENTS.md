@@ -677,7 +677,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     records at any depth, named by field path (`Name`, `Responses[0].ResponseText`): all strings of a new record, and
     for an override only the strings it changes, each with `was:` (the master's text); a master string the override
     clears or leaves out is listed as `(no text)` (JSON `text: ""`), except in a partial form (QUST, CELL or DIAL with
-    record flag 0x4000) and in a localized plugin (a string it can't look up reads as empty too). List entries are
+    record flag 0x4000) and in a localized plugin (a string it can't look up reads as empty too). A partial-form master
+    version's left-out fields are read from the version under it for `was:`. List entries are
     matched by text, so an added or left-out entry lists only that entry. An override that changes no
     string or is deleted is left out; one with no master version is listed in full as `no master`. A localized plugin
     is read from its string files (English only); if they all read empty, a `WARNING` says its string files weren't

@@ -1372,7 +1372,8 @@ changes nothing (0.28.0).
   it changes, each with the master's text as `was:`; a string the master has and the override clears or leaves out
   shows as `(no text)` (in `--json`, an empty `text`), except in a partial form (a quest, cell or topic flagged so),
   whose left-out fields the game takes from the master, and in a localized plugin, where a string whose string file
-  is missing reads as empty too. List entries (message buttons, quest stages) are matched by their text, so an entry
+  is missing reads as empty too. When the winning master version is itself a partial form, `was:` takes each field it
+  leaves out from the version under it, as the game does. List entries (message buttons, quest stages) are matched by their text, so an entry
   an override adds or leaves out lists only that entry. An override that changes no string is left out, and so is a
   deleted one. An override whose master has no record of that type is listed in full and marked `no master`.
 - **Localized plugins** are read from their string files (`Strings\<plugin>_en.STRINGS`, `.DLSTRINGS`, `.ILSTRINGS`,

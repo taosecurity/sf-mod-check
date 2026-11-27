@@ -346,12 +346,33 @@ public static class TextCommand
         // the strings of master versions from a localized master: if every one reads as empty, its string files are missing
         var localizedMasters = lo.Plugins.Where(p => closure.Contains(p.FileName) && IsLocalized(p)).Select(p => p.Mod.ModKey).ToHashSet();
         int masterSeen = 0, masterNonEmpty = 0;
+        // A partial-form master version (ShatteredSpace.esm's EDID-only quests) holds only some fields, and the game reads
+        // the rest from the version under it (as Rules.FullQuest for check): each top-level field's strings come from the
+        // newest version that holds that field, down to the newest full one (0.28.0 code review round 3).
+        List<Str> MasterStrings(IMajorRecordGetter master, ref int s, ref int n)
+        {
+            var result = Strings(master, ref s, ref n);
+            if (!IsPartialForm(master)) return result;
+            var versions = master is ICellGetter
+                ? cache.ResolveAll<ICellGetter>(master.FormKey).Cast<IMajorRecordGetter>()
+                : cache.ResolveAll(master.FormKey, master.Registration.GetterType);
+            var held = result.Select(x => TopField(x.Field)).ToHashSet(StringComparer.Ordinal);
+            foreach (var v in versions.Skip(1))   // the first is the winning version, master itself
+            {
+                var add = Strings(v, ref s, ref n).Where(x => !held.Contains(TopField(x.Field))).ToList();
+                result.AddRange(add);
+                held.UnionWith(add.Select(x => TopField(x.Field)));
+                if (!IsPartialForm(v)) break;
+            }
+            Log.Write($"text: {master.FormKey}: the winning master version is a partial form, so its left-out strings are read from the versions under it");
+            return result;
+        }
         void Compared(IMajorRecordGetter ov, IMajorRecordGetter master)
         {
             if (!paired.Add(ov.FormKey)) return;
             pairs++;
             int mSeen = 0, mNonEmpty = 0;
-            var was = Strings(master, ref mSeen, ref mNonEmpty);
+            var was = MasterStrings(master, ref mSeen, ref mNonEmpty);
             if (localizedMasters.Contains(master.FormKey.ModKey)) { masterSeen += mSeen; masterNonEmpty += mNonEmpty; }
             // a string the master has and the override doesn't (cleared, or its field or list entry left out): the player
             // loses that text, so it is listed with no text and the master's as "was" (0.28.0 step 5). Not for a partial
@@ -398,6 +419,9 @@ public static class TextCommand
     }
 
     static readonly System.Text.RegularExpressions.Regex ListIndex = new(@"\[\d+\]", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>A string path's record field: Stages[0].LogEntries[1].Entry is Stages.</summary>
+    static string TopField(string field) => field.IndexOfAny(['.', '[']) is var i and >= 0 ? field[..i] : field;
 
     /// <summary>The strings an override changes against its master's (0.28.0 code review round 1). Strings are grouped
     /// by their path with the list indexes taken out (MenuButtons[].Text), and in a group a text the master has too is
