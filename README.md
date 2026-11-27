@@ -1378,14 +1378,15 @@ changes nothing (0.28.0).
   deleted one. An override whose master has no record of that type is listed in full and marked `no master`.
 - **Localized plugins** are read from their string files (`Strings\<plugin>_en.STRINGS`, `.DLSTRINGS`, `.ILSTRINGS`,
   loose or in the plugin's own BA2), English only. If a localized plugin's strings all read empty, a `WARNING` says its
-  string files weren't found; if the strings of a localized master's versions all read empty, a second `WARNING` says that
-  master's string files weren't found, so no `was:` text could be shown.
+  string files weren't found; if the strings of a localized master's versions all read empty, a second `WARNING` names
+  each such master: its string files weren't found, so no `was:` text could be shown from it.
 - `--type <SIG>,<SIG>`: only these record types (an unknown signature is refused). `--json`: one object with `tool`,
   `version`, `result`, `plugins` (each: `name`, `localized`, `fromArchive`, `warning`, `masterWarning`, `records` with `type`, `formKey`,
   `editorId`, `kind` (`new`, `changed` or `no master`) and `strings` with `field`, `text` and, for a changed
   record, `was`), `unread` and `loadOrderProblems`. `--out <file>` writes the text (or the JSON) to a file, replacing it,
   and prints only the counts; it refuses a plugin, BA2, archive, string-file, script or DLL extension (`.esm`, `.esp`,
-  `.esl`, `.ba2`, `.zip`, `.7z`, `.rar`, `.strings`, `.dlstrings`, `.ilstrings`, `.pex`, `.psc`, `.dll`) and an existing folder, so a typo can't
+  `.esl`, `.ba2`, `.zip`, `.7z`, `.rar`, `.strings`, `.dlstrings`, `.ilstrings`, `.pex`, `.psc`, `.dll`), also with the trailing dots or
+  spaces Windows drops from a name (`MyMod.esm.`), a name with a colon (a file stream) and an existing folder, so a typo can't
   overwrite a mod. Control characters in a string are shown as visible escapes.
 - `triage` doesn't list text: it reads plugins without their masters, so it can't tell new text from unchanged text.
   Run `text` for that.

@@ -270,8 +270,7 @@ public class TextCommandTests
         var (c2, o2, e2) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data);
         Assert.True(c2 == 0, o2 + e2);
         Assert.Contains("        was: (no text in the master)", Lines(o2));
-        Assert.Contains(Lines(o2), x => x.StartsWith("  WARNING: every one of the ", StringComparison.Ordinal) && x.Contains("of the master versions it overrides reads as empty")
-                                        && x.Contains("Starfield.esm"));
+        Assert.Contains(Lines(o2), x => x.StartsWith("  WARNING: every one of the ", StringComparison.Ordinal) && x.Contains("of the master versions it overrides from Starfield.esm reads as empty"));
         Assert.Contains("RESULT: text: 1 string in 1 record (0 new, 1 changed) in Mod.esm; WARNING: the string files of Mod.esm's masters weren't found", o2);
         var (c3, j3, e3) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data, "--json");
         Assert.True(c3 == 0, j3 + e3);
@@ -449,6 +448,62 @@ public class TextCommandTests
         Assert.Contains("not a .STRINGS file", e6);
         Assert.Contains("RESULT: CANNOT CHECK (--out names a mod file)", o6);
         Assert.Equal("kept", File.ReadAllText(table));
+        // 0.28.0 code review round 4: Windows drops a trailing dot or space from a file name, so "Other.esm." and
+        // "Other.esm " would write Other.esm; and a name with a colon is a file stream (Other.esm::$DATA is the file)
+        foreach (var name in new[] { "Other.esm.", "Other.esm ", "Other.esm. . ", "Other.esm::$DATA" })
+        {
+            var (c7, o7, e7) = s.Text(s.Mod, "--out", Path.Combine(s.Sub("out"), name));
+            Assert.True(c7 == 2, $"{name}: {o7}{e7}");
+            Assert.Contains("RESULT: CANNOT CHECK (--out names a mod file)", o7);
+        }
+        var (c8, o8, e8) = s.Text(s.Mod, "--out", Path.Combine(s.Sub("out"), "notes.txt:hidden"));
+        Assert.Equal(2, c8);
+        Assert.Contains("RESULT: CANNOT CHECK (--out names a file stream)", o8);
+        Assert.Empty(Directory.GetFiles(s.Sub("out"), "Other*"));
+    }
+
+    // 0.28.0 code review round 4: the master WARNING is counted for each localized master, so one master's missing
+    // string files aren't hidden by another master's readable ones (Starfield.esm's strings hid them)
+    [Fact]
+    public void Test16_a_localized_master_without_its_string_files_is_named_when_another_master_has_its_files()
+    {
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        var dir = s.Sub("mods");
+        var b = Plugin.New("Starfield.esm", PluginStyle.Full, "test", "made-up localized base game", localized: true);
+        b.Ingestibles.AddNew("S_Drink").Name = Localized.Text("Water");
+        using (var g = new GameData(data)) PluginWriter.Write(b, data, g, NoGap);
+        using (var g = new GameData(data))
+        {
+            var o = Plugin.New("Other.esm", PluginStyle.Full, "test", "made-up localized mod", localized: true);
+            o.MiscItems.AddNew("O_Rock").Name = Localized.Text("Rock");
+            PluginWriter.Write(o, data, g, NoGap);
+        }
+        using (var g = new GameData(data, [dir]))
+        {
+            var sf = g.Open("Starfield.esm");
+            var other = g.Open("Other.esm");
+            var m = Plugin.New("Mod.esm", PluginStyle.Full, "test", "made-up patch");
+            m.Ingestibles.GetOrAddAsOverride(sf.Ingestibles.First(k => k.EditorID == "S_Drink")).Name = "Clean Water";
+            m.MiscItems.GetOrAddAsOverride(other.MiscItems.First(k => k.EditorID == "O_Rock")).Name = "Big Rock";
+            PluginWriter.Write(m, dir, g, NoGap);
+        }
+        var strings = Path.Combine(data, "Strings");
+        var otherFiles = Directory.GetFiles(strings, "Other_*");
+        Assert.NotEmpty(otherFiles);
+        var (c1, o1, e1) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data);
+        Assert.True(c1 == 0, o1 + e1);
+        Assert.Contains("        was: Rock", Lines(o1));
+        Assert.DoesNotContain("WARNING", o1);
+
+        foreach (var f in otherFiles) File.Delete(f);
+        var (c2, o2, e2) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data);
+        Assert.True(c2 == 0, o2 + e2);
+        Assert.Contains("        was: Water", Lines(o2));
+        var w = Assert.Single(Lines(o2), x => x.StartsWith("  WARNING: ", StringComparison.Ordinal));
+        Assert.Contains("Other.esm", w);
+        Assert.DoesNotContain("Starfield.esm", w);
+        Assert.Contains("WARNING: the string files of Mod.esm's masters weren't found", o2);
     }
 
     [Fact]

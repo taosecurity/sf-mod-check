@@ -189,10 +189,21 @@ public static class TextCommand
         }
         if (outFile != null)
         {
-            if (ModFileExtensions.Contains(Path.GetExtension(outFile)))
+            // Windows drops a name's trailing dots and spaces when it opens the file, so "MyMod.esm." is MyMod.esm, and
+            // "MyMod.esm::$DATA" is that file's own data: the extension is read from the name as Windows will open it,
+            // and a colon in the name (a file stream) is refused (0.28.0 code review round 4)
+            var outName = Path.GetFileName(outFile).TrimEnd('.', ' ');
+            var outExt = Path.GetExtension(outName.Split(':')[0]);
+            if (ModFileExtensions.Contains(outExt))
             {
-                Console.Error.WriteLine($"--out writes a text or JSON file, not a {Path.GetExtension(outFile)} file: give it a name such as text.txt or text.json.");
+                Console.Error.WriteLine($"--out writes a text or JSON file, not a {SafeText.OneLine(outExt)} file: give it a name such as text.txt or text.json.");
                 cantWhy = "--out names a mod file";
+                return 2;
+            }
+            if (outName.Contains(':'))
+            {
+                Console.Error.WriteLine($"--out {SafeText.OneLine(outFile)} names a file stream (a colon in the file name): give a plain file name, such as text.txt.");
+                cantWhy = "--out names a file stream";
                 return 2;
             }
             if (Directory.Exists(outFile))
@@ -345,7 +356,8 @@ public static class TextCommand
         int pairs = 0;
         // the strings of master versions from a localized master: if every one reads as empty, its string files are missing
         var localizedMasters = lo.Plugins.Where(p => closure.Contains(p.FileName) && IsLocalized(p)).Select(p => p.Mod.ModKey).ToHashSet();
-        int masterSeen = 0, masterNonEmpty = 0;
+        // counted for each master, so one master's missing files aren't hidden by another's (0.28.0 code review round 4)
+        var masterCounts = new Dictionary<ModKey, (int Seen, int NonEmpty)>();
         // A partial-form master version (ShatteredSpace.esm's EDID-only quests) holds only some fields, and the game reads
         // the rest from the version under it (as Rules.FullQuest for check): each top-level field's strings come from the
         // newest version that holds that field, down to the newest full one (0.28.0 code review round 3).
@@ -353,17 +365,30 @@ public static class TextCommand
         {
             var result = Strings(master, ref s, ref n);
             if (!IsPartialForm(master)) return result;
-            var versions = master is ICellGetter
-                ? cache.ResolveAll<ICellGetter>(master.FormKey).Cast<IMajorRecordGetter>()
-                : cache.ResolveAll(master.FormKey, master.Registration.GetterType);
             var held = result.Select(x => TopField(x.Field)).ToHashSet(StringComparer.Ordinal);
-            foreach (var v in versions.Skip(1))   // the first is the winning version, master itself
+            var under = new List<Str>();
+            int s2 = 0, n2 = 0;
+            try
             {
-                var add = Strings(v, ref s, ref n).Where(x => !held.Contains(TopField(x.Field))).ToList();
-                result.AddRange(add);
-                held.UnionWith(add.Select(x => TopField(x.Field)));
-                if (!IsPartialForm(v)) break;
+                var versions = master is ICellGetter
+                    ? cache.ResolveAll<ICellGetter>(master.FormKey).Cast<IMajorRecordGetter>()
+                    : cache.ResolveAll(master.FormKey, master.Registration.GetterType);
+                foreach (var v in versions.Skip(1))   // the first is the winning version, master itself
+                {
+                    var add = Strings(v, ref s2, ref n2).Where(x => !held.Contains(TopField(x.Field))).ToList();
+                    under.AddRange(add);
+                    held.UnionWith(add.Select(x => TopField(x.Field)));
+                    if (!IsPartialForm(v)) break;
+                }
             }
+            catch (Exception e) when (Fatal.Recoverable(e))
+            {
+                // the partial form's own strings are still the master's (0.28.0 code review round 4)
+                Log.Write($"text: {master.FormKey}: the versions under the partial-form master version could not be read, so only its own strings are compared ({e.GetType().Name})");
+                return result;
+            }
+            result.AddRange(under);
+            s += s2; n += n2;
             Log.Write($"text: {master.FormKey}: the winning master version is a partial form, so its left-out strings are read from the versions under it");
             return result;
         }
@@ -373,7 +398,11 @@ public static class TextCommand
             pairs++;
             int mSeen = 0, mNonEmpty = 0;
             var was = MasterStrings(master, ref mSeen, ref mNonEmpty);
-            if (localizedMasters.Contains(master.FormKey.ModKey)) { masterSeen += mSeen; masterNonEmpty += mNonEmpty; }
+            if (localizedMasters.Contains(master.FormKey.ModKey))
+            {
+                var c = masterCounts.GetValueOrDefault(master.FormKey.ModKey);
+                masterCounts[master.FormKey.ModKey] = (c.Seen + mSeen, c.NonEmpty + mNonEmpty);
+            }
             // a string the master has and the override doesn't (cleared, or its field or list entry left out): the player
             // loses that text, so it is listed with no text and the master's as "was" (0.28.0 step 5). Not for a partial
             // form, whose left-out fields come from the master in the game, and not for a localized plugin, whose string
@@ -407,11 +436,12 @@ public static class TextCommand
         if (pt.Localized && seenStrings > 0 && nonEmpty == 0)
             pt.Warning = $"{t.FileName} is localized but every one of its {Plural(seenStrings, "string", "strings")} reads as empty: its string files weren't found. " +
                          $"They belong in Strings\\{Path.GetFileNameWithoutExtension(t.FileName)}_en.STRINGS (and .DLSTRINGS, .ILSTRINGS) next to the plugin, or in its Main BA2.";
-        if (masterSeen > 0 && masterNonEmpty == 0)
+        var missing = masterCounts.Where(kv => kv.Value.Seen > 0 && kv.Value.NonEmpty == 0).ToDictionary(kv => kv.Key, kv => kv.Value.Seen);
+        if (missing.Count > 0)
         {
-            var names = lo.Plugins.Where(p => localizedMasters.Contains(p.Mod.ModKey)).Select(p => p.FileName).ToList();
-            pt.MasterWarning = $"every one of the {Plural(masterSeen, "string", "strings")} of the master versions it overrides reads as empty, so the masters' text is not shown as \"was\": " +
-                               $"the string files of {string.Join(", ", names)} weren't found. They belong in a Strings folder next to each master, or in its Localization BA2.";
+            var names = lo.Plugins.Where(p => missing.ContainsKey(p.Mod.ModKey)).Select(p => p.FileName).ToList();
+            pt.MasterWarning = $"every one of the {Plural(missing.Values.Sum(), "string", "strings")} of the master versions it overrides from {string.Join(", ", names)} reads as empty, " +
+                               $"so their text is not shown as \"was\": their string files weren't found. They belong in a Strings folder next to each master, or in its Localization BA2.";
         }
         Log.Write($"text: {t.FileName}: {walked} records walked, {news.Count} new and {overrides.Count} overrides kept, {pairs} compared with a master version, " +
                   $"{seenStrings} strings seen ({nonEmpty} not empty)");

@@ -34,7 +34,8 @@ public static class EditCommand
         "  The new file is kept only when three proofs pass on it: diff (only the intended changes), gap (no new loss) and\n" +
         "  check (no new ERROR). Otherwise it is deleted, and the proof that failed says why.\n" +
         "  --out          the new plugin file; it must not exist yet, and it can't be the input or named like one of its\n" +
-        "                 masters. An .esl name needs a light plugin (the game loads every .esl as light).\n" +
+        "                 masters. An .esl name needs a light plugin (the game loads every .esl as light), and an .esl\n" +
+        "                 input without the light flag needs an .esl --out or --set-light.\n" +
         "  --drop-master  remove a master the plugin doesn't use (the FormIDs after it are renumbered); refused if anything uses it.\n" +
         "                 Only values Mutagen reads as links are renumbered; a number that only looks like one is left alone\n" +
         "                 (and the report counts it), and one that names a real record is refused.\n" +
