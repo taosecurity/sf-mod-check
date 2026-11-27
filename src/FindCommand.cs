@@ -274,6 +274,7 @@ public static class FindCommand
                 }
             }
             where = new FindWhere.Query(type, filters, re, eidMatch, max ?? DefaultMax, json, quiet, input.Plugin != null);
+            input.WholeArchive = true;   // --where with an archive lists what any of its plugins holds, not only the last
         }
         bool listing = !search && string.IsNullOrEmpty(q) && input.Plugin != null;
         if (string.IsNullOrEmpty(q) && !listing && !search)
@@ -363,7 +364,15 @@ public static class FindCommand
             foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
             if (!quiet && !json) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
             if (input.Plugin != null && Unloaded(lo, input.Plugin) is { } unloadedWhy) { cantWhy = unloadedWhy; return 2; }
-            if (where != null) return FindWhere.Run(lo, input.Plugin != null ? where with { PluginName = Path.GetFileName(input.Plugin) } : where, version, sw, out resultPrinted, out cantWhy);
+            if (where != null)
+            {
+                // --plugin <archive>: every one of its plugins that loaded (code review 0.27.0 round 4), else the one plugin
+                var held = input.Plugin == null ? null
+                    : input.ArchivePlugins.Count > 0
+                        ? lo.Plugins.Select(p => p.FileName).Where(n => input.ArchivePlugins.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList()
+                        : [Path.GetFileName(input.Plugin)];
+                return FindWhere.Run(lo, held != null ? where with { PluginNames = held } : where, version, sw, out resultPrinted, out cantWhy);
+            }
             if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, full, layout, version, sw, out resultPrinted, out cantWhy);
 
             var unread = new List<string>();

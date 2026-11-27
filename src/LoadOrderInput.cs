@@ -84,6 +84,9 @@ public sealed class LoadOrderInput : IDisposable
         this.positionalPlugin = positionalPlugin;
     }
     readonly bool positionalPlugin;
+    /// <summary>0.27.0 (find --where): the command reads every plugin of a --plugin archive, so the archive note leaves
+    /// out "the last in load order is the one --plugin names" (code review round 4).</summary>
+    public bool WholeArchive { get; set; }
     /// <summary>How the messages name the plugin input: "--plugin", or with positionalPlugin "the plugin" (archive: "the archive").</summary>
     string PluginWord(bool archive = false) => positionalPlugin ? (archive ? "the archive" : "the plugin") : "--plugin";
 
@@ -467,7 +470,7 @@ public sealed class LoadOrderInput : IDisposable
             if (roots.Count > 1)
                 Console.Error.WriteLine($"note: {shownArchive} holds {roots.Count} plugins ({string.Join(", ", pluginArchive.Plugins.Select(SafeText.OneLine))}); " +
                                         $"{(leftOut.Count == 0 ? "all of them are" : $"{loaded} of them {(loaded == 1 ? "is" : "are")}")} loaded" +
-                                        (positionalPlugin ? "" : $", and {SafeText.OneLine(last)}, the last in load order, is the one --plugin names"));
+                                        (positionalPlugin || WholeArchive ? "" : $", and {SafeText.OneLine(last)}, the last in load order, is the one --plugin names"));
         }
         single = new(new(order, new(StringComparer.OrdinalIgnoreCase), source, Exact: true),
                      dirs.Take(dirs.Count - (dirs[^1].Equals(DataDir, StringComparison.OrdinalIgnoreCase) ? 1 : 0)).ToList());

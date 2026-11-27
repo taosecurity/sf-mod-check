@@ -192,8 +192,9 @@ internal static class FindWhere
     /// <summary>What to search for: the filters, the EditorID regex, the type (null with --editorid-match alone).</summary>
     internal sealed record Query(string? Type, List<Filter> Filters, Regex? EditorId, string? EditorIdText, int Max, bool Json, bool Quiet, bool PluginMode)
     {
-        /// <summary>With --plugin, the plugin's file name: only the records it holds (new or overridden) are listed.</summary>
-        public string? PluginName { get; init; }
+        /// <summary>With --plugin, the plugin's file name (an archive: each of its loaded plugins): only the records they
+        /// hold (new or overridden) are listed (code review 0.27.0 round 4: an archive's every plugin, not its last).</summary>
+        public IReadOnlyList<string>? PluginNames { get; init; }
     }
 
     sealed class Hit
@@ -371,11 +372,12 @@ internal static class FindWhere
             return 2;
         }
         foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
-        if (q.PluginName is { } only)
+        if (q.PluginNames is { } onlyList)
         {
             // --plugin: the records the plugin holds, as find's --plugin listing, not its masters' (code review 0.27.0 round 3)
+            var only = new HashSet<string>(onlyList, StringComparer.OrdinalIgnoreCase);
             int all = hits.Count;
-            hits = hits.Where(h => h.Copies.Any(c => c.Plugin.FileName.Equals(only, StringComparison.OrdinalIgnoreCase))).ToList();
+            hits = hits.Where(h => h.Copies.Any(c => only.Contains(c.Plugin.FileName))).ToList();
             Log.Write($"where: --plugin: {all - hits.Count} match(es) that only its masters hold were left out");
         }
         hits = hits.OrderBy(h => h.Winner.Plugin.Index).ThenBy(h => h.Key.ToString(), StringComparer.Ordinal).ToList();
@@ -432,7 +434,7 @@ internal static class FindWhere
         var parts = new List<string>();
         if (q.Filters.Count > 0) parts.Add("where " + string.Join(" and ", q.Filters.Select(f => $"{f.Field} {f.OpText}{(f.Value != null ? $" {SafeText.OneLine(f.Value)}" : "")}")));
         if (q.EditorIdText != null) parts.Add($"with an EditorID matching {SafeText.OneLine(q.EditorIdText)}");
-        if (q.PluginName != null) parts.Add($"held by {SafeText.OneLine(q.PluginName)}");
+        if (q.PluginNames is { Count: > 0 } held) parts.Add($"held by {string.Join(" or ", held.Select(SafeText.OneLine))}");
         return string.Join(", ", parts);
     }
 
@@ -477,15 +479,16 @@ internal static class FindWhere
         return map;
     }
 
-    static readonly Dictionary<(Type, string), PropertyInfo?> PropCache = new();
+    // keyed on top too: a record's top-level fields and its nested properties are different lists (code review 0.27.0 round 4)
+    static readonly Dictionary<(Type, string, bool), PropertyInfo?> PropCache = new();
 
     static PropertyInfo? Prop(Type t, string name, bool top)
     {
         lock (PropCache)
         {
-            if (PropCache.TryGetValue((t, name), out var p)) return p;
+            if (PropCache.TryGetValue((t, name, top), out var p)) return p;
             var props = top ? FieldCompare.Fields(t) : FieldCompare.NestedProperties(t);
-            return PropCache[(t, name)] = props.FirstOrDefault(x => x.Name.Equals(name, StringComparison.Ordinal));
+            return PropCache[(t, name, top)] = props.FirstOrDefault(x => x.Name.Equals(name, StringComparison.Ordinal));
         }
     }
 

@@ -385,6 +385,24 @@ public class ArchiveInputTests
         s.TmpIsEmpty();
     }
 
+    // code review 0.27.0 round 4: find --where (here --editorid-match) with --plugin <archive> lists what any of the
+    // archive's plugins holds, not only the last plugin's records
+    [Fact]
+    public void Find_where_with_an_archive_of_two_plugins_lists_the_records_of_both()
+    {
+        using var s = new Set();
+        var zip = s.Zip("Two.zip", ("Lib.esm", s.Bytes("Lib.esm")), ("Mod.esm", s.Bytes("Mod.esm")));
+        var (code, stdout, stderr) = s.Run("find", "--type", "KYWD", "--editorid-match", "^(L|M)_", "--plugin", zip, "--data", s.Data);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("L_Kw [", stdout);
+        Assert.Contains("M_One [", stdout);
+        Assert.Contains("M_Two [", stdout);
+        Assert.Contains("RESULT: FOUND 3 records", stdout);
+        Assert.Contains("Two.zip holds 2 plugins (Lib.esm, Mod.esm)", stderr);
+        Assert.DoesNotContain("is the one --plugin names", stderr);
+        s.TmpIsEmpty();
+    }
+
     [Fact]
     public void Extra_data_with_an_archive_adds_its_inactive_plugins_at_the_end_and_keeps_an_active_one_in_place()
     {

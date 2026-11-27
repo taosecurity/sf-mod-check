@@ -602,7 +602,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `Data\` or `<ModName>\`); no plugin, or plugins in several folders (a FOMOD installer), is refused: tell the user
     to unpack it and give the folder, or the plugin. `--extra-data <archive>` reads a plugin that Plugins.txt doesn't
     list as the last plugin of the load order (a note on stderr says so). `--plugin <archive>` with several plugins
-    loads them all and treats the last in load order as "the plugin"; one of them whose master isn't found (an
+    loads them all and treats the last in load order as "the plugin" (`find --where` lists what any of them holds); one of them whose master isn't found (an
     optional patch) is left out with a note on stderr, and the run stops only if all are. `patch` and `voice-lines`
     refuse an archive: give the folder (`voice-lines`: the unpacked plugin file).
 
@@ -624,8 +624,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     comes from `--plugins`, `--mo2`, `--data`, `--extra-data`, or from `--plugin` (a plugin or a `.zip`, `.7z` or `.rar`
     and its masters; give the cell as an EditorID or FormKey there). Exit 0 = listed, 2 = couldn't run (not found, or not a
     cell: the message says which type it is). Last line `RESULT: MyModCell holds 12 references, 2 persistent (3 s)`.
-    `--json` has `loadOrder`, `cell` (or `near`), `references`, `movedOut`, `deleted`, `anchors`, `counts`, `byBaseType`, `enableParents`,
-    `navmeshes`, `leftOut` and `result`; each reference has `formKey`, `base`, `baseType`, `position`, `persistent`,
+    `--json` has `tool`, `version`, `loadOrder`, `cell` (or `near`), `counts`, `references`, `movedOut`, `deleted`, `anchors`,
+    `listed`, `total`, `leftOut`, `unread` and `result`; `counts` holds `references`, `persistent`, `temporary`,
+    `initiallyDisabled`, `navmeshes`, `byBaseType` and `enableParents`; each reference has `formKey`, `base`, `baseType`, `position`, `persistent`,
     `initiallyDisabled`, `enableParent`, `locationRefTypes`, `addedBy` and `changedBy`. A city cell can hold thousands of references: use `--max`.
 
 29. List every record that matches a filter (0.27.0). Read only:

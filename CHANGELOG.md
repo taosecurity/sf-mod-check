@@ -18,7 +18,7 @@ A made-up mod `Camp.esm` that adds the cell `CampHall`:
     Cell CampHall [000801:Camp.esm] "Camp Hall" (interior)
     ...
     Persistent anchors (1):
-      CampAnchor [000806:Camp.esm] base CampMarker [000807:Camp.esm] (STAT) at (0, 0, 0)
+      CampAnchor [000806:Camp.esm] base CampMarker [000807:Camp.esm] (STAT) at (0.0, 0.0, 0.0)
     RESULT: CampHall holds 3 references, 1 persistent (2 s)
 
     sf-mod-check find --type NPC_ --where "Flags has Unique" --editorid-match "^Camp"

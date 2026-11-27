@@ -1386,16 +1386,17 @@ hold thousands of references, so use `--max`.
     sf-mod-check 0.27.0 cell: CampHall in 14 plugins (Plugins.txt)
     Cell CampHall [000801:Camp.esm] "Camp Hall" (interior)
       added by Camp.esm
-    references: 3 (persistent 1, temporary 2; initially disabled 1), navmeshes 1
+      references: 3 (persistent 1, temporary 2; initially disabled 1), navmeshes 1
       by base type: STAT 2, MISC 1
+      enable parents: CampAnchor [000806:Camp.esm] 1 child
     References (3):
-      [000803:Camp.esm] REFR base CampDoorFrame [000802:Camp.esm] (STAT) at (10, 20, 0) temporary; added by Camp.esm
-      [000804:Camp.esm] REFR base CampLamp [000805:Camp.esm] (MISC) at (40, 22, 96) temporary, disabled, parent [000806:Camp.esm]; added by Camp.esm; changed by CampFix.esm
-      CampAnchor [000806:Camp.esm] REFR base CampMarker [000807:Camp.esm] (STAT) at (0, 0, 0) persistent; added by Camp.esm
+      [000803:Camp.esm] REFR base CampDoorFrame [000802:Camp.esm] (STAT) at (10.0, 20.0, 0.0) temporary; added by Camp.esm
+      [000804:Camp.esm] REFR base CampLamp [000805:Camp.esm] (MISC) at (40.0, 22.0, 96.0) temporary, disabled, parent CampAnchor [000806:Camp.esm]; added by Camp.esm; changed by CampFix.esm
+      CampAnchor [000806:Camp.esm] REFR base CampMarker [000807:Camp.esm] (STAT) at (0.0, 0.0, 0.0) persistent; added by Camp.esm
     Moved out (0).
     Deleted (0).
     Persistent anchors (1):
-      CampAnchor [000806:Camp.esm] base CampMarker [000807:Camp.esm] (STAT) at (0, 0, 0)
+      CampAnchor [000806:Camp.esm] base CampMarker [000807:Camp.esm] (STAT) at (0.0, 0.0, 0.0)
     RESULT: CampHall holds 3 references, 1 persistent (2 s)
 
 (The lines are shortened here; the real ones show a little more.)
@@ -1426,7 +1427,8 @@ every misc item whose EditorID starts with your mod's prefix (0.27.0). It is a s
   Without `--type` it searches every record type. A pattern that takes over 2 seconds on one EditorID is refused.
 - `--max <n>` (default 100; 0 lists them all). The load order options are the same as for `find`, or `--plugin`.
   With `--plugin`, only the records that plugin holds (its new records and its overrides) are listed, each tested on
-  its winning copy in the plugin and its masters. Exit 0 = found, 1 = none, 2 = couldn't run. With `--plugin Starfield.esm` a type search took about 4 seconds and 0.5 GB;
+  its winning copy in the plugin and its masters. With `--plugin <archive>`, the records any of the archive's plugins
+  holds are listed. Exit 0 = found, 1 = none, 2 = couldn't run. With `--plugin Starfield.esm` a type search took about 4 seconds and 0.5 GB;
   a whole load order reads every plugin and takes longer.
 
 **Example** (made-up mod `Camp.esm`):
