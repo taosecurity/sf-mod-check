@@ -163,6 +163,21 @@ public class GapCheckTests
     }
 
     [Fact]
+    public void A_master_name_holding_a_path_is_never_looked_up()
+    {
+        // the master really exists one folder up, and by full path: neither name may reach it
+        using var s = new Sandbox();
+        var other = s.Sub("other");
+        var master = Master(other);
+        var dir = s.Sub("data");
+        foreach (var name in new[] { "../other/GapM.esm", "..\\other\\GapM.esm", master })
+        {
+            var p = Write(dir, "GapP.esm", Flags.Master, [name], null, Top("MISC", Misc(M800, 0)));
+            Assert.Throws<GapCheck.MasterNotFoundException>(() => GapCheck.Check(p, [dir]));
+        }
+    }
+
+    [Fact]
     public void Missing_master_throws_and_the_release_step_warns()
     {
         using var s = new Sandbox();

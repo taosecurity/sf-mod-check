@@ -26,6 +26,7 @@ A made-up full plugin `Demo.esm` in `C:\Mods`, run in that folder:
 
 ### Fixes
 
+- The gap check (in `release` and in `edit`'s proof) no longer looks up a master whose name in the plugin holds a path (`..\`, a drive or a `\\host\share` network name); such a master counts as not found. Before, a plugin with a network name as a master could make Windows contact that computer.
 - `release` reads each master's sound GUIDs once per run, not once for every plugin that has a missing sound event (each plugin opens its own copy of the game data, so the old per-plugin cache never hit; a release of several plugins over a large master such as Starfield.esm was slow).
 - `lines`, `find` and `scenes` read a prefixed name (`eid:00005788`) as an EditorID, even when it is exactly 8 hex digits, which would otherwise be read as a console FormID. (Quotes the shell removes don't count; use `eid:`.)
 

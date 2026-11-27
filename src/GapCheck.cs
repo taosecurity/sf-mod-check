@@ -323,6 +323,8 @@ public static class GapCheck
     /// <summary>Looks a master up in each folder in turn (case-insensitive on every system).</summary>
     static string? Find(string name, IReadOnlyList<string> dirs)
     {
+        // a master name comes from the plugin's own bytes: a path in it (..\, a drive or a \\host\share) is never looked up
+        if (!BuildKit.GameData.IsPlainPluginName(name)) return null;
         foreach (var d in dirs)
         {
             var p = Path.Combine(d, name);
