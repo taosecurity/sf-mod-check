@@ -131,7 +131,9 @@ public class LoadOrderSetup
     }
 
     /// <param name="order">the load order as a list (null: every plugin in Data, alphabetical, as a guess)</param>
-    public static LoadOrderSetup Build(string dataDir, PluginOrder? order, IReadOnlyList<string> overDirs)
+    /// <param name="paths">0.26.0 (more than one --plugin): the file each listed name is read from, which wins over
+    /// Data and overDirs (a folder given for one input may hold an older copy of another input's plugin)</param>
+    public static LoadOrderSetup Build(string dataDir, PluginOrder? order, IReadOnlyList<string> overDirs, IReadOnlyDictionary<string, string>? paths = null)
     {
         var setup = new LoadOrderSetup();
         List<string> listed;
@@ -167,6 +169,11 @@ public class LoadOrderSetup
                 onDisk[name] = name;
                 fullPath[name] = f;
             }
+        foreach (var (name, path) in paths ?? new Dictionary<string, string>())
+        {
+            onDisk[name] = name;
+            fullPath[name] = path;
+        }
         var wanted = new List<string>();
         void Add(string name)
         {

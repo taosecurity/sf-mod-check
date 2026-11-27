@@ -33,6 +33,9 @@ public sealed class LoadOrderInput : IDisposable
     readonly bool manyPlugins;
     /// <summary>With more than one --plugin: each kept input's plugin folder and its plugins (file names), in order.</summary>
     readonly List<(string Input, string Folder, List<string> Plugins)> manyInputs = new();
+    /// <summary>With more than one --plugin: the file each plugin of the load order is read from, as ResolveMany found it
+    /// (code review round 2: by folder alone, a plain plugin's folder could hand over an older copy of an archive's plugin).</summary>
+    readonly Dictionary<string, string> manyPaths = new(StringComparer.OrdinalIgnoreCase);
     readonly ArchiveInput.Use archives;
     readonly string command;
     ArchiveInput.Unpacked? pluginArchive, extraArchive;
@@ -514,6 +517,7 @@ public sealed class LoadOrderInput : IDisposable
                 if (!dirs.Contains(d, StringComparer.OrdinalIgnoreCase)) dirs.Add(d);
             string? Locate(string name) => dirs.Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
             var mine = new List<string>();
+            var minePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string? problem = null;
             void Visit(string name, string path)
@@ -534,10 +538,12 @@ public sealed class LoadOrderInput : IDisposable
                     if (problem != null) return;
                 }
                 mine.Add(Path.GetFileName(path));
+                minePaths[Path.GetFileName(path)] = path;
             }
             foreach (var p in plugins) Visit(p, Path.Combine(folder, p));
             if (problem != null) { LeaveOut(input, problem); continue; }
             order.AddRange(mine);
+            foreach (var (name, path) in minePaths) manyPaths[name] = path;
             kept.Add((input, folder, plugins));
         }
         if (kept.Count == 0)
@@ -545,8 +551,8 @@ public sealed class LoadOrderInput : IDisposable
                 "can't use any of the --plugin inputs: each one was left out (the notes above say why).", "every --plugin input left out");
         var n = order.Count - kept.Sum(k => k.Plugins.Count);
         var source = $"{kept.Count} --plugin inputs ({string.Join(", ", kept.Select(k => SafeText.OneLine(Path.GetFileName(k.Input))))}) and their {n} master{(n == 1 ? "" : "s")}";
-        // the later input first: Build lets the first folder win a name both hold (none do after OpenMany, but a master may).
-        // Every opened input's folder, kept or not: a kept input's master may come from a left-out input's folder (Locate).
+        // Build reads each plugin of the order from manyPaths (the file Visit picked), so a folder that also holds another
+        // copy of the name can't hand that over. The folders stay as the run's other folders (OverDirs, AssetDirs).
         var over = manyInputs.Select(k => k.Folder).Reverse().Concat(MastersDirs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         single = new(new(order, new(StringComparer.OrdinalIgnoreCase), source, Exact: true), over);
         Plugin = Path.Combine(kept[^1].Folder, kept[^1].Plugins[^1]);
@@ -582,7 +588,7 @@ public sealed class LoadOrderInput : IDisposable
     /// older copy). The MO2 profile's problems are added to the load-order problems.</summary>
     public LoadOrderSetup Build(LoadOrderSetup.PluginOrder? order = null)
     {
-        var lo = LoadOrderSetup.Build(DataDir, order ?? Order(), OverDirs);
+        var lo = LoadOrderSetup.Build(DataDir, order ?? Order(), OverDirs, manyPaths);
         foreach (var p in Mo2?.Problems ?? []) lo.AddProblem(p);
         if (tempDir != null) built.Add(lo);   // closed by Dispose, so the temp folder can be deleted
         return lo;

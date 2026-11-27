@@ -1,7 +1,8 @@
 // Archive input (0.26.0): a mod archive (.zip, .7z or .rar) given to --plugin or --extra-data is unpacked into the
 // run's own temp folder with triage's guarded unpacker (ReleaseCommand.Unpack for a zip, TriageCommand.UnpackOther for
 // a 7z or rar), so every guard comes along: no entry outside the folder, no name twice, the size and entry caps, no
-// encrypted archive. Commands that read only plugins have only the plugins written; every entry is still checked.
+// encrypted archive. Commands that read only plugins have only the plugins and their strings (loose .strings files and
+// the non-texture BA2s) written; every entry is still checked.
 // LoadOrderInput owns the temp folder and deletes it when the command ends.
 namespace SfModCheck;
 
@@ -12,7 +13,7 @@ public static class ArchiveInput
     {
         /// <summary>Refused with "needs the mod installed or unpacked" (patch, voice-lines).</summary>
         Refuse,
-        /// <summary>Unpacked, plugins only (find, overrides, summary).</summary>
+        /// <summary>Unpacked, plugins and their strings only (find, overrides, summary).</summary>
         PluginsOnly,
         /// <summary>Unpacked in full (conflict, lines and scenes: they read the archive's BA2s and loose files too).</summary>
         Everything,
@@ -28,6 +29,19 @@ public static class ArchiveInput
     /// <summary>True for a plugin's name (.esm, .esp or .esl, any case; a folder part is allowed).</summary>
     public static bool IsPluginName(string name) => TriageCommand.KindOf(name.TrimEnd('/', '\\')) is TriageInputKind.Plugin;
 
+    /// <summary>The files a plugins-only unpack writes (code review round 2): the plugins, and what a localized plugin's
+    /// names and texts are read from: loose .strings, .dlstrings and .ilstrings files and the BA2s, except texture BA2s
+    /// (the CK puts the strings in "&lt;plugin&gt; - Main.ba2"). Without them every name of a localized plugin read as "".</summary>
+    public static bool IsPluginOrStrings(string name)
+    {
+        var file = name.TrimEnd('/', '\\').Replace('\\', '/').Split('/')[^1];
+        if (IsPluginName(file)) return true;
+        var ext = Path.GetExtension(file);
+        if (ext.Equals(".strings", StringComparison.OrdinalIgnoreCase) || ext.Equals(".dlstrings", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".ilstrings", StringComparison.OrdinalIgnoreCase)) return true;
+        return ext.Equals(".ba2", StringComparison.OrdinalIgnoreCase) && !file.Contains(" - textures", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Unpacks the archive into dest (a new folder of the run's temp folder) and finds its plugin folder.
     /// Null, with the reason in why, when the archive can't be used: a guard refused it, it can't be read, it holds no
     /// plugin, or its plugins sit in more than one folder.</summary>
@@ -36,10 +50,10 @@ public static class ArchiveInput
         why = "";
         var kind = TriageCommand.KindOf(archive)!.Value;
         var shown = SafeText.OneLine(Path.GetFileName(archive));
-        Log.Write($"archive input: {shown} ({kind}, {(use == Use.Everything ? "every file" : "plugins only")}) into {dest}");
+        Log.Write($"archive input: {shown} ({kind}, {(use == Use.Everything ? "every file" : "plugins and their strings only")}) into {dest}");
         try
         {
-            var (_, files) = TriageCommand.Gather(kind, archive, dest, write: use == Use.Everything ? null : IsPluginName);
+            var (_, files) = TriageCommand.Gather(kind, archive, dest, write: use == Use.Everything ? null : IsPluginOrStrings);
             Log.Write($"archive input: {shown}: every entry checked, {files.Count} file{(files.Count == 1 ? "" : "s")} written");
         }
         catch (Exception e) when (TriageCommand.IsFileSystem(e) || e is InvalidDataException or SharpCompress.Common.InvalidFormatException

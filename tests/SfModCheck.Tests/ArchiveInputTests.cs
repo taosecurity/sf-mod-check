@@ -227,6 +227,26 @@ public class ArchiveInputTests
         }
     }
 
+    /// <summary>Code review round 2: a localized plugin's names and texts are in loose .strings files or in its BA2, so the
+    /// plugins-only unpack writes those too (all but texture BA2s); without them every name read as "".</summary>
+    [Fact]
+    public void The_plugins_only_unpack_also_writes_strings_files_and_the_non_texture_ba2s()
+    {
+        using var s = new Set();
+        var mod = s.Bytes("Mod.esm");
+        var zip = s.Zip("Loc.zip", ("Data/Mod.esm", mod), ("Data/Strings/Mod_en.strings", new byte[10]),
+            ("Data/Strings/Mod_en.dlstrings", new byte[10]), ("Data/Strings/Mod_en.ilstrings", new byte[10]),
+            ("Data/Mod - Main.ba2", new byte[10]), ("Data/Mod - Textures.ba2", new byte[10]), ("Data/Textures/a.dds", new byte[10]),
+            ("Data/Scripts/a.pex", new byte[10]));
+        var dest = Path.Combine(s.Dir, "out-loc");
+        var u = ArchiveInput.Open(zip, dest, ArchiveInput.Use.PluginsOnly, out var why);
+        Assert.True(u != null, why);
+        Assert.Equal(["Mod.esm"], u!.Plugins);
+        var written = Directory.EnumerateFiles(dest, "*", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(dest, f).Replace('\\', '/')).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(["Data/Mod - Main.ba2", "Data/Mod.esm", "Data/Strings/Mod_en.dlstrings", "Data/Strings/Mod_en.ilstrings", "Data/Strings/Mod_en.strings"], written);
+    }
+
     /// <summary>Plan step 5: a drive-letter entry (zip and 7z), and a zip whose entries carry the encrypted flag, built in
     /// the test so it runs on every system (the 7-Zip fixtures below need Windows and 7-Zip).</summary>
     [Fact]
@@ -312,7 +332,7 @@ public class ArchiveInputTests
         }
         var (fc, fo, fe) = s.Run("find", "--plugin", zip, "--data", s.Data, "--verbose");
         Assert.True(fc == 0, fo + fe);
-        Assert.Contains("Pack.zip (Zip, plugins only)", fe);
+        Assert.Contains("Pack.zip (Zip, plugins and their strings only)", fe);
         s.TmpIsEmpty();
     }
 

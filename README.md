@@ -1193,7 +1193,8 @@ installed or unpacked by hand:
 
 - **How it is read:** the archive is unpacked into a temporary folder that only this run uses, and the folder is deleted
   when the run ends (also after an error). Nothing is written next to the archive. `find`, `overrides` and `summary` write
-  only the plugins (`.esm`, `.esp`, `.esl`); `conflict`, `lines` and `scenes` also write the other files, because they
+  only the plugins (`.esm`, `.esp`, `.esl`) and their strings (loose `.strings` files and the `.ba2` files other
+  than texture archives, so a localized plugin's names and texts are read); `conflict`, `lines` and `scenes` also write the other files, because they
   look up textures, sounds, voice and lip files and scripts in the archive's `.ba2` files and loose files. `patch` and `voice-lines` don't take an archive (exit 2, with what to give
   instead: the folder).
 - **The same guards as `triage`, `release` and `diff`:** every entry is checked, even one that isn't written. An

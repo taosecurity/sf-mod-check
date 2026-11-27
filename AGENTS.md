@@ -593,7 +593,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
         sf-mod-check conflict --extra-data "C:\Downloads\SomeMod-1.0.zip"
 
     The archive is unpacked into a temporary folder that only that run uses and is deleted afterwards (also after an
-    error); nothing is written next to it. Only plugins are written, except for `conflict`, `lines` and `scenes`,
+    error); nothing is written next to it. Only plugins and their strings (loose `.strings` files and the non-texture `.ba2` files) are written, except for `conflict`, `lines` and `scenes`,
     which also write the other files (they look up textures, sounds, voice files and scripts). Every entry is checked with the guards `triage` uses: an entry outside
     the folder (`..`, a rooted path, a drive), a name given twice, more than 200,000 entries or 12 GB, and an encrypted
     entry are refused with the reason (exit 2). All the plugins must sit in one folder of the archive (the top,
