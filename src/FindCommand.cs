@@ -128,10 +128,10 @@ public static class FindCommand
 
     internal const string EmptyEditorIdText = "names no EditorID: the EditorID after it is empty. Give the EditorID (for example eid:MyMod_Guard), a FormKey or a console FormID.";
 
-    static readonly Regex Signature = new(@"^[A-Z0-9_]{4}\z", RegexOptions.CultureInvariant);
+    internal static readonly Regex Signature = new(@"^[A-Z0-9_]{4}\z", RegexOptions.CultureInvariant);
 
     /// <summary>Every four-letter record type Mutagen knows for Starfield (for checking --type).</summary>
-    static readonly Lazy<HashSet<string>> KnownSigs = new(() =>
+    internal static readonly Lazy<HashSet<string>> KnownSigs = new(() =>
     {
         var set = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in typeof(IStarfieldModGetter).Assembly.GetTypes())

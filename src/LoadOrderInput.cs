@@ -23,6 +23,16 @@ public sealed class LoadOrderInput : IDisposable
     public IReadOnlyList<string> ArchivePlugins => pluginArchive?.Plugins ?? [];
     /// <summary>0.26.0: the archive --plugin named (its full path), or null.</summary>
     public string? PluginArchive => pluginArchive?.Archive;
+    /// <summary>0.26.0 (overrides): an input given to a repeated --plugin that was left out, and why.</summary>
+    public sealed record LeftOutInput(string Input, string Why);
+    /// <summary>0.26.0 (overrides, more than one --plugin): the inputs left out (a name clash with a later input, a
+    /// master not found, a header or archive that can't be read), in the order given.</summary>
+    public List<LeftOutInput> LeftOut { get; } = new();
+    /// <summary>0.26.0: every --plugin given, in order (more than one only with manyPlugins).</summary>
+    readonly List<string> pluginInputs = new();
+    readonly bool manyPlugins;
+    /// <summary>With more than one --plugin: each kept input's plugin folder and its plugins (file names), in order.</summary>
+    readonly List<(string Input, string Folder, List<string> Plugins)> manyInputs = new();
     readonly ArchiveInput.Use archives;
     readonly string command;
     ArchiveInput.Unpacked? pluginArchive, extraArchive;
@@ -57,12 +67,19 @@ public sealed class LoadOrderInput : IDisposable
     /// <param name="archives">0.26.0: what an archive given to --plugin or --extra-data does (refused, plugins only, or
     /// every file)</param>
     /// <param name="command">the command's name, for the refusal of an archive</param>
-    public LoadOrderInput(bool allowPlugin = false, ArchiveInput.Use archives = ArchiveInput.Use.Refuse, string command = "this command")
+    /// <param name="manyPlugins">0.26.0 (overrides): --plugin may be given more than once; each input is a plugin or an
+    /// archive, a later input wins a plugin-name clash, and an input that can't be used is left out (LeftOut)</param>
+    public LoadOrderInput(bool allowPlugin = false, ArchiveInput.Use archives = ArchiveInput.Use.Refuse, string command = "this command",
+                          bool manyPlugins = false)
     {
         this.allowPlugin = allowPlugin;
         this.archives = archives;
         this.command = command;
+        this.manyPlugins = manyPlugins;
     }
+
+    /// <summary>True when more than one --plugin was given (overrides only).</summary>
+    bool Many => manyPlugins && pluginInputs.Count > 1;
 
     /// <summary>Closes the plugins Build opened and deletes the run's temp folder (0.26.0, archive input). A folder
     /// that can't be deleted is logged with its path.</summary>
@@ -160,7 +177,7 @@ public sealed class LoadOrderInput : IDisposable
                 profileOption = pr; return true;
             case "--plugin" when allowPlugin:
                 if (Cli.Value(a, ref i, archives == ArchiveInput.Use.Refuse ? "a plugin file (.esm, .esp or .esl)" : "a plugin file (.esm, .esp or .esl) or a mod archive (.zip, .7z or .rar)", usage) is not { } pl) return false;
-                Plugin = pl; return true;
+                Plugin = pl; pluginInputs.Add(pl); return true;
             case "--masters-dir" when allowPlugin:
                 if (Cli.Value(a, ref i, "a folder that holds the plugin's masters", usage) is not { } md) return false;
                 MastersDirs.Add(md); return true;
@@ -218,7 +235,11 @@ public sealed class LoadOrderInput : IDisposable
                 return Stop(out cantWhy, $"{command} needs the mod installed or unpacked",
                     $"{command} needs the mod installed or unpacked: give the folder, not the archive ({option} {SafeText.OneLine(Path.GetFileName(value))}).",
                     $"{option} {value}: an archive, which {command} doesn't take");
-        if (Plugin != null && ArchiveInput.IsArchive(Plugin))
+        if (Many)
+        {
+            if (!OpenMany(out cantWhy)) return false;
+        }
+        else if (Plugin != null && ArchiveInput.IsArchive(Plugin))
         {
             if (OpenArchive("--plugin", Plugin, out cantWhy) is not { } u) return false;
             pluginArchive = u;
@@ -250,6 +271,7 @@ public sealed class LoadOrderInput : IDisposable
         if (!TriageCommand.HasStarfield(DataDir) && Plugin == null)
             Console.Error.WriteLine($"note: no Starfield.esm in {DataDir}. If that isn't your game's Data folder, run again with --data \"<the game's Data folder>\".");
 
+        if (Many) return ResolveMany(out cantWhy);
         if (Plugin != null) return ResolvePlugin(out cantWhy);
         if (Mo2 != null)
         {
@@ -347,14 +369,7 @@ public sealed class LoadOrderInput : IDisposable
             return Stop(out cantWhy, $"the plugin {full} doesn't exist",
                 $"can't read --plugin {full}: that file doesn't exist. Check the path (a path with spaces needs quotes).", $"--plugin {full} doesn't exist");
         Plugin = full;
-        for (int i = 0; i < MastersDirs.Count; i++)
-        {
-            if (!Directory.Exists(MastersDirs[i]))
-                return Stop(out cantWhy, $"the --masters-dir folder {Path.GetFullPath(MastersDirs[i])} doesn't exist",
-                    $"can't use --masters-dir {Path.GetFullPath(MastersDirs[i])}: that folder doesn't exist. Give a folder that holds the plugin's masters.",
-                    $"--masters-dir {Path.GetFullPath(MastersDirs[i])} doesn't exist");
-            MastersDirs[i] = Path.GetFullPath(MastersDirs[i]);
-        }
+        if (!CheckMastersDirs(out cantWhy)) return false;
         var dirs = new List<string> { Path.GetDirectoryName(full)! };
         foreach (var d in MastersDirs.Append(DataDir))
             if (!dirs.Contains(d, StringComparer.OrdinalIgnoreCase)) dirs.Add(d);
@@ -407,6 +422,134 @@ public sealed class LoadOrderInput : IDisposable
         single = new(new(order, new(StringComparer.OrdinalIgnoreCase), source, Exact: true),
                      dirs.Take(dirs.Count - (dirs[^1].Equals(DataDir, StringComparison.OrdinalIgnoreCase) ? 1 : 0)).ToList());
         Log.Write($"load order (--plugin): {string.Join(", ", order)}; masters looked up in {string.Join(", ", dirs)}");
+        return true;
+    }
+
+    /// <summary>An input of a repeated --plugin left out (0.26.0, overrides): noted on stderr and in the log.</summary>
+    void LeaveOut(string input, string why)
+    {
+        var shown = SafeText.OneLine(Path.GetFileName(input));
+        LeftOut.Add(new(shown, SafeText.OneLine(why)));
+        var note = $"note: --plugin {shown} left out: {SafeText.OneLine(why)}";
+        Console.Error.WriteLine(note);
+        Log.Write(note);
+    }
+
+    /// <summary>--plugin given more than once (0.26.0, overrides), first part, before the Data folder is chosen: each
+    /// archive is unpacked and each plugin checked. A path that doesn't exist or is a folder stops the run (a typo);
+    /// an archive that can't be used is left out. When two inputs hold a plugin of the same name (two versions of one
+    /// mod), the earlier input is left out and the later one is used.</summary>
+    bool OpenMany(out string cantWhy)
+    {
+        cantWhy = "";
+        var opened = new List<(string Input, string Folder, List<string> Plugins)>();
+        foreach (var input in pluginInputs)
+        {
+            var full = Path.GetFullPath(input);
+            if (Directory.Exists(full))
+                return Stop(out cantWhy, $"--plugin {full} is a folder",
+                    $"can't read --plugin {SafeText.OneLine(full)}: that is a folder. Give the plugin file itself (.esm, .esp or .esl) or a mod archive (.zip, .7z or .rar).",
+                    $"--plugin {full} is a folder");
+            if (!File.Exists(full))
+                return Stop(out cantWhy, $"the plugin {full} doesn't exist",
+                    $"can't read --plugin {SafeText.OneLine(full)}: that file doesn't exist. Check the path (a path with spaces needs quotes).", $"--plugin {full} doesn't exist");
+            if (!ArchiveInput.IsArchive(full)) { opened.Add((full, Path.GetDirectoryName(full)!, [Path.GetFileName(full)])); continue; }
+            string dir;
+            try { dir = NewArchiveDir(); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return Stop(out cantWhy, "the temp folder can't be made",
+                    $"can't unpack --plugin {SafeText.OneLine(Path.GetFileName(full))}: the temp folder can't be made ({SafeText.OneLine(e.Message)}). Check the TEMP folder has room and this account may write there.",
+                    $"temp folder for {full}: {e}");
+            }
+            if (ArchiveInput.Open(full, dir, archives, out var why) is not { } u) { LeaveOut(full, $"it can't be read: {why}"); continue; }
+            opened.Add((full, u.Folder, u.Plugins));
+        }
+        for (int i = 0; i < opened.Count; i++)
+        {
+            var clash = opened.Skip(i + 1).Select(o => (o.Input, Name: o.Plugins.FirstOrDefault(n => opened[i].Plugins.Contains(n, StringComparer.OrdinalIgnoreCase))))
+                .FirstOrDefault(c => c.Name != null);
+            if (clash.Name != null)
+            {
+                LeaveOut(opened[i].Input, $"it holds {clash.Name}, as {Path.GetFileName(clash.Input)} (given later) does, so the later one is used");
+                continue;
+            }
+            manyInputs.Add(opened[i]);
+        }
+        if (manyInputs.Count == 0)
+            return Stop(out cantWhy, "every --plugin input was left out",
+                "can't use any of the --plugin inputs: each one was left out (the notes above say why).", "every --plugin input left out");
+        Plugin = Path.Combine(manyInputs[0].Folder, manyInputs[0].Plugins[0]);   // for the no-Steam Data fallback
+        return true;
+    }
+
+    /// <summary>Checks each --masters-dir and makes it a full path.</summary>
+    bool CheckMastersDirs(out string cantWhy)
+    {
+        cantWhy = "";
+        for (int i = 0; i < MastersDirs.Count; i++)
+        {
+            if (!Directory.Exists(MastersDirs[i]))
+                return Stop(out cantWhy, $"the --masters-dir folder {Path.GetFullPath(MastersDirs[i])} doesn't exist",
+                    $"can't use --masters-dir {Path.GetFullPath(MastersDirs[i])}: that folder doesn't exist. Give a folder that holds the plugin's masters.",
+                    $"--masters-dir {Path.GetFullPath(MastersDirs[i])} doesn't exist");
+            MastersDirs[i] = Path.GetFullPath(MastersDirs[i]);
+        }
+        return true;
+    }
+
+    /// <summary>--plugin given more than once (0.26.0, overrides), second part: the load order is each input's masters
+    /// (each master's own masters first), then the input's plugins, in the order the inputs were given. A master is
+    /// looked up in the input's own folder, then the other inputs' folders, then each --masters-dir, then Data. An input
+    /// whose master isn't found, or whose header can't be read, is left out and the rest run.</summary>
+    bool ResolveMany(out string cantWhy)
+    {
+        if (!CheckMastersDirs(out cantWhy)) return false;
+        var order = new List<string>();
+        var kept = new List<(string Input, string Folder, List<string> Plugins)>();
+        foreach (var (input, folder, plugins) in manyInputs)
+        {
+            var dirs = new List<string> { folder };
+            foreach (var d in manyInputs.Select(m => m.Folder).Concat(MastersDirs).Append(DataDir))
+                if (!dirs.Contains(d, StringComparer.OrdinalIgnoreCase)) dirs.Add(d);
+            string? Locate(string name) => dirs.Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
+            var mine = new List<string>();
+            var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string? problem = null;
+            void Visit(string name, string path)
+            {
+                if (problem != null || order.Contains(name, StringComparer.OrdinalIgnoreCase) || mine.Contains(name, StringComparer.OrdinalIgnoreCase) || !visiting.Add(name)) return;
+                List<string> masters;
+                try { masters = LoadOrderSetup.ModHeaderMasters(path); }
+                catch (Exception e) when (Fatal.Recoverable(e)) { problem = $"the plugin header of {Path.GetFileName(path)} can't be read ({e.GetType().Name})"; return; }
+                foreach (var m in masters)
+                {
+                    // a master name is a file name; one with a folder part is never looked up outside the folders above
+                    if ((Mo2Profile.IsFolderName(m) ? Locate(m) : null) is not { } mp)
+                    {
+                        problem = $"{name}'s master {m} wasn't found (give its folder with --masters-dir, or the game's Data folder with --data)";
+                        return;
+                    }
+                    Visit(m, mp);
+                    if (problem != null) return;
+                }
+                mine.Add(Path.GetFileName(path));
+            }
+            foreach (var p in plugins) Visit(p, Path.Combine(folder, p));
+            if (problem != null) { LeaveOut(input, problem); continue; }
+            order.AddRange(mine);
+            kept.Add((input, folder, plugins));
+        }
+        if (kept.Count == 0)
+            return Stop(out cantWhy, "every --plugin input was left out",
+                "can't use any of the --plugin inputs: each one was left out (the notes above say why).", "every --plugin input left out");
+        var n = order.Count - kept.Sum(k => k.Plugins.Count);
+        var source = $"{kept.Count} --plugin inputs ({string.Join(", ", kept.Select(k => SafeText.OneLine(Path.GetFileName(k.Input))))}) and their {n} master{(n == 1 ? "" : "s")}";
+        // the later input first: Build lets the first folder win a name both hold (none do after OpenMany, but a master may)
+        var over = kept.Select(k => k.Folder).Reverse().Concat(MastersDirs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        single = new(new(order, new(StringComparer.OrdinalIgnoreCase), source, Exact: true), over);
+        Plugin = Path.Combine(kept[^1].Folder, kept[^1].Plugins[^1]);
+        Log.Write($"load order (--plugin x{pluginInputs.Count}): {string.Join(", ", order)}; masters looked up in each input's folder, {string.Join(", ", MastersDirs.Append(DataDir))}");
         return true;
     }
 

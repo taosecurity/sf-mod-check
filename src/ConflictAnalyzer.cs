@@ -148,13 +148,6 @@ public static class Analyzer
         return "";
     }
 
-    // A top-level group property (Quests, ArmorAddons) as the record type it holds ("quest", "armor addon").
-    static string GroupName(System.Reflection.PropertyInfo prop)
-    {
-        var t = prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : null;
-        return t is not null && typeof(IMajorRecordGetter).IsAssignableFrom(t) ? Impact.TypeName(TypeShort(t)) : prop.Name;
-    }
-
     // SFMODCHECK_DEBUG_RECORD=<FormKey> (for example 064F3C:Starfield.esm) prints the working for that one record.
     static readonly string? DebugRecord = Environment.GetEnvironmentVariable("SFMODCHECK_DEBUG_RECORD");
 
@@ -211,18 +204,15 @@ public static class Analyzer
         // The mods whose records Mutagen could not all read (0.5.3: tells the record-type pass's unread plugins that
         // can't hold a record apart from those that may).
         var collectFailed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        void AddTargets(PluginInfo p, IEnumerable<IMajorRecordGetter> recs)
+        void AddTargets(PluginInfo p, IMajorRecordGetter rec)
         {
-            foreach (var rec in recs)
+            if (rec.FormKey.ModKey == p.Mod.ModKey) return;
+            if (onlyRecords is not null && !onlyRecords.Contains(rec.FormKey)) return;
+            var type = rec.Registration.GetterType;
+            if (!targets.TryAdd(rec.FormKey, type) && targets[rec.FormKey] != type)
             {
-                if (rec.FormKey.ModKey == p.Mod.ModKey) continue;
-                if (onlyRecords is not null && !onlyRecords.Contains(rec.FormKey)) continue;
-                var type = rec.Registration.GetterType;
-                if (!targets.TryAdd(rec.FormKey, type) && targets[rec.FormKey] != type)
-                {
-                    if (!otherTypes.TryGetValue(rec.FormKey, out var more)) otherTypes[rec.FormKey] = more = new();
-                    more.Add(type);
-                }
+                if (!otherTypes.TryGetValue(rec.FormKey, out var more)) otherTypes[rec.FormKey] = more = new();
+                more.Add(type);
             }
         }
         // One line per unreadable spot (0.5.1): both passes below meet the same bad record (a 157-plugin load order: 14 lines
@@ -247,27 +237,10 @@ public static class Analyzer
             // with a component type Mutagen 0.54.4 can't parse). Plugins that read cleanly take the single
             // pass as before; otherwise each top-level group is read on its own and only the unreadable group is skipped,
             // listed under "Tool limits hit". Records read before the failure stay (TryAdd keeps them once).
+            // 0.26.0: the read with its per-group fallback is RecordWalk.Each, shared with overrides
             Where = $"reading {p.FileName}";
-            try { AddTargets(p, p.Mod.EnumerateMajorRecords()); }
-            catch (Exception err) when (Fatal.Recoverable(err))
-            {
+            if (!RecordWalk.Each(p, rec => AddTargets(p, rec), (what, e) => ReadProblem(p, what, e)))
                 collectFailed.Add(p.FileName);
-                foreach (var prop in p.Mod.GetType().GetProperties())
-                {
-                    if (prop.GetIndexParameters().Length > 0) continue;
-                    var what = GroupName(prop);
-                    object? val;
-                    try { val = prop.GetValue(p.Mod); }
-                    catch (Exception e) when (Fatal.Recoverable(e))
-                    {
-                        if (typeof(IMajorRecordGetterEnumerable).IsAssignableFrom(prop.PropertyType)) ReadProblem(p, what, e);
-                        continue;
-                    }
-                    if (val is not IMajorRecordGetterEnumerable group || val is IMajorRecordGetter || val is IModGetter) continue;
-                    try { AddTargets(p, group.EnumerateMajorRecords()); }
-                    catch (Exception e) when (Fatal.Recoverable(e)) { ReadProblem(p, what, e); }
-                }
-            }
         }
         result.RecordsOverriddenByMods = targets.Count;
         if (wantTypes is not null)
