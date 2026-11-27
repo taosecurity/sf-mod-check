@@ -25,8 +25,8 @@ public static class Ba2Find
         "                             [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  Lists which archives (.ba2) the game loads and which loose folders hold a file, in load order, and marks the\n" +
         "  copy the game uses: a loose file beats every archive, and a later archive beats an earlier one. A loose file\n" +
-        "  replaces an archived copy only when an INI sets [Archive] bInvalidateOlderFiles=1 and sResourceDataDirsFinal=;\n" +
-        "  without both, a note says the game may use the archived copy.\n" +
+        "  replaces an archived copy only when an INI's [Archive] section sets bInvalidateOlderFiles=1 and has an empty\n" +
+        "  sResourceDataDirsFinal= line. Without both, a note says the game may use the archived copy.\n" +
         "  <pattern>     a file name as the game sees it (\"sound\\voice\\mymod.esm\\npcmguard\\0001a2b3_1.wem\"), or a glob:\n" +
         "                * matches any characters (folders included) and ? one character. Case doesn't matter, and / is\n" +
         "                the same as \\. Quote it so the shell doesn't expand it.\n" +
@@ -286,7 +286,7 @@ public static class Ba2Find
         // a loose copy wins over a loaded archive's copy only with the loose-file INI setting (see the note below)
         int looseOverArchive = found.Values.Count(hs => hs.Any(h => h.Kind == "loose") && hs.Any(h => h.Kind == "archive" && h.Loaded && h.Served));
         var looseNote = looseReplaces || looseOverArchive == 0 ? null
-            : $"note: {looseOverArchive:N0} name{(looseOverArchive == 1 ? " is" : "s are")} both loose and in a loaded archive. A loose file replaces the archived copy only when an INI sets [Archive] bInvalidateOlderFiles=1 and sResourceDataDirsFinal= (the usual setup for loose-file mods), and the INIs read don't, so the game may use the archived copy instead (add yours with --ini)";
+            : $"note: {looseOverArchive:N0} name{(looseOverArchive == 1 ? " is" : "s are")} both loose and in a loaded archive. A loose file replaces the archived copy only when an INI sets [Archive] bInvalidateOlderFiles=1 and sResourceDataDirsFinal= (the usual setup for loose-file mods), and the INIs read don't, so the game may use the archived copy instead (add yours with --ini{(input.Mo2 != null ? "; an MO2 profile's own INI files aren't read" : "")})";
 
         var shown = max == 0 ? found.ToList() : found.Take(max).ToList();
         var total = found.Count;

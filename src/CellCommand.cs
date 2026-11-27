@@ -378,8 +378,8 @@ public static class CellCommand
             string? worldText = null;
             if (mode == Mode.Near)
             {
-                var w = LastWorld(found!.Value, plugins);
-                worldText = w != null && EditorIdOf(w) is { Length: > 0 } we ? $"{SafeText.OneLine(we)} [{found}]" : $"[{found}]";
+                var ws = WorldCopies(found!.Value, plugins);
+                worldText = ws.Count > 0 && EditorIdOf(FromCopies(ws, w => EditorIdOf(w) is { Length: > 0 })) is { Length: > 0 } we ? $"{SafeText.OneLine(we)} [{found}]" : $"[{found}]";
             }
             resultPrinted = true;
             var source = lo.OrderSource;
@@ -634,16 +634,36 @@ public static class CellCommand
     static bool HasWorld(FormKey wk, List<PluginInfo> plugins, List<string> unread) => LastWorld(wk, plugins, unread) != null;
 
     /// <summary>The worldspace's winning copy (the last plugin that holds it), or null.</summary>
-    static IWorldspaceGetter? LastWorld(FormKey wk, List<PluginInfo> plugins, List<string>? unread = null)
+    static IWorldspaceGetter? LastWorld(FormKey wk, List<PluginInfo> plugins, List<string>? unread = null) =>
+        WorldCopies(wk, plugins, unread) is { Count: > 0 } l ? l[^1] : null;
+
+    /// <summary>Every plugin's copy of the worldspace, in load order.</summary>
+    static List<IWorldspaceGetter> WorldCopies(FormKey wk, List<PluginInfo> plugins, List<string>? unread = null)
     {
-        IWorldspaceGetter? last = null;
+        var copies = new List<IWorldspaceGetter>();
         foreach (var p in plugins.Where(p => MayHold(p, wk.ModKey)))
             try
             {
+                IWorldspaceGetter? last = null;
                 foreach (var w in p.Mod.Worldspaces) if (w.FormKey == wk) last = w;
+                if (last != null) copies.Add(last);
             }
             catch (Exception e) when (Fatal.Recoverable(e)) { unread?.Add(Unread(p, e)); }
-        return last;
+        return copies;
+    }
+
+    /// <summary>The last copy that has a field, back to the last full copy: a partial copy (the 0x4000 flag; official
+    /// plugins ship partial cells and worldspaces) leaves out the fields it doesn't change.</summary>
+    static T FromCopies<T>(IReadOnlyList<T> copies, Func<T, bool> has) where T : IMajorRecordGetter
+    {
+        for (int i = copies.Count - 1; i >= 0; i--)
+        {
+            var c = copies[i];
+            try { if (has(c)) return c; }
+            catch (Exception e) when (Fatal.Recoverable(e)) { }
+            if (!FieldCompare.IsPartial(c)) return c;
+        }
+        return copies[^1];
     }
 
     /// <summary>The walk: first every wanted cell in every plugin (their references, navmeshes and the cells' own copies),
@@ -722,17 +742,8 @@ public static class CellCommand
     static Info CellInfo(Walk walk, ILinkCache ids, List<PluginInfo> plugins)
     {
         var (_, cell, world, top) = walk.CellCopies[^1];
-        ICellGetter From(Func<ICellGetter, bool> has)
-        {
-            for (int i = walk.CellCopies.Count - 1; i >= 0; i--)
-            {
-                var c = walk.CellCopies[i].Cell;
-                try { if (has(c)) return c; }
-                catch (Exception e) when (Fatal.Recoverable(e)) { }
-                if (!FieldCompare.IsPartial(c)) return c;
-            }
-            return cell;
-        }
+        var cellCopies = walk.CellCopies.Select(c => c.Cell).ToList();
+        ICellGetter From(Func<ICellGetter, bool> has) => FromCopies(cellCopies, has);
         var key = cell.FormKey;
         var eid = EditorIdOf(From(c => EditorIdOf(c) is { Length: > 0 }));
         string? name = null;
@@ -744,10 +755,13 @@ public static class CellCommand
         int[]? grid = null;
         if (world != null)
         {
-            var w = LastWorld(world.FormKey, plugins) ?? world;
-            worldText = EditorIdOf(w) is { Length: > 0 } we ? $"{SafeText.OneLine(we)} [{w.FormKey}]" : $"[{w.FormKey}]";
+            var worlds = WorldCopies(world.FormKey, plugins);
+            if (worlds.Count == 0) worlds.Add(world);
+            var we = EditorIdOf(FromCopies(worlds, w => EditorIdOf(w) is { Length: > 0 }));
+            worldText = we is { Length: > 0 } ? $"{SafeText.OneLine(we)} [{world.FormKey}]" : $"[{world.FormKey}]";
             if (!top && From(c => c.Grid != null).Grid is { } g) grid = new[] { g.Point.X, g.Point.Y };
-            if (locCell.Location.IsNull && !w.Location.IsNull) { location = FindCommand.LinkText(w.Location, ids); fromWorld = true; }
+            var wl = FromCopies(worlds, w => !w.Location.IsNull).Location;
+            if (locCell.Location.IsNull && !wl.IsNull) { location = FindCommand.LinkText(wl, ids); fromWorld = true; }
         }
         if (!locCell.Location.IsNull) location = FindCommand.LinkText(locCell.Location, ids);
         var where = world == null ? "interior"
