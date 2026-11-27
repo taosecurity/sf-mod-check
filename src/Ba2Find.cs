@@ -293,7 +293,7 @@ public static class Ba2Find
         resultPrinted = true;
         var summary = $"{total:N0} file{(total == 1 ? "" : "s")} matched in {archivesWithMatch.Count:N0} of {archivesRead:N0} archive{(archivesRead == 1 ? "" : "s")} and {loosewith.Count:N0} loose folder{(loosewith.Count == 1 ? "" : "s")}";
         if (json)
-            Console.WriteLine(Json(version, pattern, lo.OrderSource, shown, total, archivesRead, index.Skipped, unreadable, looseReplaces));
+            Console.WriteLine(Json(version, pattern, lo.OrderSource, shown, total, archivesRead, index.Skipped, unreadable, looseReplaces, lo.Problems));
         else
         {
             if (!quiet)
@@ -305,10 +305,14 @@ public static class Ba2Find
             }
             if (total > shown.Count) Console.WriteLine($"... and {total - shown.Count:N0} more (raise --max to see them; --max 0 lists them all)");
             foreach (var (u, w) in unreadable) Console.WriteLine($"unreadable: {SafeText.OneLine(u)}: {SafeText.OneLine(w)}");
+            // a plugin that didn't load has its archives left out, so the problems are shown (code review 0.27.0 round 7)
+            foreach (var p in lo.Problems) Console.WriteLine($"load-order problem: {SafeText.OneLine(p)}");
             if (looseNote != null) Console.WriteLine(looseNote);
+            var problems = lo.Problems.Count == 0 ? ""
+                : $"; {lo.Problems.Count:N0} load-order problem{(lo.Problems.Count == 1 ? "" : "s")}, and a plugin that didn't load has its archives left out";
             Console.WriteLine(total == 0
-                ? $"RESULT: NOT FOUND (no file matches {SafeText.OneLine(pattern)} in {archivesRead:N0} archive{(archivesRead == 1 ? "" : "s")} and {index.LooseDirs.Count:N0} loose folder{(index.LooseDirs.Count == 1 ? "" : "s")})"
-                : $"RESULT: {summary}");
+                ? $"RESULT: NOT FOUND (no file matches {SafeText.OneLine(pattern)} in {archivesRead:N0} archive{(archivesRead == 1 ? "" : "s")} and {index.LooseDirs.Count:N0} loose folder{(index.LooseDirs.Count == 1 ? "" : "s")}{problems})"
+                : $"RESULT: {summary}{problems}");
         }
         Log.Write($"result: {summary}, {unreadable.Count} unreadable, exit code {(total > 0 ? 0 : 1)}, {sw.Elapsed.TotalSeconds:F1} s");
         return total > 0 ? 0 : 1;
@@ -324,7 +328,7 @@ public static class Ba2Find
 
     /// <summary>The loose files under dir that the pattern names, as (normalized name, full path). An exact name is
     /// looked up as the assets check looks it up; a glob walks only below its fixed folder prefix (all of dir when it
-    /// starts with a wildcard), recursively, without following links.</summary>
+    /// starts with a wildcard), recursively, linked files and folders included.</summary>
     static IEnumerable<(string Rel, string Full)> Loose(AssetIndex index, string dir, string wanted, bool glob, System.Text.RegularExpressions.Regex match)
     {
         if (!Directory.Exists(dir)) yield break;
@@ -343,16 +347,25 @@ public static class Ba2Find
         if (fixedParts.Count == parts.Length) fixedParts.RemoveAt(fixedParts.Count - 1);   // not reached: a glob has a wildcard
         var starts = Folders(dir, fixedParts);
         if (fixedParts.Count == 0) Log.Write($"ba2 find: the pattern starts with a wildcard, so all of {dir} is walked");
+        // Linked files and folders (symlinks, junctions, a mod manager's symlink deployment) count, as they do for an
+        // exact name (code review 0.27.0 round 7); a link back to a folder it is inside isn't followed, and the depth
+        // cap stops any other loop of links.
         var opts = new EnumerationOptions
         {
-            RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint, MatchCasing = MatchCasing.CaseInsensitive,
+            RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = 0, MatchCasing = MatchCasing.CaseInsensitive,
+            MaxRecursionDepth = 32,
         };
         var results = new List<(string, string)>();
         foreach (var start in starts)
         {
             try
             {
-                foreach (var f in Directory.EnumerateFiles(start, "*", opts))
+                var walk = new System.IO.Enumeration.FileSystemEnumerable<string>(start, (ref System.IO.Enumeration.FileSystemEntry e) => e.ToFullPath(), opts)
+                {
+                    ShouldIncludePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !e.IsDirectory,
+                    ShouldRecursePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => Follow(dir, ref e),
+                };
+                foreach (var f in walk)
                 {
                     var rel = Ba2Names.Normalize(Path.GetRelativePath(dir, f));
                     if (!AssetIndex.OddPart(rel) && match.IsMatch(rel)) results.Add((rel, f));   // as the exact-name path
@@ -363,12 +376,30 @@ public static class Ba2Find
         foreach (var r in results.OrderBy(r => r.Item1, StringComparer.Ordinal).ThenBy(r => r.Item2, StringComparer.Ordinal)) yield return r;
     }
 
+    /// <summary>Whether the glob walk goes into a folder: yes, unless it is a link to a folder it is inside (or to the
+    /// loose folder or one above it), which would loop.</summary>
+    static bool Follow(string root, ref System.IO.Enumeration.FileSystemEntry e)
+    {
+        if ((e.Attributes & FileAttributes.ReparsePoint) == 0) return true;
+        var path = e.ToFullPath();
+        FileSystemInfo? target;
+        try { target = Directory.ResolveLinkTarget(path, true); }
+        catch (Exception x) when (x is IOException or UnauthorizedAccessException) { Log.Write($"ba2 find: the link {path} could not be read ({x.Message})"); return false; }
+        if (target == null) return true;   // a reparse point that isn't a link (a OneDrive folder) is an ordinary folder
+        if (!target.Exists) { Log.Write($"ba2 find: the link {path} points to {target.FullName}, which doesn't exist"); return false; }
+        var real = Path.TrimEndingDirectorySeparator(Path.GetFullPath(target.FullName));
+        var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        bool Inside(string p) { p = Path.TrimEndingDirectorySeparator(Path.GetFullPath(p)); return p.Equals(real, cmp) || p.StartsWith(real + Path.DirectorySeparatorChar, cmp); }
+        if (Inside(path) || Inside(root)) { Log.Write($"ba2 find: the link {path} points to {real}, a folder it is inside, so it isn't followed"); return false; }
+        return true;
+    }
+
     /// <summary>The folders under dir that a fixed folder path names, each part matched without regard to case (several
-    /// on Linux when two folders differ only in case). Links aren't followed.</summary>
+    /// on Linux when two folders differ only in case). Linked folders count.</summary>
     static List<string> Folders(string dir, List<string> parts)
     {
         var at = new List<string> { dir };
-        var ci = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
+        var ci = new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, IgnoreInaccessible = true, AttributesToSkip = 0 };
         foreach (var part in parts)
         {
             if (part is "" or ".") continue;
@@ -385,7 +416,8 @@ public static class Ba2Find
     }
 
     static string Json(string version, string pattern, string source, List<KeyValuePair<string, List<Holder>>> shown, int total, int archivesRead,
-                       List<(string Archive, string Why)> skipped, List<(string Archive, string Why)> unreadable, bool looseReplaces)
+                       List<(string Archive, string Why)> skipped, List<(string Archive, string Why)> unreadable, bool looseReplaces,
+                       IReadOnlyList<string> problems)
     {
         var files = new JsonArray();
         foreach (var (n, holders) in shown)
@@ -412,6 +444,7 @@ public static class Ba2Find
             ["looseFilesReplaceArchives"] = looseReplaces,
             ["skipped"] = new JsonArray(skipped.Select(s => (JsonNode)new JsonObject { ["archive"] = s.Archive, ["why"] = s.Why }).ToArray()),
             ["unreadable"] = new JsonArray(unreadable.Select(s => (JsonNode)new JsonObject { ["archive"] = s.Archive, ["why"] = s.Why }).ToArray()),
+            ["loadOrderProblems"] = new JsonArray(problems.Select(p => (JsonNode)JsonValue.Create(p)!).ToArray()),
         }.ToJsonString(Indented);
     }
 }

@@ -1459,6 +1459,9 @@ the load order and the INI archive lists and changes nothing.
   under `[Archive]` (the usual StarfieldCustom.ini setup for loose-file mods). When a name is both loose and in a
   loaded archive and the INIs read don't set both, a `note:` line says the game may use the archived copy instead.
   Point `--ini` at your mod manager's INI if it keeps its own.
+- A plugin that didn't load (missing, unreadable or missing a master) has its archives left out, so each load-order
+  problem gets a `load-order problem:` line and the RESULT line counts them. Linked loose files and folders
+  (symlinks, junctions) count.
 - `--archives <folder>`: also search the `.ba2` files in a folder that the load order doesn't load (shown as not
   loaded; they never win), for example a downloaded mod's archives before you install it.
 - `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`, `--ini` and `--language` choose the load order and the

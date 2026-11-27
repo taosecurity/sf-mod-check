@@ -259,6 +259,58 @@ public class Ba2FindTests(Ba2FindPlugins plugins) : IClassFixture<Ba2FindPlugins
     }
 
     [Fact]
+    public void A_glob_finds_linked_loose_files_and_folders_but_not_a_link_back_up()
+    {
+        // code review 0.27.0 round 7: symlinked files and folders count for a glob, as they do for an exact name
+        using var g = new Game(plugins);
+        var elsewhere = Path.Combine(g.Dir, "Elsewhere");
+        g.Loose(elsewhere, @"textures\x.dds");
+        var target = g.Loose(elsewhere, "linked.nif");
+        Directory.CreateDirectory(Path.Combine(g.Data, "meshes"));
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(g.Data, "textures"), Path.Combine(elsewhere, "textures"));
+            File.CreateSymbolicLink(Path.Combine(g.Data, "meshes", "linked.nif"), target);
+            Directory.CreateSymbolicLink(Path.Combine(g.Data, "meshes", "loop"), Path.Combine(g.Data, "meshes"));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return; }   // Windows without the link privilege
+        var (code, o, e2) = g.Run(@"textures\*.dds");
+        Assert.True(code == 0, o + e2);
+        Assert.Contains(@"textures\x.dds", o);
+        (code, o, e2) = g.Run("*.dds");
+        Assert.True(code == 0, o + e2);
+        Assert.Contains(@"textures\x.dds", o);
+        (code, o, e2) = g.Run(@"meshes\*.nif");
+        Assert.True(code == 0, o + e2);
+        Assert.Contains(@"meshes\linked.nif", o);
+        Assert.DoesNotContain(@"meshes\loop\", o);
+        Assert.Contains("RESULT: 1 file matched", o);
+    }
+
+    [Fact]
+    public void A_load_order_problem_is_shown_because_that_plugins_archives_are_left_out()
+    {
+        // code review 0.27.0 round 7: Gone.esm is listed but missing, so Gone - Main.ba2 isn't searched
+        using var g = new Game(plugins);
+        File.WriteAllLines(g.Txt, ["*ModA.esm", "*ModB.esm", "*Gone.esm"]);
+        g.Archive("ModA - Main.ba2", "GNRL", @"meshes\a.nif");
+        g.Archive("Gone - Main.ba2", "GNRL", @"meshes\a.nif");
+        var (code, o, e) = g.Run(@"meshes\a.nif");
+        Assert.True(code == 0, o + e);
+        Same(["ModA - Main.ba2 (named after ModA.esm)   <- wins"], Holders(o, @"meshes\a.nif"));
+        Assert.Contains("load-order problem: Gone.esm: listed but not found in Data", o);
+        Assert.Contains("RESULT: 1 file matched in 1 of 1 archive and 0 loose folders; 1 load-order problem, and a plugin that didn't load has its archives left out", o);
+        (code, o, e) = g.Run(@"meshes\missing.nif");
+        Assert.Equal(1, code);
+        Assert.Contains("loose folder; 1 load-order problem, and a plugin that didn't load has its archives left out)", o);
+        (code, o, e) = g.Run(@"meshes\a.nif", "--json");
+        Assert.True(code == 0, o + e);
+        var list = JsonDocument.Parse(o).RootElement.GetProperty("loadOrderProblems");
+        Assert.Equal(1, list.GetArrayLength());
+        Assert.StartsWith("Gone.esm: listed but not found in Data", list[0].GetString());
+    }
+
+    [Fact]
     public void No_match_is_exit_1_and_bad_input_is_exit_2()
     {
         using var g = new Game(plugins);
@@ -334,7 +386,7 @@ public class Ba2FindTests(Ba2FindPlugins plugins) : IClassFixture<Ba2FindPlugins
         Assert.True(code == 0, o + e);
         using var doc = JsonDocument.Parse(o);
         var root = JsonShape.Exactly(doc.RootElement, "ba2 find", "tool:string", "version:string", "pattern:string", "loadOrder:string",
-            "files:array", "listed:number", "total:number", "archivesRead:number", "looseFilesReplaceArchives:bool", "skipped:array", "unreadable:array");
+            "files:array", "listed:number", "total:number", "archivesRead:number", "looseFilesReplaceArchives:bool", "skipped:array", "unreadable:array", "loadOrderProblems:array");
         JsonShape.Exactly(root.GetProperty("skipped")[0], "skipped[0]", "archive:string", "why:string");
         JsonShape.Exactly(root.GetProperty("unreadable")[0], "unreadable[0]", "archive:string", "why:string");
         var file = JsonShape.Exactly(root.GetProperty("files")[0], "files[0]", "name:string", "holders:array");

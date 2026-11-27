@@ -692,7 +692,7 @@ public static class CellCommand
                     cells++;
                     walk.WantedCells.Add(c.FormKey);
                     walk.CellCopies.Add((p, c, w, top));
-                    if (EditorIdOf(c) is { } ce) walk.CellNames[c.FormKey] = ce;
+                    if (EditorIdOf(c) is { Length: > 0 } ce) walk.CellNames[c.FormKey] = ce;
                     foreach (var r in c.Persistent) { Add(p, r, c.FormKey, true); refs++; }
                     foreach (var r in c.Temporary) { Add(p, r, c.FormKey, false); refs++; }
                     if (c.NavigationMeshes.Count > 0)
@@ -722,7 +722,7 @@ public static class CellCommand
                     bool any = false;
                     foreach (var r in c.Persistent) if (tracked.Contains(r.FormKey)) { Add(p, r, c.FormKey, true); moved++; any = true; }
                     foreach (var r in c.Temporary) if (tracked.Contains(r.FormKey)) { Add(p, r, c.FormKey, false); moved++; any = true; }
-                    if (any && EditorIdOf(c) is { } ce) walk.CellNames[c.FormKey] = ce;
+                    if (any && EditorIdOf(c) is { Length: > 0 } ce) walk.CellNames[c.FormKey] = ce;
                 }
             }
             catch (Exception e) when (Fatal.Recoverable(e)) { unread.Add(Unread(p, e)); }

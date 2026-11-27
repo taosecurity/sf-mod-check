@@ -106,9 +106,11 @@ public class ArchiveInputTests
         }
     }
 
-    /// <summary>The record lines of find's whole-plugin listing (the lines that name a record of the set).</summary>
+    /// <summary>The record lines of find's whole-plugin listing (the lines that name a record of the set), with the
+    /// RESULT line's run time left out: a busy machine made it "(2 s)" against "(1 s)" (0.27.0 relay step 15).</summary>
     static List<string> Records(string stdout) =>
-        stdout.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Contains("M_One") || l.Contains("M_Two") || l.StartsWith("RESULT")).ToList();
+        stdout.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Contains("M_One") || l.Contains("M_Two") || l.StartsWith("RESULT"))
+            .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @" \(\d+ s\)$", "")).ToList();
 
     [Fact]
     public void A_zip_a_7z_and_a_rar_give_the_same_find_listing_as_the_plugin_itself()
