@@ -681,10 +681,10 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     matched by text, so an added or left-out entry lists only that entry. An override that changes no
     string or is deleted is left out; one with no master version is listed in full as `no master`. A localized plugin
     is read from its string files (English only); if they all read empty, a `WARNING` says its string files weren't
-    found. `--type <SIG>,...` keeps those record types (unknown ones are refused). `--json` has `tool`, `version`,
-    `result`, `plugins` (`name`, `localized`, `fromArchive`, `warning`, `records` with `type`, `formKey`, `editorId`,
+    found, and a second `WARNING` when a localized master's strings all read empty (no `was:` text). `--type <SIG>,...` keeps those record types (unknown ones are refused). `--json` has `tool`, `version`,
+    `result`, `plugins` (`name`, `localized`, `fromArchive`, `warning`, `masterWarning`, `records` with `type`, `formKey`, `editorId`,
     `kind` and `strings` with `field`, `text`, `was`), `unread` and `loadOrderProblems`. `--out <file>` writes the
-    output to a file (replacing it; a plugin, BA2 or archive name or a folder is refused). Exit 0 = listed (also when
+    output to a file (replacing it; a plugin, BA2, archive, string-file, script or DLL name, or a folder, is refused). Exit 0 = listed (also when
     nothing is found), 2 = couldn't run; last line `RESULT: text: 2 strings in 1 record (1 new, 0 changed) in
     Mod.esm`. It lists text, it doesn't judge it. Quote text for the user as the plugin holds it; `triage` doesn't list text.
 

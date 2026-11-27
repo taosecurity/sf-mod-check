@@ -208,7 +208,7 @@ public static class ScenesCommand
             {
                 var m = matches[0];
                 Console.Error.WriteLine($"{SafeText.OneLine(q)} is a {m.Type} ({m.Key}), not an NPC or a quest: scenes looks at an NPC_ or a QUST record. " +
-                                        "find shows what the record is: sf-mod-check find " + LinesCommand.Quoted(q));
+                                        "find shows what the record is: sf-mod-check find " + LinesCommand.FindArg(mainQ));
                 cantWhy = $"{SafeText.OneLine(q)} is a {m.Type}, not an NPC or a quest";
                 return 2;
             }

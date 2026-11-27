@@ -4,7 +4,7 @@
 
 ### What's new
 
-- **`text <plugin | archive>`** lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest names and objectives, dialogue, and every other text the game translates, each with its field path. A new record lists all its strings; an override lists only the strings it changes, each with the master's text as "was", and a string it clears or leaves out as "(no text)" (not in a partial form or a localized plugin). List entries such as message buttons are matched by their text, so an entry an override adds or leaves out lists only that entry. A localized plugin's text is read from its string files, with a warning when they can't be found. `--type`, `--json` and `--out`.
+- **`text <plugin | archive>`** lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest names and objectives, dialogue, and every other text the game translates, each with its field path. A new record lists all its strings; an override lists only the strings it changes, each with the master's text as "was", and a string it clears or leaves out as "(no text)" (not in a partial form or a localized plugin). List entries such as message buttons are matched by their text, so an entry an override adds or leaves out lists only that entry. A localized plugin's text is read from its string files, with a warning when they can't be found, and a warning when a localized master's string files are missing (its text as "was" can't be shown). `--type`, `--json` and `--out`.
 
 ### Changes
 
@@ -15,6 +15,7 @@
 
 - **`lines`**: the `find` hint keeps `eid:` for an EditorID that `find` would read as a console FormID, so `lines eid:0000ABCD` now hints `sf-mod-check find eid:0000ABCD`, not a FormID lookup.
 - **`scenes --hub`** takes `eid:`, `editorid:` and a quoted name as an EditorID, as `find` and `lines` do, and refuses an empty one.
+- **`scenes`**: the `find` hint for a record that is neither an NPC nor a quest no longer quotes a quoted EditorID twice (`scenes '"ScHub"'` hinted `find ""ScHub""`).
 
 ### Example
 

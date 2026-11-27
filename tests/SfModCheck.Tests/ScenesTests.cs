@@ -701,6 +701,10 @@ public class ScenesTests
         (code, stdout, err) = Scenes(g, "ScHub");
         Assert.Equal(2, code);
         Assert.Contains("not an NPC or a quest", err);
+        // 0.28.0 code review round 2: the find hint is built from the query without its quotes (it read find ""ScHub"")
+        (code, stdout, err) = Scenes(g, "\"ScHub\"");
+        Assert.Equal(2, code);
+        Assert.Contains("find shows what the record is: sf-mod-check find ScHub", err);
 
         // --verbose logs why each scene was picked and the talk menu
         (code, stdout, err) = Scenes(g, "ScNpc", "--verbose", "--out", md);

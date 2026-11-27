@@ -40,6 +40,7 @@ public static class TextCommand
         "  --type       only these record types, comma-separated (--type BOOK,MESG)\n" +
         "  --json       print one JSON object instead of the text\n" +
         "  --out        write the text (or the JSON) to this file, replacing it, and print only the counts\n" +
+        "               (a plugin, BA2, archive, string file, script or DLL name is refused)\n" +
         "Exit 0 = listed (also when nothing is found), 2 = could not run.";
 
     /// <summary>One string of a record: its path (Name, MenuButtons[2].Text), its text, and for a changed override the
@@ -59,6 +60,7 @@ public static class TextCommand
         public required string Name;
         public bool Localized;
         public string? Warning;
+        public string? MasterWarning;   // a localized master whose strings all read as empty (0.28.0 code review round 2)
         public string? FromArchive;
         public List<Rec> Records = new();
         public List<string> Unread = new();
@@ -289,6 +291,7 @@ public static class TextCommand
         var r = $"text: {Plural(strings, "string", "strings")} in {Plural(records, "record", "records")} ({added} new, {changed} changed" +
                 (noMaster > 0 ? $", {noMaster} with no master version" : "") + $") in {string.Join(", ", all.Select(p => SafeText.OneLine(p.Name)))}";
         foreach (var p in all.Where(p => p.Warning != null)) r += $"; WARNING: {SafeText.OneLine(p.Name)}'s string files weren't found";
+        foreach (var p in all.Where(p => p.MasterWarning != null)) r += $"; WARNING: the string files of {SafeText.OneLine(p.Name)}'s masters weren't found";
         return r;
     }
 
@@ -340,12 +343,16 @@ public static class TextCommand
         var cache = lo.Plugins.Where(p => closure.Contains(p.FileName)).Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache();
         var paired = new HashSet<FormKey>();
         int pairs = 0;
+        // the strings of master versions from a localized master: if every one reads as empty, its string files are missing
+        var localizedMasters = lo.Plugins.Where(p => closure.Contains(p.FileName) && IsLocalized(p)).Select(p => p.Mod.ModKey).ToHashSet();
+        int masterSeen = 0, masterNonEmpty = 0;
         void Compared(IMajorRecordGetter ov, IMajorRecordGetter master)
         {
             if (!paired.Add(ov.FormKey)) return;
             pairs++;
-            int ignoredSeen = 0, ignoredNonEmpty = 0;
-            var was = Strings(master, ref ignoredSeen, ref ignoredNonEmpty);
+            int mSeen = 0, mNonEmpty = 0;
+            var was = Strings(master, ref mSeen, ref mNonEmpty);
+            if (localizedMasters.Contains(master.FormKey.ModKey)) { masterSeen += mSeen; masterNonEmpty += mNonEmpty; }
             // a string the master has and the override doesn't (cleared, or its field or list entry left out): the player
             // loses that text, so it is listed with no text and the master's as "was" (0.28.0 step 5). Not for a partial
             // form, whose left-out fields come from the master in the game, and not for a localized plugin, whose string
@@ -355,7 +362,12 @@ public static class TextCommand
             var changed = Changes(was, Strings(ov, ref seenStrings, ref nonEmpty), cleared: !partial && !pt.Localized);
             if (changed.Count > 0) listed[ov.FormKey] = new Rec(SigOf(ov), ov.FormKey.ToString(), EditorIdOf(ov) ?? EditorIdOf(master), KindChanged, changed);
         }
-        try { Overrides.FindItms(t.Mod, overrides, cache, Compared); }
+        try
+        {
+            var (_, notCompared) = Overrides.FindItms(t.Mod, overrides, cache, Compared);
+            if (notCompared > 0)
+                pt.Unread.Add($"{Plural(notCompared, "override", "overrides")} couldn't be compared with the master version, so their strings are listed in full as \"{KindNoMaster}\"");
+        }
         catch (Exception e) when (Fatal.Recoverable(e))
         {
             Log.Write($"text: {t.FileName}: the compare with the masters stopped: {e}");
@@ -374,6 +386,12 @@ public static class TextCommand
         if (pt.Localized && seenStrings > 0 && nonEmpty == 0)
             pt.Warning = $"{t.FileName} is localized but every one of its {Plural(seenStrings, "string", "strings")} reads as empty: its string files weren't found. " +
                          $"They belong in Strings\\{Path.GetFileNameWithoutExtension(t.FileName)}_en.STRINGS (and .DLSTRINGS, .ILSTRINGS) next to the plugin, or in its Main BA2.";
+        if (masterSeen > 0 && masterNonEmpty == 0)
+        {
+            var names = lo.Plugins.Where(p => localizedMasters.Contains(p.Mod.ModKey)).Select(p => p.FileName).ToList();
+            pt.MasterWarning = $"every one of the {Plural(masterSeen, "string", "strings")} of the master versions it overrides reads as empty, so the masters' text is not shown as \"was\": " +
+                               $"the string files of {string.Join(", ", names)} weren't found. They belong in a Strings folder next to each master, or in its Localization BA2.";
+        }
         Log.Write($"text: {t.FileName}: {walked} records walked, {news.Count} new and {overrides.Count} overrides kept, {pairs} compared with a master version, " +
                   $"{seenStrings} strings seen ({nonEmpty} not empty)");
         return pt;
@@ -390,16 +408,19 @@ public static class TextCommand
     {
         static string Key(string field) => ListIndex.Replace(field, "[]");
         var left = master.GroupBy(s => Key(s.Field), StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
-        var unmatched = new List<Str>();
+        // the same path and text first for every override string, then the same text anywhere in its group, so a string
+        // that sits at its master entry's place is never paired elsewhere by an earlier one (0.28.0 code review round 2)
+        var rest = new List<Str>();
         foreach (var s in ov)
         {
-            if (left.TryGetValue(Key(s.Field), out var l))
-            {
-                int i = l.FindIndex(m => m.Field == s.Field && m.Text == s.Text);
-                if (i < 0) i = l.FindIndex(m => m.Text == s.Text);
-                if (i >= 0) { l.RemoveAt(i); continue; }
-            }
-            unmatched.Add(s);
+            if (left.TryGetValue(Key(s.Field), out var l) && l.FindIndex(m => m.Field == s.Field && m.Text == s.Text) is var i and >= 0) l.RemoveAt(i);
+            else rest.Add(s);
+        }
+        var unmatched = new List<Str>();
+        foreach (var s in rest)
+        {
+            if (left.TryGetValue(Key(s.Field), out var l) && l.FindIndex(m => m.Text == s.Text) is var i and >= 0) l.RemoveAt(i);
+            else unmatched.Add(s);
         }
         var changes = new List<Str>();
         foreach (var s in unmatched)
@@ -521,6 +542,7 @@ public static class TextCommand
             sb.Append($"{SafeText.OneLine(p.Name)} ({(p.Localized ? "localized, " : "")}{Plural(p.Strings, "string", "strings")} in {Plural(p.Records.Count, "record", "records")}" +
                       $"{(p.FromArchive != null ? $", from {SafeText.OneLine(p.FromArchive)}" : "")})\n");
             if (p.Warning != null) sb.Append($"  WARNING: {SafeText.OneLine(p.Warning)}\n");
+            if (p.MasterWarning != null) sb.Append($"  WARNING: {SafeText.OneLine(p.MasterWarning)}\n");
             foreach (var g in p.Records.GroupBy(r => r.Type))
             {
                 sb.Append($"  {g.Key} ({Plural(g.Count(), "record", "records")}, {Plural(g.Sum(r => r.Strings.Count), "string", "strings")})\n");
@@ -549,6 +571,7 @@ public static class TextCommand
                 ["localized"] = p.Localized,
             };
             if (p.Warning != null) o["warning"] = p.Warning;
+            if (p.MasterWarning != null) o["masterWarning"] = p.MasterWarning;
             if (p.FromArchive != null) o["fromArchive"] = p.FromArchive;
             o["records"] = new JsonArray(p.Records.Select(r => (JsonNode)new JsonObject
             {

@@ -241,6 +241,54 @@ public class TextCommandTests
         Assert.Contains("RESULT: text: 0 strings in 0 records (0 new, 0 changed) in Mod.esm; WARNING: Mod.esm's string files weren't found", o2);
     }
 
+    // 0.28.0 code review round 2: a localized master whose string files are missing reads every "was" as empty; a
+    // WARNING says so (it said nothing, and every override read as changed against no text)
+    [Fact]
+    public void Test13_a_localized_master_without_its_string_files_gets_a_warning()
+    {
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        var dir = s.Sub("mods");
+        var b = Plugin.New("Starfield.esm", PluginStyle.Full, "test", "made-up localized base game", localized: true);
+        b.Ingestibles.AddNew("S_Drink").Name = Localized.Text("Water");
+        using (var g = new GameData(data)) PluginWriter.Write(b, data, g, NoGap);
+        using (var g = new GameData(data, [dir]))
+        {
+            var sf = g.Open("Starfield.esm");
+            var m = Plugin.New("Mod.esm", PluginStyle.Full, "test", "made-up mod");
+            m.Ingestibles.GetOrAddAsOverride(sf.Ingestibles.First(k => k.EditorID == "S_Drink")).Name = "Clean Water";
+            PluginWriter.Write(m, dir, g, NoGap);
+        }
+        var strings = Path.Combine(data, "Strings");
+        Assert.True(Directory.Exists(strings), "the made-up master's string files weren't written next to it");
+        var (c1, o1, e1) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data);
+        Assert.True(c1 == 0, o1 + e1);
+        Assert.Contains("        was: Water", Lines(o1));
+        Assert.DoesNotContain("WARNING", o1);
+
+        Directory.Delete(strings, true);
+        var (c2, o2, e2) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data);
+        Assert.True(c2 == 0, o2 + e2);
+        Assert.Contains("        was: (no text in the master)", Lines(o2));
+        Assert.Contains(Lines(o2), x => x.StartsWith("  WARNING: every one of the ", StringComparison.Ordinal) && x.Contains("of the master versions it overrides reads as empty")
+                                        && x.Contains("Starfield.esm"));
+        Assert.Contains("RESULT: text: 1 string in 1 record (0 new, 1 changed) in Mod.esm; WARNING: the string files of Mod.esm's masters weren't found", o2);
+        var (c3, j3, e3) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data, "--json");
+        Assert.True(c3 == 0, j3 + e3);
+        Assert.NotNull(JsonNode.Parse(j3)!["plugins"]![0]!["masterWarning"]);
+    }
+
+    // 0.28.0 code review round 2: a string at its master entry's place keeps it, so a later exact match isn't taken by
+    // an earlier text-only one (["Accept", "Decline"] to ["Decline", "Decline"] listed [1] as changed from Accept)
+    [Fact]
+    public void Test14_an_exact_match_is_paired_before_a_text_match()
+    {
+        var master = new List<TextCommand.Str> { new("MenuButtons[0].Text", "Accept", null), new("MenuButtons[1].Text", "Decline", null) };
+        var ov = new List<TextCommand.Str> { new("MenuButtons[0].Text", "Decline", null), new("MenuButtons[1].Text", "Decline", null) };
+        var c = Assert.Single(TextCommand.Changes(master, ov, cleared: true));
+        Assert.Equal(new TextCommand.Str("MenuButtons[0].Text", "Decline", "Accept"), c);
+    }
+
     [Fact]
     public void Test3_a_localized_plugin_lists_its_text_and_warns_without_its_string_files()
     {
