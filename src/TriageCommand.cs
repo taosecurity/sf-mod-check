@@ -834,7 +834,7 @@ public static class TriageCommand
         {
             Log.Write($"triage: unpacking {archive} stopped: {e}");
             if (e is SharpCompress.Common.CryptographicException or System.Security.Cryptography.CryptographicException)
-                throw new InvalidDataException($"it is password-protected or its encrypted data is damaged; triage doesn't open encrypted archives ({e.Message})", e);
+                throw new InvalidDataException($"it is password-protected or its encrypted data is damaged; sf-mod-check doesn't open encrypted archives ({e.Message})", e);
             // the type is in the message, so a bug of ours (a NullReferenceException) isn't read as plain damage
             throw new InvalidDataException($"it can't be read as an archive ({e.GetType().Name}: {e.Message})", e);
         }
@@ -892,7 +892,7 @@ public static class TriageCommand
         if (all.Count > ReleaseCommand.MaxEntries) throw Refused(ReleaseCommand.TooManyEntries(all.Count, "archive"));
         var entries = all.Where(e => !e.IsDirectory).ToList();
         if (a.IsEncrypted || entries.Any(e => e.IsEncrypted))
-            throw Refused("it is password-protected; triage doesn't open encrypted archives");
+            throw Refused("it is password-protected; sf-mod-check doesn't open encrypted archives");
         long total = entries.Sum(e => Math.Max(0, e.Size)), written = 0;
         if (total > max)
             throw Refused($"it unpacks to {total / (1024 * 1024 * 1024.0):F1} GB, more than the {max / (1024 * 1024 * 1024)} GB this check allows");

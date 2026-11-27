@@ -12,9 +12,9 @@ public static class ArchiveInput
     {
         /// <summary>Refused with "needs the mod installed or unpacked" (patch, voice-lines).</summary>
         Refuse,
-        /// <summary>Unpacked, plugins only (find, lines, scenes, overrides, summary).</summary>
+        /// <summary>Unpacked, plugins only (find, overrides, summary).</summary>
         PluginsOnly,
-        /// <summary>Unpacked in full (conflict: it reads the archive's textures, sounds and BA2s too).</summary>
+        /// <summary>Unpacked in full (conflict, lines and scenes: they read the archive's BA2s and loose files too).</summary>
         Everything,
     }
 

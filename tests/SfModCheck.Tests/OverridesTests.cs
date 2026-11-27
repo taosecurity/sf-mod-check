@@ -249,6 +249,26 @@ public class OverridesTests
         Assert.Contains("every --plugin input was left out", o2);
     }
 
+    /// <summary>Review round 1: a kept input's master found in a left-out input's folder is still loaded from there.
+    /// AD.zip holds A.esm and D.esm (D's master is missing, so AD.zip is left out); B.esm, given alone, needs A.esm.</summary>
+    [Fact]
+    public void A_master_from_a_left_out_input_is_still_found()
+    {
+        using var s = new Set();
+        var ad = s.Zip("AD-1.0.zip", "A.esm", "D.esm");
+        var alone = s.Sub("alone");
+        File.Copy(Path.Combine(s.ModDir, "B.esm"), Path.Combine(alone, "B.esm"));
+        File.Copy(Path.Combine(s.ModDir, "C.esm"), Path.Combine(alone, "C.esm"));
+        var (code, stdout, stderr) = s.Run("overrides", "--data", s.Data, "--plugin", ad,
+            "--plugin", Path.Combine(alone, "B.esm"), "--plugin", Path.Combine(alone, "C.esm"));
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("note: --plugin AD-1.0.zip left out: D.esm's master Missing.esm wasn't found", stderr);
+        Assert.DoesNotContain("--plugin B.esm left out", stderr);
+        Assert.Equal($"  {s.SA} S_A: A.esm, B.esm, C.esm (wins)", LineOf(stdout, s.SA));
+        Assert.Equal($"  {s.ANew} A_New: A.esm (adds), B.esm (wins)", LineOf(stdout, s.ANew));
+        Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
+    }
+
     [Fact]
     public void Json_shapes_for_found_none_and_cannot_run()
     {

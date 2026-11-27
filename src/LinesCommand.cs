@@ -115,7 +115,8 @@ public static class LinesCommand
         string? q = null, type = null, logFile = null, refQ = null;
         bool quiet = false, verbose = false, json = false, noFiles = false;
         int max = DefaultMax;
-        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "lines");
+        // every file: the voice and lip files (loose or in the archive's .ba2 files) and .strings are read from the archive too
+        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.Everything, "lines");
         for (int i = 0; i < a.Length; i++)
         {
             if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }

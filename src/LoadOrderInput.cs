@@ -545,8 +545,9 @@ public sealed class LoadOrderInput : IDisposable
                 "can't use any of the --plugin inputs: each one was left out (the notes above say why).", "every --plugin input left out");
         var n = order.Count - kept.Sum(k => k.Plugins.Count);
         var source = $"{kept.Count} --plugin inputs ({string.Join(", ", kept.Select(k => SafeText.OneLine(Path.GetFileName(k.Input))))}) and their {n} master{(n == 1 ? "" : "s")}";
-        // the later input first: Build lets the first folder win a name both hold (none do after OpenMany, but a master may)
-        var over = kept.Select(k => k.Folder).Reverse().Concat(MastersDirs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // the later input first: Build lets the first folder win a name both hold (none do after OpenMany, but a master may).
+        // Every opened input's folder, kept or not: a kept input's master may come from a left-out input's folder (Locate).
+        var over = manyInputs.Select(k => k.Folder).Reverse().Concat(MastersDirs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         single = new(new(order, new(StringComparer.OrdinalIgnoreCase), source, Exact: true), over);
         Plugin = Path.Combine(kept[^1].Folder, kept[^1].Plugins[^1]);
         Log.Write($"load order (--plugin x{pluginInputs.Count}): {string.Join(", ", order)}; masters looked up in each input's folder, {string.Join(", ", MastersDirs.Append(DataDir))}");

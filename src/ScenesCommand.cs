@@ -84,7 +84,8 @@ public static class ScenesCommand
         string? q = null, logFile = null, outFile = null, hubQ = null;
         bool quiet = false, verbose = false, json = false;
         int max = DefaultMax;
-        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "scenes");
+        // every file: the quest scripts (loose or in the archive's .ba2 files) and .strings are read from the archive too
+        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.Everything, "scenes");
         for (int i = 0; i < a.Length; i++)
         {
             if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }

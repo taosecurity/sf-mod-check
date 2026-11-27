@@ -1192,9 +1192,9 @@ installed or unpacked by hand:
     sf-mod-check summary "C:\Downloads\SomeMod-1.0.7z"
 
 - **How it is read:** the archive is unpacked into a temporary folder that only this run uses, and the folder is deleted
-  when the run ends (also after an error). Nothing is written next to the archive. For every command except `conflict`
-  only the plugins (`.esm`, `.esp`, `.esl`) are written; `conflict` also writes the other files, because it looks up
-  textures and sounds in loose files. `patch` and `voice-lines` don't take an archive (exit 2, with what to give
+  when the run ends (also after an error). Nothing is written next to the archive. `find`, `overrides` and `summary` write
+  only the plugins (`.esm`, `.esp`, `.esl`); `conflict`, `lines` and `scenes` also write the other files, because they
+  look up textures, sounds, voice and lip files and scripts in the archive's `.ba2` files and loose files. `patch` and `voice-lines` don't take an archive (exit 2, with what to give
   instead: the folder).
 - **The same guards as `triage`, `release` and `diff`:** every entry is checked, even one that isn't written. An
   entry that would land outside the temporary folder (`..`, a rooted path, a drive letter), a name given twice, a name
@@ -1208,8 +1208,8 @@ installed or unpacked by hand:
   the plugin itself.
 - **`--plugin <archive>`:** the archive's plugins and their masters are the load order. Masters are looked for in the
   archive's folder, then in each `--masters-dir`, then in `--data`. An archive with several plugins loads them all, a
-  plugin that is another's master first, and the one that comes last is treated as "the plugin" (the one `find` lists or
-  a FormKey is read from); a note on stderr says so.
+  plugin that is another's master first, and the one that comes last is treated as "the plugin" (the one `find` lists,
+  the one whose scenes `scenes` shows, or the one a FormKey is read from); a note on stderr says so.
 - **`--extra-data <archive>`:** the archive's files win over the Data folder's, as a folder's do. A plugin in the
   archive that Plugins.txt doesn't list (a downloaded mod isn't installed yet) is read as the last plugin of the load
   order, with a note on stderr naming it. A plugin that is already active keeps its place. A folder given to

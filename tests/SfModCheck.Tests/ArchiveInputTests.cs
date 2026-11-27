@@ -1,6 +1,6 @@
 // sf-mod-check 0.26.0: archive input (ArchiveInput.cs, LoadOrderInput.cs). A .zip, .7z or .rar given to --plugin or
-// --extra-data is unpacked into the run's own temp folder with triage's guards, plugins only for find, lines and scenes
-// and in full for conflict; patch and voice-lines refuse it. Each test fails on 0.25.0, where --plugin <zip> was read
+// --extra-data is unpacked into the run's own temp folder with triage's guards, plugins only for find, overrides and
+// summary and in full for conflict, lines and scenes; patch and voice-lines refuse it. Each test fails on 0.25.0, where --plugin <zip> was read
 // as a plugin header and --extra-data <zip> as a missing folder. All plugins are made up.
 using System.Diagnostics;
 using System.IO.Compression;
@@ -283,8 +283,9 @@ public class ArchiveInputTests
         s.TmpIsEmpty();
     }
 
-    /// <summary>Plan step 5: conflict, lines and scenes take an archive (A.3: lines and scenes write only plugins,
-    /// conflict writes everything), open it, and leave no temp folder behind.</summary>
+    /// <summary>Plan step 5: conflict, lines and scenes take an archive, open it, and leave no temp folder behind. They
+    /// write every file (review round 1: lines looks up voice files and scenes scripts in the archive), while find
+    /// writes only the plugins.</summary>
     [Fact]
     public void Conflict_lines_and_scenes_take_an_archive_and_leave_no_temp_folder()
     {
@@ -306,8 +307,13 @@ public class ArchiveInputTests
             Assert.DoesNotContain("can't read --", stderr);
             Assert.DoesNotContain("Unhandled exception", stderr);
             Assert.True(code is 0 or 1 or 2, args[0] + " exit " + code);
+            Assert.True(stderr.Contains("Pack.zip (Zip, every file)"), args[0] + " didn't write every file\n" + stderr);
             s.TmpIsEmpty();
         }
+        var (fc, fo, fe) = s.Run("find", "--plugin", zip, "--data", s.Data, "--verbose");
+        Assert.True(fc == 0, fo + fe);
+        Assert.Contains("Pack.zip (Zip, plugins only)", fe);
+        s.TmpIsEmpty();
     }
 
     [Fact]
