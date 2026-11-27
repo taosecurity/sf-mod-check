@@ -637,13 +637,13 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 
     `--where "<field> <op> [<value>]"` keeps the records of `--type` whose **winning copy** matches. Operators: `=`
     (equals; a link by EditorID, FormKey or console FormID), `!=` (an empty field counts as not equal), `~` (contains the
-    text), `has` (a flag is set, or a list has the entry) and `exists` (not empty; no value). The field is a name from
+    text), `has` (a flag is set, or a list has the entry) and `exists` (not empty as `find`'s fields block shows it: 0, false and no flag set are empty; no value). The field is a name from
     `find`'s fields block; a dotted path goes one level down per part, and a list on the way matches when any entry does.
     Several `--where` must all match. A record whose winning copy is deleted is never listed. An unknown field is
     refused (exit 2) with that type's field list: use it to learn the names. **Flags with no name** (bits the library doesn't name) print in hex in the fields, for example
     `Female, Unique, 0x2000010`. `--editorid-match <regex>` keeps records whose EditorID matches a .NET regular
-    expression (letter case ignored); without `--type` it searches every type. There is no query language. `--max`
-    (default 100; 0 = all). Exit 0 = found, 1 = none, 2 = couldn't run. `--json` has `tool`, `version`, `query` (null here), `type`, `where` (each filter's `field`, `op` and `value`), `editorIdMatch`, `loadOrder`, `matches` (each with `formKey`, `editorId`, `name`, `type`, `winner` and `fields`), `listed`, `total`, `unread` and `result`.
+    expression (letter case ignored); without `--type` it searches every type. There is no query language. With `--plugin`, only the
+    records that plugin holds (new or overridden) are listed. `--max` (default 100; 0 = all). Exit 0 = found, 1 = none, 2 = couldn't run. `--json` has `tool`, `version`, `query` (null here), `type`, `where` (each filter's `field`, `op` and `value`), `editorIdMatch`, `loadOrder`, `matches` (each with `formKey`, `editorId`, `name`, `type`, `winner` and `fields`), `listed`, `total`, `unread` and `result`.
 
 30. Find which archive or loose file holds a game file (0.27.0). Read only:
 
@@ -657,7 +657,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     wins`: a loose file beats every archive and a later archive beats an earlier one. `--archives <folder>` also
     searches `.ba2` files the load order doesn't load (shown as not loaded; they never win), for a mod you haven't
     installed. A texture (DX10) archive serves only `.dds`. A pattern that would leave the Data folder is refused. Exit
-    0 = a file matched, 1 = none, 2 = couldn't run.  `--json` has `pattern`, `loadOrder`, `total`, `listed`, `archivesRead`, `files` (each with `name` and `holders`: `kind`, `archive` or `path`, `why`, `loaded`, `served`, `winner`) and `unreadable`.
+    0 = a file matched, 1 = none, 2 = couldn't run.  `--json` has `tool`, `version`, `pattern`, `loadOrder`, `files` (each with `name` and `holders`: `kind`, `archive` or `path`, `why`, `type`, `loaded`, `served`, `winner`), `listed`, `total`, `archivesRead`, `skipped` (archives left out, such as another language's voices, each with `archive` and `why`) and `unreadable` (each with `archive` and `why`).
 
 ## 6. Inputs and outputs
 

@@ -1416,7 +1416,8 @@ every misc item whose EditorID starts with your mod's prefix (0.27.0). It is a s
   match. A record whose winning copy is deleted is never listed, here or with `--editorid-match`.
 - Operators: `=` (equal; a link by EditorID, FormKey or console FormID; a number as a number), `!=` (not equal; an empty
   field counts as not equal), `~` (contains the text), `has` (a flag is set, or a list has the entry) and `exists`
-  (the field isn't empty; no value after it).
+  (the field isn't empty; no value after it). Empty is what `find`'s fields block leaves out, so 0, false and a flags
+  field with no flag set count as empty.
 - **An unknown field is refused** (exit 2) with that record type's field list.
 - **Flags with no name:** a flag field shows the named flags that are set, and any bit the library has no name for in
   hex, for example `Female, Unique, 0x2000010`. A number stored in a flags field is therefore not the count of named
@@ -1424,7 +1425,8 @@ every misc item whose EditorID starts with your mod's prefix (0.27.0). It is a s
 - `--editorid-match <regex>`: keep the records whose EditorID matches a .NET regular expression (letter case ignored).
   Without `--type` it searches every record type. A pattern that takes over 2 seconds on one EditorID is refused.
 - `--max <n>` (default 100; 0 lists them all). The load order options are the same as for `find`, or `--plugin`.
-  Exit 0 = found, 1 = none, 2 = couldn't run. With `--plugin Starfield.esm` a type search took about 4 seconds and 0.5 GB;
+  With `--plugin`, only the records that plugin holds (its new records and its overrides) are listed, each tested on
+  its winning copy in the plugin and its masters. Exit 0 = found, 1 = none, 2 = couldn't run. With `--plugin Starfield.esm` a type search took about 4 seconds and 0.5 GB;
   a whole load order reads every plugin and takes longer.
 
 **Example** (made-up mod `Camp.esm`):
@@ -1462,8 +1464,8 @@ the load order and the INI archive lists and changes nothing.
     sf-mod-check ba2 find "textures\camp\banner_d.dds"
     sf-mod-check 0.27.0 ba2 find: textures\camp\banner_d.dds in 14 plugins (Plugins.txt)
     textures\camp\banner_d.dds
-      1. Starfield - Textures01.ba2 (texture archive of Starfield.esm, texture archive)
-      2. Camp - Textures.ba2 (archive of Camp.esm, texture archive)   <- wins
+      1. Starfield - Textures01.ba2 (named after Starfield.esm, texture archive)
+      2. Camp - Textures.ba2 (named after Camp.esm, texture archive)   <- wins
     RESULT: 1 file matched in 2 of 31 archives and 0 loose folders
 
 ## A plugin's voiced lines as a list: `sf-mod-check voice-lines`

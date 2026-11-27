@@ -67,12 +67,13 @@ public static class FindCommand
         "            =  the value equals (a link: its EditorID, FormKey or console FormID; a number as a number)\n" +
         "            != it doesn't (an empty field counts as not equal)   ~  the value contains the text\n" +
         "            has  the flag is set (Flags has Unique), or a list has the entry (Keywords has MyKeyword)\n" +
-        "            exists  the field isn't empty (no value after it)\n" +
+        "            exists  the field isn't empty (no value after it; 0, false and no flag set count as empty)\n" +
         "            The field is a name from find's fields block; a dotted path goes one level down per part\n" +
         "            (Factions.Faction = MyFaction), and a list on the way matches when any entry does. Letter case is\n" +
         "            ignored. Several --where are all required. An unknown field is refused with the type's field list.\n" +
         "  --editorid-match  keep only records whose EditorID matches this .NET regular expression (letter case ignored);\n" +
         "            without --type it searches every record type. --max limits the list (default 100; 0 lists them all).\n" +
+        "            With --plugin, only the records that plugin holds (new or overridden) are listed.\n" +
         "Exit 0 = found, 1 = not found, 2 = could not run.";
 
     /// <summary>The field lines printed per record at most (the rest are counted on one line).</summary>
@@ -362,7 +363,7 @@ public static class FindCommand
             foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
             if (!quiet && !json) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
             if (input.Plugin != null && Unloaded(lo, input.Plugin) is { } unloadedWhy) { cantWhy = unloadedWhy; return 2; }
-            if (where != null) return FindWhere.Run(lo, where, version, sw, out resultPrinted, out cantWhy);
+            if (where != null) return FindWhere.Run(lo, input.Plugin != null ? where with { PluginName = Path.GetFileName(input.Plugin) } : where, version, sw, out resultPrinted, out cantWhy);
             if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, full, layout, version, sw, out resultPrinted, out cantWhy);
 
             var unread = new List<string>();

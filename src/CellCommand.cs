@@ -560,7 +560,7 @@ public static class CellCommand
     /// <summary>The record types a base link may name: the link type's own, then every base object type. Mutagen 0.54.4
     /// maps a placed object's base link (IPlaceableObjectGetter) to texture sets only, while statics, containers, misc
     /// items and the rest carry IBaseObjectGetter (checked 2026-11-27 on made-up plugins).</summary>
-    static Type[] BaseTypes(Type linkType) => Concrete(linkType).Concat(Concrete(typeof(IBaseObjectGetter))).Distinct().ToArray();
+    internal static Type[] BaseTypes(Type linkType) => Concrete(linkType).Concat(Concrete(typeof(IBaseObjectGetter))).Distinct().ToArray();
 
     /// <summary>The concrete record getter types a link type covers. A base link names a link interface
     /// (IPlaceableObjectGetter) that the record getters don't inherit from, so Mutagen's own mapping lists them.</summary>

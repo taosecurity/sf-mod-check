@@ -460,4 +460,32 @@ public class CellTests(CellGame game) : IClassFixture<CellGame>
         Assert.DoesNotContain("cell: Base.esm: 0 copies in other cells", text);
         Assert.Contains("cell: 5 references kept, 1 moved out, 1 deleted, 3 anchors", text);
     }
+
+    // code review 0.27.0 round 3: find --where on a placed reference's Base by the base's EditorID, and --plugin
+    // listing only the records that plugin holds
+    [Fact]
+    public void Find_where_matches_a_placed_reference_s_base_by_its_EditorID()
+    {
+        var (code, o, e) = ExeTests.RunSplit("find", "--type", "REFR", "--where", "Base = B_XMarkerHeading", "--data", game.Data, "--plugins", game.PluginsTxt(), "--quiet");
+        Assert.True(code == 0, o + e);
+        Assert.Contains($"B_EnableMarker [{game.Marker}]", o);
+        Assert.Contains($"B_P1 [{game.P1}]", o);
+        Assert.Contains("Base: B_XMarkerHeading [", o);
+        Assert.DoesNotContain("B_MovedMisc", o);
+    }
+
+    [Fact]
+    public void Find_where_with_plugin_lists_only_the_records_that_plugin_holds()
+    {
+        var (code, o, e) = ExeTests.RunSplit("find", "--type", "REFR", "--where", "Base = B_Misc", "--plugin", Path.Combine(game.Data, "B.esm"), "--data", game.Data, "--quiet");
+        Assert.True(code == 0, o + e);
+        Assert.Contains($"B_MovedMisc [{game.Moved}]", o);
+        Assert.DoesNotContain("B_FlagOnly", o);   // Base.esm's alone
+        Assert.DoesNotContain("B_GoneMisc", o);   // deleted by B.esm
+        Assert.Contains("RESULT: FOUND 1 record", o);
+        // the marker is Base.esm's alone, so B.esm holds no match
+        (code, o, e) = ExeTests.RunSplit("find", "--type", "REFR", "--where", "Base = B_XMarkerHeading", "--plugin", Path.Combine(game.Data, "B.esm"), "--data", game.Data, "--quiet");
+        Assert.True(code == 1, o + e);
+        Assert.Contains("RESULT: NOT FOUND (no REFR where Base = B_XMarkerHeading, held by B.esm in 2 plugins)", o);
+    }
 }

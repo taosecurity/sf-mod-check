@@ -190,7 +190,11 @@ internal static class FindWhere
     }
 
     /// <summary>What to search for: the filters, the EditorID regex, the type (null with --editorid-match alone).</summary>
-    internal sealed record Query(string? Type, List<Filter> Filters, Regex? EditorId, string? EditorIdText, int Max, bool Json, bool Quiet, bool PluginMode);
+    internal sealed record Query(string? Type, List<Filter> Filters, Regex? EditorId, string? EditorIdText, int Max, bool Json, bool Quiet, bool PluginMode)
+    {
+        /// <summary>With --plugin, the plugin's file name: only the records it holds (new or overridden) are listed.</summary>
+        public string? PluginName { get; init; }
+    }
 
     sealed class Hit
     {
@@ -231,14 +235,16 @@ internal static class FindWhere
             if (!any)
                 try
                 {
-                    if (idCache.TryResolveIdentifier(l.FormKey, l.Type, out var id))
+                    // the link type's records plus every base object type, as cell names a base: Mutagen maps a placed
+                    // reference's Base link (IPlaceableObjectGetter) to texture sets only (code review 0.27.0 round 3)
+                    if (idCache.TryResolveIdentifier(l.FormKey, CellCommand.BaseTypes(l.Type), out var id, out var found))
                     {
                         if (!string.IsNullOrEmpty(id)) e = id;
                         else
                         {
                             // the winning copy has no EditorID: a partial form keeps the earlier copy's, as below
                             fullCache ??= lo.Plugins.Select(p => (IStarfieldModGetter)p.Mod).ToImmutableLinkCache<IStarfieldMod, IStarfieldModGetter>();
-                            foreach (var c in fullCache.ResolveAllSimpleContexts(l.FormKey, l.Type))
+                            foreach (var c in fullCache.ResolveAllSimpleContexts(l.FormKey, found ?? l.Type))
                             {
                                 if (!string.IsNullOrEmpty(c.Record.EditorID)) { e = c.Record.EditorID; break; }
                                 if (!FieldCompare.IsPartial(c.Record)) break;
@@ -365,6 +371,13 @@ internal static class FindWhere
             return 2;
         }
         foreach (var u in unread) Console.Error.WriteLine($"note: {u}");
+        if (q.PluginName is { } only)
+        {
+            // --plugin: the records the plugin holds, as find's --plugin listing, not its masters' (code review 0.27.0 round 3)
+            int all = hits.Count;
+            hits = hits.Where(h => h.Copies.Any(c => c.Plugin.FileName.Equals(only, StringComparison.OrdinalIgnoreCase))).ToList();
+            Log.Write($"where: --plugin: {all - hits.Count} match(es) that only its masters hold were left out");
+        }
         hits = hits.OrderBy(h => h.Winner.Plugin.Index).ThenBy(h => h.Key.ToString(), StringComparer.Ordinal).ToList();
         var listed = q.Max == 0 ? hits : hits.Take(q.Max).ToList();
         foreach (var h in listed)
@@ -379,13 +392,13 @@ internal static class FindWhere
         }
         else
         {
-            if (!q.Quiet) Console.WriteLine($"sf-mod-check {version} find: every {q.Type ?? "record"} {what} in {lo.Plugins.Count} plugins ({lo.OrderSource})");
+            if (!q.Quiet) Console.WriteLine($"sf-mod-check {version} find: every {q.Type ?? "record"} {what} in {lo.Plugins.Count} plugins ({SafeText.OneLine(lo.OrderSource)})");
             foreach (var h in listed)
             {
                 var (wp, rec) = h.Winner;
                 var name = NameOfHit(h);
                 var eid = WinningEditorId(h.Copies);
-                Console.WriteLine($"{(string.IsNullOrEmpty(eid) ? "(no EditorID)" : SafeText.OneLine(eid))} [{h.Key}]{(name != null ? $" \"{name}\"" : "")} ({TypeOf(rec)}, winner {wp.FileName})");
+                Console.WriteLine($"{(string.IsNullOrEmpty(eid) ? "(no EditorID)" : SafeText.OneLine(eid))} [{h.Key}]{(name != null ? $" \"{name}\"" : "")} ({TypeOf(rec)}, winner {SafeText.OneLine(wp.FileName)})");
                 foreach (var (f, t) in h.Shown) Console.WriteLine($"  {f}: {t}");
             }
             if (hits.Count > listed.Count)
@@ -419,6 +432,7 @@ internal static class FindWhere
         var parts = new List<string>();
         if (q.Filters.Count > 0) parts.Add("where " + string.Join(" and ", q.Filters.Select(f => $"{f.Field} {f.OpText}{(f.Value != null ? $" {SafeText.OneLine(f.Value)}" : "")}")));
         if (q.EditorIdText != null) parts.Add($"with an EditorID matching {SafeText.OneLine(q.EditorIdText)}");
+        if (q.PluginName != null) parts.Add($"held by {SafeText.OneLine(q.PluginName)}");
         return string.Join(", ", parts);
     }
 
