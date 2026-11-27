@@ -230,6 +230,25 @@ public class SoundEventsTests
     }
 
     [Fact]
+    public void Release_names_a_sound_replacer_that_ships_its_own_manifest_in_a_sound_bank_name_note()
+    {
+        // 0.25.0: a bank that replaces the game's and brings its own .json is still a bank not named after the plugin
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        ReleaseNeedsTests.Write(data, "Starfield.esm", (_, _) => { });
+        File.WriteAllBytes(Path.Combine(data, "Starfield - Sounds.ba2"), AssetFilesTests.Gnrl(
+            (@"sound\soundbanks\100.bnk", Bnk(140, 7001)), (@"sound\soundbanks\100.json", Manifest("Base", (G1, 7001, "Play_MadeUp_A")))));
+        var pkg = s.Sub("RnReplace");
+        ReleaseNeedsTests.Write(pkg, "RnReplace.esm", (_, misc) => misc.PickupSound = Snd(G1));
+        File.WriteAllBytes(Path.Combine(pkg, "RnReplace - Main.ba2"), AssetFilesTests.Gnrl(
+            (@"sound\soundbanks\100.bnk", Bnk(140, 7001)), (@"sound\soundbanks\100.json", Manifest("Base", (G1, 7001, "Play_MadeUp_A")))));
+        var f = ReleaseNeeds.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
+        var name = Assert.Single(f, x => x.Rule == "sound-bank-name");
+        Assert.Contains(@"soundbanks\100.bnk", name.Text);
+        Assert.DoesNotContain(f, x => x.Rule == "sound-bank-manifest-missing");
+    }
+
+    [Fact]
     public void Release_gives_one_note_not_event_warnings_when_a_master_is_missing()
     {
         // code review round 3: the missing master's banks can't be read, so its events would all look missing
@@ -253,6 +272,34 @@ public class SoundEventsTests
         var note = Assert.Single(f, x => x.Rule == "sound-event-missing");
         Assert.Equal(Level.Note, note.Level);
         Assert.StartsWith("SeOrphan.esm: 2 sound event(s) were not checked, because a master is missing", note.Text);
+    }
+
+    [Fact]
+    public void Release_reads_a_masters_sound_guids_once_per_run_not_once_per_plugin()
+    {
+        // 0.25.0: each plugin opens its own GameData, so the per-object cache never hit; the run-wide cache does
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        ReleaseNeedsTests.Write(data, "Starfield.esm", (_, _) => { });
+        var master = Plugin.New("RnGuidMaster.esm", PluginStyle.Full, "test", "a master with a sound");
+        master.MiscItems.AddNew("RGM_Misc").PickupSound = Snd(G3);
+        var kw = master.Keywords.AddNew("RGM_Keyword");
+        using (var g = new GameData(data)) PluginWriter.Write(master, data, g, new WriteOptions { GapCheck = false });
+        var pkg = s.Sub("RnTwoPlugins");
+        foreach (var n in new[] { "RnOne.esm", "RnTwo.esm" })
+        {
+            var mod = Plugin.New(n, PluginStyle.Light, "test", "needs RnGuidMaster.esm");
+            var misc = mod.MiscItems.AddNew("RN_Misc");
+            misc.Keywords = [kw.ToLink<IKeywordGetter>()];   // the plugin really uses the master
+            misc.PickupSound = Snd(G2);   // in no bank: each plugin looks at the master's GUIDs
+            using var g = new GameData(data);
+            g.Open("RnGuidMaster.esm");
+            PluginWriter.Write(mod, pkg, g, new WriteOptions { GapCheck = false });
+        }
+        SoundRefs.Reads.TryRemove("RnGuidMaster.esm", out _);
+        var f = ReleaseNeeds.Run(ReleaseNeedsTests.Context(s, pkg, data)).ToList();
+        Assert.Equal(2, f.Count(x => x.Rule == "sound-event-missing" && x.Level == Level.Warning));
+        Assert.Equal(1, SoundRefs.Reads.GetValueOrDefault("RnGuidMaster.esm"));
     }
 
     [Fact]

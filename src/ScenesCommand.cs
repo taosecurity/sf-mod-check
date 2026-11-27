@@ -31,6 +31,7 @@ public static class ScenesCommand
         "  have, choices with no way out, stages that are needed but never set (or set but never checked), and Scene topics\n" +
         "  no scene uses. Last comes a table of each quest's stages: the author's note, what sets it and what needs it.\n" +
         "  The NPC or quest  an EditorID (letter case ignored), a FormKey (000803:MyMod.esm) or a console FormID\n" +
+        "                    (an EditorID of exactly 8 hex digits: put eid: before it, as eid:00005788)\n" +
         "  --plugin     read only this plugin and its masters, and show only the scenes the plugin adds or changes\n" +
         "  --hub        the talk menu scene (EditorID or FormKey), when the one found by counting jumps is wrong\n" +
         "  --out        write the tree to this Markdown file and print only the counts\n" +

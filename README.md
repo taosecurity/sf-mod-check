@@ -42,6 +42,9 @@ commands:
   files from a general archive.
 - [`voice-format`](#voice-file-formats-sf-mod-check-voice-format) reports the codec, channels and sample rate of the
   voice files in a plugin, an archive or a folder, and whether each line has its lip file.
+- [`edit`](#make-a-small-safe-change-to-a-plugin-sf-mod-check-edit) (0.25.0) makes a few narrow changes to a finished
+  plugin (drop an unused master, set the light flag, replace one line's text) and writes a checked **new** copy.
+  sf-mod-check never changes your files: every other command only reads them.
 
 **First command:** drag `MyMod.esm` onto `sf-mod-check.exe`. Or, from a prompt:
 
@@ -1299,6 +1302,71 @@ Example, on a made-up archive `Demo - Voices.ba2`:
       lip files (.ffxanim): 11 in an archive, 0 loose, 1 with none (first: sound\voice\demo.esm\npcfdemo\00000810.wem; those lines play, but the lips don't move)
     RESULT: REPORT (12 voice files in 1 input, 2 formats, 1 with no lip file, 0 unreadable)
 
+## Make a small safe change to a plugin: `sf-mod-check edit`
+
+Use it for a small fix to a finished plugin when you don't want to reopen the Creation Kit (0.25.0). It never changes
+your plugin: it writes a **new** file, and keeps it only after proving that nothing else changed.
+
+    sf-mod-check edit <plugin> --out <new plugin> [--drop-master <master>] [--set-light]
+                     [--set-text <INFO or MESG> --text "<new text>" [--response <n>]]...
+                     [--data <Data folder>] [--masters-dir <folder>]... [--json] [--quiet] [--verbose] [--log <file>]
+
+The three edits (give at least one; they can be combined):
+
+- `--drop-master <name>` removes a master the plugin doesn't use, and renumbers the FormIDs after it. Refused when
+  anything still uses the master: Mutagen's list of links and a raw scan of every FormID must both find no use, and if
+  they disagree the edit is refused. It is also refused, rather than guessed, when a field Mutagen doesn't read as a
+  link holds a value that names a record of the plugin or of a later master, or when two overlapping values in one
+  field both look like FormIDs. One `--drop-master` per run; run `edit` again on the new file for another.
+- `--set-light` sets the light flag. Refused when the plugin is already light or medium, or when one of its own records
+  is outside `000800` to `000FFF`. Starfield stores a link to a light master differently from a link to a full one, so
+  a plugin that has this one as a master must be re-saved against the light copy (or rebuilt) before you use the two
+  together.
+- `--set-text <record> --text "<new text>"` replaces the text of one INFO response (its NAM1) or one MESG (its DESC).
+  The record is an EditorID, a FormKey (`000B23:MyMod.esm`) or a console FormID, which is 8 hex digits
+  (`00000B23`); a bare 6-hex such as `000B23` is read as an EditorID, and `eid:<name>` is always an EditorID (use
+  `eid:` rather than quotes: the shell removes the quotes before sf-mod-check sees them). A console FormID names one of
+  the plugin's own records by its last six digits, so it is refused when those digits also match an override the plugin
+  carries; name that record by its FormKey. `--response <n>` picks an INFO's other responses (numbered from 1, as `find --full` and `lines` show
+  them). Repeat `--set-text` for more records, one line per record in a run (for two responses of one INFO, run `edit`
+  again on the new file). Refused for a localized plugin (its text is in `.STRINGS` files) or when the record or
+  response isn't found.
+
+**Always refused** (exit 2, with the reason and what to do): no `--out`, `--out` equal to the plugin or already
+existing (it never overwrites), a plugin inside a zip (unpack it first), a folder or wildcard as input, and bad
+arguments.
+
+**The three proofs.** The new file is read back and must pass all three before it is kept; otherwise it is deleted and
+the proof that failed says why:
+
+1. `diff` against the plugin shows only the intended changes (the master list and remapped IDs, the flag, or the one text field);
+2. `gap` finds no new Mutagen loss;
+3. `check` finds no new ERROR (an ERROR the plugin already had doesn't count).
+
+The edit works on the raw bytes, so records it doesn't touch stay byte for byte as they were.
+
+The new file has its own name. The game finds a plugin's archives (`MyMod - Main.ba2`) and other plugins find their
+masters by the plugin's file name, so before you test or ship the new file, keep a copy of the original and give the
+new file the original's name.
+
+Exit codes: 0 the new file was kept, 1 a proof failed (nothing kept), 2 refused or couldn't run. `--json` prints one
+object: `tool`, `version`, `input`, `out`, `edits` (`edit`, `record`, `changed`), `proof` (`diff`, `gap` and `check`, each
+with `passed` and `reason`), `kept`, `result` (`kept`, `not kept`, `refused` or `cannot run`) and, when not kept, `error`.
+The last line of the text report is `RESULT: KEPT`, `RESULT: NOT KEPT`, `RESULT: REFUSED` or `RESULT: CANNOT EDIT`.
+The three proofs load the masters, so a run takes seconds to about 20 seconds, mostly for the `check` proof.
+
+Example, on a made-up plugin `Demo.esm` in `C:\Mods` (a full plugin whose own records are all in `000800` to `000FFF`), run in that folder:
+
+    sf-mod-check edit Demo.esm --out Demo-fixed.esm --set-light --set-text DemoGreeting --text "Welcome aboard, traveler."
+    sf-mod-check 0.25.0 edit: Demo.esm -> Demo-fixed.esm
+    edit set-light: type: full -> light
+    edit set-text 000801:Demo.esm: response 1 text (NAM1)
+    proof diff: passed: only the intended changes: 1 header change, 1 changed record, 0 renumbered without a change in meaning, 11 the same
+    proof gap: passed: no new loss (0 error(s) and 0 warning(s), all in the input too)
+    proof check: passed: no new ERROR (0 in all, each in the input too)
+    kept C:\Mods\Demo-fixed.esm
+    RESULT: KEPT (3 proofs passed; Demo-fixed.esm; 14.2 s)
+
 ## Look over a downloaded mod: `sf-mod-check triage`
 
 Run it on a mod you downloaded, before you install it or build on it. It writes one report that lists what the mod
@@ -1678,8 +1746,9 @@ Each finding names its check in brackets.
     The GUID must be in the manifest of a loaded sound bank (`sound\soundbanks\<id>.json`, read from the INIs'
     archives, the plugins' archives and loose files, a later copy replacing an earlier one) and that bank must hold
     the event, else the sound is silent. A GUID the overridden record already names, or that any master's record
-    names, is not reported. At most 25 per plugin, then a count; an official plugin's own are counted in the log
-    only. In `conflict` they join the missing-asset counts as `sound event`.
+    names, is not reported. `check` lists at most 25 per plugin, then a count; an official plugin's own are counted
+    in the log only. In `conflict` they join the missing-asset counts as `sound event`, and conflicts.json lists
+    every one.
   - **Geometry** (0.15.0, WARNING): each of the plugin's own `.nif` files (as above) names the `.mesh` files that hold
     its shapes' geometry, and each must be a `geometries\...\<name>.mesh` file in the places below, else that part of
     the model doesn't show in the game. The game's own models give the name without the folder and extension

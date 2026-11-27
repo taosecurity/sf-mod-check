@@ -100,6 +100,41 @@ public class FindTests
         Assert.Contains("FormIDs that start with FF belong to the save game", stdout);
     }
 
+    // 0.25.0: an EditorID of exactly 8 hex digits reads as a console FormID unless it is quoted or prefixed with eid:
+    [Fact]
+    public void A_quoted_or_prefixed_name_is_always_an_EditorID_even_with_8_hex_digits()
+    {
+        Assert.Equal("DEADBEEF", FindCommand.ForcedEditorId("\"DEADBEEF\""));
+        Assert.Equal("DEADBEEF", FindCommand.ForcedEditorId("'DEADBEEF'"));
+        Assert.Equal("DEADBEEF", FindCommand.ForcedEditorId("eid:DEADBEEF"));
+        Assert.Equal("DEADBEEF", FindCommand.ForcedEditorId("EditorID:DEADBEEF"));
+        Assert.Null(FindCommand.ForcedEditorId("DEADBEEF"));
+        Assert.Null(FindCommand.ForcedEditorId("01295A:Starfield.esm"));
+        Assert.Null(FindCommand.ForcedEditorId("eid:"));
+        var q = LinesCommand.Parse("eid:12345678", null, "", out _);
+        Assert.Equal(("12345678", false, false), (q!.Text, q.IsFormId, q.IsFormKey));
+        q = LinesCommand.Parse("12345678", null, "", out _);
+        Assert.True(q!.IsFormId);
+        using var game = new Game();
+        var (code, stdout, _) = game.Find("eid:FB_Misc");
+        Assert.Equal(0, code);
+        Assert.Contains($"FB_Misc [{game.BaseMisc}] MISC", stdout);
+        (code, stdout, _) = game.Find("\"FB_Misc\"");
+        Assert.Equal(0, code);
+        Assert.Contains($"FB_Misc [{game.BaseMisc}] MISC", stdout);
+        // code review round 4: an empty EditorID form says so, not "isn't a FormKey"
+        Assert.True(FindCommand.EmptyForcedEditorId("eid:"));
+        Assert.True(FindCommand.EmptyForcedEditorId("\"\""));
+        Assert.False(FindCommand.EmptyForcedEditorId("eid:X"));
+        Assert.Null(LinesCommand.Parse("eid:", null, "", out var why));
+        Assert.Equal("an empty EditorID", why);
+        string stderr;
+        (code, _, stderr) = game.Find("eid:");
+        Assert.Equal(2, code);
+        Assert.Contains("names no EditorID", stderr);
+        Assert.DoesNotContain("isn't a FormKey", stderr);
+    }
+
     [Fact]
     public void Console_FormIDs_pick_full_medium_and_light_plugins_by_load_order_index()
     {

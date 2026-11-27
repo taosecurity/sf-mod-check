@@ -359,6 +359,28 @@ public class ConflictUnreadTests
     // code review 2026-11-18: the assets check's lookups of the records overrides replace build link caches of the
     // masters (Starfield.esm's can be large), so they obey --max-memory: past it they stop, every missing path is
     // reported (the safe side), and the errors say so; the run itself goes on
+    // 0.25.0 code review round 4: conflict keeps every missing sound event (conflicts.json lists them all; report.md
+    // caps its rows per plugin); the 25-line cap is check's and release's only
+    [Fact]
+    public void The_conflict_assets_check_keeps_every_sound_event_past_25()
+    {
+        using var game = new Game();
+        game.Mod("ModSnd.esm", (m, _) =>
+        {
+            for (int i = 0; i < 27; i++)
+                m.MiscItems.AddNew($"SND_Misc{i}").PickupSound = new SoundReference { Start = SoundEventsTests.Rec($"{{{i + 1:X8}-0000-0000-0000-000000000000}}") };
+        });
+        var lo = LoadOrderSetup.Build(game.Data, game.PluginsTxt(new[] { "Base.esm", "ModSnd.esm" }));
+        var a = new Analysis();
+        Assets.CheckLoadOrder(lo.Plugins, new[] { game.Data }, Array.Empty<string>(), "en", a);
+        Assert.Equal(27, a.MissingAssets.Count(f => f.Asset.Kind == "sound-event"));
+        Assert.Empty(a.Errors);
+        Assert.Equal(0, a.AssetNotes);
+        a.AssetsChecked = true;
+        Assert.Equal("27 (0 scripts, 0 models, 27 sound events)", Report.AssetsCount(a));
+        Assert.Contains("27 missing sound events", Assert.Single(Report.AssetActions(a)).Text);
+    }
+
     [Fact]
     public void The_assets_checks_lookups_stop_at_the_memory_limit_and_report_every_missing_path()
     {

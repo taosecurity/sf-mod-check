@@ -35,6 +35,7 @@ public static class LinesCommand
         "  the NPC's voice type (GetIsVoiceType) are listed apart as shared lines. Each line says whether its voice file\n" +
         "  (wem) and lip file (lip, .ffxanim) are there, in the plugin's archives or loose.\n" +
         "  The NPC      an EditorID (letter case ignored), a FormKey (005788:Starfield.esm) or a console FormID (00005788)\n" +
+        "               (an EditorID of exactly 8 hex digits: put eid: before it, as eid:00005788)\n" +
         "  --plugin     read only this plugin and its masters (found in its folder, then each --masters-dir, then --data)\n" +
         "  --compare    count another NPC's lines per type too (for example a vanilla companion) and mark the types this\n" +
         "               NPC has none of as missing; the same forms as the NPC\n" +
@@ -345,6 +346,13 @@ public static class LinesCommand
     internal static Query? Parse(string q, string? plugin, string label, out string cantWhy)
     {
         cantWhy = "";
+        if (FindCommand.ForcedEditorId(q) is { } forced) return new Query(forced, false, false, default);
+        if (FindCommand.EmptyForcedEditorId(q))
+        {
+            Console.Error.WriteLine($"{label}{SafeText.OneLine(q)} {FindCommand.EmptyEditorIdText}");
+            cantWhy = label.Length > 0 ? "--compare: an empty EditorID" : "an empty EditorID";
+            return null;
+        }
         bool isFormId = ConsoleId.IsMatch(q), isFormKey = !isFormId && q.Contains(':');
         FormKey key = default;
         if (isFormKey && !FormKey.TryFactory(q, out key))

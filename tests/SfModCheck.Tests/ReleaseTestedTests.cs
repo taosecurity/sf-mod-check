@@ -113,7 +113,7 @@ public class ReleaseTestedTests
     {
         using var s = new Sandbox();
         var stage = s.Sub("stage");
-        void Put(string rel) { var p = Path.Combine(stage, rel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, "x"); }
+        void Put(string rel) { var p = Path.Combine(stage, rel.Replace('\\', Path.DirectorySeparatorChar)); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, "x"); }
         Put(@"Meshes\MyMod\Packed.nif");
         Put(@"Meshes\MyMod\Forgot.nif");                 // in no archive: PROBLEM
         Put(@"Interface\MyMod\Loose.swf");               // shipped loose in the zip: fine
@@ -126,7 +126,7 @@ public class ReleaseTestedTests
         Has(f, Level.Review, "stage", @"in an archive, not staged (a stale archive?): meshes\mymod\old.nif");
         Assert.Equal(2, f.Count);   // nothing about the sources, plugin, archive, achlist, DMMDeps list or loose file
 
-        File.Delete(Path.Combine(stage, @"Meshes\MyMod\Forgot.nif"));
+        File.Delete(Path.Combine(stage, "Meshes", "MyMod", "Forgot.nif"));
         Put(@"Meshes\MyMod\Old.nif");
         Has(Run(s, release, [], stage), Level.Note, "stage", "stage matches the archives: 2 files");
 

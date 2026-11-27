@@ -140,6 +140,9 @@ public static class SoundRefs
 
     static readonly ConditionalWeakTable<IModGetter, HashSet<UInt128>> masterSets = new();
 
+    /// <summary>How many times each plugin's GUIDs were really read (a test hook: release reads each master once per run).</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> Reads = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Every sound GUID (in the manifest's form) in a plugin's records, read once per plugin object per run.
     /// The master-GUID rule: a GUID a master's own record names isn't the mod's fault, even when no bank holds it
     /// (the 17 dangling GUIDs in Bethesda's data, and add-on events Starfield.esm names).</summary>
@@ -148,6 +151,7 @@ public static class SoundRefs
         lock (masterSets)
         {
             if (masterSets.TryGetValue(mod, out var known)) return known;
+            Reads.AddOrUpdate(mod.ModKey.FileName.String, 1, (_, n) => n + 1);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var set = new HashSet<UInt128>();
             int records = 0;

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.25.0 (unreleased)
+
+### What's new
+
+- **`edit <plugin> --out <new plugin>`** makes a few narrow changes to a finished plugin and writes them to a **new** file; the plugin itself is never changed. Three edits, which can be combined: `--drop-master <name>` (remove a master nothing uses, renumbering the FormIDs after it, in records, group labels and field data, compressed records included), `--set-light` (set the light flag) and `--set-text <INFO or MESG> --text "<new text>" [--response N]` (replace one INFO response's text or one MESG's description). The record is an EditorID, a FormKey (`000B23:Mod.esm`) or a console FormID (8 hex digits, `00000B23`, naming an own record by its last six digits; refused when those digits also match an override the plugin carries); a bare 6-hex value is read as an EditorID. The new file has its own name: give it the original's name (keeping a copy of the original) before you test it, since the game finds the plugin's archives by file name. After `--set-light`, re-save any plugin that has this one as a master.
+- **Three proofs before the file is kept:** the new file is read back, `diff` must show only the intended changes, `gap` no new loss and `check` no new ERROR. A failed proof deletes the new file and exits 1. Exit 0 kept, 2 refused or couldn't run; `--json` reports each proof.
+- **Refusals** (exit 2, each with the reason and the fix): `--out` missing, equal to the input or already existing; an input inside a zip; a master still used (Mutagen's links and a raw FormID scan must both find none); a `--drop-master` that would have to renumber a value Mutagen doesn't read as a link but that names a real record (for example a FormID inside a component's raw data), or two overlapping values that both look like FormIDs; `--set-light` on a light or medium plugin or with own records outside `000800` to `000FFF`; `--set-text` on a localized plugin, a record not found or a response number out of range; a second `--drop-master` in one run; two `--set-text` on the same record in one run.
+- The README and AGENTS.md now say that sf-mod-check never changes your files, and that `edit` writes a checked new copy.
+- Existing findings do not change.
+
+### Example
+
+A made-up full plugin `Demo.esm` in `C:\Mods`, run in that folder:
+
+    sf-mod-check edit Demo.esm --out Demo-fixed.esm --set-light --set-text DemoGreeting --text "Welcome aboard, traveler."
+    sf-mod-check 0.25.0 edit: Demo.esm -> Demo-fixed.esm
+    edit set-light: type: full -> light
+    edit set-text 000801:Demo.esm: response 1 text (NAM1)
+    proof diff: passed: only the intended changes: 1 header change, 1 changed record, 0 renumbered without a change in meaning, 11 the same
+    proof gap: passed: no new loss (0 error(s) and 0 warning(s), all in the input too)
+    proof check: passed: no new ERROR (0 in all, each in the input too)
+    kept C:\Mods\Demo-fixed.esm
+    RESULT: KEPT (3 proofs passed; Demo-fixed.esm; 14.2 s)
+
+### Fixes
+
+- `release` reads each master's sound GUIDs once per run, not once for every plugin that has a missing sound event (each plugin opens its own copy of the game data, so the old per-plugin cache never hit; a release of several plugins over a large master such as Starfield.esm was slow).
+- `lines`, `find` and `scenes` read a prefixed name (`eid:00005788`) as an EditorID, even when it is exactly 8 hex digits, which would otherwise be read as a console FormID. (Quotes the shell removes don't count; use `eid:`.)
+
 ## 0.24.0 (2026-11-26)
 
 ### What's new

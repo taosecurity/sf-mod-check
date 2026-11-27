@@ -521,6 +521,31 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     and Starfield.esm as a master takes about 25 seconds and 3 to 4 GB. When a user asks "why does this conversation
     dead-end or go to the wrong place", run `scenes` on the NPC and read the Problems list first.
 
+24. Make a small safe change to a finished plugin (0.25.0): drop a master it doesn't use, set the light flag, or fix one
+    line's text. `edit` never changes the plugin: it writes a new file with `--out` and keeps it only after three proofs.
+
+        sf-mod-check edit MyMod.esm --out MyMod-fixed.esm --set-light
+        sf-mod-check edit MyMod.esm --out MyMod-fixed.esm --drop-master OldMaster.esm
+        sf-mod-check edit MyMod.esm --out MyMod-fixed.esm --set-text MyMod_GreetingInfo --text "The new line." --response 2
+
+    `--set-text` takes an INFO's response text (NAM1) or a MESG's description (DESC), named by EditorID, FormKey
+    (`000B23:MyMod.esm`) or console FormID: 8 hex digits (`00000B23`, an own record by its last six digits); a bare
+    6-hex or `eid:<name>` is read as an EditorID (use `eid:`, not quotes, which the shell removes). A console FormID
+    whose last six digits also match an override the plugin carries is refused: give the FormKey. `--response <n>`
+    counts from 1, as `find --full` shows. The edits can be combined; one `--drop-master` per run. Refused (exit 2,
+    with the reason and the fix): `--out` missing, equal to the input or already existing; input inside a zip (unpack
+    it first); a master still used (Mutagen's links and a raw FormID scan must both find no use), or a value to
+    renumber that Mutagen doesn't read as a link but that names a real record; `--set-light` on a
+    light or medium plugin or one with own records outside `000800` to `000FFF`; `--set-text` on a localized plugin,
+    on a record not found, with a response number out of range, or twice on one record in a run. Proofs, always run before the file is kept: `diff`
+    (only the intended changes), `gap` (no new loss) and `check` (no new ERROR); a failed proof deletes the new file
+    (exit 1). Exit 0 = kept. `--json` has `edits`, `proof` (`diff`, `gap`, `check`, each `passed` and `reason`), `kept` and
+    `result` (`kept`, `not kept`, `refused` or `cannot run`). A run takes seconds to about 20 seconds. Tell the user the
+    original is unchanged and the new file is theirs to test, under the original's name (keep a copy of the original):
+    the game finds the plugin's archives, and other plugins find their masters, by file name. After `--set-light`, a
+    plugin that has this one as a master must be re-saved against the light copy, since Starfield stores links to
+    light masters differently.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -717,7 +742,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 
 ## 7. Limits
 
-1. It never changes, moves or deletes a plugin, the load order or anything in the game folder. It writes only its
+1. It never changes, moves or deletes a plugin, the load order or anything in the game folder. (`edit`, 0.25.0, writes a
+   checked **new** copy to the `--out` path you give; it never overwrites a file and never touches its input.) It writes only its
    caches, the `--log` file, (conflict) the `--out` report folder, (patch) its `--out` folder, which may not be the
    Data folder, (triage) its three report files, and (release, triage) a temp folder holding the unpacked archive,
    which it removes at the end. It never changes the zip. Installing a patch is the user's job, with their mod manager.

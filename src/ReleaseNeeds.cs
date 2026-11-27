@@ -70,6 +70,7 @@ public static class ReleaseNeeds
         var external = new ExternalArchives(c.Options.MastersDirs, data);
         foreach (var ma in c.Options.MasterArchives) external.AddArchive(Path.GetFullPath(ma));
         AssetIndex? index = null;
+        var masterGuids = new Dictionary<ModKey, HashSet<UInt128>>();   // the masters' sound GUIDs, read once per run
         foreach (var (pkg, path) in plugins)
         {
             var name = Path.GetFileName(path);
@@ -112,7 +113,7 @@ public static class ReleaseNeeds
                 index.SoundArchivesBefore = external.SoundArchives();
                 var uses = new AssetUses();
                 var masterMods = game.LoadOrder.Where(m => m.ModKey != mod.ModKey).Cast<IModGetter>().ToList();
-                var (scriptUses, modelUses, missing, inherited) = Assets.Find(mod, index, Checker.Name, Original, uses, faces: true, masters: () => masterMods);
+                var (scriptUses, modelUses, missing, inherited) = Assets.Find(mod, index, Checker.Name, Original, uses, faces: true, masters: () => masterMods, masterGuidCache: masterGuids);
                 SoundBankRules(c, name, index, findings);
                 if (c.Options.DmmDeps == null)
                     foreach (var n in uses.Notes)

@@ -39,6 +39,7 @@ public static class FindCommand
         "  EditorID  exact, letter case ignored: CityNewAtlantisLocation\n" +
         "  FormKey   <6 hex digits>:<plugin>: 01295A:Starfield.esm\n" +
         "  FormID    8 hex digits as the console shows them: 0001295A (the first digits pick the plugin by load order)\n" +
+        "            (an EditorID that is exactly 8 hex digits: put eid: before it, as eid:0001295A)\n" +
         "  --type    keep only records of this four-letter type, for example LCTN, MISC, NPC_\n" +
         "  --plugin  read only this plugin and its masters, with no Plugins.txt; with no record given, list every record\n" +
         "            the plugin holds. Masters are looked for in the plugin's own folder, then each --masters-dir, then --data.\n" +
@@ -104,6 +105,29 @@ public static class FindCommand
     }.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 
     static readonly Regex ConsoleId = new(@"^(0x)?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
+    /// <summary>0.25.0: a quoted ("00005788") or prefixed (eid:00005788) name is always an EditorID, even when it is exactly
+    /// 8 hex digits, which would otherwise read as a console FormID. Returns the EditorID, or null for any other form.</summary>
+    internal static string? ForcedEditorId(string q)
+    {
+        q = q.Trim();
+        string? e = null;
+        if (q.Length >= 2 && (q[0] == '"' && q[^1] == '"' || q[0] == '\'' && q[^1] == '\'')) e = q[1..^1];
+        else if (q.StartsWith("eid:", StringComparison.OrdinalIgnoreCase)) e = q[4..];
+        else if (q.StartsWith("editorid:", StringComparison.OrdinalIgnoreCase)) e = q[9..];
+        e = e?.Trim();
+        return string.IsNullOrEmpty(e) ? null : e;
+    }
+
+    /// <summary>The EditorID form (quotes, eid: or editorid:) with nothing inside it (code review 0.25.0 round 4).</summary>
+    internal static bool EmptyForcedEditorId(string q)
+    {
+        q = q.Trim();
+        return ForcedEditorId(q) == null && (q.StartsWith("eid:", StringComparison.OrdinalIgnoreCase) || q.StartsWith("editorid:", StringComparison.OrdinalIgnoreCase)
+               || q.Length >= 2 && (q[0] == '"' && q[^1] == '"' || q[0] == '\'' && q[^1] == '\''));
+    }
+
+    internal const string EmptyEditorIdText = "names no EditorID: the EditorID after it is empty. Give the EditorID (for example eid:MyMod_Guard), a FormKey or a console FormID.";
+
     static readonly Regex Signature = new(@"^[A-Z0-9_]{4}\z", RegexOptions.CultureInvariant);
 
     /// <summary>Every four-letter record type Mutagen knows for Starfield (for checking --type).</summary>
@@ -198,6 +222,14 @@ public static class FindCommand
             return 2;
         }
         q ??= "";
+        if (!listing && EmptyForcedEditorId(q))
+        {
+            Console.Error.WriteLine($"{SafeText.OneLine(q)} {EmptyEditorIdText}");
+            cantWhy = "an empty EditorID";
+            return 2;
+        }
+        var forcedEid = ForcedEditorId(q);
+        if (forcedEid != null) q = forcedEid;
         query = listing ? $"--plugin {Path.GetFileName(input.Plugin)}" : q;
         if (type != null && (!Signature.IsMatch(type) || !KnownSigs.Value.Contains(type)))
         {
@@ -212,7 +244,7 @@ public static class FindCommand
         Log.Write($"arguments: {string.Join(" ", a.Select(x => x.Contains(' ') ? $"\"{x}\"" : x))}");
         Log.Write($"working folder: {Environment.CurrentDirectory}");
 
-        var kind = ConsoleId.IsMatch(q) ? Kind.FormId : q.Contains(':') ? Kind.FormKey : Kind.EditorId;
+        var kind = forcedEid != null ? Kind.EditorId : ConsoleId.IsMatch(q) ? Kind.FormId : q.Contains(':') ? Kind.FormKey : Kind.EditorId;
         FormKey key = default;
         if (kind == Kind.FormKey && !FormKey.TryFactory(q, out key))
         {

@@ -659,6 +659,8 @@ public static class Assets
             var (s, m, missing, inherited) = Find(p.Mod, index, Checker.Name, rec => Original(p, rec), uses,
                 masters: () => AllMasters(p));
             scripts += s; models += m; inheritedAll += inherited;
+            // every missing sound event stays in the list: conflicts.json holds them all, and report.md caps its rows
+            // per plugin (RowsPerGroup); the 25-line cap is check's and release's (code review 0.25.0 round 4)
             analysis.AssetTextureUses += uses.Textures; analysis.AssetMaterialUses += uses.Materials; analysis.AssetSoundUses += uses.Sounds;
             analysis.AssetMeshUses += uses.Meshes; analysis.AssetSoundEventUses += uses.SoundEvents;
             foreach (var f in missing) analysis.MissingAssets.Add(new Conflict.AssetFinding(p.FileName, f));
@@ -720,7 +722,7 @@ public static class Assets
     /// data (0.14.0; only release asks for it, see FindFaces).</summary>
     public static (int Scripts, int Models, List<MissingAsset> Missing, int Inherited) Find(IModGetter mod, AssetIndex index, Func<IMajorRecordGetter, string> name,
         Func<IMajorRecordGetter, IMajorRecordGetter?>? original = null, AssetUses? uses = null, bool faces = false,
-        Func<IEnumerable<IModGetter>>? masters = null)
+        Func<IEnumerable<IModGetter>>? masters = null, Dictionary<ModKey, HashSet<UInt128>>? masterGuidCache = null)
     {
         uses ??= new AssetUses();
         int inherited = 0;
@@ -942,7 +944,7 @@ public static class Assets
             }
             Log.Write($"assets: {rel} (from {where}): bank version {version}, {streamed.Count} streamed sound(s), {lacking} not found");
         }
-        var soundFindings = FindSoundEvents(mod, soundRefs, index, name, original, masters, uses);
+        var soundFindings = FindSoundEvents(mod, soundRefs, index, name, original, masters, uses, masterGuidCache);
         var faceFindings = FindFaces(mod, npcs, index, name, original, uses);
         if (uses.Unverified.Count > 0)
             uses.Notes.Add($"{uses.Unverified.Count} material path(s) are neither loose files nor in a loaded archive, and {index.CdbProblem}, so they couldn't be checked " +
@@ -966,7 +968,8 @@ public static class Assets
     /// of a master names (the master-GUID rule: Bethesda's own dangling GUIDs). The bank index and the masters' GUIDs
     /// are read only when a GUID needs them. One finding per GUID, with the records and fields that name it.</summary>
     static List<MissingAsset> FindSoundEvents(IModGetter mod, List<(IMajorRecordGetter Rec, string Field, UInt128 Guid)> refs, AssetIndex index,
-        Func<IMajorRecordGetter, string> name, Func<IMajorRecordGetter, IMajorRecordGetter?>? original, Func<IEnumerable<IModGetter>>? masters, AssetUses uses)
+        Func<IMajorRecordGetter, string> name, Func<IMajorRecordGetter, IMajorRecordGetter?>? original, Func<IEnumerable<IModGetter>>? masters, AssetUses uses,
+        Dictionary<ModKey, HashSet<UInt128>>? masterGuidCache = null)
     {
         var list = new List<MissingAsset>();
         if (refs.Count == 0) return list;
@@ -997,7 +1000,14 @@ public static class Assets
                 if (masterGuids == null)
                 {
                     masterGuids = new();
-                    foreach (var m in masters()) masterGuids.UnionWith(SoundRefs.AllGuids(m));
+                    foreach (var m in masters())
+                    {
+                        // 0.25.0: release opens a new GameData per plugin, so the per-object cache never hits; its run-wide cache is by master name
+                        if (masterGuidCache != null && masterGuidCache.TryGetValue(m.ModKey, out var cached)) { masterGuids.UnionWith(cached); continue; }
+                        var all = SoundRefs.AllGuids(m);
+                        masterGuidCache?.TryAdd(m.ModKey, all);
+                        masterGuids.UnionWith(all);
+                    }
                 }
                 if (masterGuids.Contains(guid))
                 {
