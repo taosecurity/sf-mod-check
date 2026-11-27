@@ -692,7 +692,7 @@ public static class CellCommand
                     cells++;
                     walk.WantedCells.Add(c.FormKey);
                     walk.CellCopies.Add((p, c, w, top));
-                    if (EditorIdOf(c) is { Length: > 0 } ce) walk.CellNames[c.FormKey] = ce;
+                    NameCell(walk, c);
                     foreach (var r in c.Persistent) { Add(p, r, c.FormKey, true); refs++; }
                     foreach (var r in c.Temporary) { Add(p, r, c.FormKey, false); refs++; }
                     if (c.NavigationMeshes.Count > 0)
@@ -722,7 +722,7 @@ public static class CellCommand
                     bool any = false;
                     foreach (var r in c.Persistent) if (tracked.Contains(r.FormKey)) { Add(p, r, c.FormKey, true); moved++; any = true; }
                     foreach (var r in c.Temporary) if (tracked.Contains(r.FormKey)) { Add(p, r, c.FormKey, false); moved++; any = true; }
-                    if (any && EditorIdOf(c) is { Length: > 0 } ce) walk.CellNames[c.FormKey] = ce;
+                    if (any) NameCell(walk, c);
                 }
             }
             catch (Exception e) when (Fatal.Recoverable(e)) { unread.Add(Unread(p, e)); }
@@ -730,6 +730,14 @@ public static class CellCommand
         }
         foreach (var r in walk.Refs.Values) r.Copies.Sort((x, y) => x.Plugin.Index.CompareTo(y.Plugin.Index));
         return walk;
+    }
+
+    /// <summary>Keeps the cell's EditorID as its header does: a copy's own name, an earlier copy's name past a
+    /// partial copy that has none, and no name past a full copy that has none (code review 0.27.0 round 8).</summary>
+    static void NameCell(Walk walk, ICellGetter c)
+    {
+        if (EditorIdOf(c) is { Length: > 0 } ce) walk.CellNames[c.FormKey] = ce;
+        else if (!FieldCompare.IsPartial(c)) walk.CellNames.Remove(c.FormKey);
     }
 
     internal sealed record Info(string Text, string? Name, string Where, string? Location, bool LocationFromWorld,

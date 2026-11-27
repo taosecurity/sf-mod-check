@@ -308,14 +308,25 @@ public static class Ba2Find
             // a plugin that didn't load has its archives left out, so the problems are shown (code review 0.27.0 round 7)
             foreach (var p in lo.Problems) Console.WriteLine($"load-order problem: {SafeText.OneLine(p)}");
             if (looseNote != null) Console.WriteLine(looseNote);
-            var problems = lo.Problems.Count == 0 ? ""
-                : $"; {lo.Problems.Count:N0} load-order problem{(lo.Problems.Count == 1 ? "" : "s")}, and a plugin that didn't load has its archives left out";
+            var problems = ProblemSuffix(lo.Problems);
             Console.WriteLine(total == 0
                 ? $"RESULT: NOT FOUND (no file matches {SafeText.OneLine(pattern)} in {archivesRead:N0} archive{(archivesRead == 1 ? "" : "s")} and {index.LooseDirs.Count:N0} loose folder{(index.LooseDirs.Count == 1 ? "" : "s")}{problems})"
                 : $"RESULT: {summary}{problems}");
         }
         Log.Write($"result: {summary}, {unreadable.Count} unreadable, exit code {(total > 0 ? 0 : 1)}, {sw.Elapsed.TotalSeconds:F1} s");
         return total > 0 ? 0 : 1;
+    }
+
+    /// <summary>The RESULT line's load-order part: the problem count, and how many plugins didn't load (listed but
+    /// not found, or skipped), whose archives are left out. Other problems (a plugin listed before its master, a
+    /// BlueprintShips master, an MO2 profile line) don't leave a plugin out (code review 0.27.0 round 8).</summary>
+    internal static string ProblemSuffix(IReadOnlyList<string> problems)
+    {
+        if (problems.Count == 0) return "";
+        var text = $"; {problems.Count:N0} load-order problem{(problems.Count == 1 ? "" : "s")}";
+        int left = problems.Count(p => p.Contains(": listed but not found in ", StringComparison.Ordinal) || p.Contains(", plugin skipped", StringComparison.Ordinal));
+        return left == 0 ? text
+            : text + (left == 1 ? ", and 1 plugin that didn't load has its archives left out" : $", and {left:N0} plugins that didn't load have their archives left out");
     }
 
     static string Line(Holder h)
@@ -356,14 +367,19 @@ public static class Ba2Find
             MaxRecursionDepth = 32,
         };
         var results = new List<(string, string)>();
+        // the real folders the walk is in: the loose folder's own target, and each link followed (by its path), so a
+        // link to one of them, or to a folder above one, isn't followed again (code review 0.27.0 round 8)
+        var rootReal = RealFolder(dir);
+        var followed = new Dictionary<string, string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         foreach (var start in starts)
         {
+            string[] tops = [rootReal, RealFolder(start)];   // a fixed prefix folder may itself be a link
             try
             {
                 var walk = new System.IO.Enumeration.FileSystemEnumerable<string>(start, (ref System.IO.Enumeration.FileSystemEntry e) => e.ToFullPath(), opts)
                 {
-                    ShouldIncludePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !e.IsDirectory,
-                    ShouldRecursePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => Follow(dir, ref e),
+                    ShouldIncludePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => !e.IsDirectory && LinkedFileExists(ref e),
+                    ShouldRecursePredicate = (ref System.IO.Enumeration.FileSystemEntry e) => Follow(dir, tops, followed, ref e),
                 };
                 foreach (var f in walk)
                 {
@@ -376,12 +392,38 @@ public static class Ba2Find
         foreach (var r in results.OrderBy(r => r.Item1, StringComparer.Ordinal).ThenBy(r => r.Item2, StringComparer.Ordinal)) yield return r;
     }
 
-    /// <summary>Whether the glob walk goes into a folder: yes, unless it is a link to a folder it is inside (or to the
-    /// loose folder or one above it), which would loop.</summary>
-    static bool Follow(string root, ref System.IO.Enumeration.FileSystemEntry e)
+    /// <summary>A file the glob walk lists: a linked file counts only when its target exists (a deployment whose
+    /// staging folder was moved leaves links to nothing, which the game can't read; code review 0.27.0 round 8).</summary>
+    static bool LinkedFileExists(ref System.IO.Enumeration.FileSystemEntry e)
     {
         if ((e.Attributes & FileAttributes.ReparsePoint) == 0) return true;
         var path = e.ToFullPath();
+        try
+        {
+            var target = File.ResolveLinkTarget(path, true);
+            if (target == null || target.Exists) return true;   // a reparse point that isn't a link (a OneDrive file) is an ordinary file
+            Log.Write($"ba2 find: the link {path} points to {target.FullName}, which doesn't exist, so it isn't listed");
+            return false;
+        }
+        catch (Exception x) when (x is IOException or UnauthorizedAccessException) { Log.Write($"ba2 find: the link {path} could not be read ({x.Message})"); return false; }
+    }
+
+    /// <summary>A folder's real path: its link target when the folder itself is a link, else the folder.</summary>
+    static string RealFolder(string dir)
+    {
+        string real = dir;
+        try { if (Directory.ResolveLinkTarget(dir, true) is { } t) real = t.FullName; }
+        catch (Exception x) when (x is IOException or UnauthorizedAccessException) { }
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(real));
+    }
+
+    /// <summary>Whether the glob walk goes into a folder: yes, unless it is a link to a folder the walk is already in
+    /// (or one above it): the folder it sits in, the loose folder or walk start's real folder, or the target of a link
+    /// followed on the way to it. That would loop.</summary>
+    static bool Follow(string root, string[] tops, Dictionary<string, string> followed, ref System.IO.Enumeration.FileSystemEntry e)
+    {
+        if ((e.Attributes & FileAttributes.ReparsePoint) == 0) return true;
+        var path = Path.TrimEndingDirectorySeparator(e.ToFullPath());
         FileSystemInfo? target;
         try { target = Directory.ResolveLinkTarget(path, true); }
         catch (Exception x) when (x is IOException or UnauthorizedAccessException) { Log.Write($"ba2 find: the link {path} could not be read ({x.Message})"); return false; }
@@ -389,8 +431,13 @@ public static class Ba2Find
         if (!target.Exists) { Log.Write($"ba2 find: the link {path} points to {target.FullName}, which doesn't exist"); return false; }
         var real = Path.TrimEndingDirectorySeparator(Path.GetFullPath(target.FullName));
         var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        bool Inside(string p) { p = Path.TrimEndingDirectorySeparator(Path.GetFullPath(p)); return p.Equals(real, cmp) || p.StartsWith(real + Path.DirectorySeparatorChar, cmp); }
-        if (Inside(path) || Inside(root)) { Log.Write($"ba2 find: the link {path} points to {real}, a folder it is inside, so it isn't followed"); return false; }
+        bool Under(string p, string top) => p.Equals(top, cmp) || p.StartsWith(top + Path.DirectorySeparatorChar, cmp);
+        bool Inside(string p) => Under(Path.TrimEndingDirectorySeparator(Path.GetFullPath(p)), real);
+        // the links followed on the way here are those whose path this one is under
+        bool loops = Inside(path) || Inside(root) || tops.Any(Inside)
+                     || followed.Any(f => Under(path, f.Key) && Inside(f.Value));
+        if (loops) { Log.Write($"ba2 find: the link {path} points to {real}, a folder the walk is already in, so it isn't followed"); return false; }
+        followed[path] = real;
         return true;
     }
 

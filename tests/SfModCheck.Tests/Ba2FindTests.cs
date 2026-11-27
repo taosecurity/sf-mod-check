@@ -299,15 +299,56 @@ public class Ba2FindTests(Ba2FindPlugins plugins) : IClassFixture<Ba2FindPlugins
         Assert.True(code == 0, o + e);
         Same(["ModA - Main.ba2 (named after ModA.esm)   <- wins"], Holders(o, @"meshes\a.nif"));
         Assert.Contains("load-order problem: Gone.esm: listed but not found in Data", o);
-        Assert.Contains("RESULT: 1 file matched in 1 of 1 archive and 0 loose folders; 1 load-order problem, and a plugin that didn't load has its archives left out", o);
+        Assert.Contains("RESULT: 1 file matched in 1 of 1 archive and 0 loose folders; 1 load-order problem, and 1 plugin that didn't load has its archives left out", o);
         (code, o, e) = g.Run(@"meshes\missing.nif");
         Assert.Equal(1, code);
-        Assert.Contains("loose folder; 1 load-order problem, and a plugin that didn't load has its archives left out)", o);
+        Assert.Contains("loose folder; 1 load-order problem, and 1 plugin that didn't load has its archives left out)", o);
         (code, o, e) = g.Run(@"meshes\a.nif", "--json");
         Assert.True(code == 0, o + e);
         var list = JsonDocument.Parse(o).RootElement.GetProperty("loadOrderProblems");
         Assert.Equal(1, list.GetArrayLength());
         Assert.StartsWith("Gone.esm: listed but not found in Data", list[0].GetString());
+    }
+
+    [Fact]
+    public void The_result_line_says_a_plugin_was_left_out_only_for_a_plugin_that_did_not_load()
+    {
+        // code review 0.27.0 round 8: a problem about a plugin that still loads leaves none of its archives out
+        Assert.Equal("", Ba2Find.ProblemSuffix([]));
+        Assert.Equal("; 1 load-order problem", Ba2Find.ProblemSuffix(["Mod.esm: listed before its master Base.esm; the game would fail to load it, so it was analyzed after Base.esm"]));
+        Assert.Equal("; 2 load-order problems, and 1 plugin that didn't load has its archives left out",
+            Ba2Find.ProblemSuffix(["Gone.esm: listed but not found in Data", "MO2 mod X is enabled but has no folder in C:\\MO2\\mods; reinstall it in MO2 or disable it"]));
+        Assert.Equal("; 2 load-order problems, and 2 plugins that didn't load have their archives left out",
+            Ba2Find.ProblemSuffix(["A.esm: master Gone.esm is missing or inactive, plugin skipped", "B.esm: cannot be read (IOException), plugin skipped; run sf-mod-check check on it for details"]));
+    }
+
+    [Fact]
+    public void A_glob_leaves_out_a_linked_file_whose_target_is_gone_and_a_loop_through_an_outside_folder()
+    {
+        // code review 0.27.0 round 8: a link to nothing isn't a loose copy, and a link back up from a folder reached
+        // through a link isn't walked again
+        using var g = new Game(plugins);
+        var outside = Path.Combine(g.Dir, "Outside");
+        var x = Path.Combine(outside, "X");
+        g.Loose(x, "foo.nif");
+        var gone = g.Loose(outside, "gone.nif");
+        Directory.CreateDirectory(Path.Combine(g.Data, "meshes"));
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(g.Data, "meshes", "m"), x);
+            Directory.CreateSymbolicLink(Path.Combine(x, "up"), outside);
+            Directory.CreateSymbolicLink(Path.Combine(x, "self"), x);
+            File.CreateSymbolicLink(Path.Combine(g.Data, "meshes", "dead.nif"), gone);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return; }   // Windows without the link privilege
+        File.Delete(gone);
+        var (code, o, e2) = g.Run(@"meshes\*.nif", "--max", "0");
+        Assert.True(code == 0, o + e2);
+        Assert.Contains(@"meshes\m\foo.nif", o);
+        Assert.DoesNotContain(@"meshes\dead.nif", o);
+        Assert.DoesNotContain(@"meshes\m\up\", o);
+        Assert.DoesNotContain(@"meshes\m\self\", o);
+        Assert.Contains("RESULT: 1 file matched", o);
     }
 
     [Fact]
