@@ -23,16 +23,16 @@ public static class ScenesCommand
 {
     public const string Usage =
         "usage: sf-mod-check scenes <NPC or quest: EditorID | FormKey | FormID> [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
-        "                           [--data <Data folder>] [--extra-data <folder>] [--hub <scene>] [--out <file.md>] [--json] [--max <n>]\n" +
+        "                           [--data <Data folder>] [--extra-data <folder or archive>] [--hub <scene>] [--out <file.md>] [--json] [--max <n>]\n" +
         "                           [--quiet] [--verbose] [--log <file>]\n" +
-        "       sf-mod-check scenes <EditorID | FormKey> --plugin <plugin file> [--masters-dir <folder>]... [...]\n" +
+        "       sf-mod-check scenes <EditorID | FormKey> --plugin <plugin file or archive> [--masters-dir <folder>]... [...]\n" +
         "  Prints an NPC's or a quest's conversations (scenes) as a tree: each part's lines, the player's choices and the\n" +
         "  NPC's answers, and where the talk goes next. Then it checks them: a line that jumps to a part a scene doesn't\n" +
         "  have, choices with no way out, stages that are needed but never set (or set but never checked), and Scene topics\n" +
         "  no scene uses. Last comes a table of each quest's stages: the author's note, what sets it and what needs it.\n" +
         "  The NPC or quest  an EditorID (letter case ignored), a FormKey (000803:MyMod.esm) or a console FormID\n" +
         "                    (an EditorID of exactly 8 hex digits: put eid: before it, as eid:00005788)\n" +
-        "  --plugin     read only this plugin and its masters, and show only the scenes the plugin adds or changes\n" +
+        "  --plugin     read only this plugin (or a .zip, .7z or .rar of plugins) and its masters, and show only the scenes the plugin adds or changes\n" +
         "  --hub        the talk menu scene (EditorID or FormKey), when the one found by counting jumps is wrong\n" +
         "  --out        write the tree to this Markdown file and print only the counts\n" +
         "  --max        show at most this many scenes (default 50; 0 shows them all); the problems and stages are always complete\n" +

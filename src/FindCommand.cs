@@ -32,16 +32,16 @@ public static class FindCommand
 {
     public const string Usage =
         "usage: sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
-        "                         [--data <Data folder>] [--extra-data <folder>] [--full] [--versions] [--refs [--max <n>]]\n" +
+        "                         [--data <Data folder>] [--extra-data <folder or archive>] [--full] [--versions] [--refs [--max <n>]]\n" +
         "                         [--layout] [--json] [--quiet] [--verbose] [--log <file>]\n" +
-        "       sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]\n" +
+        "       sf-mod-check find [<record>] --plugin <plugin file or archive> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]\n" +
         "                         [--data <Data folder>] [--full] [--versions] [--refs] [--layout] [--json] [--quiet] [--verbose] [--log <file>]\n" +
         "  EditorID  exact, letter case ignored: CityNewAtlantisLocation\n" +
         "  FormKey   <6 hex digits>:<plugin>: 01295A:Starfield.esm\n" +
         "  FormID    8 hex digits as the console shows them: 0001295A (the first digits pick the plugin by load order)\n" +
         "            (an EditorID that is exactly 8 hex digits: put eid: before it, as eid:0001295A)\n" +
         "  --type    keep only records of this four-letter type, for example LCTN, MISC, NPC_\n" +
-        "  --plugin  read only this plugin and its masters, with no Plugins.txt; with no record given, list every record\n" +
+        "  --plugin  read only this plugin (or the plugins of a .zip, .7z or .rar) and their masters, with no Plugins.txt; with no record given, list every record\n" +
         "            the plugin holds. Masters are looked for in the plugin's own folder, then each --masters-dir, then --data.\n" +
         "            Give the record as an EditorID or FormKey: a console FormID needs the whole load order.\n" +
         "  --masters-dir  another folder that holds the plugin's masters (can be given more than once)\n" +

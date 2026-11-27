@@ -38,6 +38,14 @@ commands:
 - [`scenes`](#an-npcs-or-quests-conversations-as-a-tree-sf-mod-check-scenes) prints an NPC's or a quest's
   conversations as a tree (each part, the player's choices, where the talk goes next) and checks them: a jump to a part
   a scene doesn't have, choices with no way out, stages never set or never checked, and unused Scene topics.
+- [`overrides`](#records-that-more-than-one-mod-changes-sf-mod-check-overrides) (0.26.0) lists the records that two or
+  more mods hold (one overriding another's, or both overriding the game's), by type, with the plugins in load order
+  and the winner marked. It also answers "who edits these records" for a list you give it.
+- [`summary`](#what-one-plugin-adds-and-changes-sf-mod-check-summary) (0.26.0) says what one plugin adds and changes:
+  records by type, ITMs, the fields its overrides change, and the cells and placed references it touches.
+- **Archive input** (0.26.0): `find`, `conflict`, `lines`, `scenes`, `overrides` and `summary` take a downloaded
+  `.zip`, `.7z` or `.rar` where they take a plugin (`--plugin`) or an extra folder (`--extra-data`), so you can look at a
+  mod before you install it. See [Archives as input](#archives-as-input-since-0260).
 - [`ba2`](#list-or-extract-the-files-in-a-ba2-archive-sf-mod-check-ba2) lists a BA2 archive's files and extracts
   files from a general archive.
 - [`voice-format`](#voice-file-formats-sf-mod-check-voice-format) reports the codec, channels and sample rate of the
@@ -321,7 +329,7 @@ file is a mod's loss, so it is counted with the "mod vs mod" entries (the line k
 Then open `sf-mod-check-conflict\report.html` in a browser.
 
     sf-mod-check conflict [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>]
-                        [--extra-data <folder>] [--out <folder>] [--max-memory <GB>] [--no-assets] [--no-priorities]
+                        [--extra-data <folder or archive>] [--out <folder>] [--max-memory <GB>] [--no-assets] [--no-priorities]
                         [--ini <file>]... [--language <code>] [--quiet] [--verbose] [--log <file>]
 
 - `--plugins`: the load order to check (default: the game's own, `%LOCALAPPDATA%\Starfield\Plugins.txt`, which
@@ -891,9 +899,9 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
     sf-mod-check find CityNewAtlantisLocation --full --versions --refs
 
     sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
-                      [--data <Data folder>] [--extra-data <folder>] [--full] [--versions] [--refs [--max <n>]]
+                      [--data <Data folder>] [--extra-data <folder or archive>] [--full] [--versions] [--refs [--max <n>]]
                       [--layout] [--json] [--quiet] [--verbose] [--log <file>]
-    sf-mod-check find [<record>] --plugin <plugin file> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]
+    sf-mod-check find [<record>] --plugin <plugin file or archive> [--masters-dir <folder>]... [--max <n>] [--type <SIG>]
                       [--data <Data folder>] [--full] [--versions] [--refs] [--layout] [--json] [--quiet] [--verbose] [--log <file>]
 
 - The record: an exact **EditorID** (letter case doesn't matter; there is no partial or fuzzy search), a **FormKey**
@@ -906,7 +914,7 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
 - `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`: the load order, as for `conflict` (default: the game's
   own Plugins.txt and Steam's usual Data folder). A plugin in the `--extra-data` folder wins over Data's copy. With
   Mod Organizer 2, give `--mo2 <MO2 folder>` so the mods in MO2's own folders are searched too.
-- `--plugin <plugin file>` (0.16.1): read only this plugin and its masters, from any folder, with no Plugins.txt.
+- `--plugin <plugin file>` (0.16.1; a `.zip`, `.7z` or `.rar` since 0.26.0, see [Archives as input](#archives-as-input-since-0260)): read only this plugin and its masters, from any folder, with no Plugins.txt.
   Use it for a downloaded mod or a patch that isn't installed. The load order is the plugin's masters (each master's
   own masters first) and then the plugin. Each master is looked for in the plugin's own folder, then in each
   `--masters-dir` in the order given, then in `--data` (default: Steam's usual Data folder). A master in none of them
@@ -1005,9 +1013,9 @@ Use it to see which kinds of dialogue line an NPC speaks, and which kinds it sti
     sf-mod-check lines 000801:MyMod.esm --plugin "C:\Downloads\MyMod\MyMod.esm" --type "Combat / Hit"
 
     sf-mod-check lines <EditorID | FormKey | FormID> [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
-                        [--data <Data folder>] [--extra-data <folder>] [--compare <NPC>] [--type <name>] [--max <n>]
+                        [--data <Data folder>] [--extra-data <folder or archive>] [--compare <NPC>] [--type <name>] [--max <n>]
                         [--no-files] [--json] [--quiet] [--verbose] [--log <file>]
-    sf-mod-check lines <EditorID | FormKey> --plugin <plugin file> [--masters-dir <folder>]... [...]
+    sf-mod-check lines <EditorID | FormKey> --plugin <plugin file or archive> [--masters-dir <folder>]... [...]
 
 - The NPC is given as for `find`: an EditorID, a FormKey or a console FormID (with `--plugin`, an EditorID or a
   FormKey). `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`, `--plugin` and `--masters-dir` work as for `find`.
@@ -1075,9 +1083,9 @@ scene windows (0.24.0). It reads your load order and changes nothing.
     sf-mod-check scenes 000801:MyMod.esm --plugin "C:\Downloads\MyMod\MyMod.esm" --max 0
 
     sf-mod-check scenes <EditorID | FormKey | FormID> [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
-                        [--data <Data folder>] [--extra-data <folder>] [--hub <scene>] [--out <file.md>] [--json]
+                        [--data <Data folder>] [--extra-data <folder or archive>] [--hub <scene>] [--out <file.md>] [--json]
                         [--max <n>] [--quiet] [--verbose] [--log <file>]
-    sf-mod-check scenes <EditorID | FormKey> --plugin <plugin file> [--masters-dir <folder>]... [...]
+    sf-mod-check scenes <EditorID | FormKey> --plugin <plugin file or archive> [--masters-dir <folder>]... [...]
 
 - **What you give it.** An NPC (the scenes where a quest alias the NPC fills speaks, plus every scene those scenes jump
   to in the same quests) or a quest (all its scenes). It is an EditorID (letter case ignored), a FormKey or a console
@@ -1172,6 +1180,160 @@ Exit codes: 0 the NPC or quest was found (even with problems or no scenes), 1 no
 no load order, a missing master, a name that is another kind of record, one EditorID shared by several records, or a
 `--plugin` plugin whose dialogue or scenes can't be read in full). A run on one NPC with `--plugin` and Starfield.esm as
 a master took about 25 seconds and 3 to 4 GB of memory (about 10 seconds of that is loading Starfield.esm).
+
+## Archives as input (since 0.26.0)
+
+`find`, `conflict`, `lines`, `scenes`, `overrides` and `summary` take a mod archive (`.zip`, `.7z` or `.rar`, any letter
+case) anywhere they take a plugin file with `--plugin`, or an extra folder with `--extra-data`. Nothing has to be
+installed or unpacked by hand:
+
+    sf-mod-check find --plugin "C:\Downloads\SomeMod-1.0.zip"
+    sf-mod-check conflict --extra-data "C:\Downloads\SomeMod-1.0.zip"
+    sf-mod-check summary "C:\Downloads\SomeMod-1.0.7z"
+
+- **How it is read:** the archive is unpacked into a temporary folder that only this run uses, and the folder is deleted
+  when the run ends (also after an error). Nothing is written next to the archive. For every command except `conflict`
+  only the plugins (`.esm`, `.esp`, `.esl`) are written; `conflict` also writes the other files, because it looks up
+  textures and sounds in loose files. `patch` and `voice-lines` don't take an archive (exit 2, with what to give
+  instead: the folder).
+- **The same guards as `triage`, `release` and `diff`:** every entry is checked, even one that isn't written. An
+  entry that would land outside the temporary folder (`..`, a rooted path, a drive letter), a name given twice, a name
+  Windows would change, an archive with more than 200,000 entries or more than 12 GB unpacked, an entry that unpacks
+  past its declared size, and a password-protected archive are all refused (exit 2, with the reason). Links are never
+  followed. A password-protected entry in a zip is refused by name (since 0.26.0; before, it failed with the decoder's
+  message).
+- **Where the plugins sit:** the plugins must all be in one folder inside the archive: the top, `Data\` or
+  `<ModName>\`. An archive with no plugin is refused. An archive whose plugins sit in more than one folder (an installer
+  with options, such as a FOMOD) is refused too, with the advice to unpack it and give the folder you would install, or
+  the plugin itself.
+- **`--plugin <archive>`:** the archive's plugins and their masters are the load order. Masters are looked for in the
+  archive's folder, then in each `--masters-dir`, then in `--data`. An archive with several plugins loads them all, a
+  plugin that is another's master first, and the one that comes last is treated as "the plugin" (the one `find` lists or
+  a FormKey is read from); a note on stderr says so.
+- **`--extra-data <archive>`:** the archive's files win over the Data folder's, as a folder's do. A plugin in the
+  archive that Plugins.txt doesn't list (a downloaded mod isn't installed yet) is read as the last plugin of the load
+  order, with a note on stderr naming it. A plugin that is already active keeps its place. A folder given to
+  `--extra-data` works as before.
+- `--verbose` or `--log <file>` records the temporary folder, each archive's entries and plugins, and its removal.
+
+A `.7z` or `.rar` is read by a separate unpacker from a zip, with the same guards. The tests have no real `.rar` (no free
+tool writes one); they use a zip named `.rar`, which takes the same unpacker path.
+
+## Records that more than one mod changes: `sf-mod-check overrides`
+
+Use it to see where mods collide: it lists the records that two or more **non-official** plugins hold, by record type.
+A record counts when a mod overrides it, or when a mod's own new record is overridden by another mod. The official
+plugins (`Starfield.esm`, the DLCs, the Creations by Bethesda) are never counted: a record only the game and one mod
+hold is not a collision. It reads your load order (or the plugins and archives you name) and changes nothing.
+
+    sf-mod-check overrides
+    sf-mod-check overrides --type DIAL,INFO
+    sf-mod-check overrides --plugin "C:\Downloads\A-1.0.zip" --plugin "C:\Downloads\B-1.0.zip"
+    sf-mod-check overrides --records "C:\temp\records.txt"
+
+    sf-mod-check overrides [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>] | --plugin <plugin or archive> ...]
+                           [--data <Data folder>] [--extra-data <folder or archive>] [--masters-dir <folder>]...
+                           [--type <SIG>[,<SIG>...]] [--min <n>] [--records <file>] [--max <n>]
+                           [--json] [--quiet] [--verbose] [--log <file>]
+
+- **The load order:** as for `conflict` and `find`: `--plugins`, `--mo2`, `--profile`, `--data` and `--extra-data`, by
+  default the game's own Plugins.txt and Steam's usual Data folder.
+- `--plugin <plugin or archive>` can be given **more than once** (only here): compare mods that aren't installed, such
+  as a folder of downloaded zips, with no Plugins.txt. The order is each input's masters, then the input, in the order
+  given. Masters are looked for in the input's own folder, then in the other inputs' folders, then each `--masters-dir`,
+  then `--data`. When two inputs hold a plugin of the same name (two versions of one mod), **the later one is used** and
+  the earlier is left out. An input that can't be used (a master not found, a header that can't be read, an archive that
+  is refused or holds no plugin) is left out too; each left-out input is named, with the reason, on stderr, on stdout
+  (`left out:`) and in `--json` (`leftOut`), and the rest run. A path that doesn't exist, or is a folder, still stops the
+  run (exit 2), so a typo is loud. With one `--plugin`, a missing master stops the run, as in `find`.
+- `--type <SIG>[,<SIG>...]`: keep only these record types, four-letter signatures such as `DIAL,INFO`. An unknown one
+  stops with exit 2 and the list of known ones.
+- `--min <n>`: list a record when at least this many non-official plugins hold it (default 2).
+- `--records <file>` ("who edits these"): a text file with one FormKey (`064F3C:Starfield.esm`) or console FormID
+  (`0001295A`) per line; blank lines and lines starting with `#` are skipped, and a line that is neither is refused with
+  its number. Each record is looked up in the plugins that can hold it, so a short list is fast. The official copies
+  are listed too (marked `(official)`), so you see the whole chain, but only non-official plugins count for `--min`,
+  which is 1 by default here. A record nobody holds is listed under `not found:`. A console FormID with `--plugin`
+  is refused, as in `find`.
+- `--max <n>`: list at most this many records (default 200; 0 lists them all), then a line that counts the rest.
+- `--json`: one object; the keys are `tool`, `version`, `loadOrder` (`source`, `plugins`), `filter` (`types`, `min`,
+  `records`), `total`, `shown`, `byType`, `records` (each: `formKey`, `editorId`, `type`, `origin`, `holders` with
+  `plugin`, `adds`, `official`, and `winner`), `notFound`, `leftOut` (`input`, `why`), `unread` (unreadable groups and
+  load-order problems) and `result` (`found`, `none` or `cannot run`, with `error`).
+
+A made-up run on three downloaded zips, each overriding records of the base game:
+
+    sf-mod-check overrides --plugin A-1.0.zip --plugin B-1.0.zip --plugin C-1.0.zip
+    sf-mod-check 0.26.0 overrides: records held by 2 or more non-official plugins, in 4 plugins (3 --plugin inputs (A-1.0.zip, B-1.0.zip, C-1.0.zip) and their 1 master)
+    KYWD (2 records)
+      000800:A.esm A_New: A.esm (adds), B.esm (wins)
+      000800:Starfield.esm S_A: A.esm, B.esm, C.esm (wins)
+    MISC (1 record)
+      000803:Starfield.esm S_Misc: A.esm, B.esm (wins)
+    RESULT: 3 records held by 2 or more non-official plugins (KYWD 2, MISC 1)
+
+Each line is one record: its FormKey and EditorID, then the plugins that hold it in load order. `(adds)` marks the plugin
+that created the record, and `(wins)` the last holder, the copy the game uses. A record is found by its FormKey, so a mod
+that gives a record a new FormKey isn't a collision. Exit codes: 0 records listed, 1 none matched, 2 couldn't run.
+
+## What one plugin adds and changes: `sf-mod-check summary`
+
+Use it to see what a mod does before you install it, or to describe it. It reads one plugin (or the plugins of an
+archive) and its masters and changes nothing.
+
+    sf-mod-check summary MyMod.esm
+    sf-mod-check summary "C:\Downloads\SomeMod-1.0.zip" --max 10
+    sf-mod-check summary MyMod.esm --masters-dir "C:\Downloads\SomeOtherMod" --json
+
+    sf-mod-check summary <plugin or archive> [--data <Data folder>] [--masters-dir <folder>]... [--max <n>]
+                         [--json] [--quiet] [--verbose] [--log <file>]
+
+- **The input** is one plugin (`.esm`, `.esp`, `.esl`) or one archive (`.zip`, `.7z`, `.rar`). Masters are looked for in
+  the plugin's own folder, then in each `--masters-dir`, then in `--data` (default: Steam's usual Data folder); a missing
+  master stops the run. An archive with several plugins gets one summary per plugin, in load order. `--plugin`,
+  `--plugins`, `--mo2`, `--profile` and `--extra-data` are refused with what to give instead.
+- **What it says** for each plugin:
+  - its name and style (full, medium or light) and its masters in the order the header lists them, each with its style and
+    where it was found;
+  - the records it holds, per record type: new, overrides, and how many of the overrides are deleted, largest first;
+  - the **ITMs**: overrides identical to the master's version, per type, with examples. Overrides whose master version
+    has no record of the same type, or can't be compared, are counted separately;
+  - the **changed fields**: for the overrides that differ from the master's version, each top-level field and how many
+    overrides change it, with examples written as `<FormKey> <EditorID>: <master value> -> <plugin value>` (a value is cut
+    to 120 characters). A partial form's empty fields aren't counted;
+  - the **cells touched**: each worldspace, and the interiors, with the cells the plugin has a record in or a record
+    under, and how many records are in each; and the **placed references** there (new, overrides, deleted overrides), counted
+    by the record type of their base (`STAT 700, NPC_ 20`). A base that is found in no plugin counts as `(base not
+    found)`.
+- `--max <n>`: the examples listed per type and per field (default 5) and the cells listed per worldspace (default 20 in
+  the text); 0 lists them all. `--json` always lists every cell.
+- `--json`: one object with `tool`, `version`, `plugins` (each: `name`, `style`, `fromArchive`, `masters`, `records`, `types`,
+  `itms`, `changedOverrides`, `fields`, `worldspaces`, `interiors`, `unread`), `loadOrderProblems` and `result`
+  (`done` or `cannot run`, with `error`).
+
+A made-up run on a small plugin:
+
+    sf-mod-check summary Mod.esm
+    sf-mod-check 0.26.0 summary of Mod.esm and its 1 master
+
+    Mod.esm (full plugin)
+      Masters (1):
+        Starfield.esm (full), in C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data
+      Records: 5 records (1 new, 4 overrides, 1 of them deleted)
+        KYWD: 1 new, 2 overrides (1 deleted), 1 ITM
+        MISC: 0 new, 2 overrides
+      ITMs (overrides identical to their master version): 1
+        KYWD (1)
+          000800:Starfield.esm S_A
+      Changed fields: 1 field changed in 2 overrides
+        MISC Value: 2 overrides
+          000802:Starfield.esm S_Misc: 5 -> 50
+          000803:Starfield.esm S_Part: 7 -> 70
+      Cells touched: none
+    RESULT: Mod.esm: 5 records (1 new, 4 overrides, 1 deleted), 1 ITM, 1 field changed in 2 overrides
+
+Exit codes: 0 the summary was made, 2 couldn't run (a missing file or master, an unreadable plugin, a refused archive).
+The `summary` is what a plugin holds, not a verdict: a deleted record or a changed value can be intended.
 
 ## A plugin's voiced lines as a list: `sf-mod-check voice-lines`
 

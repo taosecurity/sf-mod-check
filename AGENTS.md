@@ -546,6 +546,63 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     plugin that has this one as a master must be re-saved against the light copy, since Starfield stores links to
     light masters differently.
 
+25. Find the records that more than one mod changes (0.26.0). Read only:
+
+        sf-mod-check overrides
+        sf-mod-check overrides --type DIAL,INFO --min 2
+        sf-mod-check overrides --plugin "C:\Downloads\A-1.0.zip" --plugin "C:\Downloads\B-1.0.zip"
+        sf-mod-check overrides --records "C:\temp\records.txt"
+
+    It lists the records that two or more **non-official** plugins hold (one overriding the other's, or a mod's own new
+    record that another overrides), by record type, each as `<FormKey> <EditorID>: A.esm (adds), B.esm, C.esm (wins)`
+    with the plugins in load order; the last wins. Official plugins are never counted. The load order comes from
+    `--plugins`, `--mo2` (with `--profile`), `--data` and `--extra-data`, as for `conflict`, or from `--plugin`, given
+    **more than once** to compare mods that aren't installed (each a plugin or a `.zip`, `.7z` or `.rar`; no Plugins.txt;
+    the later input wins when two hold a plugin of the same name, and an input whose master isn't found or that can't be
+    unpacked is left out with a `left out:` line while the rest run; a path that doesn't exist stops the run).
+    `--type DIAL,INFO` keeps those record types (an unknown one: exit 2 with the list), `--min <n>` changes the
+    threshold (default 2), `--max <n>` caps the list (default 200; 0 = all) and `--records <file>` answers "who edits
+    these": one FormKey or console FormID per line (`#` lines skipped, a bad line refused with its number), with the
+    official copies shown and `--min` defaulting to 1. Exit 0 = records listed, 1 = none matched, 2 = couldn't run;
+    last line `RESULT: 12 records held by 2 or more non-official plugins (INFO 9, QUST 3)` or `RESULT: no record is held
+    by 2 or more non-official plugins`. `--json` has `loadOrder`, `filter`, `total`, `shown`, `byType`, `records`
+    (`formKey`, `editorId`, `type`, `origin`, `holders` with `plugin`, `adds`, `official`, and `winner`), `notFound`,
+    `leftOut`, `unread` and `result`. "No record shared" is a real answer, not a failure of the tool. A load order of
+    about 160 plugins took about 5 seconds.
+
+26. Say what a plugin adds and changes (0.26.0), for example before installing a downloaded mod. Read only:
+
+        sf-mod-check summary MyMod.esm
+        sf-mod-check summary "C:\Downloads\SomeMod-1.0.zip" --max 10
+
+    The input is one plugin or one archive (an archive with several plugins gets one summary per plugin, in load
+    order); masters are found as for `find --plugin` (`--masters-dir`, then `--data`). It prints the masters, the
+    records per type (new, overrides, deleted overrides), the ITMs (overrides identical to the master's version), the
+    top-level fields its overrides change with the master's value and the plugin's (`<FormKey> <EditorID>: 5 -> 50`),
+    the cells it touches per worldspace and in the interiors, and its placed references by the record type of their
+    base. `--max <n>` caps the examples per type and per field (default 5) and the cells per worldspace (default 20 in
+    the text; 0 = all; `--json` lists every cell). It refuses `--plugin`, `--plugins`, `--mo2`, `--profile` and
+    `--extra-data` (exit 2, with what to give instead). Exit 0 = made, 2 = couldn't run; last line
+    `RESULT: Mod.esm: 5 records (1 new, 4 overrides, 1 deleted), 1 ITM, 1 field changed in 2 overrides`. It describes what
+    a plugin holds; it is not a verdict. A mod such as one that moves thousands of references takes about 5 to 10 seconds.
+
+27. Give a downloaded mod to a command without unpacking it (0.26.0). `find`, `conflict`, `lines`, `scenes`,
+    `overrides` and `summary` take a `.zip`, `.7z` or `.rar` in `--plugin` and `--extra-data`:
+
+        sf-mod-check find --plugin "C:\Downloads\SomeMod-1.0.zip"
+        sf-mod-check conflict --extra-data "C:\Downloads\SomeMod-1.0.zip"
+
+    The archive is unpacked into a temporary folder that only that run uses and is deleted afterwards (also after an
+    error); nothing is written next to it. Only plugins are written, except for `conflict`, which also writes the
+    other files (it looks up textures and sounds). Every entry is checked with the guards `triage` uses: an entry outside
+    the folder (`..`, a rooted path, a drive), a name given twice, more than 200,000 entries or 12 GB, and an encrypted
+    entry are refused with the reason (exit 2). All the plugins must sit in one folder of the archive (the top,
+    `Data\` or `<ModName>\`); no plugin, or plugins in several folders (a FOMOD installer), is refused: tell the user
+    to unpack it and give the folder, or the plugin. `--extra-data <archive>` reads a plugin that Plugins.txt doesn't
+    list as the last plugin of the load order (a note on stderr says so). `--plugin <archive>` with several plugins
+    loads them all and treats the last in load order as "the plugin". `patch` and `voice-lines` refuse an archive:
+    give the folder.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's
@@ -745,8 +802,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 1. It never changes, moves or deletes a plugin, the load order or anything in the game folder. (`edit`, 0.25.0, writes a
    checked **new** copy to the `--out` path you give; it never overwrites a file and never touches its input.) It writes only its
    caches, the `--log` file, (conflict) the `--out` report folder, (patch) its `--out` folder, which may not be the
-   Data folder, (triage) its three report files, and (release, triage) a temp folder holding the unpacked archive,
-   which it removes at the end. It never changes the zip. Installing a patch is the user's job, with their mod manager.
+   Data folder, (triage) its three report files, and (release, triage, and since 0.26.0 find, conflict, lines, scenes, overrides and
+   summary given an archive) a temp folder holding the unpacked archive, which it removes at the end. It never changes the zip. Installing a patch is the user's job, with their mod manager.
 2. It makes no network connections and uploads nothing. With `--dmmdeps` or `--papyrus` it starts that program, and
    only the exact builds named in the README (checked by SHA-256). With `--manalyze` it starts that program with
    offline plugins only. `triage` never loads or runs a mod's DLLs, EXEs or scripts: it reads their bytes; the

@@ -1,9 +1,9 @@
 // sf-mod-check lines (0.21.0): the dialogue lines one NPC can speak, grouped by type (the topic's Category / Subtype),
 // read only. The line rules are in DialogueLines.cs; the design is in NOTES.md, "0.21.0 (SmcLookup)", "Step 1 design".
 //   sf-mod-check lines <EditorID | FormKey | FormID> [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]
-//                      [--data <Data folder>] [--extra-data <folder>] [--compare <NPC>] [--type <name>] [--max <n>]
+//                      [--data <Data folder>] [--extra-data <folder or archive>] [--compare <NPC>] [--type <name>] [--max <n>]
 //                      [--no-files] [--json] [--quiet] [--verbose] [--log <file>]
-//   sf-mod-check lines <EditorID | FormKey> --plugin <plugin file> [--masters-dir <folder>]... [...]
+//   sf-mod-check lines <EditorID | FormKey> --plugin <plugin file or archive> [--masters-dir <folder>]... [...]
 // --compare counts a second NPC's own lines (not its shared voice-type lines) per type and marks the types this NPC
 // has no line of as missing. Each line's wem and lip say whether sound\voice\<the INFO's own plugin>\<the NPC's voice
 // type>\<number>.wem and .ffxanim are there (VoiceFileIndex), ? for an NPC with no voice type of its own or --no-files.
@@ -26,9 +26,9 @@ public static class LinesCommand
 {
     public const string Usage =
         "usage: sf-mod-check lines <EditorID | FormKey | FormID> [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]]\n" +
-        "                          [--data <Data folder>] [--extra-data <folder>] [--compare <NPC>] [--type <name>] [--max <n>]\n" +
+        "                          [--data <Data folder>] [--extra-data <folder or archive>] [--compare <NPC>] [--type <name>] [--max <n>]\n" +
         "                          [--no-files] [--json] [--quiet] [--verbose] [--log <file>]\n" +
-        "       sf-mod-check lines <EditorID | FormKey> --plugin <plugin file> [--masters-dir <folder>]... [...]\n" +
+        "       sf-mod-check lines <EditorID | FormKey> --plugin <plugin file or archive> [--masters-dir <folder>]... [...]\n" +
         "  Lists the dialogue lines one NPC can speak, grouped by type (the topic's Category / Subtype, for example\n" +
         "  Combat / Hit), and counts them per type. A line counts when its speaker is the NPC, a condition names the NPC\n" +
         "  (GetIsID) or an alias it fills (GetIsAliasRef), or a scene gives the line to an alias the NPC fills. Lines for\n" +
@@ -36,7 +36,7 @@ public static class LinesCommand
         "  (wem) and lip file (lip, .ffxanim) are there, in the plugin's archives or loose.\n" +
         "  The NPC      an EditorID (letter case ignored), a FormKey (005788:Starfield.esm) or a console FormID (00005788)\n" +
         "               (an EditorID of exactly 8 hex digits: put eid: before it, as eid:00005788)\n" +
-        "  --plugin     read only this plugin and its masters (found in its folder, then each --masters-dir, then --data)\n" +
+        "  --plugin     read only this plugin (or a .zip, .7z or .rar of plugins) and its masters (found in its folder, then each --masters-dir, then --data)\n" +
         "  --compare    count another NPC's lines per type too (for example a vanilla companion) and mark the types this\n" +
         "               NPC has none of as missing; the same forms as the NPC\n" +
         "  --type       keep only lines of this Category (Combat) or Category / Subtype (\"Combat / Hit\"); letter case ignored\n" +

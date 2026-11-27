@@ -15,8 +15,10 @@ public static class ConflictCommand
 {
     public const string Usage =
         "usage: sf-mod-check conflict [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>]\n" +
-        "                           [--extra-data <folder>] [--out <folder>] [--max-memory <GB>] [--no-assets] [--no-priorities]\n" +
-        "                           [--ini <file>]... [--language <code>] [--quiet] [--verbose] [--log <file>]";
+        "                           [--extra-data <folder or archive>] [--out <folder>] [--max-memory <GB>] [--no-assets] [--no-priorities]\n" +
+        "                           [--ini <file>]... [--language <code>] [--quiet] [--verbose] [--log <file>]\n" +
+        "  --extra-data  a folder, or a mod archive (.zip, .7z or .rar, unpacked to a temporary folder that is deleted afterwards);\n" +
+        "                its files win over the Data folder's, and a plugin in it that Plugins.txt doesn't list is read as the last plugin";
 
     public static int Run(string[] a, string version, string byline)
     {
