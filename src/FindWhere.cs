@@ -318,7 +318,7 @@ internal static class FindWhere
             foreach (var h in listed)
             {
                 var (wp, rec) = h.Winner;
-                var name = FindCommand.NameOf(rec);
+                var name = NameOfHit(h);
                 Console.WriteLine($"{(string.IsNullOrEmpty(rec.EditorID) ? "(no EditorID)" : SafeText.OneLine(rec.EditorID))} [{h.Key}]{(name != null ? $" \"{name}\"" : "")} ({TypeOf(rec)}, winner {wp.FileName})");
                 foreach (var (f, t) in h.Shown) Console.WriteLine($"  {f}: {t}");
             }
@@ -331,6 +331,18 @@ internal static class FindWhere
         }
         Log.Write($"result: {(hits.Count == 0 ? "not found, exit code 1" : $"found {hits.Count}, exit code 0")}, {sw.Elapsed.TotalSeconds:F1} s");
         return hits.Count == 0 ? 1 : 0;
+    }
+
+    /// <summary>The winning copy's name; a partial form without one keeps the earlier copy's, as --where tests it.</summary>
+    static string? NameOfHit(Hit h)
+    {
+        for (int i = h.Copies.Count - 1; i >= 0; i--)
+        {
+            var r = h.Copies[i].Rec;
+            if (FindCommand.NameOf(r) is { } n) return n;
+            if (!FieldCompare.IsPartial(r)) return null;
+        }
+        return null;
     }
 
     static string TypeOf(IMajorRecordGetter r) => Checker.SigsOf(r.GetType())?.Order(StringComparer.Ordinal).FirstOrDefault() ?? Analyzer.TypeShort(r.GetType());
@@ -573,7 +585,7 @@ internal static class FindWhere
                 {
                     ["formKey"] = h.Key.ToString(),
                     ["editorId"] = h.Winner.Rec.EditorID,
-                    ["name"] = FindCommand.NameOf(h.Winner.Rec),
+                    ["name"] = NameOfHit(h),
                     ["type"] = TypeOf(h.Winner.Rec),
                     ["winner"] = h.Winner.Plugin.FileName,
                     ["fields"] = fields,

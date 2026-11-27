@@ -166,6 +166,7 @@ public class FindWhereTests(WhereGame game) : IClassFixture<WhereGame>
         (_, ids, o) = Where("--type", "NPC_", "--where", "Name = big boss");
         Assert.Equal(["W_Boss"], ids);
         Assert.Contains("(NPC_, winner A.esm)", o);
+        Assert.Contains("\"Big Boss\" (NPC_, winner A.esm)", o);   // the earlier copy's name is shown for the partial winner
     }
 
     [Fact]
