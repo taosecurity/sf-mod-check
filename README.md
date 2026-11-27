@@ -1699,8 +1699,8 @@ The three edits (give at least one; they can be combined):
 **Always refused** (exit 2, with the reason and what to do): no `--out`, `--out` equal to the plugin or already
 existing (it never overwrites), an `--out` named like one of the new file's masters (a plugin can't be its own
 master), an `.esl` `--out` for a plugin that isn't light (the game loads every `.esl` as light, so add `--set-light`
-or keep the extension), an `.esm` or `.esp` `--out` for an `.esl` without the light flag (it would load as a full
-plugin; add `--set-light` or keep `.esl`), a plugin inside a zip (unpack it first), a folder or wildcard as input, and bad arguments.
+or keep the extension; a medium plugin can't take `--set-light`), an `.esm` or `.esp` `--out` for an `.esl` without
+the light flag (it would no longer load as light; add `--set-light` for a full plugin, or keep `.esl`), a plugin inside a zip (unpack it first), a folder or wildcard as input, and bad arguments.
 Since 0.28.0 the gap and check proofs run on the new file under its `--out` name.
 
 **The three proofs.** The new file is read back and must pass all three before it is kept; otherwise it is deleted and

@@ -9,7 +9,7 @@
 ### Changes
 
 - **`edit --drop-master` renumbers only real links.** Before 0.28.0 it renumbered every 4-byte value that equaled one of the plugin's link values, in any field, so a number that only looked like a FormID (a value, a weight, a byte list) was changed too: the proof then refused the edit, or, in a field nothing reads, the number was changed silently. Now `edit` asks Mutagen which values it reads as links (a probe read of a copy in memory) and renumbers only those. A look-alike number that names no record is left as it is, and the report says "left N look-alike values alone"; one that names a real record is refused, as a FormID in a text field already was.
-- **`edit --out` is proved under its own name.** The gap and check proofs now run on the new file under the name it is kept as. `edit` refuses an `--out` named like one of the new file's masters, and an `.esl` `--out` for a plugin that isn't light (the game loads every `.esl` as light, so its own FormIDs would point at the wrong records; add `--set-light` or keep the extension), and an `.esm` or `.esp` `--out` for an `.esl` without the light flag (which the game loads as light by its name alone).
+- **`edit --out` is proved under its own name.** The gap and check proofs now run on the new file under the name it is kept as. `edit` refuses an `--out` named like one of the new file's masters, and an `.esl` `--out` for a plugin that isn't light (the game loads every `.esl` as light, so its own FormIDs would point at the wrong records; add `--set-light` for a full plugin, or keep the extension), and an `.esm` or `.esp` `--out` for an `.esl` without the light flag (which the game loads as light by its name alone).
 
 ### Fixes
 
