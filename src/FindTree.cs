@@ -118,7 +118,7 @@ internal static class FindTree
 
     /// <summary>A value's leaf text, or null when it has children (a list or a Mutagen object). skip: an empty value,
     /// left out. link == null (counting only): links aren't named.</summary>
-    static string? LeafText(object? v, Func<IFormLinkGetter, string>? link, out bool skip)
+    internal static string? LeafText(object? v, Func<IFormLinkGetter, string>? link, out bool skip)
     {
         skip = false;
         switch (v)

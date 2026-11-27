@@ -60,6 +60,19 @@ public static class FindCommand
         "  --layout  list the winning copy's subrecords as the file stores them, in order: offset, signature, size and a\n" +
         "            short preview of the value (text, a number, or the first 16 bytes in hex); --json adds it as\n" +
         "            \"layout\". A damaged record lists the subrecords before the bad spot and says what is wrong.\n" +
+        "       sf-mod-check find --type <SIG> --where \"<field> <op> [<value>]\" [--where ...] [--editorid-match <regex>]\n" +
+        "                         [load-order options as above, or --plugin] [--max <n>] [--json] [--quiet] [--verbose] [--log <file>]\n" +
+        "       sf-mod-check find --editorid-match <regex> [--type <SIG>] [load-order options as above, or --plugin] [--max <n>] [...]\n" +
+        "  --where   list every record of the --type whose winning copy matches (give no record to look up). <op> is\n" +
+        "            =  the value equals (a link: its EditorID, FormKey or console FormID; a number as a number)\n" +
+        "            != it doesn't (an empty field counts as not equal)   ~  the value contains the text\n" +
+        "            has  the flag is set (Flags has Unique), or a list has the entry (Keywords has MyKeyword)\n" +
+        "            exists  the field isn't empty (no value after it)\n" +
+        "            The field is a name from find's fields block; a dotted path goes one level down per part\n" +
+        "            (Factions.Faction = MyFaction), and a list on the way matches when any entry does. Letter case is\n" +
+        "            ignored. Several --where are all required. An unknown field is refused with the type's field list.\n" +
+        "  --editorid-match  keep only records whose EditorID matches this .NET regular expression (letter case ignored);\n" +
+        "            without --type it searches every record type. --max limits the list (default 100; 0 lists them all).\n" +
         "Exit 0 = found, 1 = not found, 2 = could not run.";
 
     /// <summary>The field lines printed per record at most (the rest are counted on one line).</summary>
@@ -104,7 +117,7 @@ public static class FindCommand
         ["tool"] = "sf-mod-check find", ["version"] = version, ["query"] = query, ["result"] = "cannot run", ["error"] = why,
     }.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 
-    static readonly Regex ConsoleId = new(@"^(0x)?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
+    internal static readonly Regex ConsoleId = new(@"^(0x)?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
     /// <summary>0.25.0: a quoted ("00005788") or prefixed (eid:00005788) name is always an EditorID, even when it is exactly
     /// 8 hex digits, which would otherwise read as a console FormID. Returns the EditorID, or null for any other form.</summary>
     internal static string? ForcedEditorId(string q)
@@ -146,6 +159,8 @@ public static class FindCommand
         string? q = null, type = null, logFile = null;
         bool quiet = false, verbose = false, json = false, full = false, versions = false, refs = false, layout = false;
         int? max = null;
+        var wheres = new List<string>();   // 0.27.0: --where, --editorid-match (FindWhere.cs)
+        string? eidMatch = null;
         using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "find");
         for (int i = 0; i < a.Length; i++)
         {
@@ -167,6 +182,12 @@ public static class FindCommand
                 case "--log":
                     if (Cli.Value(a, ref i, "a file name", Usage) is not { } lf) return 2;
                     logFile = lf; break;
+                case "--where":
+                    if (Cli.Value(a, ref i, "a filter such as \"Flags has Unique\"", Usage) is not { } wh) return 2;
+                    wheres.Add(wh); break;
+                case "--editorid-match":
+                    if (Cli.Value(a, ref i, "a regular expression", Usage) is not { } em) return 2;
+                    eidMatch = em; break;
                 case "--json": json = true; break;
                 case "--full": full = true; break;
                 case "--versions": versions = true; break;
@@ -191,8 +212,70 @@ public static class FindCommand
                     break;
             }
         }
-        bool listing = string.IsNullOrEmpty(q) && input.Plugin != null;
-        if (string.IsNullOrEmpty(q) && !listing)
+        // 0.27.0: --where and --editorid-match list every matching record (FindWhere.cs); all refusals come before any plugin is read
+        bool search = wheres.Count > 0 || eidMatch != null;
+        FindWhere.Query? where = null;
+        if (search)
+        {
+            var opt = wheres.Count > 0 ? "--where" : "--editorid-match";
+            query = string.Join(" ", wheres.Select(w => $"--where \"{SafeText.OneLine(w)}\"").Concat(eidMatch != null ? [$"--editorid-match {SafeText.OneLine(eidMatch)}"] : []));
+            if (!string.IsNullOrEmpty(q))
+            {
+                Console.Error.WriteLine($"{opt} lists every record that matches; leave out the record ({SafeText.OneLine(q)}), or leave out {opt}.");
+                cantWhy = $"a record and {opt} together";
+                return 2;
+            }
+            var other = full ? "--full" : versions ? "--versions" : refs ? "--refs" : layout ? "--layout" : null;
+            if (other != null)
+            {
+                Console.Error.WriteLine($"{other} doesn't go with {opt} in this version: list the records first, then look one up with find <EditorID> {other}.");
+                cantWhy = $"{other} with {opt}";
+                return 2;
+            }
+            if (wheres.Count > 0 && type == null)
+            {
+                Console.Error.WriteLine("--where needs --type <SIG>, because the fields depend on the record type: for example --type NPC_ --where \"Flags has Unique\".");
+                cantWhy = "--where without --type";
+                return 2;
+            }
+            if (type != null && (!Signature.IsMatch(type) || !KnownSigs.Value.Contains(type)))
+            {
+                Console.Error.WriteLine($"--type needs a Starfield record type of four letters, digits or underscores, such as LCTN, MISC, NPC_ or QUST, not \"{type}\".");
+                cantWhy = $"unknown record type {type}";
+                return 2;
+            }
+            var filters = new List<FindWhere.Filter>();
+            foreach (var w in wheres)
+            {
+                if (FindWhere.Parse(w, out var pwhy) is not { } f)
+                {
+                    Console.Error.WriteLine($"{pwhy}; got \"{SafeText.OneLine(w)}\".");
+                    cantWhy = "a --where filter can't be read";
+                    return 2;
+                }
+                filters.Add(f);
+            }
+            if (filters.Count > 0 && FindWhere.Check(type!, filters) is { } cwhy)
+            {
+                Console.Error.WriteLine(cwhy);
+                cantWhy = $"a --where filter doesn't fit the {type} fields";
+                return 2;
+            }
+            Regex? re = null;
+            if (eidMatch != null)
+            {
+                try { re = new Regex(eidMatch, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)); }
+                catch (ArgumentException e)
+                {
+                    Console.Error.WriteLine($"--editorid-match needs a .NET regular expression: {SafeText.OneLine(e.Message.Split('\n')[0])}");
+                    cantWhy = "--editorid-match isn't a regular expression";
+                    return 2;
+                }
+            }
+            where = new FindWhere.Query(type, filters, re, eidMatch, max ?? DefaultMax, json, quiet, input.Plugin != null);
+        }
+        bool listing = !search && string.IsNullOrEmpty(q) && input.Plugin != null;
+        if (string.IsNullOrEmpty(q) && !listing && !search)
         {
             Console.Error.WriteLine("find needs the record to look up: an EditorID, a FormKey (01295A:Starfield.esm) or a console FormID (0001295A). " +
                                     "To list every record in one plugin, give --plugin \"<plugin file>\" instead.");
@@ -214,7 +297,7 @@ public static class FindCommand
             cantWhy = "--refs needs a record to look up";
             return 2;
         }
-        if (max != null && !listing && !refs)
+        if (max != null && !listing && !refs && !search)
         {
             Console.Error.WriteLine("--max limits the whole-plugin listing (--plugin \"<plugin file>\" and no record to look up) " +
                                     "or the referring records --refs lists, so it goes with one of those.");
@@ -230,7 +313,7 @@ public static class FindCommand
         }
         var forcedEid = ForcedEditorId(q);
         if (forcedEid != null) q = forcedEid;
-        query = listing ? $"--plugin {Path.GetFileName(input.Plugin)}" : q;
+        if (!search) query = listing ? $"--plugin {Path.GetFileName(input.Plugin)}" : q;
         if (type != null && (!Signature.IsMatch(type) || !KnownSigs.Value.Contains(type)))
         {
             Console.Error.WriteLine($"--type needs a Starfield record type of four letters, digits or underscores, such as LCTN, MISC, NPC_ or QUST, not \"{type}\".");
@@ -279,6 +362,7 @@ public static class FindCommand
             foreach (var p in lo.Problems) Log.Write($"load-order problem: {p}");
             if (!quiet && !json) Console.Error.WriteLine($"Loaded {lo.Plugins.Count} plugins ({lo.Problems.Count} load-order problems) in {sw.Elapsed.TotalSeconds:F0} s");
             if (input.Plugin != null && Unloaded(lo, input.Plugin) is { } unloadedWhy) { cantWhy = unloadedWhy; return 2; }
+            if (where != null) return FindWhere.Run(lo, where, version, sw, out resultPrinted, out cantWhy);
             if (listing) return ListPlugin(lo, input.Plugin!, type, max ?? DefaultMax, json, quiet, full, layout, version, sw, out resultPrinted, out cantWhy);
 
             var unread = new List<string>();
@@ -647,7 +731,7 @@ public static class FindCommand
             .OrderBy(m => m.Copies[0].Plugin.Index).ThenBy(m => m.Key.ToString(), StringComparer.Ordinal).ToList();
     }
 
-    static string? NameOf(IMajorRecordGetter r)
+    internal static string? NameOf(IMajorRecordGetter r)
     {
         try { return (r as ITranslatedNamedGetter)?.Name?.String is { Length: > 0 } n ? SafeText.OneLine(n) : null; }
         catch (Exception e) when (Fatal.Recoverable(e)) { return null; }
