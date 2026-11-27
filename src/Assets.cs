@@ -117,7 +117,9 @@ public sealed class AssetIndex
                 if (type == "DX10") index.Dx10.Add(name);
                 else if (type == "GNRL") index.Gnrl.Add(name);
                 else Log.Write($"assets: archive {name} has type \"{type}\" (not GNRL or DX10): not counted toward either archive limit");
-                if (!names) continue;
+                var keep = (path, type, iniPos.TryGetValue(name, out var at) ? at : -1, why);
+                // 0.27.0 (ba2 find): every readable GNRL and DX10 archive in one list; with names, only once they are read
+                if (!names) { if (type is "GNRL" or "DX10") index.ordered.Add(keep); continue; }
                 foreach (var n in Ba2Names.Read(path))
                 {
                     // the game serves only textures from a texture archive
@@ -126,7 +128,7 @@ public sealed class AssetIndex
                     // every material database counts: the game's and the ones plugins ship (0.14.0, relay step 10)
                     if (type == "GNRL" && n.EndsWith(".cdb", StringComparison.Ordinal)) index.AddCdb(path, n);
                 }
-                if (type == "GNRL") index.general.Add((path, iniPos.TryGetValue(name, out var pos) ? pos : -1));
+                if (type is "GNRL" or "DX10") index.ordered.Add(keep);
                 index.Loaded.Add($"{name} ({why})");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -313,14 +315,24 @@ public sealed class AssetIndex
         return list;
     }
 
-    readonly List<(string Path, int IniPos)> general = new();   // IniPos -1: not listed in an INI
+    // every GNRL and DX10 archive read (0.27.0), in the order Build took them; IniPos -1: not listed in an INI
+    readonly List<(string Path, string Type, int IniPos, string Why)> ordered = new();
+
+    /// <summary>One archive the game loads (0.27.0, ba2 find): its full path, its type (GNRL or DX10) and why it loads
+    /// ("named after MyMod.esm", "listed in Starfield.ini (sResourceArchiveList)").</summary>
+    public sealed record LoadedArchive(string Path, string Type, string Why);
+
+    /// <summary>The general and texture archives read, in the order the game loads them (0.27.0): the INIs' archives
+    /// first, in the order the INIs list them, then the plugins' own archives in plugin order. A file in a later archive
+    /// replaces one of the same name in an earlier one. With names: false, every archive whose type could be read.</summary>
+    public IEnumerable<LoadedArchive> ArchivesInLoadOrder() =>
+        ordered.Where(g => g.IniPos >= 0).OrderBy(g => g.IniPos).Concat(ordered.Where(g => g.IniPos < 0)).Select(g => new LoadedArchive(g.Path, g.Type, g.Why));
 
     /// <summary>The general archives read, in the order the game loads them (0.23.0, the sound-bank index): the INIs'
     /// archives first, in the order the INIs list them (so "Starfield - WwiseSoundsPatch.ba2" after 01 to 05), then the
-    /// plugins' own archives in plugin order. A file in a later archive replaces one of the same name in an earlier
-    /// one. Full paths.</summary>
+    /// plugins' own archives in plugin order. ArchivesInLoadOrder filtered to GNRL (0.27.0). Full paths.</summary>
     public IEnumerable<string> GeneralArchivesInLoadOrder() =>
-        general.Where(g => g.IniPos >= 0).OrderBy(g => g.IniPos).Concat(general.Where(g => g.IniPos < 0)).Select(g => g.Path);
+        ArchivesInLoadOrder().Where(g => g.Type == "GNRL").Select(g => g.Path);
 
     /// <summary>The folders searched for loose files, first one first (a loose file in an earlier folder wins).</summary>
     public IReadOnlyList<string> LooseDirs => looseDirs;

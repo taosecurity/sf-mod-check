@@ -59,6 +59,7 @@ const string Usage =
     "       sf-mod-check scenes <NPC | quest> [--plugin <plugin file or archive>] [--out <file.md>] [--json] [--max <n>] [...]   (sf-mod-check scenes --help)\n" +
     "       sf-mod-check voice-lines <plugin> [--out <file>] [--voice <voice type EditorID>]... [--utf8] [...]   (sf-mod-check voice-lines --help)\n" +
     "       sf-mod-check ba2 list <archive> [<pattern>]   |   ba2 extract <archive> <pattern> --out <folder> [--force] [...]   (sf-mod-check ba2 --help)\n" +
+    "       sf-mod-check ba2 find <pattern> [--plugins <Plugins.txt> | --mo2 <MO2 folder>] [--archives <folder>] [--json] [...]   (sf-mod-check ba2 find --help)\n" +
     "       sf-mod-check voice-format <plugin | archive.ba2 | folder>... [--quiet] [--verbose] [--log <file>]   (sf-mod-check voice-format --help)\n" +
     "       sf-mod-check edit <plugin> --out <new plugin> [--drop-master <master>] [--set-light] [--set-text <record> --text \"<text>\"]... [--json] [...]   (sf-mod-check edit --help)\n" +
     "       sf-mod-check --version";

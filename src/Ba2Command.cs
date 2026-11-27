@@ -3,6 +3,7 @@
 // Design: StarfieldPluginCheck NOTES.md, "0.22.0 (SmcLookup)", "Step 5".
 //   sf-mod-check ba2 list <archive> [<pattern>] [--quiet] [--verbose] [--log <file>]
 //   sf-mod-check ba2 extract <archive> <pattern> --out <folder> [--force] [--max-size <GB>] [--quiet] [--verbose] [--log <file>]
+//   sf-mod-check ba2 find <pattern> [load-order options] ... (0.27.0: which loaded archives hold a name; Ba2Find.cs)
 // General (GNRL) archives are extracted: stored entries, zlib entries and (version 3 headers that say so) LZ4 blocks.
 // Texture (DX10) archives are listed but not extracted (their DDS headers would have to be rebuilt).
 // An archive's file names are untrusted: a name that would leave --out (.., a rooted, drive or network path, a
@@ -23,6 +24,9 @@ public static class Ba2Command
     public const string Usage =
         "usage: sf-mod-check ba2 list <archive> [<pattern>] [--quiet] [--verbose] [--log <file>]\n" +
         "       sf-mod-check ba2 extract <archive> <pattern> --out <folder> [--force] [--max-size <GB>] [--quiet] [--verbose] [--log <file>]\n" +
+        "       sf-mod-check ba2 find <pattern> [--plugins <Plugins.txt> | --mo2 <folder>] [--data <Data folder>] [--archives <folder>] [--json] [...]\n" +
+        "  find      lists which loaded archives and loose folders hold a file, in load order, and which copy the game\n" +
+        "            uses (sf-mod-check ba2 find --help).\n" +
         "  list      prints each file in the archive (or each one the pattern matches): its size, how it is stored\n" +
         "            (stored, zlib, lz4 or texture) and its name.\n" +
         "  extract   writes each file the pattern matches under --out, keeping the archive's folders. General archives\n" +
@@ -55,6 +59,7 @@ public static class Ba2Command
 
     public static int Run(string[] a, string version, string byline)
     {
+        if (a.Length > 0 && a[0] == "find") return Ba2Find.Run(a[1..], version, byline);   // 0.27.0
         try
         {
             var code = RunLogged(a, version, byline, out var resultPrinted, out var cantWhy);
@@ -82,7 +87,7 @@ public static class Ba2Command
         var mode = a[0];
         if (mode is not ("list" or "extract"))
         {
-            Console.Error.WriteLine($"ba2 needs list or extract first, not \"{SafeText.OneLine(mode)}\", for example: sf-mod-check ba2 list \"MyMod - Main.ba2\"");
+            Console.Error.WriteLine($"ba2 needs list, extract or find first, not \"{SafeText.OneLine(mode)}\", for example: sf-mod-check ba2 list \"MyMod - Main.ba2\"");
             Console.Error.WriteLine(Usage);
             cantWhy = "unknown ba2 command";
             return 2;
