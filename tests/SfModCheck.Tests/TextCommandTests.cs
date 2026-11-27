@@ -23,11 +23,12 @@ public class TextCommandTests
         public readonly string Data, ModDir;
         public readonly FormKey Drink, Food;
 
-        public Set(Action<StarfieldMod>? more = null)
+        public Set(Action<StarfieldMod>? more = null, Action<StarfieldMod>? baseMore = null)
         {
             Data = Sub("Data");
             ModDir = Sub("mods");
             var s = Plugin.New("Starfield.esm", PluginStyle.Full, "test", "made-up base game");
+            baseMore?.Invoke(s);
             var drink = s.Ingestibles.AddNew("S_Drink");
             drink.Name = "Water";
             Drink = drink.FormKey;
@@ -109,6 +110,63 @@ public class TextCommandTests
         Assert.Equal("        was: Water", l[at + 2]);
         Assert.Contains("  ALCH (1 record, 1 string)", l);
         Assert.DoesNotContain(l, x => x.Contains("S_Food") || x.Contains(s.Food.ToString()));
+    }
+
+    // 0.28.0 step 5 (bug hunt: a real override drops its master's quest name and objectives, and text listed nothing):
+    // an override that clears a string its master has is listed, with "(no text)" and the master's text as "was"
+    [Fact]
+    public void Test9_an_override_that_clears_a_master_string_is_listed_as_no_text_with_was()
+    {
+        using var s = new Set(m => m.Ingestibles.First(x => x.EditorID == "S_Food").Name = null);
+        var (code, stdout, stderr) = s.Text(s.Mod);
+        Assert.True(code == 0, stdout + stderr);
+        var l = Listing(stdout);
+        var at = l.FindIndex(x => x == $"    ALCH S_Food [{s.Food}] changed");
+        Assert.True(at >= 0, stdout);
+        Assert.Equal("      Name: (no text)", l[at + 1]);
+        Assert.Equal("        was: Bread", l[at + 2]);
+        Assert.Contains("  ALCH (2 records, 2 strings)", l);
+        Assert.Contains("RESULT: text: 10 strings in 6 records (4 new, 2 changed) in Mod.esm", stdout);
+
+        var (jcode, json, jerr) = s.Text(s.Mod, "--json");
+        Assert.True(jcode == 0, json + jerr);
+        var food = System.Text.Json.Nodes.JsonNode.Parse(json)!["plugins"]![0]!["records"]!.AsArray()
+            .Single(r => (string?)r!["editorId"] == "S_Food")!;
+        Assert.Equal("changed", (string?)food["kind"]);
+        var str = food["strings"]!.AsArray().Single()!;
+        Assert.Equal("Name", (string?)str["field"]);
+        Assert.Equal("", (string?)str["text"]);
+        Assert.Equal("Bread", (string?)str["was"]);
+    }
+
+    // 0.28.0 step 5: a partial-form quest override (flag 0x4000) that leaves out the master's name keeps it in the
+    // game, so it is not listed; the same override without the flag clears the name and is listed
+    [Fact]
+    public void Test10_a_partial_form_that_leaves_out_a_master_string_is_not_listed_as_cleared()
+    {
+        FormKey partial = default, full = default;
+        using var s = new Set(m =>
+        {
+            m.Quests.Add(new Quest(partial, StarfieldRelease.Starfield) { EditorID = "S_QuestPartial", MajorRecordFlagsRaw = 0x4000 });
+            m.Quests.Add(new Quest(full, StarfieldRelease.Starfield) { EditorID = "S_QuestFull" });
+        }, b =>
+        {
+            var q1 = b.Quests.AddNew("S_QuestPartial");
+            q1.Name = "Old Friends";
+            partial = q1.FormKey;
+            var q2 = b.Quests.AddNew("S_QuestFull");
+            q2.Name = "New Friends";
+            full = q2.FormKey;
+        });
+        var (code, stdout, stderr) = s.Text(s.Mod, "--type", "QUST");
+        Assert.True(code == 0, stdout + stderr);
+        var l = Listing(stdout);
+        Assert.DoesNotContain(l, x => x.Contains("S_QuestPartial"));
+        var at = l.FindIndex(x => x == $"    QUST S_QuestFull [{full}] changed");
+        Assert.True(at >= 0, stdout);
+        Assert.Equal("      Name: (no text)", l[at + 1]);
+        Assert.Equal("        was: New Friends", l[at + 2]);
+        Assert.Contains("RESULT: text: 1 string in 1 record (0 new, 1 changed) in Mod.esm", stdout);
     }
 
     [Fact]

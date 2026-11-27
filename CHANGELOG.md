@@ -4,7 +4,7 @@
 
 ### What's new
 
-- **`text <plugin | archive>`** lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest names and objectives, dialogue, and every other text the game translates, each with its field path. A new record lists all its strings; an override lists only the strings it changes, each with the master's text as "was". A localized plugin's text is read from its string files, with a warning when they can't be found. `--type`, `--json` and `--out`.
+- **`text <plugin | archive>`** lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest names and objectives, dialogue, and every other text the game translates, each with its field path. A new record lists all its strings; an override lists only the strings it changes, each with the master's text as "was", and a string it clears or leaves out as "(no text)". A localized plugin's text is read from its string files, with a warning when they can't be found. `--type`, `--json` and `--out`.
 
 ### Changes
 

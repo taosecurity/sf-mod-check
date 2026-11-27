@@ -5,7 +5,8 @@
 // an archive with several plugins gets one section per plugin, in load order. A player-facing string is any
 // value Mutagen types as ITranslatedStringGetter, at any depth of a record (the type the game localizes); child records
 // are listed as records of their own. A new record lists every string; an override lists only the strings whose text
-// differs from the winning master version's (the master-closure link cache summary builds), with that text as "was".
+// differs from the winning master version's (the master-closure link cache summary builds), with that text as "was";
+// a master string the override lacks is listed with no text (0.28.0 step 5).
 // NOTES.md "0.28.0 (Followups)", part (a), has the design.
 // Exit 0 = listed (also when nothing is found), 2 = could not run. Text ends with one RESULT line; --json prints one object.
 using System.Collections;
@@ -30,7 +31,8 @@ public static class TextCommand
         "                         [--json] [--out <file>] [--quiet] [--verbose] [--log <file>]\n" +
         "  Lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest\n" +
         "  names and objectives, dialogue, and every other text the game translates. A new record lists all its strings;\n" +
-        "  an override lists only the strings it changes, each with the master's text as \"was\".\n" +
+        "  an override lists only the strings it changes, each with the master's text as \"was\" (a string it clears\n" +
+        "  shows as (no text)).\n" +
         "  <plugin | archive>  a plugin (.esm, .esp or .esl), a mod archive (.zip, .7z or .rar). An\n" +
         "               archive with several plugins gets one section per plugin, in load order. The masters are\n" +
         "               looked up in the plugin's own folder, then each --masters-dir, then the game's Data folder. A\n" +
@@ -45,6 +47,8 @@ public static class TextCommand
     internal sealed record Str(string Field, string Text, string? Was);
 
     internal const string KindNew = "new", KindChanged = "changed", KindNoMaster = "no master";
+    /// <summary>How the text output shows a string an override cleared (its JSON text is "").</summary>
+    internal const string NoText = "(no text)";
 
     /// <summary>One listed record: an own record (new), an override that changes strings (changed), or an override
     /// with no master version to compare (no master: every string listed).</summary>
@@ -342,11 +346,20 @@ public static class TextCommand
             var was = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var s in Strings(master, ref ignoredSeen, ref ignoredNonEmpty)) was.TryAdd(s.Field, s.Text);
             var changed = new List<Str>();
+            var own = new HashSet<string>(StringComparer.Ordinal);
             foreach (var s in Strings(ov, ref seenStrings, ref nonEmpty))
             {
+                own.Add(s.Field);
                 if (was.TryGetValue(s.Field, out var old) && old == s.Text) continue;
                 changed.Add(s with { Was = was.TryGetValue(s.Field, out var o) ? o : null });
             }
+            // a string the master has and the override doesn't (cleared, or its field or list entry left out): the player
+            // loses that text, so it is listed with no text and the master's as "was" (0.28.0 step 5). Not for a partial
+            // form, whose left-out fields come from the master in the game.
+            if (IsPartialForm(ov)) Log.Write($"text: {ov.FormKey}: a partial form, so the master strings it leaves out are not listed as cleared");
+            else
+                foreach (var (field, old) in was)
+                    if (!own.Contains(field)) changed.Add(new Str(field, "", old));
             if (changed.Count > 0) listed[ov.FormKey] = new Rec(SigOf(ov), ov.FormKey.ToString(), EditorIdOf(ov) ?? EditorIdOf(master), KindChanged, changed);
         }
         try { Overrides.FindItms(t.Mod, overrides, cache, Compared); }
@@ -372,6 +385,14 @@ public static class TextCommand
                   $"{seenStrings} strings seen ({nonEmpty} not empty)");
         return pt;
     }
+
+    /// <summary>The Starfield record types Mutagen 0.54.4 reads as partial forms (`IsPartialFormable => true` in its
+    /// Quest, Cell and DialogTopic registrations), and the record flag that makes one (Constants.PartialFormFlag).</summary>
+    static readonly HashSet<string> PartialFormable = new(StringComparer.Ordinal) { "QUST", "CELL", "DIAL" };
+    const int PartialFormFlag = 0x4000;
+
+    /// <summary>Whether an override is a partial form: the fields it leaves out are the master's in the game.</summary>
+    internal static bool IsPartialForm(IMajorRecordGetter r) => (r.MajorRecordFlagsRaw & PartialFormFlag) != 0 && PartialFormable.Contains(SigOf(r));
 
     /// <summary>The master names of p and of their masters, from the load order (as summary's).</summary>
     static HashSet<string> MasterClosure(PluginInfo p, LoadOrderSetup lo)
@@ -477,7 +498,7 @@ public static class TextCommand
                     sb.Append($"    {r.Type}{(r.EditorId is { Length: > 0 } e ? " " + SafeText.OneLine(e) : "")} [{SafeText.OneLine(r.FormKey)}] {r.Kind}\n");
                     foreach (var s in r.Strings)
                     {
-                        PutString(sb, "      ", SafeText.OneLine(s.Field), s.Text);
+                        PutString(sb, "      ", SafeText.OneLine(s.Field), s.Text.Length == 0 ? NoText : s.Text);
                         if (r.Kind == KindChanged) PutString(sb, "        ", "was", s.Was ?? "(no text in the master)");
                     }
                 }

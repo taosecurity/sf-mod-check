@@ -675,7 +675,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     The input and masters are as for `summary` (one plugin or archive; `--masters-dir`, then `--data`; refuses
     `--plugin`, `--plugins`, `--mo2`, `--profile` and `--extra-data`). It lists every translated string of the plugin's
     records at any depth, named by field path (`Name`, `Responses[0].ResponseText`): all strings of a new record, and
-    for an override only the strings it changes, each with `was:` (the master's text). An override that changes no
+    for an override only the strings it changes, each with `was:` (the master's text); a master string the override
+    clears or leaves out is listed as `(no text)` (JSON `text: ""`), except in a partial form (QUST, CELL or DIAL with
+    record flag 0x4000). An override that changes no
     string or is deleted is left out; one with no master version is listed in full as `no master`. A localized plugin
     is read from its string files (English only); if they all read empty, a `WARNING` says its string files weren't
     found. `--type <SIG>,...` keeps those record types (unknown ones are refused). `--json` has `tool`, `version`,

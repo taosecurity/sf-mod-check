@@ -1369,7 +1369,9 @@ changes nothing (0.28.0).
   are refused. An archive with several plugins gets one section per plugin, in load order.
 - **Which strings:** every value the game translates, at any depth of a record, each named by its field path
   (`Name`, `Responses[0].ResponseText`). A **new** record lists all its strings. An **override** lists only the strings
-  it changes, each with the master's text as `was:`; an override that changes no string is left out, and so is a
+  it changes, each with the master's text as `was:`; a string the master has and the override clears or leaves out
+  shows as `(no text)` (in `--json`, an empty `text`), except in a partial form (a quest, cell or topic flagged so),
+  whose left-out fields the game takes from the master. An override that changes no string is left out, and so is a
   deleted one. An override whose master has no record of that type is listed in full and marked `no master`.
 - **Localized plugins** are read from their string files (`Strings\<plugin>_en.STRINGS`, `.DLSTRINGS`, `.ILSTRINGS`,
   loose or in the plugin's own BA2), English only. If a localized plugin's strings all read empty, a `WARNING` says its
