@@ -7,7 +7,29 @@
 - **`cell <cell>`** lists what is in a cell: every reference with its base, position, flags, enable parent and location reference types, which plugin added it and which changed it, references moved out or deleted by a later plugin, counts by base type and enable parent, and the persistent references a quest alias or a MoveTo can use. `cell --ref <reference>` lists the cell that holds a reference; `cell --near <worldspace> <x> <y> <radius>` lists the references near a point. `--max N` and `--json`.
 - **`find --type <SIG> --where "<field> <op> <value>"`** lists every record of a type whose winning copy matches simple field filters (`=`, `!=`, `~`, `has`, `exists`; several `--where` must all match; dotted paths such as `Factions.Faction`). An unknown field is refused with that type's field list. `find --editorid-match <regex>` lists records by EditorID, with or without `--type`.
 - **`ba2 find <pattern>`** lists which loaded archives and loose folders hold a file name or a glob, in game order, and marks the copy that wins. `--archives <folder>` also searches archives that aren't loaded.
+- `find --where` shows a flag field's unnamed bits in hex (for example `Female, Unique, 0x2000010`), so a flag the library has no name for is not lost.
 - Existing findings do not change.
+
+### Example
+
+A made-up mod `Camp.esm` that adds the cell `CampHall`:
+
+    sf-mod-check cell CampHall
+    Cell CampHall [000801:Camp.esm] "Camp Hall" (interior)
+    ...
+    Persistent anchors (1):
+      CampAnchor [000806:Camp.esm] base CampMarker [000807:Camp.esm] (STAT) at (0, 0, 0)
+    RESULT: CampHall holds 3 references, 1 persistent (2 s)
+
+    sf-mod-check find --type NPC_ --where "Flags has Unique" --editorid-match "^Camp"
+    CampLeader [000810:Camp.esm] "Reva Holt" (NPC_, winner Camp.esm)
+    RESULT: FOUND 1 record (2 s)
+
+    sf-mod-check ba2 find "textures\camp\banner_d.dds"
+    textures\camp\banner_d.dds
+      1. Starfield - Textures01.ba2 (...)
+      2. Camp - Textures.ba2 (...)   <- wins
+    RESULT: 1 file matched in 2 of 31 archives and 0 loose folders
 
 ## 0.26.0 (2026-11-27)
 

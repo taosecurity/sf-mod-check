@@ -52,6 +52,7 @@ const string Usage =
     "       sf-mod-check diff <old> <new> [--data <Data folder>] [--json] [--out <file>] [...]   (sf-mod-check diff --help)\n" +
     "       sf-mod-check gap <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--quiet] [...]   (sf-mod-check gap --help)\n" +
     "       sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--json] [...]   (sf-mod-check find --help)\n" +
+    "       sf-mod-check find --type <SIG> --where \"<field> <op> [<value>]\"... [--editorid-match <regex>] [--plugins <Plugins.txt> | --plugin <file>] [--max <n>] [--json] [...]   (sf-mod-check find --help)\n" +
     "       sf-mod-check overrides [--plugins <Plugins.txt> | --mo2 <MO2 folder> | --plugin <plugin or archive>...] [--type <SIG>,...] [--min <n>] [--records <file>] [--json] [...]   (sf-mod-check overrides --help)\n" +
     "       sf-mod-check summary <plugin or archive> [--data <Data folder>] [--masters-dir <folder>]... [--max <n>] [--json] [...]   (sf-mod-check summary --help)\n" +
     "       sf-mod-check cell <cell> | --ref <reference> | --near <worldspace> <x> <y> <radius> [--plugins <Plugins.txt> | --plugin <file>] [--max <n>] [--json] [...]   (sf-mod-check cell --help)\n" +

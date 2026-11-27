@@ -606,6 +606,59 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     optional patch) is left out with a note on stderr, and the run stops only if all are. `patch` and `voice-lines`
     refuse an archive: give the folder (`voice-lines`: the unpacked plugin file).
 
+28. See what is in a cell, or near a point (0.27.0). Read only:
+
+        sf-mod-check cell MyModCell
+        sf-mod-check cell --ref 001A2B:MyMod.esm
+        sf-mod-check cell --near MyWorld -107.7 -184.2 500 --max 20
+        sf-mod-check cell MyModCell --plugin "C:\Downloads\MyMod-1.0.zip"
+
+    It lists every placed reference of the cell (its winning copy): base record and base type, position, persistent or
+    temporary, initially disabled, enable parent, location reference types, the plugin that added it and the plugins
+    that changed it. After the list: references a later plugin moved out of the cell or deleted, counts by base type and by
+    enable parent, and the **persistent anchors** (persistent references a quest alias or a MoveTo can point at).
+    `--ref` lists the cell that holds that reference (where its winning copy sits) and marks it `<- asked`. `--near
+    <worldspace> <x> <y> <radius>` lists the references within the radius, nearest first, from the worldspace's persistent
+    cell and every exterior cell; the distance is flat (X and Y only) and a reference exactly at the radius counts.
+    `--max <n>` caps the references and the anchors listed (default 100; 0 = all; the counts cover all). The load order
+    comes from `--plugins`, `--mo2`, `--data`, `--extra-data`, or from `--plugin` (a plugin or a `.zip`, `.7z` or `.rar`
+    and its masters; give the cell as an EditorID or FormKey there). Exit 0 = listed, 2 = couldn't run (not found, or not a
+    cell: the message says which type it is). Last line `RESULT: MyModCell holds 12 references, 2 persistent (3 s)`.
+    `--json` has `loadOrder`, `cell` (or `near`), `references`, `movedOut`, `deleted`, `anchors`, `counts`, `byBaseType`, `enableParents`,
+    `navmeshes`, `leftOut` and `result`; each reference has `formKey`, `base`, `baseType`, `position`, `persistent`,
+    `initiallyDisabled`, `enableParent`, `locationRefTypes`, `addedBy` and `changedBy`. A city cell can hold thousands of references: use `--max`.
+
+29. List every record that matches a filter (0.27.0). Read only:
+
+        sf-mod-check find --type NPC_ --where "Flags has Unique"
+        sf-mod-check find --type NPC_ --where "Factions.Faction = MyFaction" --where "Name exists" --max 20
+        sf-mod-check find --type MISC --editorid-match "^MyMod_"
+        sf-mod-check find --editorid-match "Ship.*Hab" --json
+
+    `--where "<field> <op> [<value>]"` keeps the records of `--type` whose **winning copy** matches. Operators: `=`
+    (equals; a link by EditorID, FormKey or console FormID), `!=` (an empty field counts as not equal), `~` (contains the
+    text), `has` (a flag is set, or a list has the entry) and `exists` (not empty; no value). The field is a name from
+    `find`'s fields block; a dotted path goes one level down per part, and a list on the way matches when any entry does.
+    Several `--where` must all match. An unknown field is refused (exit 2) with that type's field list: use it to learn
+    the names. **Flags with no name** (bits the library doesn't name) print in hex in the fields, for example
+    `Female, Unique, 0x2000010`. `--editorid-match <regex>` keeps records whose EditorID matches a .NET regular
+    expression (letter case ignored); without `--type` it searches every type. There is no query language. `--max`
+    (default 100; 0 = all). Exit 0 = found, 1 = none, 2 = couldn't run. `--json` has `query` (with `where`), `loadOrder`, `total`, `listed`, `matches` (each with `formKey`, `editorId`, `name`, `winner` and `fields`) and `result`.
+
+30. Find which archive or loose file holds a game file (0.27.0). Read only:
+
+        sf-mod-check ba2 find "sound\voice\mymod.esm\npcmguard\0001a2b3_1.wem"
+        sf-mod-check ba2 find "meshes\mymod\*.nif" --max 20
+        sf-mod-check ba2 find "textures\mymod\*" --archives "C:\Downloads\MyMod\Data"
+
+    The pattern is a file name as the game sees it, or a glob (`*` any characters, folders included; `?` one character;
+    case and `/` against `\` don't matter; quote it). It lists the archives the load order loads (every active plugin's
+    `<plugin> - *.ba2`, the INIs' lists) and the loose folders, in game order, and marks the copy the game uses with `<-
+    wins`: a loose file beats every archive and a later archive beats an earlier one. `--archives <folder>` also
+    searches `.ba2` files the load order doesn't load (shown as not loaded; they never win), for a mod you haven't
+    installed. A texture (DX10) archive serves only `.dds`. A pattern that would leave the Data folder is refused. Exit
+    0 = a file matched, 1 = none, 2 = couldn't run.  `--json` has `pattern`, `loadOrder`, `total`, `listed`, `archivesRead`, `files` (each with `name` and `holders`: `kind`, `archive` or `path`, `why`, `loaded`, `served`, `winner`) and `unreadable`.
+
 ## 6. Inputs and outputs
 
 - **Input:** one plugin file per run, plus its masters, found in this order: `--masters-dir` folders (or the plugin's

@@ -43,6 +43,13 @@ commands:
   and the winner marked. It also answers "who edits these records" for a list you give it.
 - [`summary`](#what-one-plugin-adds-and-changes-sf-mod-check-summary) (0.26.0) says what one plugin adds and changes:
   records by type, ITMs, the fields its overrides change, and the cells and placed references it touches.
+- [`cell`](#whats-in-a-cell-or-near-a-point-sf-mod-check-cell) (0.27.0) lists what is in a cell or near a point: each
+  placed reference with its base, position, enable parent and who added and changed it, and the persistent anchors a
+  quest alias or a MoveTo can use.
+- [`find --where`](#list-records-by-field-find---where) (0.27.0) lists every record of a type that matches simple
+  field filters, and `find --editorid-match` lists records by an EditorID pattern.
+- [`ba2 find`](#which-archive-holds-a-file-sf-mod-check-ba2-find) (0.27.0) says which loaded archives and loose files
+  hold a game file, in game order, and which copy wins.
 - **Archive input** (0.26.0): `find`, `conflict`, `lines`, `scenes`, `overrides` and `summary` take a downloaded
   `.zip`, `.7z` or `.rar` where they take a plugin (`--plugin`) or an extra folder (`--extra-data`), so you can look at a
   mod before you install it. See [Archives as input](#archives-as-input-since-0260).
@@ -1341,6 +1348,123 @@ A made-up run on a small plugin:
 
 Exit codes: 0 the summary was made, 2 couldn't run (a missing file or master, an unreadable plugin, a refused archive).
 The `summary` is what a plugin holds, not a verdict: a deleted record or a changed value can be intended.
+
+## What's in a cell, or near a point: `sf-mod-check cell`
+
+Use it to see what a cell holds and who put it there: for example, to find a persistent reference a quest alias can
+use, to see which mod moved a reference, or to list what stands near a spot in a worldspace (0.27.0). It reads your
+load order and changes nothing.
+
+    sf-mod-check cell MyModCell
+    sf-mod-check cell --ref 001A2B:MyMod.esm
+    sf-mod-check cell --near MyWorld -107.7 -184.2 500 --max 20
+    sf-mod-check cell MyModCell --plugin "C:\Downloads\MyMod-1.0.zip"
+
+- `<cell>`: an EditorID (letter case ignored), FormKey or console FormID of a CELL. A record of another type is
+  refused and the message says which type it is.
+- `--ref <reference>`: list the cell that holds this placed reference, where its **winning copy** sits (a later plugin
+  may have moved it). The reference is marked `<- asked`.
+- `--near <worldspace> <x> <y> <radius>`: list the references within the radius, nearest first, from the worldspace's
+  persistent cell and every exterior cell. The distance is flat (X and Y; height is ignored) in the game's units, and
+  a reference exactly at the radius counts.
+- Load order: `--plugins`, `--mo2`, `--profile`, `--data` and `--extra-data` as for `find`, or `--plugin <plugin or
+  .zip, .7z, .rar>` (with `--masters-dir`) to read one plugin and its masters. With `--plugin`, give the cell as an
+  EditorID or FormKey.
+- `--max <n>`: list at most this many references and anchors (default 100; 0 lists them all). The counts always
+  cover every reference. `--json`, `--quiet`, `--verbose` and `--log <file>` work as elsewhere.
+
+Each reference shows its winning copy: the base record and its type, the position, `persistent` or `temporary`,
+`disabled` (initially disabled), the enable parent, the location reference types, the plugin that added it and the
+plugins that changed it. After the list come the references a later plugin moved out of the cell or deleted, counts by
+base type and by enable parent (the largest 20 in the text; `--json` lists all), and the **persistent anchors**:
+the persistent references a quest alias or a MoveTo can point at. Exit 0 = listed, 2 = couldn't run. A city cell can
+hold thousands of references, so use `--max`.
+
+**Example** (made-up mod `Camp.esm` that adds the cell `CampHall`):
+
+    sf-mod-check cell CampHall
+    sf-mod-check 0.27.0 cell: CampHall in 14 plugins (Plugins.txt)
+    Cell CampHall [000801:Camp.esm] "Camp Hall" (interior)
+      added by Camp.esm
+    references: 3 (persistent 1, temporary 2; initially disabled 1), navmeshes 1
+      by base type: STAT 2, MISC 1
+    References (3):
+      [000803:Camp.esm] REFR base CampDoorFrame [000802:Camp.esm] (STAT) at (10, 20, 0) temporary; added by Camp.esm
+      [000804:Camp.esm] REFR base CampLamp [000805:Camp.esm] (MISC) at (40, 22, 96) temporary, disabled, parent [000806:Camp.esm]; added by Camp.esm; changed by CampFix.esm
+      CampAnchor [000806:Camp.esm] REFR base CampMarker [000807:Camp.esm] (STAT) at (0, 0, 0) persistent; added by Camp.esm
+    Moved out (0).
+    Deleted (0).
+    Persistent anchors (1):
+      CampAnchor [000806:Camp.esm] base CampMarker [000807:Camp.esm] (STAT) at (0, 0, 0)
+    RESULT: CampHall holds 3 references, 1 persistent (2 s)
+
+(The lines are shortened here; the real ones show a little more.)
+
+## List records by field: `find --where`
+
+Use it when you want every record of one type that has a given value, for example every NPC with the Unique flag or
+every misc item whose EditorID starts with your mod's prefix (0.27.0). It is a small filter, not a query language.
+
+    sf-mod-check find --type NPC_ --where "Flags has Unique"
+    sf-mod-check find --type NPC_ --where "Factions.Faction = MyFaction" --where "Name exists" --max 20
+    sf-mod-check find --type MISC --editorid-match "^MyMod_"
+    sf-mod-check find --editorid-match "Ship.*Hab" --json
+
+- `--where "<field> <op> [<value>]"` (needs `--type`): keep the records whose **winning copy** matches. The field is a
+  name from `find`'s fields block (letter case ignored); a dotted path such as `Factions.Faction` goes one level down
+  per part, and a list on the way matches when any entry does. Give no record to look up. Several `--where` must all
+  match.
+- Operators: `=` (equal; a link by EditorID, FormKey or console FormID; a number as a number), `!=` (not equal; an empty
+  field counts as not equal), `~` (contains the text), `has` (a flag is set, or a list has the entry) and `exists`
+  (the field isn't empty; no value after it).
+- **An unknown field is refused** (exit 2) with that record type's field list.
+- **Flags with no name:** a flag field shows the named flags that are set, and any bit the library has no name for in
+  hex, for example `Female, Unique, 0x2000010`. A number stored in a flags field is therefore not the count of named
+  flags: use `has` with the name.
+- `--editorid-match <regex>`: keep the records whose EditorID matches a .NET regular expression (letter case ignored).
+  Without `--type` it searches every record type. A pattern that takes over 2 seconds on one EditorID is refused.
+- `--max <n>` (default 100; 0 lists them all). The load order options are the same as for `find`, or `--plugin`.
+  Exit 0 = found, 1 = none, 2 = couldn't run. With `--plugin Starfield.esm` a type search took about 4 seconds and 0.5 GB;
+  a whole load order reads every plugin and takes longer.
+
+**Example** (made-up mod `Camp.esm`):
+
+    sf-mod-check find --type NPC_ --where "Flags has Unique" --editorid-match "^Camp"
+    sf-mod-check 0.27.0 find: every NPC_ where Flags has Unique, with an EditorID matching ^Camp in 14 plugins (Plugins.txt)
+    CampLeader [000810:Camp.esm] "Reva Holt" (NPC_, winner Camp.esm)
+      Flags: Female, Unique
+    1 record matches
+    RESULT: FOUND 1 record (2 s)
+
+## Which archive holds a file: `sf-mod-check ba2 find`
+
+Use it to see which loaded archives and loose files hold a game file, and which copy the game uses (0.27.0). It reads
+the load order and the INI archive lists and changes nothing.
+
+    sf-mod-check ba2 find "sound\voice\mymod.esm\npcmguard\0001a2b3_1.wem"
+    sf-mod-check ba2 find "meshes\mymod\*.nif" --max 20
+    sf-mod-check ba2 find "textures\mymod\*" --archives "C:\Downloads\MyMod\Data"
+
+- `<pattern>`: a file name as the game sees it, or a glob: `*` matches any characters (folders included) and `?` one
+  character. Letter case doesn't matter and `/` is the same as `\`. Quote it so the shell doesn't expand it. A pattern
+  that would leave the Data folder is refused.
+- It lists, per file name, every archive that holds it (every active plugin's `<plugin> - *.ba2` and the archives the
+  INIs list) and every loose folder, in game order, and marks the copy the game uses with `<- wins`: **a loose file
+  beats every archive, and a later archive beats an earlier one.** A texture (DX10) archive serves only `.dds` files.
+- `--archives <folder>`: also search the `.ba2` files in a folder that the load order doesn't load (shown as not
+  loaded; they never win), for example a downloaded mod's archives before you install it.
+- `--plugins`, `--mo2`, `--profile`, `--data`, `--extra-data`, `--ini` and `--language` choose the load order and the
+  archives as for `check`. `--max <n>` lists at most this many file names (default 100; 0 lists them all; the counts
+  stay complete). Exit 0 = a file matched, 1 = none, 2 = couldn't run.
+
+**Example** (made-up mod `Camp.esm`, which overrides one texture of the base game):
+
+    sf-mod-check ba2 find "textures\camp\banner_d.dds"
+    sf-mod-check 0.27.0 ba2 find: textures\camp\banner_d.dds in 14 plugins (Plugins.txt)
+    textures\camp\banner_d.dds
+      1. Starfield - Textures01.ba2 (texture archive of Starfield.esm, texture archive)
+      2. Camp - Textures.ba2 (archive of Camp.esm, texture archive)   <- wins
+    RESULT: 1 file matched in 2 of 31 archives and 0 loose folders
 
 ## A plugin's voiced lines as a list: `sf-mod-check voice-lines`
 
