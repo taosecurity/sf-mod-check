@@ -1,6 +1,6 @@
 // sf-mod-check 0.27.0: the cell command (CellCommand.cs; the 0.27.0 design notes, parts A and D). All
 // plugins are made up: Base.esm holds an interior cell with persistent and temporary references, an empty second
-// interior cell, and a worldspace with a persistent cell and one exterior cell; A.esm and B.esm change, move and delete
+// interior cell (with one reference in its persistent list but no persistent flag), and a worldspace with a persistent cell and one exterior cell; A.esm and B.esm change, move and delete
 // references in it. No game files are needed.
 using System.Text.Json;
 using BuildKit;
@@ -19,7 +19,7 @@ public sealed class CellGame : Sandbox
 {
     static readonly WriteOptions NoGap = new() { GapCheck = false, FixEffects = false };
     public readonly string Data;
-    public readonly FormKey Vault, Other, World, Top, Ext, Marker, Boss, Crate, Moved, Gone, FlagOnly, ANew, P1, E1, E2, E3;
+    public readonly FormKey Vault, Other, World, Top, Ext, Marker, Boss, Crate, Moved, Gone, FlagOnly, ListOnly, ANew, P1, E1, E2, E3;
 
     public CellGame()
     {
@@ -60,6 +60,10 @@ public sealed class CellGame : Sandbox
             },
         });
         var other = new Cell(b) { EditorID = "B_Other", Flags = Cell.Flag.IsInteriorCell };
+        // in the persistent list without the 0x400 flag (a mod can do this; the list alone makes it persistent)
+        var listOnly = new PlacedObject(b) { EditorID = "B_ListOnly", Base = misc.ToLink<IPlaceableObjectGetter>() };
+        other.Persistent.Add(listOnly);
+        ListOnly = listOnly.FormKey;
         b.Cells.Add(new CellBlock
         {
             BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock,
@@ -354,6 +358,78 @@ public class CellTests(CellGame game) : IClassFixture<CellGame>
         var nf = game.Run("B_NoSuchCell", "--json");
         Assert.Equal(2, nf.Code);
         Assert.Equal("not found", JsonDocument.Parse(nf.Stdout).RootElement.GetProperty("result").GetString());
+    }
+
+    [Fact]
+    public void InThePersistentListWithoutTheFlagIsPersistent()
+    {
+        var (code, stdout, stderr) = game.Run("B_Other");
+        Assert.True(code == 0, stdout + stderr);
+        // B_ListOnly (in the list, no flag) and the moved B_MovedMisc (B's copy, temporary)
+        Assert.Contains("references: 2 (persistent 1, temporary 1;", stdout);
+        Assert.Contains("persistent (in the persistent list, flag not set)", Line(stdout, $"B_ListOnly [{game.ListOnly}] REFR"));
+        Assert.Contains("Persistent anchors (1):", stdout);
+        Assert.StartsWith($"  B_ListOnly [{game.ListOnly}] base B_Misc", stdout.Split('\n').Select(l => l.TrimEnd('\r')).SkipWhile(l => l != "Persistent anchors (1):").Skip(1).First());
+        var j = game.Run("B_Other", "--json");
+        Assert.Equal(0, j.Code);
+        var row = JsonDocument.Parse(j.Stdout).RootElement.GetProperty("references").EnumerateArray()
+            .Single(r => r.GetProperty("formKey").GetString() == game.ListOnly.ToString());
+        Assert.True(row.GetProperty("persistent").GetBoolean());
+        Assert.True(row.GetProperty("inPersistentList").GetBoolean());
+        // B_FlagOnly is the other way round: the flag, in the temporary list
+        var flag = JsonDocument.Parse(game.Run("B_Vault", "--json").Stdout).RootElement.GetProperty("references").EnumerateArray()
+            .Single(r => r.GetProperty("formKey").GetString() == game.FlagOnly.ToString());
+        Assert.True(flag.GetProperty("persistent").GetBoolean());
+        Assert.False(flag.GetProperty("inPersistentList").GetBoolean());
+    }
+
+    static readonly string[] RefKeys =
+    [
+        "formKey:string", "type:string", "editorId:string?", "base:string?", "baseType:string?", "position:array?", "rotation:array?",
+        "persistent:bool", "inPersistentList:bool", "initiallyDisabled:bool", "enableParent:string?", "enableParentOpposite:bool",
+        "locationRefTypes:array", "addedBy:string", "addedByLoaded:bool", "changedBy:array", "cell:string?",
+    ];
+
+    static readonly string[] RootKeys =
+    [
+        "tool:string", "version:string", "loadOrder:object", "cell:object?", "near:object?", "counts:object", "references:array",
+        "movedOut:array", "deleted:array", "anchors:array", "listed:number", "total:number", "leftOut:array", "unread:array", "result:string",
+    ];
+
+    [Fact]
+    public void JsonKeysAreExactlyTheDesigns()
+    {
+        // part A's JSON, key for key (tool, version, loadOrder, leftOut and result as the other JSON commands have them)
+        var (code, stdout, stderr) = game.Run("B_Vault", "--json");
+        Assert.True(code == 0, stdout + stderr);
+        var root = SfModCheck.Tests.JsonShape.Exactly(JsonDocument.Parse(stdout).RootElement, "cell", RootKeys);
+        SfModCheck.Tests.JsonShape.Exactly(root.GetProperty("loadOrder"), "loadOrder", "source:string", "plugins:number");
+        SfModCheck.Tests.JsonShape.Exactly(root.GetProperty("cell"), "cell.cell", "formKey:string", "editorId:string?", "name:string?", "interior:bool",
+            "worldspace:string?", "grid:array?", "location:string?", "locationFromWorldspace:bool", "addedBy:string", "changedBy:array");
+        var counts = SfModCheck.Tests.JsonShape.Exactly(root.GetProperty("counts"), "counts", "references:number", "persistent:number", "temporary:number",
+            "initiallyDisabled:number", "navmeshes:number", "byBaseType:object", "enableParents:array");
+        SfModCheck.Tests.JsonShape.Exactly(counts.GetProperty("enableParents")[0], "enableParents[0]", "ref:string", "children:number");
+        foreach (var r in root.GetProperty("references").EnumerateArray()) SfModCheck.Tests.JsonShape.Exactly(r, "references[]", RefKeys);
+        SfModCheck.Tests.JsonShape.AllOf(root.GetProperty("references")[0].GetProperty("position"), "number", "position");
+        SfModCheck.Tests.JsonShape.Exactly(root.GetProperty("movedOut")[0], "movedOut[0]", "formKey:string", "toCell:string", "by:string");
+        SfModCheck.Tests.JsonShape.Exactly(root.GetProperty("deleted")[0], "deleted[0]", "formKey:string", "by:string");
+        foreach (var a in root.GetProperty("anchors").EnumerateArray())
+            SfModCheck.Tests.JsonShape.Exactly(a, "anchors[]", "formKey:string", "editorId:string?", "base:string?", "position:array?", "locationRefTypes:array");
+
+        // an exterior cell: its worldspace and grid are filled
+        var ext = SfModCheck.Tests.JsonShape.Exactly(JsonDocument.Parse(game.Run("B_Ext", "--json").Stdout).RootElement, "cell B_Ext", RootKeys).GetProperty("cell");
+        Assert.Equal(new[] { 1, 2 }, ext.GetProperty("grid").EnumerateArray().Select(e => e.GetInt32()));
+        Assert.True(ext.GetProperty("locationFromWorldspace").GetBoolean());
+
+        // --near adds distance to each reference, --ref adds asked to the asked one only
+        var near = SfModCheck.Tests.JsonShape.Exactly(JsonDocument.Parse(game.Run("--near", "B_World", "100", "0", "5", "--json").Stdout).RootElement, "near", RootKeys);
+        SfModCheck.Tests.JsonShape.Exactly(near.GetProperty("near"), "near.near", "worldspace:string", "x:number", "y:number", "radius:number");
+        string[] nearKeys = [.. RefKeys, "distance:number"];
+        foreach (var r in near.GetProperty("references").EnumerateArray()) SfModCheck.Tests.JsonShape.Exactly(r, "near references[]", nearKeys);
+        var asked = JsonDocument.Parse(game.Run("--ref", "B_Boss", "--json").Stdout).RootElement.GetProperty("references").EnumerateArray().ToList();
+        string[] askedKeys = [.. RefKeys, "asked:bool"];
+        foreach (var r in asked)
+            SfModCheck.Tests.JsonShape.Exactly(r, "ref references[]", r.GetProperty("formKey").GetString() == game.Boss.ToString() ? askedKeys : RefKeys);
     }
 
     [Fact]

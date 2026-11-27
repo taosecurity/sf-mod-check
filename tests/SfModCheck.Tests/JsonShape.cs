@@ -1,5 +1,6 @@
 // sf-mod-check 0.26.0: checks that a JSON object holds exactly the keys a design names, each with the right kind, so a
-// renamed, dropped or added key in overrides' or summary's --json fails a test (plan step 5).
+// renamed, dropped or added key in overrides' or summary's --json fails a test (plan step 5). 0.27.0 uses it for cell,
+// find --where and ba2 find.
 using System.Text.Json;
 using Xunit;
 
@@ -17,6 +18,7 @@ static class JsonShape
         "array" => kind == JsonValueKind.Array,
         "array?" => kind is JsonValueKind.Array or JsonValueKind.Null,
         "object" => kind == JsonValueKind.Object,
+        "object?" => kind is JsonValueKind.Object or JsonValueKind.Null,
         _ => throw new ArgumentException("unknown kind " + want),
     };
 

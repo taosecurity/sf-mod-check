@@ -295,6 +295,61 @@ public class FindWhereTests(WhereGame game) : IClassFixture<WhereGame>
     }
 
     [Fact]
+    public void The_other_operators_on_flags_numbers_links_and_lists()
+    {
+        // = and != on a flags value compare its whole text; has (above) tests one flag
+        var (code, ids, o) = Where("--type", "NPC_", "--where", "Flags = \"essential, unique\"");
+        Assert.True(code == 0, o);
+        Assert.Equal(["W_Boss"], ids);
+        (code, ids, o) = Where("--type", "NPC_", "--where", "Flags = Unique");
+        Assert.True(code == 1, o);   // W_Boss is Essential too, and W_Later's winning copy has no flags
+        (_, ids, _) = Where("--type", "NPC_", "--where", "Flags != Essential, Unique");
+        Assert.Equal(["W_Plain", "W_Later"], ids);
+        // != and exists on a number
+        (_, ids, _) = Where("--type", "MISC", "--where", "Value != 10");
+        Assert.Equal(["W_Gem"], ids);
+        (_, ids, _) = Where("--type", "MISC", "--where", "Value exists");
+        Assert.Equal(["W_Coin", "W_Gem"], ids);
+        // != and exists on a link: W_Later has no race, which counts as not equal
+        (_, ids, _) = Where("--type", "NPC_", "--where", "Race != W_Race");
+        Assert.Equal(["W_Later"], ids);
+        (_, ids, _) = Where("--type", "NPC_", "--where", "Race exists");
+        Assert.Equal(["W_Plain", "W_Boss"], ids);
+        // != on a list: no entry is equal (an absent list included); ~ on a list: any entry contains the text
+        (_, ids, _) = Where("--type", "NPC_", "--where", "Keywords != W_KeyOne");
+        Assert.Equal(["W_Plain", "W_Later"], ids);
+        (_, ids, _) = Where("--type", "NPC_", "--where", "Keywords ~ keytw");
+        Assert.Equal(["W_Plain"], ids);
+    }
+
+    [Fact]
+    public void The_JSON_keys_are_exactly_the_designs()
+    {
+        // part B's JSON, key for key (tool, version, query, loadOrder and result as find's other JSON has them)
+        var (code, stdout, stderr) = game.Run("--type", "MISC", "--where", "Value exists", "--editorid-match", "^W_", "--json");
+        Assert.True(code == 0, stdout + stderr);
+        var root = JsonShape.Exactly(JsonDocument.Parse(stdout).RootElement, "find --where", "tool:string", "version:string", "query:string?",
+            "type:string?", "where:array", "editorIdMatch:string?", "loadOrder:object", "matches:array", "listed:number", "total:number",
+            "unread:array", "result:string");
+        Assert.Equal("^W_", root.GetProperty("editorIdMatch").GetString());
+        JsonShape.Exactly(root.GetProperty("loadOrder"), "loadOrder", "source:string", "plugins:number");
+        JsonShape.Exactly(root.GetProperty("where")[0], "where[0]", "field:string", "op:string", "value:string?");
+        foreach (var m in root.GetProperty("matches").EnumerateArray())
+        {
+            JsonShape.Exactly(m, "matches[]", "formKey:string", "editorId:string?", "name:string?", "type:string", "winner:string", "fields:object");
+            JsonShape.Exactly(m.GetProperty("fields"), "fields", "Value:string");
+        }
+        Assert.Equal("Gold Coin", root.GetProperty("matches")[0].GetProperty("name").GetString());
+        // --editorid-match alone: no type, no filters, no fields
+        (code, stdout, _) = game.Run("--editorid-match", "^W_Coin$", "--json");
+        Assert.Equal(0, code);
+        var alone = JsonDocument.Parse(stdout).RootElement;
+        Assert.Equal(JsonValueKind.Null, alone.GetProperty("type").ValueKind);
+        Assert.Equal(0, alone.GetProperty("where").GetArrayLength());
+        JsonShape.Exactly(alone.GetProperty("matches")[0].GetProperty("fields"), "fields (no --where)");
+    }
+
+    [Fact]
     public void Record_types_map_to_their_Mutagen_classes_and_unnamed_flag_bits_print_in_hex()
     {
         Assert.Equal(typeof(Npc), FindWhere.Types.Value["NPC_"].Class);

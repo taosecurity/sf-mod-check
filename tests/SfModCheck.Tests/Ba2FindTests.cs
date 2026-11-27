@@ -292,6 +292,30 @@ public class Ba2FindTests(Ba2FindPlugins plugins) : IClassFixture<Ba2FindPlugins
     }
 
     [Fact]
+    public void Json_keys_are_exactly_the_designs()
+    {
+        // part C's JSON, key for key (tool, version and loadOrder added as the other JSON commands have them)
+        using var g = new Game(plugins);
+        g.Archive("ModA - Main.ba2", "GNRL", @"meshes\a.nif");
+        g.Archive("ModA - Voices_de.ba2", "GNRL", @"meshes\a.nif");
+        File.WriteAllText(Path.Combine(g.Data, "ModB - Main.ba2"), "not an archive");
+        g.Loose(g.Data, @"meshes\a.nif");
+        var (code, o, e) = g.Run(@"meshes\a.nif", "--json");
+        Assert.True(code == 0, o + e);
+        using var doc = JsonDocument.Parse(o);
+        var root = JsonShape.Exactly(doc.RootElement, "ba2 find", "tool:string", "version:string", "pattern:string", "loadOrder:string",
+            "files:array", "listed:number", "total:number", "archivesRead:number", "skipped:array", "unreadable:array");
+        JsonShape.Exactly(root.GetProperty("skipped")[0], "skipped[0]", "archive:string", "why:string");
+        JsonShape.Exactly(root.GetProperty("unreadable")[0], "unreadable[0]", "archive:string", "why:string");
+        var file = JsonShape.Exactly(root.GetProperty("files")[0], "files[0]", "name:string", "holders:array");
+        var h = file.GetProperty("holders");
+        // an archive holder names the archive, a loose one its path; type is null for a loose file
+        JsonShape.Exactly(h[0], "archive holder", "kind:string", "archive:string", "why:string", "type:string", "loaded:bool", "served:bool", "winner:bool");
+        JsonShape.Exactly(h[1], "loose holder", "kind:string", "path:string", "why:string", "type:string?", "loaded:bool", "served:bool", "winner:bool");
+        Assert.Equal("loose", h[1].GetProperty("kind").GetString());
+    }
+
+    [Fact]
     public void The_archive_order_holds_texture_archives_and_leaves_the_general_order_alone()
     {
         // 0.27.0 changed AssetIndex to keep one GNRL-plus-DX10 order; the sound-bank order (GNRL only) must not change
