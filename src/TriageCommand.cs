@@ -628,12 +628,14 @@ public static class TriageCommand
     /// plugin brings the archives beside it that share its name ("Foo - Main.ba2").
     /// Links (symlinks, junctions) are never followed: in a folder, and beside a plugin on every system (0.8.0 follow-up:
     /// on Windows a linked .ba2 beside a plugin was read). Each one, and each second file whose name differs from another
-    /// only in case (on Linux, Scripts/a.pex and scripts/a.pex), goes into skipped with why, so the report can say so.</summary>
+    /// only in case (on Linux, Scripts/a.pex and scripts/a.pex), goes into skipped with why, so the report can say so.
+    /// write (0.26.0, archive input): for an archive, which entries are written, by the entry's name (null: all; see
+    /// ReleaseCommand.Unpack). A folder or a plugin ignores it.</summary>
     public static (string Root, List<string> Files) Gather(TriageInputKind kind, string input, string dest, List<(string File, string Why)>? skipped = null,
-        Dictionary<string, string>? caseKept = null)
+        Dictionary<string, string>? caseKept = null, Func<string, bool>? write = null)
     {
         skipped ??= [];
-        var (root, files) = GatherAll(kind, input, dest, skipped);
+        var (root, files) = GatherAll(kind, input, dest, skipped, write);
         return (root, OnePerName(files, skipped, caseKept));
     }
 
@@ -746,16 +748,17 @@ public static class TriageCommand
         return IsRealLink(path, a);
     }
 
-    static (string Root, List<string> Files) GatherAll(TriageInputKind kind, string input, string dest, List<(string File, string Why)> skipped)
+    static (string Root, List<string> Files) GatherAll(TriageInputKind kind, string input, string dest, List<(string File, string Why)> skipped,
+        Func<string, bool>? write)
     {
         switch (kind)
         {
             case TriageInputKind.Zip:
-                var p = ReleaseCommand.Unpack(input, dest);
+                var p = ReleaseCommand.Unpack(input, dest, write);
                 return (p.Root, p.Files);
             case TriageInputKind.SevenZip:
             case TriageInputKind.Rar:
-                return (Path.GetFullPath(dest), UnpackOther(input, dest));
+                return (Path.GetFullPath(dest), UnpackOther(input, dest, write));
             case TriageInputKind.Folder:
             {
                 var root = input.TrimEnd('\\', '/');
@@ -811,8 +814,8 @@ public static class TriageCommand
 
     /// <summary>Unpacks a .7z or .rar into dest with the same guards as ReleaseCommand.Unpack: no entry outside dest, no
     /// name twice, the same size cap, and a running count so an entry can't unpack past what it declares. Encrypted
-    /// archives are refused (triage never asks for a password).</summary>
-    public static List<string> UnpackOther(string archive, string dest)
+    /// archives are refused (triage never asks for a password). write (0.26.0): as for ReleaseCommand.Unpack.</summary>
+    public static List<string> UnpackOther(string archive, string dest, Func<string, bool>? write = null)
     {
         // How an error while unpacking is told (decided 2026-11-19 after eight review rounds pulled both ways):
         //  - a guard's own refusal (a marked InvalidDataException) and a file-system error pass through as they are;
@@ -821,7 +824,7 @@ public static class TriageCommand
         //    almost anything (IndexOutOfRange, NullReference, InvalidOperation ...), so no list of types is complete. A
         //    bug of ours can then read as "can't be read", but every case is logged once in full, and every one ends
         //    the run with exit 2 and no report.
-        try { return UnpackOtherCore(archive, dest); }
+        try { return UnpackOtherCore(archive, dest, write); }
         catch (Exception e) when (IsRefusal(e) || IsFileSystem(e))
         {
             Log.Write($"triage: unpacking {archive} stopped: {e}");
@@ -876,7 +879,7 @@ public static class TriageCommand
     /// <summary>True for an exception one of the unpack's own guards threw.</summary>
     public static bool IsRefusal(Exception e) => e is InvalidDataException && e.Data.Contains(GuardMark);
 
-    static List<string> UnpackOtherCore(string archive, string dest)
+    static List<string> UnpackOtherCore(string archive, string dest, Func<string, bool>? write)
     {
         Directory.CreateDirectory(dest);
         var root = Path.GetFullPath(dest).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -916,6 +919,15 @@ public static class TriageCommand
         // closing the entry's stream afterwards fails too (SharpCompress reads the rest of the entry on close).
         void WriteOne(IEntry e, Func<Stream> open)
         {
+            // 0.26.0: an entry left unwritten goes through the name guards only, and its data isn't read (a folder
+            // record is always checked in full: its stream must be empty)
+            var plain = (e.Key ?? "").Replace('\\', '/');
+            if (write != null && !plain.EndsWith('/') && !write(plain))
+            {
+                PathGuards(e.Key ?? "", plain);
+                NameGuards(e.Key ?? "", plain);
+                return;
+            }
             Exception? first = null;
             try
             {
@@ -941,11 +953,7 @@ public static class TriageCommand
         {
             var key = e.Key ?? "";
             var name = key.Replace('\\', '/');
-            // the path checks first, for every entry (twelfth review: a "../../x/" folder record was skipped, not refused)
-            if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(x => x == ".."))
-                throw Refused($"the entry \"{key}\" points outside the archive's own folders");
-            if (ReleaseCommand.ChangedByWindows(name))
-                throw Refused($"the entry \"{key}\" has a name Windows changes (a \".\" part, or one ending in a dot or space)");
+            PathGuards(key, name);
             // A folder record some tools write as a plain entry ("Data/"): nothing to write (tenth review: it was
             // refused as a clash with the folder its own files made). Only an empty one: its stream is read, not its
             // declared size (twelfth review), so an entry named like a folder can't hide data.
@@ -954,12 +962,7 @@ public static class TriageCommand
                 if (input.ReadByte() >= 0) throw Refused($"the entry \"{key}\" is named like a folder but holds data");
                 return;
             }
-            var norm = Ba2Names.Normalize(name);
-            if (!seen.Add(norm)) throw Refused($"the archive holds \"{key}\" twice (names differ only in case or slashes)");
-            if (ReleaseCommand.NameClash(norm, clashFiles, clashDirs) is { } clash) throw Refused($"the entry \"{key}\" {clash}");
-            var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));
-            if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                throw Refused($"the entry \"{key}\" points outside the archive's own folders");
+            var (norm, target) = NameGuards(key, name);
             // a file and a folder of the same name ("Data" and "Data/b.txt") is a broken archive, not a permission problem
             if (Directory.Exists(target))
                 throw Refused($"the entry \"{key}\" has the same name as a folder in the archive");
@@ -981,6 +984,27 @@ public static class TriageCommand
                     throw Refused($"the entry \"{key}\" unpacked to a different size than the archive says");
             }
             files.Add(norm);
+        }
+
+        // the path checks first, for every entry (twelfth review: a "../../x/" folder record was skipped, not refused)
+        void PathGuards(string key, string name)
+        {
+            if (name.Length == 0 || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(x => x == ".."))
+                throw Refused($"the entry \"{key}\" points outside the archive's own folders");
+            if (ReleaseCommand.ChangedByWindows(name))
+                throw Refused($"the entry \"{key}\" has a name Windows changes (a \".\" part, or one ending in a dot or space)");
+        }
+
+        // a file's name: not twice, no file and folder of one name, and its place inside dest
+        (string Norm, string Target) NameGuards(string key, string name)
+        {
+            var norm = Ba2Names.Normalize(name);
+            if (!seen.Add(norm)) throw Refused($"the archive holds \"{key}\" twice (names differ only in case or slashes)");
+            if (ReleaseCommand.NameClash(norm, clashFiles, clashDirs) is { } clash) throw Refused($"the entry \"{key}\" {clash}");
+            var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));
+            if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                throw Refused($"the entry \"{key}\" points outside the archive's own folders");
+            return (norm, target);
         }
     }
 }

@@ -3,18 +3,34 @@
 // checks on them, in one place. With --mo2 the order comes from an MO2 profile (Mo2Profile.cs) and the plugins,
 // archives and loose files are looked up in --extra-data, then MO2's Overwrite, then the enabled mods from the top of
 // modlist.txt down, then Data. patch check and triage still read their own options.
+// 0.26.0: --plugin and --extra-data also take a mod archive (.zip, .7z or .rar; ArchiveInput.cs), unpacked into one
+// temp folder per run that Dispose deletes, so each command holds its LoadOrderInput in a using.
 using SfModCheck.Conflict;
 
 namespace SfModCheck;
 
-public sealed class LoadOrderInput
+public sealed class LoadOrderInput : IDisposable
 {
     /// <summary>The Plugins.txt the order comes from (with --mo2: the profile's plugins.txt).</summary>
     public string? PluginsTxt { get; private set; }
     public string DataDir { get; private set; } = "";
+    /// <summary>The --extra-data folder (after Resolve, for an archive: the folder its plugins were unpacked to).</summary>
     public string? ExtraDir { get; private set; }
     /// <summary>0.18.0: the --data and --extra-data the user gave, as text to add to a rerun command line (empty when neither was given).</summary>
-    public string RerunOptions() => (dataOption != null ? $" --data {QuotedPath(DataDir)}" : "") + (ExtraDir != null ? $" --extra-data {QuotedPath(Path.GetFullPath(ExtraDir))}" : "");
+    public string RerunOptions() => (dataOption != null ? $" --data {QuotedPath(DataDir)}" : "") +
+        (extraArchive != null ? $" --extra-data {QuotedPath(Path.GetFullPath(extraArchive.Archive))}" : ExtraDir != null ? $" --extra-data {QuotedPath(Path.GetFullPath(ExtraDir))}" : "");
+    /// <summary>0.26.0: with --plugin &lt;archive&gt;, the archive's plugins (file names, sorted); empty otherwise.</summary>
+    public IReadOnlyList<string> ArchivePlugins => pluginArchive?.Plugins ?? [];
+    /// <summary>0.26.0: the archive --plugin named (its full path), or null.</summary>
+    public string? PluginArchive => pluginArchive?.Archive;
+    readonly ArchiveInput.Use archives;
+    readonly string command;
+    ArchiveInput.Unpacked? pluginArchive, extraArchive;
+    string? tempDir;
+    int tempCount;
+    /// <summary>The plugins --extra-data &lt;archive&gt; adds at the end of the order (not active in it).</summary>
+    readonly List<string> appended = new();
+    readonly List<LoadOrderSetup> built = new();
 
     /// <summary>A folder in double quotes for a command line to paste: a trailing separator is dropped (a backslash
     /// before the closing quote would escape it), and a drive root's backslash is doubled ("D:\\").</summary>
@@ -38,7 +54,82 @@ public sealed class LoadOrderInput
 
     /// <param name="allowPlugin">take --plugin and --masters-dir (find, 0.16.1); other commands leave them to their own
     /// unknown-option message</param>
-    public LoadOrderInput(bool allowPlugin = false) => this.allowPlugin = allowPlugin;
+    /// <param name="archives">0.26.0: what an archive given to --plugin or --extra-data does (refused, plugins only, or
+    /// every file)</param>
+    /// <param name="command">the command's name, for the refusal of an archive</param>
+    public LoadOrderInput(bool allowPlugin = false, ArchiveInput.Use archives = ArchiveInput.Use.Refuse, string command = "this command")
+    {
+        this.allowPlugin = allowPlugin;
+        this.archives = archives;
+        this.command = command;
+    }
+
+    /// <summary>Closes the plugins Build opened and deletes the run's temp folder (0.26.0, archive input). A folder
+    /// that can't be deleted is logged with its path.</summary>
+    public void Dispose()
+    {
+        foreach (var lo in built)
+            foreach (var p in lo.Plugins)
+                try { (p.Mod as IDisposable)?.Dispose(); }
+                catch (Exception e) when (Fatal.Recoverable(e)) { Log.Write($"closing {p.FileName} failed: {e.Message}"); }
+        built.Clear();
+        if (tempDir == null || !Directory.Exists(tempDir)) return;
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                Directory.Delete(tempDir, true);
+                Log.Write($"archive input: temp folder {tempDir} removed");
+                break;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // a file still mapped by a reader nobody closed: let the finalizers run once, then try again
+                if (attempt == 0) { GC.Collect(); GC.WaitForPendingFinalizers(); continue; }
+                Log.Write($"archive input: couldn't remove the temp folder {tempDir}: {e.Message}");
+                break;
+            }
+        }
+        tempDir = null;
+    }
+
+    /// <summary>A new, empty folder for one archive in the run's temp folder (made on first use).</summary>
+    string NewArchiveDir()
+    {
+        tempDir ??= Directory.CreateTempSubdirectory("sf-mod-check-input-").FullName;
+        if (tempCount == 0) Log.Write($"archive input: temp folder {tempDir}");
+        return Path.Combine(tempDir, (++tempCount).ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Unpacks an archive given to option (--plugin or --extra-data); null with the message printed when it
+    /// can't be used.</summary>
+    ArchiveInput.Unpacked? OpenArchive(string option, string path, out string cantWhy)
+    {
+        var full = Path.GetFullPath(path);
+        var shown = SafeText.OneLine(Path.GetFileName(full));
+        if (!File.Exists(full))
+        {
+            Stop(out cantWhy, $"the archive {SafeText.OneLine(full)} doesn't exist",
+                $"can't read {option} {SafeText.OneLine(full)}: that file doesn't exist. Check the path (a path with spaces needs quotes).", $"{option} {full} doesn't exist");
+            return null;
+        }
+        string dir;
+        try { dir = NewArchiveDir(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Stop(out cantWhy, "the temp folder can't be made",
+                $"can't unpack {option} {shown}: the temp folder can't be made ({SafeText.OneLine(e.Message)}). Check the TEMP folder has room and this account may write there.",
+                $"temp folder for {full}: {e}");
+            return null;
+        }
+        if (ArchiveInput.Open(full, dir, archives, out var why) is not { } u)
+        {
+            Stop(out cantWhy, $"{option} {shown} can't be read", $"can't read {option} {shown}: {why}.", $"{option} {full}: {why}");
+            return null;
+        }
+        cantWhy = "";
+        return u;
+    }
 
     sealed record PluginOrderOfOne(LoadOrderSetup.PluginOrder Order, List<string> Dirs);
 
@@ -59,7 +150,7 @@ public sealed class LoadOrderInput
                 if (Cli.Value(a, ref i, "the game's Data folder", usage) is not { } d) return false;
                 dataOption = d; return true;
             case "--extra-data":
-                if (Cli.Value(a, ref i, "a folder", usage) is not { } x) return false;
+                if (Cli.Value(a, ref i, archives == ArchiveInput.Use.Refuse ? "a folder" : "a folder or a mod archive (.zip, .7z or .rar)", usage) is not { } x) return false;
                 ExtraDir = x; return true;
             case "--mo2":
                 if (Cli.Value(a, ref i, "the MO2 instance folder (the one with ModOrganizer.ini)", usage) is not { } m) return false;
@@ -68,7 +159,7 @@ public sealed class LoadOrderInput
                 if (Cli.Value(a, ref i, "an MO2 profile name", usage) is not { } pr) return false;
                 profileOption = pr; return true;
             case "--plugin" when allowPlugin:
-                if (Cli.Value(a, ref i, "a plugin file (.esm, .esp or .esl)", usage) is not { } pl) return false;
+                if (Cli.Value(a, ref i, archives == ArchiveInput.Use.Refuse ? "a plugin file (.esm, .esp or .esl)" : "a plugin file (.esm, .esp or .esl) or a mod archive (.zip, .7z or .rar)", usage) is not { } pl) return false;
                 Plugin = pl; return true;
             case "--masters-dir" when allowPlugin:
                 if (Cli.Value(a, ref i, "a folder that holds the plugin's masters", usage) is not { } md) return false;
@@ -121,6 +212,18 @@ public sealed class LoadOrderInput
             if (Mo2 is null)
                 return Stop(out cantWhy, "the MO2 profile can't be used", $"can't use the MO2 profile: {error}", $"MO2: {error}");
         }
+        // 0.26.0: a mod archive
+        foreach (var (option, value) in new[] { ("--plugin", Plugin), ("--extra-data", ExtraDir) })
+            if (value != null && archives == ArchiveInput.Use.Refuse && ArchiveInput.IsArchive(value))
+                return Stop(out cantWhy, $"{command} needs the mod installed or unpacked",
+                    $"{command} needs the mod installed or unpacked: give the folder, not the archive ({option} {SafeText.OneLine(Path.GetFileName(value))}).",
+                    $"{option} {value}: an archive, which {command} doesn't take");
+        if (Plugin != null && ArchiveInput.IsArchive(Plugin))
+        {
+            if (OpenArchive("--plugin", Plugin, out cantWhy) is not { } u) return false;
+            pluginArchive = u;
+            Plugin = Path.Combine(u.Folder, u.Plugins[^1]);   // ResolvePlugin picks the archive's last plugin in load order
+        }
 
         var gameData = Mo2?.GamePath is { } gp ? Path.Combine(gp, "Data") : null;
         string data, dataWhy;
@@ -172,6 +275,14 @@ public sealed class LoadOrderInput
             PluginsTxt = Path.GetFullPath(PluginsTxt);
             Log.Write($"load order: {PluginsTxt}: {pluginsWhy}");
         }
+        if (ExtraDir != null && ArchiveInput.IsArchive(ExtraDir))
+        {
+            if (OpenArchive("--extra-data", ExtraDir, out cantWhy) is not { } u) return false;
+            extraArchive = u;
+            ExtraDir = u.Folder;
+            Log.Write($"extra plugin folder (its files win over Data's{(Mo2 != null ? " and MO2's" : "")}): {ExtraDir}, from {Path.GetFullPath(u.Archive)}");
+            return AppendInactive(u, out cantWhy);
+        }
         if (ExtraDir != null)
         {
             if (!Directory.Exists(ExtraDir))
@@ -180,6 +291,43 @@ public sealed class LoadOrderInput
                     $"--extra-data {Path.GetFullPath(ExtraDir)} doesn't exist");
             ExtraDir = Path.GetFullPath(ExtraDir);
             Log.Write($"extra plugin folder (its files win over Data's{(Mo2 != null ? " and MO2's" : "")}): {ExtraDir}");
+        }
+        return true;
+    }
+
+    /// <summary>--extra-data &lt;archive&gt; (0.26.0): a plugin of the archive that isn't active in the load order is
+    /// added at the end, as if installed last: alphabetically, each one after its own masters from the archive. A
+    /// plugin already active keeps its place; an official one loads anyway.</summary>
+    bool AppendInactive(ArchiveInput.Unpacked u, out string cantWhy)
+    {
+        cantWhy = "";
+        List<string> active;
+        try { active = (Mo2?.Order ?? LoadOrderSetup.ReadPluginsTxt(PluginsTxt!)).Listed; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return Stop(out cantWhy, "the load order can't be read",
+                $"can't read the load order {PluginsTxt}: {SafeText.OneLine(e.Message)} Check that this account can read it.", $"reading {PluginsTxt}: {e}");
+        }
+        var activeSet = new HashSet<string>(active, StringComparer.OrdinalIgnoreCase);
+        var inactive = new HashSet<string>(u.Plugins.Where(p => !activeSet.Contains(p) && !LoadOrderSetup.IsOfficial(p)), StringComparer.OrdinalIgnoreCase);
+        var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Visit(string name)
+        {
+            if (!inactive.Contains(name) || appended.Contains(name, StringComparer.OrdinalIgnoreCase) || !visiting.Add(name)) return;
+            List<string> masters;
+            // an unreadable header is added as it is: Build reports the plugin it can't open
+            try { masters = LoadOrderSetup.ModHeaderMasters(Path.Combine(u.Folder, name)); }
+            catch (Exception e) when (Fatal.Recoverable(e)) { masters = []; Log.Write($"archive input: header of {SafeText.OneLine(name)} unreadable ({e.GetType().Name})"); }
+            foreach (var m in masters) Visit(m);
+            appended.Add(name);
+        }
+        foreach (var p in u.Plugins) Visit(p);   // u.Plugins is sorted
+        var where = Mo2 != null ? $"the MO2 profile {SafeText.OneLine(Mo2.Profile)}" : "Plugins.txt";
+        foreach (var p in appended)
+        {
+            var note = $"note: {SafeText.OneLine(p)} from {SafeText.OneLine(Path.GetFileName(u.Archive))} isn't active in {where}, so it is read as the last plugin";
+            Console.Error.WriteLine(note);
+            Log.Write(note);
         }
         return true;
     }
@@ -211,6 +359,8 @@ public sealed class LoadOrderInput
         foreach (var d in MastersDirs.Append(DataDir))
             if (!dirs.Contains(d, StringComparer.OrdinalIgnoreCase)) dirs.Add(d);
         string? Locate(string name) => dirs.Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
+        // 0.26.0: an archive's plugins are all the input, in alphabetical order, so one that is another's master comes first
+        var roots = pluginArchive?.Plugins.Select(p => Path.Combine(pluginArchive.Folder, p)).ToList() ?? [full];
 
         var order = new List<string>();
         var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -229,7 +379,7 @@ public sealed class LoadOrderInput
             }
             order.Add(Path.GetFileName(path));
         }
-        Visit(Path.GetFileName(full), full);
+        foreach (var r in roots) Visit(Path.GetFileName(r), r);
         if (unreadable != null)
             return Stop(out cantWhy, "a plugin header can't be read",
                 $"can't read the plugin header of {unreadable}. Run sf-mod-check check on it for details.", $"header of {unreadable} unreadable");
@@ -238,8 +388,23 @@ public sealed class LoadOrderInput
                 $"can't find {SafeText.OneLine(missingFor!)}'s master {SafeText.OneLine(missing)} in {string.Join(", ", dirs)}. " +
                 $"Put {SafeText.OneLine(missing)} in the plugin's folder, or give its folder with --masters-dir, or the game's Data folder with --data.",
                 $"master {missing} of {missingFor} not found in {string.Join(", ", dirs)}");
-        var n = order.Count - 1;
-        single = new(new(order, new(StringComparer.OrdinalIgnoreCase), $"{Path.GetFileName(full)} and its {n} master{(n == 1 ? "" : "s")}", Exact: true),
+        var n = order.Count - roots.Count;
+        string source;
+        if (pluginArchive == null) source = $"{Path.GetFileName(full)} and its {n} master{(n == 1 ? "" : "s")}";
+        else
+        {
+            // the plugin a one-plugin view (find's listing, a FormID's plugin) reads: the archive's last in load order
+            var last = order.Last(o => pluginArchive.Plugins.Contains(o, StringComparer.OrdinalIgnoreCase));
+            Plugin = Path.Combine(pluginArchive.Folder, last);
+            var shownArchive = SafeText.OneLine(Path.GetFileName(pluginArchive.Archive));
+            source = roots.Count == 1
+                ? $"{SafeText.OneLine(last)} (from {shownArchive}) and its {n} master{(n == 1 ? "" : "s")}"
+                : $"the {roots.Count} plugins of {shownArchive} and their {n} master{(n == 1 ? "" : "s")}";
+            if (roots.Count > 1)
+                Console.Error.WriteLine($"note: {shownArchive} holds {roots.Count} plugins ({string.Join(", ", pluginArchive.Plugins.Select(SafeText.OneLine))}); " +
+                                        $"all of them are loaded, and {SafeText.OneLine(last)}, the last in load order, is the one --plugin names");
+        }
+        single = new(new(order, new(StringComparer.OrdinalIgnoreCase), source, Exact: true),
                      dirs.Take(dirs.Count - (dirs[^1].Equals(DataDir, StringComparison.OrdinalIgnoreCase) ? 1 : 0)).ToList());
         Log.Write($"load order (--plugin): {string.Join(", ", order)}; masters looked up in {string.Join(", ", dirs)}");
         return true;
@@ -255,7 +420,19 @@ public sealed class LoadOrderInput
     public List<string> AssetDirs => OverDirs.Append(DataDir).ToList();
 
     /// <summary>The load order as a list (after Resolve).</summary>
-    public LoadOrderSetup.PluginOrder Order() => single?.Order ?? Mo2?.Order ?? LoadOrderSetup.ReadPluginsTxt(PluginsTxt!);
+    public LoadOrderSetup.PluginOrder Order()
+    {
+        var o = single?.Order ?? Mo2?.Order ?? LoadOrderSetup.ReadPluginsTxt(PluginsTxt!);
+        if (appended.Count == 0) return o;
+        // 0.26.0: --extra-data <archive>'s inactive plugins, at the end
+        var turnedOff = new HashSet<string>(o.TurnedOff, StringComparer.OrdinalIgnoreCase);
+        turnedOff.ExceptWith(appended);
+        return o with
+        {
+            Listed = o.Listed.Concat(appended).ToList(), TurnedOff = turnedOff,
+            Source = $"{o.Source}, then {appended.Count} plugin{(appended.Count == 1 ? "" : "s")} of {SafeText.OneLine(Path.GetFileName(extraArchive!.Archive))} not active in it",
+        };
+    }
 
     /// <summary>Opens the load order (after Resolve); order: a changed copy of Order() (patch leaves out its own
     /// older copy). The MO2 profile's problems are added to the load-order problems.</summary>
@@ -263,6 +440,7 @@ public sealed class LoadOrderInput
     {
         var lo = LoadOrderSetup.Build(DataDir, order ?? Order(), OverDirs);
         foreach (var p in Mo2?.Problems ?? []) lo.AddProblem(p);
+        if (tempDir != null) built.Add(lo);   // closed by Dispose, so the temp folder can be deleted
         return lo;
     }
 }

@@ -146,7 +146,7 @@ public static class FindCommand
         string? q = null, type = null, logFile = null;
         bool quiet = false, verbose = false, json = false, full = false, versions = false, refs = false, layout = false;
         int? max = null;
-        var input = new LoadOrderInput(allowPlugin: true);
+        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "find");
         for (int i = 0; i < a.Length; i++)
         {
             if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }

@@ -84,7 +84,7 @@ public static class ScenesCommand
         string? q = null, logFile = null, outFile = null, hubQ = null;
         bool quiet = false, verbose = false, json = false;
         int max = DefaultMax;
-        var input = new LoadOrderInput(allowPlugin: true);
+        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "scenes");
         for (int i = 0; i < a.Length; i++)
         {
             if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }

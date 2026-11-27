@@ -224,7 +224,7 @@ public static class PatchCommand
         resultPrinted = false;
         cantWhy = "bad arguments; see the message above";
         string? outDir = null, logFile = null;
-        var input = new LoadOrderInput();
+        using var input = new LoadOrderInput(command: "patch");
         var name = DefaultName;
         double maxGb = 0;
         bool quiet = false, verbose = false, includeOfficial = false;

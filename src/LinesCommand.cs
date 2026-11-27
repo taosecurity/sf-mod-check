@@ -115,7 +115,7 @@ public static class LinesCommand
         string? q = null, type = null, logFile = null, refQ = null;
         bool quiet = false, verbose = false, json = false, noFiles = false;
         int max = DefaultMax;
-        var input = new LoadOrderInput(allowPlugin: true);
+        using var input = new LoadOrderInput(allowPlugin: true, ArchiveInput.Use.PluginsOnly, "lines");
         for (int i = 0; i < a.Length; i++)
         {
             if (input.TryOption(a, ref i, Usage) is { } taken) { if (!taken) return 2; continue; }

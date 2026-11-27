@@ -605,8 +605,11 @@ public static class ReleaseCommand
     /// (those refusals, and any other error reading or writing an entry, naming it), and lets a problem of the PC through
     /// as itself (TriageCommand.IsFileSystem: a file or folder not found, a path too long, and IsPcProblem's no
     /// permission, a lock, the disk full, a network drive that dropped). Callers catch InvalidDataException and
-    /// IOException / UnauthorizedAccessException (0.8.0 review).</summary>
-    public static ReleasePackage Unpack(string zip, string dest)
+    /// IOException / UnauthorizedAccessException (0.8.0 review).
+    /// write (0.26.0, archive input): which entries are written, by the entry's name in the zip (null: all). Every
+    /// entry still goes through every name guard, and the size cap still counts every entry's declared size; an entry
+    /// not written isn't read, and isn't in Files.</summary>
+    public static ReleasePackage Unpack(string zip, string dest, Func<string, bool>? write = null)
     {
         Directory.CreateDirectory(dest);
         var root = Path.GetFullPath(dest).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -645,6 +648,12 @@ public static class ReleaseCommand
                 var target = Path.GetFullPath(Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar)));
                 if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException($"the entry \"{e.FullName}\" points outside the zip's own folders");
+                // 0.26.0: an encrypted entry is refused by name (the zip reader would decode it as garbage)
+                if (e.IsEncrypted)
+                    throw new InvalidDataException($"the entry \"{e.FullName}\" is password-protected; sf-mod-check doesn't open encrypted archives");
+                // 0.26.0: an entry left unwritten has passed the name guards above (NameClash keeps the file and
+                // folder names of every entry, written or not)
+                if (write != null && !write(name)) continue;
                 // a file and a folder of the same name, as the 7z/rar unpacker refuses (sixteenth review)
                 if (Directory.Exists(target))
                     throw new InvalidDataException($"the entry \"{e.FullName}\" has the same name as a folder in the zip; rename one of them in the zip");

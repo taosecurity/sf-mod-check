@@ -79,7 +79,7 @@ public static class VoiceLinesCommand
         string? plugin = null, outFile = null, logFile = null;
         bool quiet = false, verbose = false, utf8 = false;
         var voices = new List<string>();
-        var input = new LoadOrderInput(allowPlugin: true);
+        using var input = new LoadOrderInput(allowPlugin: true, command: "voice-lines");
         for (int i = 0; i < a.Length; i++)
         {
             switch (a[i])

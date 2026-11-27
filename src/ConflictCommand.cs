@@ -156,7 +156,7 @@ public static class ConflictCommand
         bool quiet = false, verbose = false, noAssets = false, noPriorities = false;
         var inis = new List<string>();
         var language = "en";
-        var input = new LoadOrderInput();
+        using var input = new LoadOrderInput(archives: ArchiveInput.Use.Everything, command: "conflict");
         string? Value(ref int i, string what) => Cli.Value(a, ref i, what, Usage);
         for (int i = 0; i < a.Length; i++)
         {
