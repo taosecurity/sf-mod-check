@@ -152,7 +152,7 @@ public static class Analyzer
     static readonly string? DebugRecord = Environment.GetEnvironmentVariable("SFMODCHECK_DEBUG_RECORD");
 
     // Every Starfield record getter interface that belongs to a real record class (INpcGetter for Npc, and so on).
-    static readonly Lazy<Type[]> AllConcrete = new(() =>
+    internal static readonly Lazy<Type[]> AllConcrete = new(() =>
     {
         var types = typeof(IStarfieldModGetter).Assembly.GetTypes();
         var classes = types.Where(t => t.IsClass && !t.IsAbstract && typeof(IMajorRecord).IsAssignableFrom(t))

@@ -1162,17 +1162,21 @@ public static class PatchCommand
     }
 
     /// <summary>Every cell one plugin holds: interior cells, and each worldspace's persistent cell and exterior cells.</summary>
-    static IEnumerable<ICellGetter> AllCells(IStarfieldModGetter mod)
+    internal static IEnumerable<ICellGetter> AllCells(IStarfieldModGetter mod) => AllCellsWithWorld(mod).Select(c => c.Cell);
+
+    /// <summary>0.27.0 (cell): every cell one plugin holds with the worldspace it sits in (null for an interior cell) and
+    /// whether it is the worldspace's persistent cell, in the same order as AllCells.</summary>
+    internal static IEnumerable<(ICellGetter Cell, IWorldspaceGetter? World, bool Top)> AllCellsWithWorld(IStarfieldModGetter mod)
     {
         foreach (var b in mod.Cells)
             foreach (var s in b.SubBlocks)
-                foreach (var c in s.Cells) yield return c;
+                foreach (var c in s.Cells) yield return (c, null, false);
         foreach (var w in mod.Worldspaces)
         {
-            if (w.TopCell is { } tc) yield return tc;
+            if (w.TopCell is { } tc) yield return (tc, w, true);
             foreach (var b in w.SubCells)
                 foreach (var s in b.Items)
-                    foreach (var c in s.Items) yield return c;
+                    foreach (var c in s.Items) yield return (c, w, false);
         }
     }
 
