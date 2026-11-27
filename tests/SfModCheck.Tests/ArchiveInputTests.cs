@@ -158,6 +158,15 @@ public class ArchiveInputTests
         Assert.Contains("its plugins sit in 2 folders (Option A, Option B)", stderr);
         Assert.Contains("give the folder you would install, or the plugin itself", stderr);
         s.TmpIsEmpty();
+
+        // a file named .zip that isn't one: the reader's message ends in a full stop, ours must not add a second
+        var fake = Path.Combine(Path.GetDirectoryName(none)!, "Fake.zip");
+        File.WriteAllText(fake, "not a zip");
+        (code, stdout, stderr) = s.Run("find", "--plugin", fake, "--data", s.Data);
+        Assert.Equal(2, code);
+        Assert.Contains("can't read --plugin Fake.zip:", stderr);
+        Assert.DoesNotContain("..", stderr);
+        s.TmpIsEmpty();
     }
 
     [Fact]

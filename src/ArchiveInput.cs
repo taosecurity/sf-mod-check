@@ -46,7 +46,7 @@ public static class ArchiveInput
                                       or SharpCompress.Common.ArchiveException or NotSupportedException or IOException or UnauthorizedAccessException)
         {
             Log.Write($"archive input: {shown} refused or unreadable: {e}");
-            why = SafeText.OneLine(e.Message);
+            why = SafeText.OneLine(e.Message).TrimEnd('.', ' ');   // the caller adds the full stop
             return null;
         }
         // the plugins at any depth (the top, Data\ or <ModName>\); the unpacker made every file, so there are no links
