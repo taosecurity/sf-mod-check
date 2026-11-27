@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.26.0 (unreleased)
+
+### What's new
+
+- **Archive input:** `--plugin` and `--extra-data` take a `.zip`, `.7z` or `.rar`, for `find`, `conflict`, `lines`, `scenes`, `overrides` and `summary`, so a downloaded mod can be looked at without unpacking it by hand. The archive is unpacked into the run's own temp folder, which is deleted when the run ends, with the same guards as `triage` (no entry outside the folder, no name twice, no encrypted archive, a size cap). Only plugins are written, except for `conflict`, which also needs the archive's other files. A plugin in an `--extra-data` archive that Plugins.txt doesn't list is read as the last plugin, with a note. `patch` and `voice-lines` refuse an archive and ask for the installed or unpacked folder.
+- **`overrides`** lists the records that two or more non-official plugins hold, by record type, with the plugins in load order and the winner marked. Options: `--type DIAL,INFO`, `--min N` (default 2), `--records <file>` (who edits these FormKeys or FormIDs, official copies shown too), `--max N` and `--json`. `--plugin` may be given more than once (plugins or archives, for a set of mods that aren't installed); a later input wins a name clash, and an input whose master is missing is left out with a note. Exit 0 records listed, 1 none, 2 couldn't run.
+- **`summary <plugin or archive>`** says what a plugin adds and changes: its masters, records per type (new, override, deleted), ITMs, the fields its overrides change with the old and new values, the cells it touches per worldspace and in the interiors, and its placed references by base type. An archive with several plugins gets one summary per plugin. `--max N` and `--json`. Exit 0 or 2.
+- The zip unpacker (also used by `triage`, `release` and `diff`) now refuses a password-protected entry by name, with a clear message.
+- Existing findings do not change.
+
+### Example
+
+Three made-up mods as downloaded zips, each overriding records of the base game, with nothing installed:
+
+    sf-mod-check overrides --plugin A-1.0.zip --plugin B-1.0.zip --plugin C-1.0.zip
+    sf-mod-check 0.26.0 overrides: records held by 2 or more non-official plugins, in 4 plugins (3 --plugin inputs (A-1.0.zip, B-1.0.zip, C-1.0.zip) and their 1 master)
+    KYWD (2 records)
+      000800:A.esm A_New: A.esm (adds), B.esm (wins)
+      000800:Starfield.esm S_A: A.esm, B.esm, C.esm (wins)
+    MISC (1 record)
+      000803:Starfield.esm S_Misc: A.esm, B.esm (wins)
+    RESULT: 3 records held by 2 or more non-official plugins (KYWD 2, MISC 1)
+
+And what one of them changes:
+
+    sf-mod-check summary Mod.esm
+    sf-mod-check 0.26.0 summary of Mod.esm and its 1 master
+
+    Mod.esm (full plugin)
+      Masters (1):
+        Starfield.esm (full), in C:\Program Files (x86)\Steam\steamapps\common\Starfield\Data
+      Records: 5 records (1 new, 4 overrides, 1 of them deleted)
+        KYWD: 1 new, 2 overrides (1 deleted), 1 ITM
+        MISC: 0 new, 2 overrides
+      ITMs (overrides identical to their master version): 1
+        KYWD (1)
+          000800:Starfield.esm S_A
+      Changed fields: 1 field changed in 2 overrides
+        MISC Value: 2 overrides
+          000802:Starfield.esm S_Misc: 5 -> 50
+          000803:Starfield.esm S_Part: 7 -> 70
+      Cells touched: none
+    RESULT: Mod.esm: 5 records (1 new, 4 overrides, 1 deleted), 1 ITM, 1 field changed in 2 overrides
+
 ## 0.25.0 (2026-11-26)
 
 ### What's new

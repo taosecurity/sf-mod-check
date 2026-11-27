@@ -297,6 +297,48 @@ public class OverridesTests
         Assert.Contains("ZZZZ", cant.GetProperty("error").GetString());
     }
 
+    /// <summary>Plan step 5: every key of B.7's JSON is there, with no others, each with the right kind; filled with
+    /// --records (official holders, a FormKey not found) and several --plugin archives (left-out inputs).</summary>
+    [Fact]
+    public void Json_has_every_key_of_the_design_with_its_kind()
+    {
+        using var s = new Set();
+        var list = s.File_("who.txt", s.SA.ToString(), "000999:Starfield.esm");
+        var (code, stdout, stderr) = s.Run("overrides", "--data", s.Data, "--plugin", s.Zip("A-1.0.zip", "A.esm"), "--plugin", s.Zip("B-1.0.zip", "B.esm"),
+                                           "--plugin", s.Zip("D-1.0.zip", "D.esm"), "--records", list, "--type", "KYWD", "--json");
+        Assert.True(code == 0, stdout + stderr);
+        var root = JsonShape.Exactly(JsonDocument.Parse(stdout).RootElement, "root",
+            "tool:string", "version:string", "loadOrder:object", "filter:object", "total:number", "shown:number", "byType:object",
+            "records:array", "notFound:array", "leftOut:array", "unread:array", "result:string");
+        JsonShape.Exactly(root.GetProperty("loadOrder"), "loadOrder", "source:string", "plugins:number");
+        var filter = JsonShape.Exactly(root.GetProperty("filter"), "filter", "types:array?", "min:number", "records:string?");
+        Assert.Equal("who.txt", filter.GetProperty("records").GetString());
+        JsonShape.AllOf(filter.GetProperty("types"), "string", "filter.types");
+        foreach (var t in root.GetProperty("byType").EnumerateObject()) Assert.Equal(JsonValueKind.Number, t.Value.ValueKind);
+        var records = root.GetProperty("records").EnumerateArray().ToList();
+        Assert.NotEmpty(records);
+        foreach (var r in records)
+        {
+            JsonShape.Exactly(r, "records[]", "formKey:string", "editorId:string?", "type:string", "origin:string", "holders:array", "winner:string");
+            foreach (var h in r.GetProperty("holders").EnumerateArray()) JsonShape.Exactly(h, "holders[]", "plugin:string", "adds:bool", "official:bool");
+        }
+        // the official copy is in the chain, marked
+        var sa = records.Single(r => r.GetProperty("formKey").GetString() == s.SA.ToString());
+        Assert.Contains(sa.GetProperty("holders").EnumerateArray(), h => h.GetProperty("plugin").GetString() == "Starfield.esm" && h.GetProperty("official").GetBoolean());
+        JsonShape.AllOf(root.GetProperty("notFound"), "string", "notFound");
+        Assert.Contains(root.GetProperty("notFound").EnumerateArray(), n => n.GetString()!.Contains("000999:Starfield.esm"));
+        var leftOut = root.GetProperty("leftOut").EnumerateArray().ToList();
+        Assert.Contains(leftOut, l => l.GetProperty("input").GetString() == "D-1.0.zip");
+        foreach (var l in leftOut) JsonShape.Exactly(l, "leftOut[]", "input:string", "why:string");
+        JsonShape.AllOf(root.GetProperty("unread"), "string", "unread");
+
+        // cannot run: exactly tool, version, result and error
+        var (cx, ox, ex) = s.Run("overrides", "--data", s.Data, "--plugin", Path.Combine(s.ModDir, "D.esm"), "--json");
+        Assert.True(cx == 2, ox + ex);
+        JsonShape.Exactly(JsonDocument.Parse(ox).RootElement, "cannot run", "tool:string", "version:string", "result:string", "error:string");
+        Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
+    }
+
     [Fact]
     public void Help_exits_0_and_the_top_level_help_names_overrides()
     {

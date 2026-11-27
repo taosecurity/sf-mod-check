@@ -57,7 +57,9 @@ public static class ArchiveInput
             why = "it holds no plugin (.esm, .esp or .esl)";
             return null;
         }
-        var folders = plugins.Select(p => Path.GetDirectoryName(p)!).Distinct(StringComparer.Ordinal).ToList();
+        // sorted, so the refusal names the folders in the same order on every system (Linux lists files unsorted)
+        var folders = plugins.Select(p => Path.GetDirectoryName(p)!).Distinct(StringComparer.Ordinal)
+            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
         if (folders.Count > 1)
         {
             var list = string.Join(", ", folders.Select(f => SafeText.OneLine(Path.GetRelativePath(dest, f) is "." ? "the top folder" : Path.GetRelativePath(dest, f))));

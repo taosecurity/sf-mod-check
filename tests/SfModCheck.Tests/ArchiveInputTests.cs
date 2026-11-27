@@ -218,6 +218,89 @@ public class ArchiveInputTests
         }
     }
 
+    /// <summary>Plan step 5: a drive-letter entry (zip and 7z), and a zip whose entries carry the encrypted flag, built in
+    /// the test so it runs on every system (the 7-Zip fixtures below need Windows and 7-Zip).</summary>
+    [Fact]
+    public void Drive_letter_entries_and_a_zip_marked_encrypted_are_refused_on_every_system()
+    {
+        using var s = new Set();
+        var mod = s.Bytes("Mod.esm");
+        var cases = new (string Archive, string Why)[]
+        {
+            (s.Zip("Drive.zip", ("Mod.esm", mod), ("C:/evil.txt", "x"u8.ToArray())), "points outside the zip's own folders"),
+            (s.Zip("DriveRel.zip", ("Mod.esm", mod), ("C:evil.txt", "x"u8.ToArray())), "points outside the zip's own folders"),
+        }.ToList();
+        // SharpCompress's 7z writer drops a drive from a name, so the 7z case needs 7-Zip's -spf (full paths kept)
+        var sevenZip = @"C:\Program Files\7-Zip\7z.exe";
+        if (OperatingSystem.IsWindows() && File.Exists(sevenZip))
+        {
+            var seven = Path.Combine(s.Dir, "zips", "Drive.7z");
+            var evil = Path.Combine(s.Dir, "evil-src.txt");
+            File.WriteAllText(evil, "x");
+            foreach (var f in new[] { Path.Combine(s.ModDir, "Mod.esm"), evil })
+            {
+                var psi = new ProcessStartInfo(sevenZip) { RedirectStandardOutput = true, UseShellExecute = false };
+                foreach (var a in new[] { "a", "-spf", seven, Path.GetFullPath(f) }) psi.ArgumentList.Add(a);
+                using var p = Process.Start(psi)!;
+                p.StandardOutput.ReadToEnd();
+                p.WaitForExit();
+                Assert.Equal(0, p.ExitCode);
+            }
+            cases.Add((seven, "points outside the archive's own folders"));
+        }
+        foreach (var (archive, why) in cases)
+        {
+            var (code, stdout, stderr) = s.Run("find", "--plugin", archive, "--data", s.Data);
+            Assert.True(code == 2, archive + "\n" + stdout + stderr);
+            Assert.Contains(why, stderr);
+            s.TmpIsEmpty();
+        }
+
+        // set the "encrypted" bit (general purpose flag bit 0) in every local and central header of a plain zip
+        var zip = s.Zip("Marked.zip", ("Mod.esm", mod));
+        var bytes = File.ReadAllBytes(zip);
+        int marked = 0;
+        for (int i = 0; i + 10 < bytes.Length; i++)
+        {
+            if (bytes[i] != 'P' || bytes[i + 1] != 'K') continue;
+            if (bytes[i + 2] == 3 && bytes[i + 3] == 4) { bytes[i + 6] |= 1; marked++; }
+            else if (bytes[i + 2] == 1 && bytes[i + 3] == 2) { bytes[i + 8] |= 1; marked++; }
+        }
+        Assert.Equal(2, marked);
+        File.WriteAllBytes(zip, bytes);
+        var (c, o, e) = s.Run("find", "--plugin", zip, "--data", s.Data);
+        Assert.True(c == 2, o + e);
+        Assert.Contains("the entry \"Mod.esm\" is password-protected", e);
+        s.TmpIsEmpty();
+    }
+
+    /// <summary>Plan step 5: conflict, lines and scenes take an archive (A.3: lines and scenes write only plugins,
+    /// conflict writes everything), open it, and leave no temp folder behind.</summary>
+    [Fact]
+    public void Conflict_lines_and_scenes_take_an_archive_and_leave_no_temp_folder()
+    {
+        using var s = new Set();
+        var zip = s.Zip("Pack.zip", ("Data/Mod.esm", s.Bytes("Mod.esm")), ("Data/Textures/a.dds", "dds"u8.ToArray()));
+        var plugins = Path.Combine(s.Dir, "Plugins.txt");
+        File.WriteAllText(plugins, "*Base.esm\n");
+        var runs = new[]
+        {
+            new[] { "conflict", "--plugins", plugins, "--extra-data", zip, "--data", s.Data, "--out", Path.Combine(s.Dir, "conflict-out"), "--verbose" },
+            new[] { "lines", "M_One", "--plugin", zip, "--data", s.Data, "--verbose" },
+            new[] { "scenes", "M_One", "--plugin", zip, "--data", s.Data, "--verbose" },
+        };
+        foreach (var args in runs)
+        {
+            var (code, stdout, stderr) = s.Run(args);
+            Assert.True(stderr.Contains("archive input: "), args[0] + " didn't unpack the archive\n" + stdout + stderr);
+            Assert.DoesNotContain("needs the mod installed or unpacked", stderr);
+            Assert.DoesNotContain("can't read --", stderr);
+            Assert.DoesNotContain("Unhandled exception", stderr);
+            Assert.True(code is 0 or 1 or 2, args[0] + " exit " + code);
+            s.TmpIsEmpty();
+        }
+    }
+
     [Fact]
     public void An_encrypted_zip_or_7z_is_refused()
     {

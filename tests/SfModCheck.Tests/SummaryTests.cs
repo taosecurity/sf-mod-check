@@ -389,6 +389,76 @@ public class SummaryTests
         Assert.Equal(0, pn.GetProperty("interiors").GetProperty("placed").GetProperty("new").GetInt32());
     }
 
+    /// <summary>Plan step 5: every key of C.8's JSON (with the step 4 additions) is there, with no others, each with the
+    /// right kind, on a plugin with ITMs and changed fields, on one with cells and placed references, and from an archive.</summary>
+    [Fact]
+    public void Json_has_every_key_of_the_design_with_its_kind()
+    {
+        static void Plugin(JsonElement p)
+        {
+            JsonShape.Exactly(p, "plugins[]", "name:string", "style:string", "fromArchive:string?", "masters:array", "records:number", "types:array",
+                "itms:object", "changedOverrides:number", "fields:array", "worldspaces:array", "interiors:object", "unread:array");
+            foreach (var m in p.GetProperty("masters").EnumerateArray()) JsonShape.Exactly(m, "masters[]", "name:string", "style:string?", "found:bool");
+            foreach (var t in p.GetProperty("types").EnumerateArray())
+                JsonShape.Exactly(t, "types[]", "type:string", "new:number", "override:number", "deleted:number", "itm:number");
+            var itms = JsonShape.Exactly(p.GetProperty("itms"), "itms", "count:number", "notCompared:number", "noMaster:number", "examples:array");
+            foreach (var e in itms.GetProperty("examples").EnumerateArray()) JsonShape.Exactly(e, "itms.examples[]", "formKey:string", "editorId:string?", "type:string");
+            foreach (var f in p.GetProperty("fields").EnumerateArray())
+            {
+                JsonShape.Exactly(f, "fields[]", "type:string", "field:string", "count:number", "examples:array");
+                foreach (var e in f.GetProperty("examples").EnumerateArray())
+                    JsonShape.Exactly(e, "fields.examples[]", "formKey:string", "editorId:string?", "from:string", "to:string");
+            }
+            void Place(JsonElement where, string name)
+            {
+                foreach (var c in where.GetProperty("cells").EnumerateArray())
+                    JsonShape.Exactly(c, name + ".cells[]", "formKey:string", "editorId:string?", "own:bool", "records:number");
+                var placed = JsonShape.Exactly(where.GetProperty("placed"), name + ".placed", "new:number", "override:number", "deleted:number", "byBase:object");
+                foreach (var b in placed.GetProperty("byBase").EnumerateObject()) Assert.Equal(JsonValueKind.Number, b.Value.ValueKind);
+            }
+            foreach (var w in p.GetProperty("worldspaces").EnumerateArray())
+            {
+                JsonShape.Exactly(w, "worldspaces[]", "formKey:string", "editorId:string?", "own:bool", "cells:array", "placed:object");
+                Place(w, "worldspaces[]");
+            }
+            Place(JsonShape.Exactly(p.GetProperty("interiors"), "interiors", "cells:array", "placed:object"), "interiors");
+            JsonShape.AllOf(p.GetProperty("unread"), "string", "unread");
+        }
+        JsonElement Root(string stdout)
+        {
+            var root = JsonShape.Exactly(JsonDocument.Parse(stdout).RootElement, "root",
+                "tool:string", "version:string", "plugins:array", "loadOrderProblems:array", "result:string");
+            JsonShape.AllOf(root.GetProperty("loadOrderProblems"), "string", "loadOrderProblems");
+            foreach (var p in root.GetProperty("plugins").EnumerateArray()) Plugin(p);
+            return root;
+        }
+
+        using var s = new Set();
+        var (code, stdout, stderr) = s.Summary(Path.Combine(s.ModDir, "Mod.esm"), "--json");
+        Assert.True(code == 0, stdout + stderr);
+        var mod = Root(stdout).GetProperty("plugins")[0];
+        Assert.NotEmpty(mod.GetProperty("itms").GetProperty("examples").EnumerateArray());   // the shapes above were really walked
+        Assert.NotEmpty(mod.GetProperty("fields").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, mod.GetProperty("fromArchive").ValueKind);
+
+        var (cz, oz, ez) = s.Run("summary", s.Zip("Pair-1.0.zip", "Mod2.esm", "Mod.esm"), "--data", s.Data, "--json");
+        Assert.True(cz == 0, oz + ez);
+        var pair = Root(oz).GetProperty("plugins").EnumerateArray().ToList();
+        Assert.Equal(2, pair.Count);
+        Assert.All(pair, p => Assert.Equal("Pair-1.0.zip", p.GetProperty("fromArchive").GetString()));
+
+        using var places = new PlaceSet();
+        var (cp, op, ep) = places.Summary("--json");
+        Assert.True(cp == 0, op + ep);
+        var pl = Root(op).GetProperty("plugins")[0];
+        Assert.NotEmpty(pl.GetProperty("worldspaces").EnumerateArray());
+        Assert.NotEmpty(pl.GetProperty("interiors").GetProperty("cells").EnumerateArray());
+
+        var (cx, ox, ex) = s.Summary(Path.Combine(s.ModDir, "Nope.esm"), "--json");
+        Assert.True(cx == 2, ox + ex);
+        JsonShape.Exactly(JsonDocument.Parse(ox).RootElement, "cannot run", "tool:string", "version:string", "result:string", "error:string");
+    }
+
     [Fact]
     public void Help_exits_0_and_the_top_level_help_names_summary()
     {
