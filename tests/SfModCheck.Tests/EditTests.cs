@@ -684,6 +684,38 @@ public class EditTests
         NoTemp(w, "light.esl");
     }
 
+    // 0.28.0 code review round 1: a proof message that names a master whose name ends in the input's name (Fixes.esm,
+    // master CommunityFixes.esm) matches the same message of the output under another --out name
+    [Fact]
+    public void Proof_MessageNamingAMasterEndingInTheInputsNameMatchesUnderANewOutName()
+    {
+        var before = new List<string> { "W 000801:CommunityFixes.esm: a missing record in Fixes.esm" };
+        var known = EditProof.KnownIn(before, "Fixes.esm", "Fixes-v2.esm", null);
+        Assert.True(known("W 000801:CommunityFixes.esm: a missing record in Fixes-v2.esm"));
+        Assert.False(known("W 000802:CommunityFixes.esm: a missing record in Fixes-v2.esm"));
+    }
+
+    // 0.28.0 code review round 1: an .esl input without the light flag is light in the game (the extension), so an
+    // .esl --out is kept; an .esm --out would make it a full plugin, so it is refused unless --set-light sets the flag
+    [Fact]
+    public void Proof_AnEslInputWithoutTheFlagKeepsItsEslName()
+    {
+        using var w = new World();
+        var lines = File.ReadAllBytes(w.Build("lines-esl", Lines));
+        var eslIn = Path.Combine(w.Dir, "noflag.esl");
+        File.WriteAllBytes(eslIn, lines.Also(b => Bytes.SetU32(b, 8, Bytes.U32(b, 8) & ~Flags.Light)));
+        var eslOut = Path.Combine(w.Dir, "noflag-out.esl");
+        AllPassed(EditProof.Run(eslIn, eslOut, Text("SFM_Message", "x"), w.Dir, []));
+        Assert.True(File.Exists(eslOut));
+
+        var esmOut = Path.Combine(w.Dir, "noflag-out.esm");
+        var refusal = Assert.Throws<EditRefusedException>(() => EditProof.Run(eslIn, esmOut, Text("SFM_Message", "x"), w.Dir, []));
+        Assert.Contains("its .esl name makes the game load it as a light plugin", refusal.Reason);
+        Assert.Contains("--set-light", refusal.Fix);
+        Assert.False(File.Exists(esmOut));
+        NoTemp(w, "noflag-out.esm");
+    }
+
     // code review 0.25.0 round 1: --set-text takes "Name", eid:Name and editorid:Name as an EditorID, as find does
     [Fact]
     public void SetText_ForcedEditorIdForms()

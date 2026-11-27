@@ -453,10 +453,12 @@ public static class PluginEdit
         // 1. Mutagen: links and record keys of the plugin, and those that point at the master
         var links = new HashSet<(string, uint)>();
         int mutagenUses = 0;
-        var styles = new LoadOrder<IModMasterStyledGetter>(h.Masters.Select(m =>
-            (IModMasterStyledGetter)new KeyedMasterStyle(ModKey.FromFileName(m), MutagenStyle(masterStyle(m) ?? Style.Full))));
+        LoadOrder<IModMasterStyledGetter> styles;
         try
         {
+            // inside the try: a master name Mutagen can't take (no plugin extension, listed twice) is a refusal (0.28.0 code review round 1)
+            styles = new LoadOrder<IModMasterStyledGetter>(h.Masters.Select(m =>
+                (IModMasterStyledGetter)new KeyedMasterStyle(ModKey.FromFileName(m), MutagenStyle(masterStyle(m) ?? Style.Full))));
             using var mod = StarfieldMod.CreateFromBinaryOverlay(inputPath, StarfieldRelease.Starfield, new BinaryReadParameters { MasterFlagsLookup = styles });
             void Add(FormKey fk)
             {

@@ -32,7 +32,7 @@ public static class TextCommand
         "  Lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest\n" +
         "  names and objectives, dialogue, and every other text the game translates. A new record lists all its strings;\n" +
         "  an override lists only the strings it changes, each with the master's text as \"was\" (a string it clears\n" +
-        "  shows as (no text)).\n" +
+        "  shows as (no text), except in a partial form or a localized plugin).\n" +
         "  <plugin | archive>  a plugin (.esm, .esp or .esl), a mod archive (.zip, .7z or .rar). An\n" +
         "               archive with several plugins gets one section per plugin, in load order. The masters are\n" +
         "               looked up in the plugin's own folder, then each --masters-dir, then the game's Data folder. A\n" +
@@ -102,8 +102,10 @@ public static class TextCommand
         ["tool"] = "sf-mod-check text", ["version"] = version, ["result"] = "cannot run", ["error"] = why,
     }.ToJsonString(Indented);
 
-    /// <summary>File kinds --out never writes over: a plugin, an archive or a BA2 (a typo there would destroy a mod).</summary>
-    static readonly HashSet<string> ModFileExtensions = new(StringComparer.OrdinalIgnoreCase) { ".esm", ".esp", ".esl", ".ba2", ".zip", ".7z", ".rar" };
+    /// <summary>File kinds --out never writes over: a plugin, an archive, a BA2, a string file, a script or a DLL (a typo
+    /// there would destroy a mod; the string files and scripts since 0.28.0 code review round 1).</summary>
+    static readonly HashSet<string> ModFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+        { ".esm", ".esp", ".esl", ".ba2", ".zip", ".7z", ".rar", ".strings", ".dlstrings", ".ilstrings", ".pex", ".psc", ".dll" };
 
     static int RunLogged(string[] a, string version, string byline, out bool resultPrinted, out string cantWhy)
     {
@@ -188,7 +190,7 @@ public static class TextCommand
             if (ModFileExtensions.Contains(Path.GetExtension(outFile)))
             {
                 Console.Error.WriteLine($"--out writes a text or JSON file, not a {Path.GetExtension(outFile)} file: give it a name such as text.txt or text.json.");
-                cantWhy = "--out names a plugin or archive";
+                cantWhy = "--out names a mod file";
                 return 2;
             }
             if (Directory.Exists(outFile))
@@ -343,23 +345,14 @@ public static class TextCommand
             if (!paired.Add(ov.FormKey)) return;
             pairs++;
             int ignoredSeen = 0, ignoredNonEmpty = 0;
-            var was = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var s in Strings(master, ref ignoredSeen, ref ignoredNonEmpty)) was.TryAdd(s.Field, s.Text);
-            var changed = new List<Str>();
-            var own = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var s in Strings(ov, ref seenStrings, ref nonEmpty))
-            {
-                own.Add(s.Field);
-                if (was.TryGetValue(s.Field, out var old) && old == s.Text) continue;
-                changed.Add(s with { Was = was.TryGetValue(s.Field, out var o) ? o : null });
-            }
+            var was = Strings(master, ref ignoredSeen, ref ignoredNonEmpty);
             // a string the master has and the override doesn't (cleared, or its field or list entry left out): the player
             // loses that text, so it is listed with no text and the master's as "was" (0.28.0 step 5). Not for a partial
-            // form, whose left-out fields come from the master in the game.
-            if (IsPartialForm(ov)) Log.Write($"text: {ov.FormKey}: a partial form, so the master strings it leaves out are not listed as cleared");
-            else
-                foreach (var (field, old) in was)
-                    if (!own.Contains(field)) changed.Add(new Str(field, "", old));
+            // form, whose left-out fields come from the master in the game, and not for a localized plugin, whose string
+            // that can't be looked up reads as empty too (0.28.0 code review round 1).
+            bool partial = IsPartialForm(ov);
+            if (partial) Log.Write($"text: {ov.FormKey}: a partial form, so the master strings it leaves out are not listed as cleared");
+            var changed = Changes(was, Strings(ov, ref seenStrings, ref nonEmpty), cleared: !partial && !pt.Localized);
             if (changed.Count > 0) listed[ov.FormKey] = new Rec(SigOf(ov), ov.FormKey.ToString(), EditorIdOf(ov) ?? EditorIdOf(master), KindChanged, changed);
         }
         try { Overrides.FindItms(t.Mod, overrides, cache, Compared); }
@@ -386,13 +379,51 @@ public static class TextCommand
         return pt;
     }
 
+    static readonly System.Text.RegularExpressions.Regex ListIndex = new(@"\[\d+\]", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>The strings an override changes against its master's (0.28.0 code review round 1). Strings are grouped
+    /// by their path with the list indexes taken out (MenuButtons[].Text), and in a group a text the master has too is
+    /// unchanged wherever it sits, so an entry added or left out moves no other. The rest are paired, the same path
+    /// first: an override string paired with a master one is changed (the master's text as was), one left over has no
+    /// text in the master, and a master string left over is cleared (listed with no text) when cleared is true.</summary>
+    internal static List<Str> Changes(List<Str> master, List<Str> ov, bool cleared)
+    {
+        static string Key(string field) => ListIndex.Replace(field, "[]");
+        var left = master.GroupBy(s => Key(s.Field), StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        var unmatched = new List<Str>();
+        foreach (var s in ov)
+        {
+            if (left.TryGetValue(Key(s.Field), out var l))
+            {
+                int i = l.FindIndex(m => m.Field == s.Field && m.Text == s.Text);
+                if (i < 0) i = l.FindIndex(m => m.Text == s.Text);
+                if (i >= 0) { l.RemoveAt(i); continue; }
+            }
+            unmatched.Add(s);
+        }
+        var changes = new List<Str>();
+        foreach (var s in unmatched)
+        {
+            string? old = null;
+            if (left.TryGetValue(Key(s.Field), out var l) && l.Count > 0)
+            {
+                int i = Math.Max(0, l.FindIndex(m => m.Field == s.Field));
+                old = l[i].Text;
+                l.RemoveAt(i);
+            }
+            changes.Add(s with { Was = old });
+        }
+        if (cleared)
+            foreach (var m in left.Values.SelectMany(l => l)) changes.Add(new Str(m.Field, "", m.Text));
+        return changes;
+    }
+
     /// <summary>The Starfield record types Mutagen 0.54.4 reads as partial forms (`IsPartialFormable => true` in its
-    /// Quest, Cell and DialogTopic registrations), and the record flag that makes one (Constants.PartialFormFlag).</summary>
+    /// Quest, Cell and DialogTopic registrations); the flag is FieldCompare.PartialFormFlag.</summary>
     static readonly HashSet<string> PartialFormable = new(StringComparer.Ordinal) { "QUST", "CELL", "DIAL" };
-    const int PartialFormFlag = 0x4000;
 
     /// <summary>Whether an override is a partial form: the fields it leaves out are the master's in the game.</summary>
-    internal static bool IsPartialForm(IMajorRecordGetter r) => (r.MajorRecordFlagsRaw & PartialFormFlag) != 0 && PartialFormable.Contains(SigOf(r));
+    internal static bool IsPartialForm(IMajorRecordGetter r) => FieldCompare.IsPartial(r) && PartialFormable.Contains(SigOf(r));
 
     /// <summary>The master names of p and of their masters, from the load order (as summary's).</summary>
     static HashSet<string> MasterClosure(PluginInfo p, LoadOrderSetup lo)

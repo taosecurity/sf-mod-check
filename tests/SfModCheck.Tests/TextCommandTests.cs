@@ -169,6 +169,78 @@ public class TextCommandTests
         Assert.Contains("RESULT: text: 1 string in 1 record (0 new, 1 changed) in Mod.esm", stdout);
     }
 
+    // 0.28.0 code review round 1: list entries are matched by their text, not their index, so a button added in front
+    // lists only that button, and a button left out lists only that one as (no text)
+    [Fact]
+    public void Test11_a_list_entry_added_or_left_out_lists_only_that_entry()
+    {
+        FormKey added = default, removed = default;
+        using var s = new Set(m =>
+        {
+            var a = new Message(added, StarfieldRelease.Starfield) { EditorID = "S_MsgAdded", Description = "Proceed?" };
+            a.MenuButtons.Add(new MessageButton { Text = "Maybe" });
+            a.MenuButtons.Add(new MessageButton { Text = "Yes" });
+            a.MenuButtons.Add(new MessageButton { Text = "No" });
+            m.Messages.Add(a);
+            var r = new Message(removed, StarfieldRelease.Starfield) { EditorID = "S_MsgRemoved", Description = "Proceed?" };
+            r.MenuButtons.Add(new MessageButton { Text = "No" });
+            m.Messages.Add(r);
+        }, b =>
+        {
+            foreach (var id in new[] { "S_MsgAdded", "S_MsgRemoved" })
+            {
+                var msg = b.Messages.AddNew(id);
+                msg.Description = "Proceed?";
+                msg.MenuButtons.Add(new MessageButton { Text = "Yes" });
+                msg.MenuButtons.Add(new MessageButton { Text = "No" });
+                if (id == "S_MsgAdded") added = msg.FormKey; else removed = msg.FormKey;
+            }
+        });
+        var (code, stdout, stderr) = s.Text(s.Mod, "--type", "MESG");
+        Assert.True(code == 0, stdout + stderr);
+        var l = Listing(stdout);
+        var at = l.FindIndex(x => x == $"    MESG S_MsgAdded [{added}] changed");
+        Assert.True(at >= 0, stdout);
+        Assert.Equal("      MenuButtons[0].Text: Maybe", l[at + 1]);
+        Assert.Equal("        was: (no text in the master)", l[at + 2]);
+        Assert.True(at + 3 >= l.Count || !l[at + 3].StartsWith("      ", StringComparison.Ordinal), stdout);
+        var rt = l.FindIndex(x => x == $"    MESG S_MsgRemoved [{removed}] changed");
+        Assert.True(rt >= 0, stdout);
+        Assert.Equal("      MenuButtons[0].Text: (no text)", l[rt + 1]);
+        Assert.Equal("        was: Yes", l[rt + 2]);
+        Assert.True(rt + 3 >= l.Count || !l[rt + 3].StartsWith("      ", StringComparison.Ordinal), stdout);
+    }
+
+    // 0.28.0 code review round 1: a localized override whose string files are missing reads every string as empty;
+    // its master's strings are not listed as cleared (only the WARNING says the files are missing)
+    [Fact]
+    public void Test12_a_localized_override_without_its_string_files_lists_nothing_as_cleared()
+    {
+        using var s = new Sandbox();
+        var data = s.Sub("Data");
+        var dir = s.Sub("loc");
+        var b = Plugin.New("Starfield.esm", PluginStyle.Full, "test", "made-up base game");
+        b.Ingestibles.AddNew("S_Drink").Name = "Water";
+        using (var g = new GameData(data)) PluginWriter.Write(b, data, g, NoGap);
+        using (var g = new GameData(data, [dir]))
+        {
+            var sf = g.Open("Starfield.esm");
+            var m = Plugin.New("Mod.esm", PluginStyle.Full, "test", "made-up localized mod", localized: true);
+            m.Ingestibles.GetOrAddAsOverride(sf.Ingestibles.First(k => k.EditorID == "S_Drink")).Name = Localized.Text("Clean Water");
+            PluginWriter.Write(m, dir, g, NoGap);
+        }
+        var (c1, o1, e1) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data);
+        Assert.True(c1 == 0, o1 + e1);
+        Assert.Contains("      Name: Clean Water", Lines(o1));
+        Assert.Contains("        was: Water", Lines(o1));
+
+        Directory.Delete(Path.Combine(dir, "Strings"), true);
+        var (c2, o2, e2) = ExeTests.RunSplit("text", Path.Combine(dir, "Mod.esm"), "--data", data);
+        Assert.True(c2 == 0, o2 + e2);
+        Assert.DoesNotContain(Lines(o2), x => x.Contains(TextCommand.NoText));
+        Assert.Contains("RESULT: text: 0 strings in 0 records (0 new, 0 changed) in Mod.esm; WARNING: Mod.esm's string files weren't found", o2);
+    }
+
     [Fact]
     public void Test3_a_localized_plugin_lists_its_text_and_warns_without_its_string_files()
     {
@@ -279,6 +351,14 @@ public class TextCommandTests
         Assert.Equal(2, c5);
         Assert.Contains("not a .esm file", e5);
         Assert.False(File.Exists(Path.Combine(s.Sub("out"), "Other.esm")));
+        // 0.28.0 code review round 1: a string file is a mod file too
+        var table = Path.Combine(s.Sub("out"), "Mod_en.STRINGS");
+        File.WriteAllText(table, "kept");
+        var (c6, o6, e6) = s.Text(s.Mod, "--out", table);
+        Assert.Equal(2, c6);
+        Assert.Contains("not a .STRINGS file", e6);
+        Assert.Contains("RESULT: CANNOT CHECK (--out names a mod file)", o6);
+        Assert.Equal("kept", File.ReadAllText(table));
     }
 
     [Fact]

@@ -348,9 +348,15 @@ public static class EditProof
 
     /// <summary>A message with the plugin's name taken out and, with --drop-master, the input's stored FormIDs written
     /// as the output stores them, so a message that names the same thing matches.</summary>
-    public static string Normal(string msg, string name, Func<uint, uint>? remap)   // public for the tests
+    public static string Normal(string msg, string name, Func<uint, uint>? remap) => Normal(msg, [name], remap);   // public for the tests
+
+    /// <summary>Normal with several plugin names taken out, the longest first (the input's and --out's names on both
+    /// sides, so a master whose name ends in one of them reads the same on both sides; 0.28.0 code review round 1).</summary>
+    public static string Normal(string msg, IEnumerable<string> names, Func<uint, uint>? remap)
     {
-        var s = msg.Replace(name, "<plugin>", StringComparison.OrdinalIgnoreCase);
+        var s = msg;
+        foreach (var name in names.Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(n => n.Length))
+            s = s.Replace(name, "<plugin>", StringComparison.OrdinalIgnoreCase);
         s = Offset.Replace(s, "at 0x<offset>");
         if (remap != null) s = Hex8.Replace(s, m => remap(Convert.ToUInt32(m.Value, 16)).ToString("X8"));
         // --drop-master: check's "(5 full masters)" reads "(4 full masters)" in the output (code review round 3)
@@ -358,8 +364,18 @@ public static class EditProof
         return s.ToUpperInvariant();
     }
 
+    /// <summary>Whether a proof message of the output (the file under outName) is one the input (under name) had
+    /// already, as Normal writes them (public for the tests).</summary>
+    public static Func<string, bool> KnownIn(IReadOnlyList<string> before, string name, string outName, Func<uint, uint>? remap)
+    {
+        string[] names = [name, outName];
+        var known = before.Select(e => Normal(e, names, null)).Concat(before.Select(e => Normal(e, names, remap))).ToHashSet(StringComparer.Ordinal);
+        return after => known.Contains(Normal(after, names, null));
+    }
+
     /// <summary>The 0.28.0 refusals of --out's file name, before anything is written: a name that is one of the
-    /// output's own masters, and an .esl name for an output that isn't light (the game loads every .esl as light).</summary>
+    /// output's own masters, an .esl name for an output that isn't light (the game loads every .esl as light), and a
+    /// name that isn't .esl for an .esl input that is light only by its extension.</summary>
     static void CheckOutName(string inFull, string outName, EditPlan plan)
     {
         if (RawHeader.Read(inFull) is not { } head) return;   // not a plugin: Apply refuses it with its own message
@@ -367,7 +383,12 @@ public static class EditProof
         if (masters.Any(m => m.Equals(outName, PathCase)))
             throw new EditRefusedException($"--out {SafeText.OneLine(outName)} is the name of one of the new file's masters, and a plugin can't be its own master.",
                 "Give --out another file name, for example MyMod-fixed.esm.");
-        if (Path.GetExtension(outName).Equals(".esl", PathCase) && head.Style != Style.Light && !plan.SetLight)
+        // the game loads an .esl as light with or without the flag (0.28.0 code review round 1)
+        bool eslIn = Path.GetExtension(inFull).Equals(".esl", PathCase), eslOut = Path.GetExtension(outName).Equals(".esl", PathCase);
+        if (eslIn && !eslOut && head.Style != Style.Light && !plan.SetLight)
+            throw new EditRefusedException($"{SafeText.OneLine(Path.GetFileName(inFull))} has no light flag, but its .esl name makes the game load it as a light plugin; --out {SafeText.OneLine(outName)} would make the new file a full plugin, so plugins that use it would point at the wrong records.",
+                "Add --set-light to set the flag, or keep the .esl extension for --out.");
+        if (eslOut && !eslIn && head.Style != Style.Light && !plan.SetLight)
             throw new EditRefusedException($"--out {SafeText.OneLine(outName)} ends in .esl, which the game always loads as a light plugin, but the new file is a {head.Style.ToString().ToLowerInvariant()} plugin, so its own FormIDs would point at the wrong records.",
                 "Add --set-light (if its own records fit in 000800 to 000FFF), or keep the input's extension (.esm or .esp).");
     }
@@ -375,11 +396,9 @@ public static class EditProof
     static ProofResult GapProof(GapCheck.Result before, string tmp, IReadOnlyList<string> dirs, string name, string outName, Func<uint, uint>? remap)
     {
         var after = GapCheck.Check(tmp, dirs);
-        var was = before.Errors.Select(e => ("E", e)).Concat(before.Warnings.Select(w => ("W", w))).ToList();
-        var known = was.Select(x => x.Item1 + " " + Normal(x.Item2, name, null))
-            .Concat(was.Select(x => x.Item1 + " " + Normal(x.Item2, name, remap))).ToHashSet(StringComparer.Ordinal);
+        var known = KnownIn(before.Errors.Select(e => "E " + e).Concat(before.Warnings.Select(w => "W " + w)).ToList(), name, outName, remap);
         foreach (var (sev, m) in after.Errors.Select(e => ("E", e)).Concat(after.Warnings.Select(w => ("W", w))))
-            if (!known.Contains(sev + " " + Normal(m, outName, null)))
+            if (!known(sev + " " + m))
                 return new("gap", false, $"a new gap {(sev == "E" ? "error" : "warning")}: {SafeText.OneLine(m)}");
         return new("gap", true, $"no new loss ({after.Errors.Count} error(s) and {after.Warnings.Count} warning(s), all in the input too)");
     }
@@ -391,9 +410,9 @@ public static class EditProof
     static ProofResult CheckProof(List<string> before, string tmp, string dataDir, List<string> mastersDirs, string name, string outName, Func<uint, uint>? remap)
     {
         var after = CheckErrors(tmp, dataDir, mastersDirs);
-        var known = before.Select(e => Normal(e, name, null)).Concat(before.Select(e => Normal(e, name, remap))).ToHashSet(StringComparer.Ordinal);
+        var known = KnownIn(before, name, outName, remap);
         foreach (var e in after)
-            if (!known.Contains(Normal(e, outName, null)))
+            if (!known(e))
                 return new("check", false, $"a new check ERROR: {SafeText.OneLine(e)}");
         return new("check", true, $"no new ERROR ({after.Count} in all, each in the input too)");
     }

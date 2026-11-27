@@ -537,7 +537,7 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     it first); a master still used (Mutagen's links and a raw FormID scan must both find no use), or a value to
     renumber that Mutagen doesn't read as a link but that names a real record (since 0.28.0 only values Mutagen reads
     as links are renumbered; look-alike numbers are left alone and counted in the report), an `--out` named like one
-    of the new file's masters, an `.esl` `--out` for a plugin that isn't light; `--set-light` on a
+    of the new file's masters, an `.esl` `--out` for a plugin that isn't light, an `.esm` or `.esp` `--out` for an `.esl` without the light flag; `--set-light` on a
     light or medium plugin or one with own records outside `000800` to `000FFF`; `--set-text` on a localized plugin,
     on a record not found, with a response number out of range, or twice on one record in a run. Proofs, always run before the file is kept: `diff`
     (only the intended changes), `gap` (no new loss) and `check` (no new ERROR); a failed proof deletes the new file
@@ -677,7 +677,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     records at any depth, named by field path (`Name`, `Responses[0].ResponseText`): all strings of a new record, and
     for an override only the strings it changes, each with `was:` (the master's text); a master string the override
     clears or leaves out is listed as `(no text)` (JSON `text: ""`), except in a partial form (QUST, CELL or DIAL with
-    record flag 0x4000). An override that changes no
+    record flag 0x4000) and in a localized plugin (a string it can't look up reads as empty too). List entries are
+    matched by text, so an added or left-out entry lists only that entry. An override that changes no
     string or is deleted is left out; one with no master version is listed in full as `no master`. A localized plugin
     is read from its string files (English only); if they all read empty, a `WARNING` says its string files weren't
     found. `--type <SIG>,...` keeps those record types (unknown ones are refused). `--json` has `tool`, `version`,

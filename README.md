@@ -1371,7 +1371,9 @@ changes nothing (0.28.0).
   (`Name`, `Responses[0].ResponseText`). A **new** record lists all its strings. An **override** lists only the strings
   it changes, each with the master's text as `was:`; a string the master has and the override clears or leaves out
   shows as `(no text)` (in `--json`, an empty `text`), except in a partial form (a quest, cell or topic flagged so),
-  whose left-out fields the game takes from the master. An override that changes no string is left out, and so is a
+  whose left-out fields the game takes from the master, and in a localized plugin, where a string whose string file
+  is missing reads as empty too. List entries (message buttons, quest stages) are matched by their text, so an entry
+  an override adds or leaves out lists only that entry. An override that changes no string is left out, and so is a
   deleted one. An override whose master has no record of that type is listed in full and marked `no master`.
 - **Localized plugins** are read from their string files (`Strings\<plugin>_en.STRINGS`, `.DLSTRINGS`, `.ILSTRINGS`,
   loose or in the plugin's own BA2), English only. If a localized plugin's strings all read empty, a `WARNING` says its
@@ -1693,7 +1695,8 @@ The three edits (give at least one; they can be combined):
 **Always refused** (exit 2, with the reason and what to do): no `--out`, `--out` equal to the plugin or already
 existing (it never overwrites), an `--out` named like one of the new file's masters (a plugin can't be its own
 master), an `.esl` `--out` for a plugin that isn't light (the game loads every `.esl` as light, so add `--set-light`
-or keep the extension), a plugin inside a zip (unpack it first), a folder or wildcard as input, and bad arguments.
+or keep the extension), an `.esm` or `.esp` `--out` for an `.esl` without the light flag (it would load as a full
+plugin; add `--set-light` or keep `.esl`), a plugin inside a zip (unpack it first), a folder or wildcard as input, and bad arguments.
 Since 0.28.0 the gap and check proofs run on the new file under its `--out` name.
 
 **The three proofs.** The new file is read back and must pass all three before it is kept; otherwise it is deleted and

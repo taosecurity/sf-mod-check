@@ -4,12 +4,12 @@
 
 ### What's new
 
-- **`text <plugin | archive>`** lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest names and objectives, dialogue, and every other text the game translates, each with its field path. A new record lists all its strings; an override lists only the strings it changes, each with the master's text as "was", and a string it clears or leaves out as "(no text)". A localized plugin's text is read from its string files, with a warning when they can't be found. `--type`, `--json` and `--out`.
+- **`text <plugin | archive>`** lists every string a player can see that a plugin adds or changes: item, book, message and terminal text, quest names and objectives, dialogue, and every other text the game translates, each with its field path. A new record lists all its strings; an override lists only the strings it changes, each with the master's text as "was", and a string it clears or leaves out as "(no text)" (not in a partial form or a localized plugin). List entries such as message buttons are matched by their text, so an entry an override adds or leaves out lists only that entry. A localized plugin's text is read from its string files, with a warning when they can't be found. `--type`, `--json` and `--out`.
 
 ### Changes
 
 - **`edit --drop-master` renumbers only real links.** Before 0.28.0 it renumbered every 4-byte value that equaled one of the plugin's link values, in any field, so a number that only looked like a FormID (a value, a weight, a byte list) was changed too: the proof then refused the edit, or, in a field nothing reads, the number was changed silently. Now `edit` asks Mutagen which values it reads as links (a probe read of a copy in memory) and renumbers only those. A look-alike number that names no record is left as it is, and the report says "left N look-alike values alone"; one that names a real record is refused, as a FormID in a text field already was.
-- **`edit --out` is proved under its own name.** The gap and check proofs now run on the new file under the name it is kept as. `edit` refuses an `--out` named like one of the new file's masters, and an `.esl` `--out` for a plugin that isn't light (the game loads every `.esl` as light, so its own FormIDs would point at the wrong records; add `--set-light` or keep the extension).
+- **`edit --out` is proved under its own name.** The gap and check proofs now run on the new file under the name it is kept as. `edit` refuses an `--out` named like one of the new file's masters, and an `.esl` `--out` for a plugin that isn't light (the game loads every `.esl` as light, so its own FormIDs would point at the wrong records; add `--set-light` or keep the extension), and an `.esm` or `.esp` `--out` for an `.esl` without the light flag (which the game loads as light by its name alone).
 
 ### Fixes
 
