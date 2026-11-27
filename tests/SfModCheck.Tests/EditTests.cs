@@ -716,6 +716,30 @@ public class EditTests
         NoTemp(w, "noflag-out.esm");
     }
 
+    // 0.28.0 code review round 5: a medium plugin can't take --set-light, so the .esl name refusals don't advise it
+    [Fact]
+    public void Proof_AMediumPluginsEslNameRefusalsDoNotAdviseSetLight()
+    {
+        using var w = new World();
+        var lines = File.ReadAllBytes(w.Build("lines-medium", Lines))
+            .Also(b => Bytes.SetU32(b, 8, (Bytes.U32(b, 8) & ~Flags.Light) | Flags.Medium));
+        var mediumEsm = Save(w, "lines-medium-in", lines);
+        var eslOut = Path.Combine(w.Dir, "medium-out.esl");
+        var r1 = Assert.Throws<EditRefusedException>(() => EditProof.Run(mediumEsm, eslOut, Text("SFM_Message", "x"), w.Dir, []));
+        Assert.Contains("but the new file is a medium plugin", r1.Reason);
+        Assert.DoesNotContain("--set-light", r1.Fix);
+
+        var mediumEsl = Path.Combine(w.Dir, "medium-in.esl");
+        File.WriteAllBytes(mediumEsl, lines);
+        var esmOut = Path.Combine(w.Dir, "medium-out.esm");
+        var r2 = Assert.Throws<EditRefusedException>(() => EditProof.Run(mediumEsl, esmOut, Text("SFM_Message", "x"), w.Dir, []));
+        Assert.Contains("is a medium plugin, but its .esl name makes the game load it as a light plugin", r2.Reason);
+        Assert.DoesNotContain("no light flag", r2.Reason);
+        Assert.DoesNotContain("--set-light", r2.Fix);
+        Assert.False(File.Exists(eslOut));
+        Assert.False(File.Exists(esmOut));
+    }
+
     // code review 0.25.0 round 1: --set-text takes "Name", eid:Name and editorid:Name as an EditorID, as find does
     [Fact]
     public void SetText_ForcedEditorIdForms()

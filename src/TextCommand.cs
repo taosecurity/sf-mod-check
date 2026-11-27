@@ -191,8 +191,17 @@ public static class TextCommand
         {
             // Windows drops a name's trailing dots and spaces when it opens the file, so "MyMod.esm." is MyMod.esm, and
             // "MyMod.esm::$DATA" is that file's own data: the extension is read from the name as Windows will open it,
-            // and a colon in the name (a file stream) is refused (0.28.0 code review round 4)
-            var outName = Path.GetFileName(outFile).TrimEnd('.', ' ');
+            // and a colon in the name (a file stream) is refused (0.28.0 code review round 4). The name is taken from the
+            // full path, so "MyMod.esm\." is read as MyMod.esm, the file it opens (round 5)
+            string full;
+            try { full = Path.GetFullPath(outFile); }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                Console.Error.WriteLine($"--out {SafeText.OneLine(outFile)} isn't a usable path ({SafeText.OneLine(e.Message)}): give a file name, such as text.txt.");
+                cantWhy = "--out isn't a usable path";
+                return 2;
+            }
+            var outName = Path.GetFileName(full).TrimEnd('.', ' ');
             var outExt = Path.GetExtension(outName.Split(':')[0]);
             if (ModFileExtensions.Contains(outExt))
             {

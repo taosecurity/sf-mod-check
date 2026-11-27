@@ -385,12 +385,14 @@ public static class EditProof
                 "Give --out another file name, for example MyMod-fixed.esm.");
         // the game loads an .esl as light with or without the flag (0.28.0 code review round 1)
         bool eslIn = Path.GetExtension(inFull).Equals(".esl", PathCase), eslOut = Path.GetExtension(outName).Equals(".esl", PathCase);
+        // a medium plugin can't take --set-light (Apply refuses it), so only a full one is advised to (round 5)
+        bool medium = head.Style == Style.Medium;
         if (eslIn && !eslOut && head.Style != Style.Light && !plan.SetLight)
-            throw new EditRefusedException($"{SafeText.OneLine(Path.GetFileName(inFull))} has no light flag, but its .esl name makes the game load it as a light plugin; --out {SafeText.OneLine(outName)} would make the new file a full plugin, so plugins that use it would point at the wrong records.",
-                "Add --set-light to set the flag, or keep the .esl extension for --out.");
+            throw new EditRefusedException($"{SafeText.OneLine(Path.GetFileName(inFull))} {(medium ? "is a medium plugin" : "has no light flag")}, but its .esl name makes the game load it as a light plugin; --out {SafeText.OneLine(outName)} would make the new file a {(medium ? "medium" : "full")} plugin, so plugins that use it would point at the wrong records.",
+                medium ? "Keep the .esl extension for --out." : "Add --set-light to set the flag, or keep the .esl extension for --out.");
         if (eslOut && !eslIn && head.Style != Style.Light && !plan.SetLight)
             throw new EditRefusedException($"--out {SafeText.OneLine(outName)} ends in .esl, which the game always loads as a light plugin, but the new file is a {head.Style.ToString().ToLowerInvariant()} plugin, so its own FormIDs would point at the wrong records.",
-                "Add --set-light (if its own records fit in 000800 to 000FFF), or keep the input's extension (.esm or .esp).");
+                medium ? "Keep the input's extension (.esm or .esp)." : "Add --set-light (if its own records fit in 000800 to 000FFF), or keep the input's extension (.esm or .esp).");
     }
 
     static ProofResult GapProof(GapCheck.Result before, string tmp, IReadOnlyList<string> dirs, string name, string outName, Func<uint, uint>? remap)

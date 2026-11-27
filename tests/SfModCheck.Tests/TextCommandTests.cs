@@ -450,7 +450,9 @@ public class TextCommandTests
         Assert.Equal("kept", File.ReadAllText(table));
         // 0.28.0 code review round 4: Windows drops a trailing dot or space from a file name, so "Other.esm." and
         // "Other.esm " would write Other.esm; and a name with a colon is a file stream (Other.esm::$DATA is the file)
-        foreach (var name in new[] { "Other.esm.", "Other.esm ", "Other.esm. . ", "Other.esm::$DATA" })
+        // round 5: and "Other.esm\." and "Other.esm/." are Other.esm itself (the name is checked as the full path reads)
+        foreach (var name in new[] { "Other.esm.", "Other.esm ", "Other.esm. . ", "Other.esm::$DATA",
+                     "Other.esm" + Path.DirectorySeparatorChar + ".", "Other.esm/." })
         {
             var (c7, o7, e7) = s.Text(s.Mod, "--out", Path.Combine(s.Sub("out"), name));
             Assert.True(c7 == 2, $"{name}: {o7}{e7}");
