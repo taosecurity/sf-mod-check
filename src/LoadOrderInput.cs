@@ -236,7 +236,7 @@ public sealed class LoadOrderInput : IDisposable
         foreach (var (option, value) in new[] { ("--plugin", Plugin), ("--extra-data", ExtraDir) })
             if (value != null && archives == ArchiveInput.Use.Refuse && ArchiveInput.IsArchive(value))
                 return Stop(out cantWhy, $"{command} needs the mod installed or unpacked",
-                    $"{command} needs the mod installed or unpacked: give the folder, not the archive ({option} {SafeText.OneLine(Path.GetFileName(value))}).",
+                    $"{command} needs the mod installed or unpacked: give the {(option == "--plugin" ? "unpacked plugin file" : "folder")}, not the archive ({option} {SafeText.OneLine(Path.GetFileName(value))}).",
                     $"{option} {value}: an archive, which {command} doesn't take");
         if (Many)
         {
@@ -397,7 +397,28 @@ public sealed class LoadOrderInput : IDisposable
             }
             order.Add(Path.GetFileName(path));
         }
-        foreach (var r in roots) Visit(Path.GetFileName(r), r);
+        // code review round 3: of an archive with several plugins, one whose master isn't found or whose header can't be
+        // read (an optional patch for a mod not installed) is left out with a note; the run stops only if none is left
+        var leftOut = new List<string>();
+        string? firstMissing = null, firstMissingFor = null, firstUnreadable = null;
+        foreach (var r in roots)
+        {
+            var before = order.Count;
+            var seen = new HashSet<string>(visiting, StringComparer.OrdinalIgnoreCase);
+            Visit(Path.GetFileName(r), r);
+            if (roots.Count == 1 || (missing == null && unreadable == null)) continue;
+            var name = Path.GetFileName(r);
+            var why = unreadable != null ? $"the plugin header of {Path.GetFileName(unreadable)} can't be read" : $"{missingFor}'s master {missing} wasn't found";
+            var note = $"note: {SafeText.OneLine(name)} from {SafeText.OneLine(Path.GetFileName(pluginArchive!.Archive))} left out: {SafeText.OneLine(why)}";
+            Console.Error.WriteLine(note);
+            Log.Write(note);
+            leftOut.Add(name);
+            order.RemoveRange(before, order.Count - before);
+            visiting = seen;
+            if (firstMissing == null && firstUnreadable == null) { firstMissing = missing; firstMissingFor = missingFor; firstUnreadable = unreadable; }
+            missing = missingFor = unreadable = null;
+        }
+        if (roots.Count > 1 && leftOut.Count == roots.Count) { missing = firstMissing; missingFor = firstMissingFor; unreadable = firstUnreadable; }
         if (unreadable != null)
             return Stop(out cantWhy, "a plugin header can't be read",
                 $"can't read the plugin header of {unreadable}. Run sf-mod-check check on it for details.", $"header of {unreadable} unreadable");
@@ -406,7 +427,8 @@ public sealed class LoadOrderInput : IDisposable
                 $"can't find {SafeText.OneLine(missingFor!)}'s master {SafeText.OneLine(missing)} in {string.Join(", ", dirs)}. " +
                 $"Put {SafeText.OneLine(missing)} in the plugin's folder, or give its folder with --masters-dir, or the game's Data folder with --data.",
                 $"master {missing} of {missingFor} not found in {string.Join(", ", dirs)}");
-        var n = order.Count - roots.Count;
+        var loaded = roots.Count - leftOut.Count;
+        var n = order.Count - loaded;
         string source;
         if (pluginArchive == null) source = $"{Path.GetFileName(full)} and its {n} master{(n == 1 ? "" : "s")}";
         else
@@ -417,10 +439,12 @@ public sealed class LoadOrderInput : IDisposable
             var shownArchive = SafeText.OneLine(Path.GetFileName(pluginArchive.Archive));
             source = roots.Count == 1
                 ? $"{SafeText.OneLine(last)} (from {shownArchive}) and its {n} master{(n == 1 ? "" : "s")}"
-                : $"the {roots.Count} plugins of {shownArchive} and their {n} master{(n == 1 ? "" : "s")}";
+                : loaded == 1 ? $"{SafeText.OneLine(last)} (from {shownArchive}, {leftOut.Count} of its plugins left out) and its {n} master{(n == 1 ? "" : "s")}"
+                : $"the {loaded} plugins of {shownArchive}{(leftOut.Count > 0 ? $" ({leftOut.Count} left out)" : "")} and their {n} master{(n == 1 ? "" : "s")}";
             if (roots.Count > 1)
                 Console.Error.WriteLine($"note: {shownArchive} holds {roots.Count} plugins ({string.Join(", ", pluginArchive.Plugins.Select(SafeText.OneLine))}); " +
-                                        $"all of them are loaded, and {SafeText.OneLine(last)}, the last in load order, is the one --plugin names");
+                                        $"{(leftOut.Count == 0 ? "all of them are" : $"{loaded} of them {(loaded == 1 ? "is" : "are")}")} loaded, " +
+                                        $"and {SafeText.OneLine(last)}, the last in load order, is the one --plugin names");
         }
         single = new(new(order, new(StringComparer.OrdinalIgnoreCase), source, Exact: true),
                      dirs.Take(dirs.Count - (dirs[^1].Equals(DataDir, StringComparison.OrdinalIgnoreCase) ? 1 : 0)).ToList());
@@ -510,12 +534,16 @@ public sealed class LoadOrderInput : IDisposable
         if (!CheckMastersDirs(out cantWhy)) return false;
         var order = new List<string>();
         var kept = new List<(string Input, string Folder, List<string> Plugins)>();
+        // a master that is one of the inputs' own plugins is read from that input (code review round 3): an older copy
+        // beside an earlier input must not win over the version given. OpenMany left each name in one input only.
+        var given = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, f, ps) in manyInputs) foreach (var p in ps) given[p] = Path.Combine(f, p);
         foreach (var (input, folder, plugins) in manyInputs)
         {
             var dirs = new List<string> { folder };
             foreach (var d in manyInputs.Select(m => m.Folder).Concat(MastersDirs).Append(DataDir))
                 if (!dirs.Contains(d, StringComparer.OrdinalIgnoreCase)) dirs.Add(d);
-            string? Locate(string name) => dirs.Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
+            string? Locate(string name) => given.TryGetValue(name, out var g) ? g : dirs.Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
             var mine = new List<string>();
             var minePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -292,6 +292,31 @@ public class OverridesTests
         Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
     }
 
+    /// <summary>Code review round 3: B.esm is given from mods\, which also holds the old A.esm (B's master), and
+    /// A-2.0.zip, given later, holds a new A.esm (overrides S_C only). B's master is read from the zip, not the old copy.</summary>
+    [Fact]
+    public void A_master_given_as_a_later_input_is_read_from_it_not_from_an_old_copy_beside_an_earlier_input()
+    {
+        using var s = new Set();
+        var v2 = s.Sub("v2");
+        using (var g = new GameData(s.Data))
+        {
+            var sf = g.Open("Starfield.esm");
+            var a = Plugin.New("A.esm", PluginStyle.Full, "test", "made-up mod A, version 2");
+            a.Keywords.GetOrAddAsOverride(sf.Keywords.First(k => k.EditorID == "S_C"));
+            PluginWriter.Write(a, v2, g, NoGap);
+        }
+        var zip = Path.Combine(s.Sub("zips"), "A-2.0.zip");
+        using (var z = ZipFile.Open(zip, ZipArchiveMode.Create)) z.CreateEntryFromFile(Path.Combine(v2, "A.esm"), "A.esm");
+        var (code, stdout, stderr) = s.Run("overrides", "--data", s.Data, "--plugin", Path.Combine(s.ModDir, "B.esm"), "--plugin", zip, "--min", "1");
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Equal($"  {s.SC} S_C: A.esm (wins)", LineOf(stdout, s.SC));
+        // the old A.esm's overrides (S_B) aren't read
+        Assert.Null(LineOf(stdout, s.SB));
+        Assert.Equal($"  {s.SA} S_A: B.esm (wins)", LineOf(stdout, s.SA));
+        Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
+    }
+
     [Fact]
     public void Json_shapes_for_found_none_and_cannot_run()
     {

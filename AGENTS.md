@@ -600,8 +600,9 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     `Data\` or `<ModName>\`); no plugin, or plugins in several folders (a FOMOD installer), is refused: tell the user
     to unpack it and give the folder, or the plugin. `--extra-data <archive>` reads a plugin that Plugins.txt doesn't
     list as the last plugin of the load order (a note on stderr says so). `--plugin <archive>` with several plugins
-    loads them all and treats the last in load order as "the plugin". `patch` and `voice-lines` refuse an archive:
-    give the folder.
+    loads them all and treats the last in load order as "the plugin"; one of them whose master isn't found (an
+    optional patch) is left out with a note on stderr, and the run stops only if all are. `patch` and `voice-lines`
+    refuse an archive: give the folder (`voice-lines`: the unpacked plugin file).
 
 ## 6. Inputs and outputs
 

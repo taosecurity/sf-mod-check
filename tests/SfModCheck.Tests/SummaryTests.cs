@@ -459,6 +459,39 @@ public class SummaryTests
         JsonShape.Exactly(JsonDocument.Parse(ox).RootElement, "cannot run", "tool:string", "version:string", "result:string", "error:string");
     }
 
+    /// <summary>Code review round 3: an archive holding a mod and an optional patch for a mod that isn't there
+    /// (Patch.esm, Patch2.esm: master Missing.esm, found nowhere). The patches are left out with a note and the mod is
+    /// summarized; an archive of patches only still stops the run.</summary>
+    [Fact]
+    public void An_archive_plugin_whose_master_is_missing_is_left_out_and_the_rest_are_summarized()
+    {
+        using var s = new Set();
+        var hidden = s.Sub("hidden");
+        var miss = Plugin.New("Missing.esm", PluginStyle.Full, "test", "made-up missing master");
+        miss.Keywords.AddNew("X_Kw");
+        using (var g = new GameData(hidden)) PluginWriter.Write(miss, hidden, g, NoGap);
+        using (var g = new GameData(hidden))
+        {
+            var mm = g.Open("Missing.esm");
+            foreach (var name in new[] { "Patch.esm", "Patch2.esm" })
+            {
+                var p = Plugin.New(name, PluginStyle.Full, "test", "made-up optional patch");
+                p.Keywords.GetOrAddAsOverride(mm.Keywords.First());
+                PluginWriter.Write(p, s.ModDir, g, NoGap);
+            }
+        }
+        var (code, stdout, stderr) = s.Run("summary", s.Zip("ModWithPatch-1.0.zip", "Mod.esm", "Patch.esm"), "--data", s.Data);
+        Assert.True(code == 0, stdout + stderr);
+        Assert.Contains("note: Patch.esm from ModWithPatch-1.0.zip left out: Patch.esm's master Missing.esm wasn't found", stderr);
+        Assert.Contains("RESULT: Mod.esm: 5 records", stdout);
+        Assert.DoesNotContain("Patch.esm (full plugin)", stdout);
+
+        var (c2, o2, e2) = s.Run("summary", s.Zip("Patches-1.0.zip", "Patch.esm", "Patch2.esm"), "--data", s.Data);
+        Assert.True(c2 == 2, o2 + e2);
+        Assert.Contains("master Missing.esm not found", o2);
+        Assert.False(Directory.EnumerateFileSystemEntries(s.Tmp).Any(), "the temp folder was left behind");
+    }
+
     [Fact]
     public void Help_exits_0_and_the_top_level_help_names_summary()
     {

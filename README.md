@@ -1210,7 +1210,9 @@ installed or unpacked by hand:
 - **`--plugin <archive>`:** the archive's plugins and their masters are the load order. Masters are looked for in the
   archive's folder, then in each `--masters-dir`, then in `--data`. An archive with several plugins loads them all, a
   plugin that is another's master first, and the one that comes last is treated as "the plugin" (the one `find` lists,
-  the one whose scenes `scenes` shows, or the one a FormKey is read from); a note on stderr says so.
+  the one whose scenes `scenes` shows, or the one a FormKey is read from); a note on stderr says so. A plugin of such an
+  archive whose master isn't found (an optional patch for a mod you don't have) is left out with a note on stderr, and
+  the rest run; if every plugin is left out, the run stops (exit 2).
 - **`--extra-data <archive>`:** the archive's files win over the Data folder's, as a folder's do. A plugin in the
   archive that Plugins.txt doesn't list (a downloaded mod isn't installed yet) is read as the last plugin of the load
   order, with a note on stderr naming it. A plugin that is already active keeps its place. A folder given to
@@ -1291,7 +1293,8 @@ archive) and its masters and changes nothing.
 
 - **The input** is one plugin (`.esm`, `.esp`, `.esl`) or one archive (`.zip`, `.7z`, `.rar`). Masters are looked for in
   the plugin's own folder, then in each `--masters-dir`, then in `--data` (default: Steam's usual Data folder); a missing
-  master stops the run. An archive with several plugins gets one summary per plugin, in load order. `--plugin`,
+  master stops the run. An archive with several plugins gets one summary per plugin, in load order; one of them whose
+  master isn't found is left out with a note on stderr, as for `--plugin <archive>` above. `--plugin`,
   `--plugins`, `--mo2`, `--profile` and `--extra-data` are refused with what to give instead.
 - **What it says** for each plugin:
   - its name and style (full, medium or light) and its masters in the order the header lists them, each with its style and

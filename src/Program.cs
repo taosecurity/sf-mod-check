@@ -41,7 +41,7 @@ const string DefaultData = Cli.SteamData;
 const string Usage =
     "usage: sf-mod-check check <plugin> [--data <Data folder>] [--masters-dir <folder>]... [--max <lines per check>] [--quiet] [--no-hints]\n" +
     "                                 [--no-assets] [--ini <file>]... [--language <code>] [--verbose] [--log <file>]\n" +
-    "       sf-mod-check conflict [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>] [--extra-data <folder>]\n" +
+    "       sf-mod-check conflict [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--data <Data folder>] [--extra-data <folder or archive>]\n" +
     "                           [--out <folder>] [--max-memory <GB>] [--no-assets] [--no-priorities] [--ini <file>]... [--language <code>]\n" +
     "                           [--quiet] [--verbose] [--log <file>]\n" +
     "       sf-mod-check release <zip>... [--profile basic|house|creations] [--dmmdeps <exe>] [...]   (sf-mod-check release --help)\n" +
@@ -53,8 +53,8 @@ const string Usage =
     "       sf-mod-check find <EditorID | FormKey | FormID> [--type <SIG>] [--plugins <Plugins.txt> | --mo2 <MO2 folder> [--profile <name>]] [--json] [...]   (sf-mod-check find --help)\n" +
     "       sf-mod-check overrides [--plugins <Plugins.txt> | --mo2 <MO2 folder> | --plugin <plugin or archive>...] [--type <SIG>,...] [--min <n>] [--records <file>] [--json] [...]   (sf-mod-check overrides --help)\n" +
     "       sf-mod-check summary <plugin or archive> [--data <Data folder>] [--masters-dir <folder>]... [--max <n>] [--json] [...]   (sf-mod-check summary --help)\n" +
-    "       sf-mod-check lines <NPC EditorID | FormKey | FormID> [--plugin <plugin file>] [--type <name>] [--json] [...]   (sf-mod-check lines --help)\n" +
-    "       sf-mod-check scenes <NPC | quest> [--plugin <plugin file>] [--out <file.md>] [--json] [--max <n>] [...]   (sf-mod-check scenes --help)\n" +
+    "       sf-mod-check lines <NPC EditorID | FormKey | FormID> [--plugin <plugin file or archive>] [--type <name>] [--json] [...]   (sf-mod-check lines --help)\n" +
+    "       sf-mod-check scenes <NPC | quest> [--plugin <plugin file or archive>] [--out <file.md>] [--json] [--max <n>] [...]   (sf-mod-check scenes --help)\n" +
     "       sf-mod-check voice-lines <plugin> [--out <file>] [--voice <voice type EditorID>]... [--utf8] [...]   (sf-mod-check voice-lines --help)\n" +
     "       sf-mod-check ba2 list <archive> [<pattern>]   |   ba2 extract <archive> <pattern> --out <folder> [--force] [...]   (sf-mod-check ba2 --help)\n" +
     "       sf-mod-check voice-format <plugin | archive.ba2 | folder>... [--quiet] [--verbose] [--log <file>]   (sf-mod-check voice-format --help)\n" +
