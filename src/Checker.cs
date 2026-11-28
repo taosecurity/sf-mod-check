@@ -127,8 +127,10 @@ public static class Checker
         }
         var missing = new List<string>();
         var seenMissing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var walked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // 0.28.1: a master that masters itself or a loop must not recurse forever
         void Need(string name, string? by)
         {
+            if (!walked.Add(name)) return;
             var mh = HeaderOf(name);
             if (mh == null)
             {

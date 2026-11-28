@@ -118,7 +118,7 @@ public static class FindCommand
         ["tool"] = "sf-mod-check find", ["version"] = version, ["query"] = query, ["result"] = "cannot run", ["error"] = why,
     }.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 
-    internal static readonly Regex ConsoleId = new(@"^(0x)?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
+    internal static readonly Regex ConsoleId = new(@"^(0[xX])?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
     /// <summary>0.25.0: a quoted ("00005788") or prefixed (eid:00005788) name is always an EditorID, even when it is exactly
     /// 8 hex digits, which would otherwise read as a console FormID. Returns the EditorID, or null for any other form.</summary>
     internal static string? ForcedEditorId(string q)

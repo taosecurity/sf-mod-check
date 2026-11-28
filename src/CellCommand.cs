@@ -130,7 +130,7 @@ public static class CellCommand
         ["tool"] = "sf-mod-check cell", ["version"] = version, ["result"] = "cannot run", ["error"] = why,
     }.ToJsonString(Indented);
 
-    static readonly Regex ConsoleId = new(@"^(0x)?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
+    static readonly Regex ConsoleId = new(@"^(0[xX])?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
 
     /// <summary>A number for --near: invariant culture, finite.</summary>
     static bool Number(string s, out double v) =>

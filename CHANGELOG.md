@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.28.1 (unreleased)
+
+### Fixes
+
+- **`check` and `release` no longer crash on a plugin that masters itself, or on two plugins that master each other.** The master walk looped without end and ended in a stack overflow with no RESULT line. Each master is now read once, and the run ends with a RESULT line and the existing self-master or master-loop ERROR.
+- **One `--out` guard.** `scenes --out`, `voice-lines --out` and `patch check --json` now refuse a mod file's name (a plugin, archive, string file, script or DLL, also with the trailing dots or spaces Windows drops), a file stream and a folder, as `text --out` does (exit 2). Before, a typo such as `--out MyMod.esm` could overwrite the mod.
+- **`check`**: finding text is cleaned of control characters before it is printed (`SafeText.OneLine`), as in the other commands.
+- **A repeated `--plugin`** to a command that reads one plugin is exit 2 with a message, not a silent pick of one.
+- **Console FormIDs** accept an upper-case `0X` prefix (`0X0001295A`), as `0x` always did.
+
+### Example
+
+A typo that points `--out` at a mod file now stops with exit 2 and leaves the file alone (a real run):
+
+    sf-mod-check scenes MyQuest --out MyMod.esm
+    --out writes a Markdown file, not a .esm file: give it a name such as scenes.md.
+    RESULT: CANNOT CHECK (--out names a mod file)
+
 ## 0.28.0 (2026-11-27)
 
 ### What's new

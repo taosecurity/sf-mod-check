@@ -679,7 +679,8 @@ is now. It reads files only and changes nothing.
 - `--manifest`: the `patch-sources.json` to read (default: the one beside the patch).
 - `--json <file>`: also writes the findings as JSON: `patch`, `state` (`up to date`, `rebuild`, `not active` or
   `cannot check`), `result` (the RESULT line), and `findings`, each with `level`, `rule`, `plugin`, `text` and
-  `records` (every FormKey, where the text shows up to 5).
+  `records` (every FormKey, where the text shows up to 5). Since 0.28.1 it refuses a mod file's name (such as `.esm` or `.ba2`), a file
+  stream and a folder (exit 2), so a typo can't overwrite a mod.
 
 What it reports (each line names the plugin and what to do):
 
@@ -915,7 +916,7 @@ point at, or the resource a recipe needs (0.16.0). It reads your load order and 
 
 - The record: an exact **EditorID** (letter case doesn't matter; there is no partial or fuzzy search), a **FormKey**
   (`01295A:Starfield.esm`, the form `conflict` and `patch` print), or a **FormID** of 8 hex digits as the console
-  shows it (`0001295A`, with or without `0x`). A console FormID depends on the load order: its first digits pick the
+  shows it (`0001295A`, with or without `0x`; since 0.28.1 `0X` works too). A console FormID depends on the load order: its first digits pick the
   plugin by its place in the load order (full plugins `00` to `FC`, medium plugins `FD` and one more byte, light
   plugins `FE` and three more hex digits), so the same record can have another FormID in another load order.
 - `--type <SIG>`: keep only records of one four-letter type, such as `LCTN` (location), `MISC` (misc item), `NPC_`
@@ -1136,7 +1137,7 @@ scene windows (0.24.0). It reads your load order and changes nothing.
 - `--max <n>`: show at most n scenes (default 50; `--max 0` shows all). The problems and the stage table always cover
   every scene picked, not only the ones shown.
 - `--out <file.md>`: write the tree to a Markdown file and print only a "Wrote ..." line with the counts, then the RESULT line. It can't be
-  combined with `--json` (exit 2).
+  combined with `--json` (exit 2). Since 0.28.1 it refuses a mod file's name (such as `.esm` or `.ba2`), a file stream and a folder (exit 2).
 - `--json`: one object on stdout: `tool`, `version`, `query`, `kind` (`npc` or `quest`), `formKey`, `editorId`, `hub`
   (a list: one talk menu per quest, as found), `scenes` (each with `formKey`, `editorId`, `quest`, `conditions`, `words`
   and `parts`; each part has `index`, `name`, `conditions`, `words` and `steps`; each step has `type` (`says`,
@@ -1581,7 +1582,9 @@ changes nothing.
 - **Left out:** player lines (scene choices), lines that link a SharedDialog line (the shared line has the row), and
   responses with no voice file number.
 - `--out <file>`: write the list there (default: the screen, stdout). Messages and the RESULT line go to stderr.
-  An `--out` path that is the plugin or one of its masters stops with exit 2 and leaves the file alone.
+  An `--out` path that is the plugin or one of its masters stops with exit 2 and leaves the file alone. Since 0.28.1 it also
+  refuses a mod file's name (`.esm`, `.esp`, `.esl`, `.ba2`, an archive, a string file, a script or a DLL), a file stream and a folder, as `text --out`,
+  `scenes --out` and `patch check --json` do.
 
 Exit codes: 0 written (even with no rows), 2 couldn't run (this includes a plugin whose dialogue can't be read in
 full, a master whose quests, form lists or placed actors can't be read in full, or a master whose scenes can't be

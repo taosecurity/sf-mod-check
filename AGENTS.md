@@ -665,6 +665,10 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
     game may use the archived copy (`--ini` adds a mod manager's INI). Exit
     0 = a file matched, 1 = none, 2 = couldn't run.  `--json` has `tool`, `version`, `pattern`, `loadOrder`, `files` (each with `name` and `holders`: `kind`, `archive` or `path`, `why`, `type`, `loaded`, `served`, `winner`), `listed`, `total`, `archivesRead`, `looseFilesReplaceArchives` (whether the INIs read set both keys), `skipped` (archives left out, such as another language's voices, each with `archive` and `why`), `unreadable` (each with `archive` and `why`) and `loadOrderProblems` (one text per problem; a plugin that didn't load has its archives left out, and the text output prints each as a `load-order problem:` line). Linked loose files and folders (symlinks, junctions) count; a link whose target is gone doesn't.
 
+30b. (0.28.1) `--out` of `text`, `scenes` and `voice-lines`, and `--json` of `patch check`, refuse a mod file's name
+    (plugin, archive, string file, script, DLL), a file stream and a folder with exit 2. A `--plugin` given twice to a command that
+    reads one plugin is exit 2. `check` and `release` on a plugin that masters itself, or two that master each other, end with a
+    RESULT and the self-master or loop ERROR.
 31. Read the text a player will see in a mod (0.28.0), for example in an audit or evaluation, without the mod's download
     page. Read only:
 

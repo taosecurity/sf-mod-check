@@ -37,7 +37,7 @@ public static class VoiceLinesCommand
         "  fills its alias or scene alias), its dialogue group's conditions, its quest's. --voice covers lines with none.\n" +
         "  Player lines and lines that link a SharedDialog line are left out.\n" +
         "  <plugin>        the plugin file; its masters are found in its folder, then each --masters-dir, then --data\n" +
-        "  --out           write the list to this file (default: the screen, stdout)\n" +
+        "  --out           write the list to this file (default: the screen, stdout); a mod file's name, a file stream or a folder is refused\n" +
         "  --voice         a voice type (EditorID) for the lines that name none; may be given more than once\n" +
         "  --utf8          write UTF-8 (default: Windows-1252, what the Creation Kit writes and Voice Cloner reads;\n" +
         "                  a UTF-8 file needs SVC_EXPORT_ENCODING=utf-8 set on the Voice Cloner side)\n" +
@@ -134,6 +134,12 @@ public static class VoiceLinesCommand
             return 2;
         }
         int zero = 0;
+        if (outFile != null && OutGuard.Problem(outFile, "--out", "a voice-line list", "voice-lines.tsv") is { } og)
+        {
+            Console.Error.WriteLine(og.Message);
+            cantWhy = og.Why;
+            return 2;
+        }
         if (input.TryOption(["--plugin", plugin], ref zero, Usage) != true) { cantWhy = "the plugin can't be taken as the input"; return 2; }
         if (!quiet) Console.Error.WriteLine(byline);
         if (verbose) Log.ToStderr();

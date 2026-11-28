@@ -104,11 +104,6 @@ public static class TextCommand
         ["tool"] = "sf-mod-check text", ["version"] = version, ["result"] = "cannot run", ["error"] = why,
     }.ToJsonString(Indented);
 
-    /// <summary>File kinds --out never writes over: a plugin, an archive, a BA2, a string file, a script or a DLL (a typo
-    /// there would destroy a mod; the string files and scripts since 0.28.0 code review round 1).</summary>
-    static readonly HashSet<string> ModFileExtensions = new(StringComparer.OrdinalIgnoreCase)
-        { ".esm", ".esp", ".esl", ".ba2", ".zip", ".7z", ".rar", ".strings", ".dlstrings", ".ilstrings", ".pex", ".psc", ".dll" };
-
     static int RunLogged(string[] a, string version, string byline, out bool resultPrinted, out string cantWhy)
     {
         resultPrinted = false;
@@ -187,40 +182,11 @@ public static class TextCommand
                 return 2;
             }
         }
-        if (outFile != null)
+        if (outFile != null && OutGuard.Problem(outFile, "--out", "a text or JSON file", "text.txt") is { } og)
         {
-            // Windows drops a name's trailing dots and spaces when it opens the file, so "MyMod.esm." is MyMod.esm, and
-            // "MyMod.esm::$DATA" is that file's own data: the extension is read from the name as Windows will open it,
-            // and a colon in the name (a file stream) is refused (0.28.0 code review round 4). The name is taken from the
-            // full path, so "MyMod.esm\." is read as MyMod.esm, the file it opens (round 5)
-            string full;
-            try { full = Path.GetFullPath(outFile); }
-            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                Console.Error.WriteLine($"--out {SafeText.OneLine(outFile)} isn't a usable path ({SafeText.OneLine(e.Message)}): give a file name, such as text.txt.");
-                cantWhy = "--out isn't a usable path";
-                return 2;
-            }
-            var outName = Path.GetFileName(full).TrimEnd('.', ' ');
-            var outExt = Path.GetExtension(outName.Split(':')[0]);
-            if (ModFileExtensions.Contains(outExt))
-            {
-                Console.Error.WriteLine($"--out writes a text or JSON file, not a {SafeText.OneLine(outExt)} file: give it a name such as text.txt or text.json.");
-                cantWhy = "--out names a mod file";
-                return 2;
-            }
-            if (outName.Contains(':'))
-            {
-                Console.Error.WriteLine($"--out {SafeText.OneLine(outFile)} names a file stream (a colon in the file name): give a plain file name, such as text.txt.");
-                cantWhy = "--out names a file stream";
-                return 2;
-            }
-            if (Directory.Exists(outFile))
-            {
-                Console.Error.WriteLine($"--out {SafeText.OneLine(outFile)} is a folder: give a file name, such as {SafeText.OneLine(Path.Combine(outFile, "text.txt"))}.");
-                cantWhy = "--out is a folder";
-                return 2;
-            }
+            Console.Error.WriteLine(og.Message);
+            cantWhy = og.Why;
+            return 2;
         }
         var pluginArg = new[] { "--plugin", target };
         int at = 0;

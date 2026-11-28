@@ -91,7 +91,7 @@ public static class OverridesCommand
         ["tool"] = "sf-mod-check overrides", ["version"] = version, ["result"] = "cannot run", ["error"] = why,
     }.ToJsonString(Indented);
 
-    static readonly Regex ConsoleId = new(@"^(0x)?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
+    static readonly Regex ConsoleId = new(@"^(0[xX])?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
 
     /// <summary>A --records line: a FormKey, a console FormID (as a uint), or null when it is neither.</summary>
     internal static (FormKey? Key, uint? Fid) ParseRecordLine(string line)

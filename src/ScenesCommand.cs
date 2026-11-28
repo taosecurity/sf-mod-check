@@ -34,7 +34,7 @@ public static class ScenesCommand
         "                    (an EditorID of exactly 8 hex digits: put eid: before it, as eid:00005788)\n" +
         "  --plugin     read only this plugin (or a .zip, .7z or .rar of plugins) and its masters, and show only the scenes the plugin adds or changes\n" +
         "  --hub        the talk menu scene (EditorID or FormKey), when the one found by counting jumps is wrong\n" +
-        "  --out        write the tree to this Markdown file and print only the counts\n" +
+        "  --out        write the tree to this Markdown file and print only the counts (a mod file's name, a file stream or a folder is refused)\n" +
         "  --max        show at most this many scenes (default 50; 0 shows them all); the problems and stages are always complete\n" +
         "  --json       print one JSON object instead\n" +
         "Exit 0 = found (even with problems), 1 = not found, 2 = could not run.";
@@ -149,6 +149,12 @@ public static class ScenesCommand
         {
             Console.Error.WriteLine("--out writes the Markdown tree and --json prints JSON: use one of them.");
             cantWhy = "--out and --json together";
+            return 2;
+        }
+        if (outFile != null && OutGuard.Problem(outFile, "--out", "a Markdown file", "scenes.md") is { } og)
+        {
+            Console.Error.WriteLine(og.Message);
+            cantWhy = og.Why;
             return 2;
         }
         if (!quiet && !json) Console.Error.WriteLine(byline);

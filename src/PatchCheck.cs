@@ -18,7 +18,8 @@ public static class PatchCheck
 {
     public const string Usage =
         "usage: sf-mod-check patch check <patch.esm> [--manifest <patch-sources.json>] [--plugins <Plugins.txt>] [--data <Data folder>]\n" +
-        "                                [--extra-data <folder>] [--json <file>] [--quiet] [--verbose] [--log <file>]";
+        "                                [--extra-data <folder>] [--json <file>] [--quiet] [--verbose] [--log <file>]\n" +
+        "  --json <file> writes the findings as JSON; a mod file's name, a file stream or a folder is refused (exit 2)";
 
     /// <summary>How many FormKeys a finding's text shows; the JSON lists them all.</summary>
     public const int Shown = 5;
@@ -115,6 +116,7 @@ public static class PatchCheck
             }
         }
         if (patch == null) return BadArgs("give the patch to check, for example: sf-mod-check patch check sf-mod-check-patch\\ConflictPatch.esm");
+        if (json != null && OutGuard.Problem(json, "--json", "a JSON file", "patch-check.json") is { } og) return BadArgs(og.Message);
         jsonPath = json;
         patchName = Path.GetFileName(patch);
         if (!quiet) Console.Error.WriteLine(byline);

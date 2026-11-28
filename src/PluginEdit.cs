@@ -688,7 +688,7 @@ public static class PluginEdit
                 "Give the EditorID after eid: (for example eid:MyMod_GreetingInfo), a FormKey, or a console FormID.");
         List<RawRecord> hits;
         string what;
-        if (forced == null && System.Text.RegularExpressions.Regex.IsMatch(q, @"^(0x)?[0-9A-Fa-f]{8}\z"))
+        if (forced == null && System.Text.RegularExpressions.Regex.IsMatch(q, @"^(0[xX])?[0-9A-Fa-f]{8}\z"))
         {
             var fid = Convert.ToUInt32(q.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? q[2..] : q, 16);
             var local = (fid >> 24) switch { 0xFE => fid & 0xFFF, 0xFD => fid & 0xFFFF, _ => fid & 0xFFFFFF };

@@ -189,6 +189,11 @@ public sealed class LoadOrderInput : IDisposable
                 profileOption = pr; return true;
             case "--plugin" when allowPlugin:
                 if (Cli.Value(a, ref i, archives == ArchiveInput.Use.Refuse ? "a plugin file (.esm, .esp or .esl)" : "a plugin file (.esm, .esp or .esl) or a mod archive (.zip, .7z or .rar)", usage) is not { } pl) return false;
+                if (!manyPlugins && pluginInputs.Count > 0)
+                {
+                    Console.Error.WriteLine($"--plugin was given twice ({SafeText.OneLine(pluginInputs[0])} and {SafeText.OneLine(pl)}), and {command} reads one plugin: run it once for each.");
+                    return false;
+                }
                 Plugin = pl; pluginInputs.Add(pl); return true;
             case "--masters-dir" when allowPlugin:
                 if (Cli.Value(a, ref i, "a folder that holds the plugin's masters", usage) is not { } md) return false;

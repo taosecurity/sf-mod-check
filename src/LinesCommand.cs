@@ -52,7 +52,7 @@ public static class LinesCommand
     /// <summary>A line's text is cut at this many characters in the text output.</summary>
     const int MaxText = 200;
 
-    static readonly Regex ConsoleId = new(@"^(0x)?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
+    static readonly Regex ConsoleId = new(@"^(0[xX])?[0-9A-Fa-f]{8}\z", RegexOptions.CultureInvariant);
 
     public static int Run(string[] a, string version, string byline)
     {

@@ -374,7 +374,7 @@ int CheckLogged(string[] a, out bool resultPrinted, out string cantWhy)
     for (int gi = 0; gi < groups.Count; gi++)
     {
         var g = groups[gi];
-        foreach (var f in g.Take(o.MaxPerCheck)) Console.WriteLine($"{f.Severity} [{f.Check}] {f.Text}");
+        foreach (var f in g.Take(o.MaxPerCheck)) Console.WriteLine($"{f.Severity} [{f.Check}] {SafeText.OneLine(f.Text)}");
         if (g.Count() > o.MaxPerCheck) Console.WriteLine($"{g.Key.Severity} [{g.Key.Check}] ... and {g.Count() - o.MaxPerCheck} more");
         // The hint comes once, after the check's last group (a check can have an ERROR group and a WARNING group).
         if (hints && !groups.Skip(gi + 1).Any(x => x.Key.Check == g.Key.Check) && Hints.For(g.Key.Check) is { } hint)

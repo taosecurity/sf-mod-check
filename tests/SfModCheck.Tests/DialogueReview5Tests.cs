@@ -106,7 +106,7 @@ public class DialogueReview5Tests
         var before = File.ReadAllBytes(s.Mod);
         var (code, _, stderr) = ExeTests.RunSplit("voice-lines", s.Mod, "--out", s.Mod, "--data", s.Data);
         Assert.Equal(2, code);
-        Assert.Contains("is the plugin or one of its masters", stderr);
+        Assert.Contains("not a .esm file", stderr);   // 0.28.1: the shared --out guard refuses a mod-file name before the plugin check
         Assert.Equal(before, File.ReadAllBytes(s.Mod));
     }
 }
