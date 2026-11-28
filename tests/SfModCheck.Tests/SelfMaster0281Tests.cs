@@ -106,6 +106,6 @@ public class SelfMaster0281Tests
         Assert.True(code is 0 or 1, $"exit {code} {all}");
         var raw = all.Split('\n').Where(l => l.Contains('\u202E')).Select(l => l.Replace('\u202E', '#')).ToList();
         Assert.True(raw.Count == 0, "raw bidi on: " + string.Join(" | ", raw));
-        Assert.Contains("\u202e", all);
+        Assert.Contains("\\u202eb.esm", all, StringComparison.Ordinal);   // the escaped name (a raw U+202E would match any text under a culture compare)
     }
 }
