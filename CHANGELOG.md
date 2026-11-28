@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **`check` and `release` no longer crash on a plugin that masters itself, or on two plugins that master each other.** The master walk looped without end and ended in a stack overflow with no RESULT line. Each master is now read once, and the run ends with a RESULT line and the existing self-master or master-loop ERROR.
+- **`check` and `release` no longer crash on a plugin that masters itself, or on two plugins that master each other.** The master walk looped without end and ended in a stack overflow with no RESULT line. Each master is now read once, and the run ends with an ERROR and a FAILED RESULT line. A plugin that lists itself gets the existing "the plugin lists itself as a master" ERROR. For two plugins that master each other, the ERROR is the read error, which names one of the two as "its own master" (there is no separate loop message yet).
 - **One `--out` guard.** `scenes --out`, `voice-lines --out` and `patch check --json` now refuse a mod file's name (a plugin, archive, string file, script or DLL, also with the trailing dots or spaces Windows drops), a file stream and a folder, as `text --out` does (exit 2). Before, a typo such as `--out MyMod.esm` could overwrite the mod.
 - **`check`**: finding text is cleaned of control characters before it is printed (`SafeText.OneLine`), as in the other commands.
 - **A repeated `--plugin`** to a command that reads one plugin is exit 2 with a message, not a silent pick of one.

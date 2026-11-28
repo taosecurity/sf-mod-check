@@ -667,8 +667,8 @@ backslashes stay as they are. The first `check` also writes small caches (sectio
 
 30b. (0.28.1) `--out` of `text`, `scenes` and `voice-lines`, and `--json` of `patch check`, refuse a mod file's name
     (plugin, archive, string file, script, DLL), a file stream and a folder with exit 2. A `--plugin` given twice to a command that
-    reads one plugin is exit 2. `check` and `release` on a plugin that masters itself, or two that master each other, end with a
-    RESULT and the self-master or loop ERROR.
+    reads one plugin is exit 2. `check` and `release` on a plugin that masters itself, or two that master each other, end with an
+    ERROR and a FAILED RESULT, not a crash (for the pair, the ERROR is the read error naming one of them as "its own master").
 31. Read the text a player will see in a mod (0.28.0), for example in an audit or evaluation, without the mod's download
     page. Read only:
 

@@ -71,8 +71,9 @@ public class SelfMaster0281Tests
         WithMaster(data, "BBBB.esm", "AAAA.esm");
         var (code, stdout, stderr) = ExeTests.RunSplit("check", a, "--data", data);
         var all = stdout + stderr;
-        Assert.True(code is 0 or 1, $"exit {code}\n{all}");
-        Assert.StartsWith("RESULT: ", Result(all));
+        Assert.True(code is 1, $"exit {code}\n{all}");
+        Assert.StartsWith("RESULT: FAILED", Result(all));
+        Assert.Contains("is its own master", all);   // the read error is the ERROR for a loop (CHANGELOG 0.28.1)
         Assert.DoesNotContain("Stack overflow", all);
     }
 
